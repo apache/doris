@@ -20,9 +20,11 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -50,6 +52,7 @@ import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -126,6 +129,19 @@ public class PaimonConnector implements Connector {
     // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
     private final PaimonSchemaAtMemo schemaAtMemo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
 
+    // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorPartitionViewCache from
+    // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
+    // it memoizes the BUILT List<ConnectorPartitionInfo> (display-name rendering + null-sentinel normalization,
+    // see PaimonConnectorMetadata#collectPartitions) keyed by (db, table, snapshotId, schemaId), so a repeated
+    // query on a partitioned table skips the derived rebuild AND the remote catalog round-trip. ONE typed field
+    // (unlike iceberg's two): paimon does not override getMvccPartitionView, so the generic MTMV model falls
+    // back to its default listPartitions/LIST/timestamp path for paimon -- listPartitions is the only
+    // enumeration hook to wrap. Unlike iceberg, paimon has NO session=user / per-user credential-isolation
+    // cache-disabling convention (a paimon catalog authenticates at catalog-creation time -- Kerberos UGI /
+    // HMS principal -- not per-query session identity), so this is constructed unconditionally: never null on
+    // a live connector (only PaimonConnectorMetadata's convenience/test constructors pass null).
+    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache;
+
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
         // Wrap the FE-injected context so every executeAuthenticated pins the TCCL to the plugin loader (the
@@ -137,6 +153,9 @@ public class PaimonConnector implements Connector {
                 this::pluginAuthenticator);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
+        // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
+        // properties via the framework's CacheSpec (default ON / 24h / 1000).
+        this.partitionViewCache = new ConnectorPartitionViewCache<>("paimon", properties);
     }
 
     /**
@@ -225,7 +244,7 @@ public class PaimonConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
                 new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties, context,
-                schemaAtMemo, latestSnapshotCache);
+                schemaAtMemo, latestSnapshotCache, partitionViewCache);
     }
 
     @Override
@@ -239,6 +258,9 @@ public class PaimonConnector implements Connector {
         // (db,table,sysTable,branch,schemaId) and would otherwise serve a stale schema-at-snapshot after a
         // drop+recreate that reuses a schemaId (the memo's narrow write-once-per-schemaId assumption breaks).
         schemaAtMemo.invalidate(dbName, tableName);
+        // PERF-06: also drop this table's cached derived partition-view entries (every snapshotId cached for
+        // it), so the next listPartitions re-enumerates live.
+        partitionViewCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -255,12 +277,14 @@ public class PaimonConnector implements Connector {
     public void invalidateDb(String dbName) {
         latestSnapshotCache.invalidateDb(dbName);
         schemaAtMemo.invalidateDb(dbName);
+        partitionViewCache.invalidateDb(dbName);
     }
 
     @Override
     public void invalidateAll() {
         latestSnapshotCache.invalidateAll();
         schemaAtMemo.invalidateAll();
+        partitionViewCache.invalidateAll();
     }
 
     @Override
@@ -314,6 +338,11 @@ public class PaimonConnector implements Connector {
                 // on a capability instead of an engine string). Paimon emits no partition/sort show.* keys, so
                 // it renders no PARTITION BY / ORDER BY — byte-faithful with its prior SHOW CREATE output.
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
+    }
+
+    /** Test-only: the derived listPartitions view cache (PERF-06). Never null (paimon has no session=user gate). */
+    ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCacheForTest() {
+        return partitionViewCache;
     }
 
     private Catalog ensureCatalog() {
