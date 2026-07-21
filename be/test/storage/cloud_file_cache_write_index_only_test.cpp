@@ -17,12 +17,15 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -44,7 +47,11 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
+#include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -796,6 +803,155 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     EXPECT_EQ(preload_task_count, 0);
     EXPECT_EQ(index_writer_create_count, 1);
     expect_segment_write_bypasses_file_cache(created_files);
+}
+
+class SegmentWriterFileCacheAlignmentTest : public CloudFileCacheWriteIndexOnlyTest {};
+
+TEST_F(SegmentWriterFileCacheAlignmentTest,
+       FinalizeCreatesCanonicalCacheBlocksBeforeAsyncUploadCompletes) {
+    config::enable_file_cache_write_index_file_only = false;
+
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->clear_all_call_backs();
+    sync_point->enable_processing();
+    SyncPoint::CallbackGuard s3_client_guard;
+    sync_point->set_call_back(
+            "s3_client_factory::create",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
+                ret->second = true;
+            },
+            &s3_client_guard);
+    SyncPoint::CallbackGuard s3_put_guard;
+    sync_point->set_call_back(
+            "S3FileWriter::_put_object",
+            [](auto&& args) {
+                auto* should_return = try_any_cast<bool*>(args.back());
+                *should_return = true;
+            },
+            &s3_put_guard);
+
+    std::mutex upload_mutex;
+    std::condition_variable upload_cv;
+    bool upload_entered_cache_stage = false;
+    bool release_upload = false;
+    SyncPoint::CallbackGuard upload_cache_guard;
+    sync_point->set_call_back(
+            "UploadFileBuffer::upload_to_local_file_cache",
+            [&](auto&& /*args*/) {
+                std::unique_lock lock(upload_mutex);
+                upload_entered_cache_stage = true;
+                upload_cv.notify_all();
+                upload_cv.wait(lock, [&]() { return release_upload; });
+            },
+            &upload_cache_guard);
+    const auto unblock_upload = [&]() {
+        {
+            std::lock_guard lock(upload_mutex);
+            release_upload = true;
+        }
+        upload_cv.notify_all();
+    };
+
+    const std::string segment_path = "segment_writer_finalize_cache_alignment_0.dat";
+    io::FileWriterOptions file_options;
+    file_options.write_file_cache = true;
+    io::FileWriterPtr file_writer;
+    auto status = _remote_fs->create_file(segment_path, &file_writer, &file_options);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(file_writer->cache_builder(), nullptr);
+    Defer unblock_upload_on_exit {unblock_upload};
+    const auto cache_hash = file_writer->cache_builder()->_cache_hash;
+    auto* cache = file_writer->cache_builder()->_cache;
+    bool observed_index_cache_holder = false;
+    SyncPoint::CallbackGuard index_cache_holder_guard;
+    sync_point->set_call_back(
+            "SegmentWriter::finalize::index_cache_holder",
+            [&](auto&& args) {
+                auto* holder = try_any_cast<io::FileBlocksHolder*>(args[0]);
+                ASSERT_NE(holder, nullptr);
+                ASSERT_EQ(holder->file_blocks.size(), 1);
+                const auto& block = holder->file_blocks.front();
+                const size_t cache_block_size =
+                        static_cast<size_t>(config::file_cache_each_block_size);
+                EXPECT_EQ(block->range().left, 0);
+                EXPECT_EQ(block->range().right, cache_block_size - 1);
+                EXPECT_EQ(block->state(), io::FileBlock::State::EMPTY);
+                EXPECT_EQ(block->cache_type(), io::FileCacheType::INDEX);
+
+                io::ReadStatistics read_stats;
+                io::CacheContext cache_context;
+                cache_context.stats = &read_stats;
+                auto probe_result =
+                        cache->probe(cache_hash, 0, file_writer->bytes_appended(), cache_context);
+                ASSERT_EQ(probe_result.file_blocks.size(), 1);
+                EXPECT_EQ(probe_result.file_blocks.front(), block);
+                EXPECT_EQ(probe_result.file_blocks.front()->state(), io::FileBlock::State::EMPTY);
+                observed_index_cache_holder = true;
+            },
+            &index_cache_holder_guard);
+
+    auto tablet_schema = create_schema();
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_tablet_id(kIndexOnlyTabletId);
+    tablet_meta_pb.set_schema_hash(kIndexOnlyTabletSchemaHash);
+    tablet_meta_pb.set_tablet_state(PB_RUNNING);
+    tablet_schema->to_schema_pb(tablet_meta_pb.mutable_schema());
+    auto tablet_meta = std::make_shared<TabletMeta>();
+    tablet_meta->init_from_pb(tablet_meta_pb);
+    auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, nullptr);
+    auto rowset_context = create_context(tablet_schema);
+    segment_v2::SegmentWriterOptions writer_options;
+    writer_options.compression_type = NO_COMPRESSION;
+    writer_options.rowset_ctx = &rowset_context;
+    writer_options.write_type = rowset_context.write_type;
+    segment_v2::SegmentWriter writer(file_writer.get(), 0, tablet_schema, tablet, nullptr,
+                                     writer_options, nullptr);
+    status = writer.init();
+    ASSERT_TRUE(status.ok()) << status;
+    auto block = create_full_block(tablet_schema);
+    status = writer.append_block(&block, 0, block.rows());
+    ASSERT_TRUE(status.ok()) << status;
+
+    uint64_t segment_file_size = 0;
+    uint64_t index_size = 0;
+    segment_v2::SegmentIndexFileCacheInfo index_cache_info;
+    status = writer.finalize(&segment_file_size, &index_size, &index_cache_info);
+    ASSERT_TRUE(status.ok()) << status;
+
+    {
+        std::unique_lock lock(upload_mutex);
+        ASSERT_TRUE(upload_cv.wait_for(lock, std::chrono::seconds(10),
+                                       [&]() { return upload_entered_cache_stage; }));
+    }
+
+    const size_t cache_block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    ASSERT_GT(cache_block_size, 0);
+    ASSERT_GT(segment_file_size, 0);
+    ASSERT_LT(segment_file_size, cache_block_size);
+    ASSERT_GT(index_size, 0);
+    ASSERT_GT(index_cache_info.cache_start_offset(), 0);
+    ASSERT_LT(index_cache_info.cache_start_offset(), segment_file_size);
+    ASSERT_NE(index_cache_info.cache_start_offset() % cache_block_size, 0);
+    EXPECT_TRUE(observed_index_cache_holder);
+
+    unblock_upload();
+    const auto close_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    do {
+        status = file_writer->try_finish_close();
+        if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    } while (status.is<ErrorCode::NEED_SEND_AGAIN>() &&
+             std::chrono::steady_clock::now() < close_deadline);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto cache_blocks = cache->get_blocks_by_key(cache_hash);
+    ASSERT_FALSE(cache_blocks.empty());
+    const auto& downloaded_block = cache_blocks.begin()->second;
+    EXPECT_EQ(downloaded_block->range().left, 0);
+    EXPECT_EQ(downloaded_block->range().right, segment_file_size - 1);
+    EXPECT_EQ(downloaded_block->state(), io::FileBlock::State::DOWNLOADED);
 }
 
 } // namespace doris
