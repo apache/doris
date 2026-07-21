@@ -191,19 +191,15 @@ Status CachedRemoteFileReader::close() {
 
 std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, size_t read_size,
                                                                size_t length) {
-    size_t left = offset;
-    size_t right = offset + read_size - 1;
-    size_t align_left =
-            (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
-    size_t align_right =
-            (right / config::file_cache_each_block_size + 1) * config::file_cache_each_block_size;
-    align_right = align_right < length ? align_right : length;
-    size_t align_size = align_right - align_left;
-    if (align_size < config::file_cache_each_block_size && align_left != 0) {
-        align_size += config::file_cache_each_block_size;
-        align_left -= config::file_cache_each_block_size;
+    auto aligned_range =
+            align_file_cache_range(offset, read_size, config::file_cache_each_block_size);
+    aligned_range.size =
+            std::min(aligned_range.offset + aligned_range.size, length) - aligned_range.offset;
+    if (aligned_range.size < config::file_cache_each_block_size && aligned_range.offset != 0) {
+        aligned_range.size += config::file_cache_each_block_size;
+        aligned_range.offset -= config::file_cache_each_block_size;
     }
-    return std::make_pair(align_left, align_size);
+    return std::make_pair(aligned_range.offset, aligned_range.size);
 }
 
 namespace {

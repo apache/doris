@@ -133,8 +133,19 @@ std::string UInt128Wrapper::to_string() const {
     return get_hex_uint_lowercase(value_);
 }
 
+FileCacheRange align_file_cache_range(size_t offset, size_t size, size_t block_size) {
+    const size_t range_end = offset + size;
+    const size_t aligned_offset = offset - offset % block_size;
+    const size_t end_remainder = range_end % block_size;
+    const size_t aligned_end =
+            end_remainder == 0 ? range_end : range_end + block_size - end_remainder;
+    return {.offset = aligned_offset, .size = aligned_end - aligned_offset};
+}
+
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size,
                                                                      int64_t tablet_id) const {
+    const auto aligned_range = align_file_cache_range(offset, size, _cache->max_file_block_size());
+
     CacheContext ctx;
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
@@ -142,7 +153,7 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
     ctx.tablet_id = tablet_id;
     ReadStatistics stats;
     ctx.stats = &stats;
-    auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);
+    auto holder = _cache->get_or_set(_cache_hash, aligned_range.offset, aligned_range.size, ctx);
     return std::make_unique<FileBlocksHolder>(std::move(holder));
 }
 

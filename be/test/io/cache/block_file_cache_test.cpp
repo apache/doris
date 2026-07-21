@@ -5884,6 +5884,29 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_3) {
     }
 }
 
+TEST(FileCacheRangeAlignmentTest, ExpandsToCanonicalBlockBoundaries) {
+    struct TestCase {
+        size_t offset;
+        size_t size;
+        size_t expected_offset;
+        size_t expected_size;
+    };
+    constexpr size_t block_size = 4;
+    const std::vector<TestCase> test_cases = {
+            {.offset = 0, .size = 4, .expected_offset = 0, .expected_size = 4},
+            {.offset = 1, .size = 2, .expected_offset = 0, .expected_size = 4},
+            {.offset = 3, .size = 2, .expected_offset = 0, .expected_size = 8},
+            {.offset = 5, .size = 8, .expected_offset = 4, .expected_size = 12},
+    };
+
+    for (const auto& test_case : test_cases) {
+        const auto aligned_range =
+                align_file_cache_range(test_case.offset, test_case.size, block_size);
+        EXPECT_EQ(aligned_range.offset, test_case.expected_offset);
+        EXPECT_EQ(aligned_range.size, test_case.expected_size);
+    }
+}
+
 TEST_F(BlockFileCacheTest, test_align_size) {
     const size_t total_size = 10_mb + 10086;
     {
