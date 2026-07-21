@@ -149,5 +149,18 @@ public enum ConnectorCapability {
      * unimplemented (native iceberg/paimon, JDBC, ES) must NOT declare it so sampled analyze stays rejected at
      * build time.</p>
      */
-    SUPPORTS_SAMPLE_ANALYZE
+    SUPPORTS_SAMPLE_ANALYZE,
+    /**
+     * Indicates the connector accepts a create-time write sort order — the {@code CREATE TABLE ... ORDER BY (...)}
+     * clause.
+     *
+     * <p>fe-core admits the ORDER BY write-order clause for a plugin-driven CREATE TABLE only when the target
+     * connector declares this (replacing the legacy engine-name {@code iceberg} gate); a create against any target
+     * that does not declare it (paimon/hive/maxcompute, and every non-plugin internal-catalog engine) is rejected
+     * up front. The declaring connector (iceberg) owns the sort-column validation (existence / sortable type /
+     * duplicates) inside its own {@code createTable}. This is a DDL-clause gate and is distinct from the runtime
+     * sink trait {@code ConnectorWritePlanProvider.requiresFullSchemaWriteOrder()}, which governs how rows are
+     * ordered on the write path, not whether the CREATE TABLE DDL accepts the clause.</p>
+     */
+    SUPPORTS_SORT_ORDER
 }

@@ -85,6 +85,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -93,6 +94,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongBiFunction;
@@ -1565,6 +1567,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        // Per-source create-time validation moved off fe-core CreateTableInfo.validate (NOT NULL columns and the
+        // hive external partition rules). Runs at the top of createTable, before any remote mutation, mirroring
+        // MaxComputeConnectorMetadata.createTable -> validateColumns.
+        validateColumns(request);
         // Working copy of the user CREATE TABLE properties; the default owner is added here (legacy added it
         // to the same map before deriving the metastore parameters).
         Map<String, String> userProps = new HashMap<>(request.getProperties());
@@ -1610,6 +1616,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                         "Partition values expressions is not supported in hive catalog.");
             }
         }
+        // Hive external partition-column rules, moved off fe-core PartitionTableInfo.validatePartitionInfo (the
+        // engineName==hive external arm). Runs before the remote create.
+        validatePartition(request, allowPartitionColumnNullable(session), partitionColNames);
 
         HmsCreateTableRequest.Builder builder = HmsCreateTableRequest.builder()
                 .dbName(request.getDbName())
@@ -1645,6 +1654,95 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException("Failed to create Hive table "
                     + request.getDbName() + "." + request.getTableName() + ": " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Rejects a NOT NULL column: a hive table cannot enforce column nullability. Moved off fe-core
+     * {@code CreateTableInfo.validate} (the {@code engineName==hive} per-column arm). The literal {@code "hive"} is
+     * hardcoded to keep the message byte-identical to the former fe-core wording (which derived it from the
+     * resolved engine name, always {@code hive} on this path). Package-private for unit test; reached only via
+     * {@link #createTable} in production.
+     */
+    void validateColumns(ConnectorCreateTableRequest request) {
+        for (ConnectorColumn column : request.getColumns()) {
+            if (!column.isNullable()) {
+                throw new DorisConnectorException("hive catalog doesn't support column with 'NOT NULL'.");
+            }
+        }
+    }
+
+    /**
+     * Validates the hive external partition columns, moved off fe-core
+     * {@code PartitionTableInfo.validatePartitionInfo} (the {@code isExternal=true}, {@code engineName==hive} arm).
+     * Reproduces the subset reachable for a hive external LIST create — identity partition columns; RANGE and
+     * explicit partition values are already rejected above, and the auto-partition function-expression path is a
+     * no-op for identity columns. Every partition column must exist (case-insensitive, mirroring the former
+     * {@code CASE_INSENSITIVE_ORDER} column map), must not be a floating-point or complex type, and must be NOT
+     * NULL when {@code allow_partition_column_nullable} is OFF; no partition column may repeat (case-sensitive,
+     * mirroring the former {@code Sets.newHashSet()}); and the hive schema-placement rules hold (not all columns,
+     * partition fields at the end, order consistent with {@code PARTITIONED BY LIST(...)}). Messages kept
+     * byte-identical to the former fe-core wording. Package-private for unit test; reached only via
+     * {@link #createTable} in production.
+     */
+    void validatePartition(ConnectorCreateTableRequest request, boolean allowNullable,
+            List<String> partitionColNames) {
+        if (partitionColNames.isEmpty()) {
+            return;
+        }
+        List<ConnectorColumn> columns = request.getColumns();
+        Map<String, ConnectorColumn> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (ConnectorColumn column : columns) {
+            columnMap.put(column.getName(), column);
+        }
+        for (String p : partitionColNames) {
+            ConnectorColumn column = columnMap.get(p);
+            if (column == null) {
+                throw new DorisConnectorException(String.format("partition key %s is not exists", p));
+            }
+            String typeName = column.getType().getTypeName();
+            if ("FLOAT".equalsIgnoreCase(typeName) || "DOUBLE".equalsIgnoreCase(typeName)) {
+                throw new DorisConnectorException("Floating point type column can not be partition column");
+            }
+            if ("ARRAY".equalsIgnoreCase(typeName) || "MAP".equalsIgnoreCase(typeName)
+                    || "STRUCT".equalsIgnoreCase(typeName)) {
+                throw new DorisConnectorException("Complex type column can't be partition column: " + typeName);
+            }
+            if (!allowNullable && column.isNullable()) {
+                throw new DorisConnectorException(
+                        "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
+            }
+        }
+        Set<String> seen = new HashSet<>();
+        for (String p : partitionColNames) {
+            if (!seen.add(p)) {
+                throw new DorisConnectorException("Duplicated partition column " + p);
+            }
+        }
+        if (partitionColNames.size() == columns.size()) {
+            throw new DorisConnectorException("Cannot set all columns as partitioning columns.");
+        }
+        List<ConnectorColumn> partitionInSchema =
+                columns.subList(columns.size() - partitionColNames.size(), columns.size());
+        Set<String> partitionColSet = new HashSet<>(partitionColNames);
+        for (ConnectorColumn column : partitionInSchema) {
+            if (!partitionColSet.contains(column.getName())) {
+                throw new DorisConnectorException("The partition field must be at the end of the schema.");
+            }
+        }
+        for (int i = 0; i < partitionInSchema.size(); i++) {
+            if (!partitionInSchema.get(i).getName().equals(partitionColNames.get(i))) {
+                throw new DorisConnectorException("The order of partition fields in the schema "
+                        + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
+            }
+        }
+    }
+
+    // Reads the allow_partition_column_nullable session variable (default true), threaded to the connector via
+    // ConnectorSessionBuilder (VariableMgr.toMap dumps every session variable). When OFF, a nullable partition
+    // column is rejected. The literal key avoids importing the fe-core SessionVariable constant.
+    private boolean allowPartitionColumnNullable(ConnectorSession session) {
+        Boolean allow = session.getProperty("allow_partition_column_nullable", Boolean.class);
+        return allow == null || allow;
     }
 
     /**

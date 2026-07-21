@@ -46,6 +46,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -743,7 +744,7 @@ public class CreateTableInfo {
             // validate partition
             partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(
-                    engineName, columns, columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
+                    columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -781,36 +782,25 @@ public class CreateTableInfo {
                 throw new AnalysisException(engineName + " catalog doesn't support rollup tables.");
             }
 
-            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG) && distribution != null) {
-                throw new AnalysisException(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', "
-                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
-            } else if (engineName.equalsIgnoreCase(ENGINE_PAIMON) && distribution != null) {
-                throw new AnalysisException(
-                    "Paimon doesn't support 'DISTRIBUTE BY', "
-                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
-            }
-
-            // Validate Iceberg sort order columns
+            // DISTRIBUTE BY / write sort order / NOT NULL columns / hive external partition rules are per-source
+            // DDL constraints; each is now enforced by the target connector inside its own createTable (mirroring
+            // MaxComputeConnectorMetadata.validateColumns). fe-core only gates the write sort-order clause
+            // generically: a connector accepts ORDER BY only when it declares SUPPORTS_SORT_ORDER (iceberg today),
+            // and that connector then validates the sort columns. Any other target (paimon/hive/maxcompute, and
+            // every internal-catalog engine) is rejected here.
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
-                if (!engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+                boolean supportsSortOrder = catalog instanceof PluginDrivenExternalCatalog
+                        && ((PluginDrivenExternalCatalog) catalog).getConnector().getCapabilities()
+                                .contains(ConnectorCapability.SUPPORTS_SORT_ORDER);
+                if (!supportsSortOrder) {
                     throw new AnalysisException(
-                        "Only Iceberg catalog supports sort order, but current catalog is: " + engineName);
+                            "Sort order (ORDER BY) is not supported for engine: " + engineName);
                 }
-                validateIcebergSortOrder(columnMap);
             }
 
             for (ColumnDefinition columnDef : columns) {
-                if (!columnDef.isNullable()
-                        && engineName.equalsIgnoreCase(ENGINE_HIVE)) {
-                    throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
-                }
                 columnDef.setIsKey(true);
-            }
-            // TODO: support iceberg partition check
-            if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
-                partitionTableInfo.validatePartitionInfo(
-                        engineName, columns, columnMap, properties, ctx, false, true);
             }
         }
         // validate column
@@ -1697,41 +1687,6 @@ public class CreateTableInfo {
                 }
             } else {
                 throw new AnalysisException("partition expression " + expr.getExpressionName() + " is illegal!");
-            }
-        }
-    }
-
-    /**
-     * Validate sort order for Iceberg table
-     */
-    private void validateIcebergSortOrder(Map<String, ColumnDefinition> columnMap) {
-        if (sortOrderFields == null || sortOrderFields.isEmpty()) {
-            return;
-        }
-
-        // Check if sort order columns exist
-        for (SortFieldInfo sortField : sortOrderFields) {
-            String sortCol = sortField.getColumnName();
-            if (!columnMap.containsKey(sortCol)) {
-                throw new AnalysisException("Sort order column '" + sortCol + "' does not exist in table");
-            }
-
-            ColumnDefinition col = columnMap.get(sortCol);
-            DataType type = col.getType();
-
-            // Check if data type supports sorting
-            if (type.isOnlyMetricType()) {
-                throw new AnalysisException("Sort order column '" + sortCol
-                        + "' has unsupported type: " + type);
-            }
-        }
-
-        // Check for duplicate sort order columns
-        Set<String> sortColSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (SortFieldInfo sortField : sortOrderFields) {
-            String sortCol = sortField.getColumnName();
-            if (!sortColSet.add(sortCol)) {
-                throw new AnalysisException("Duplicate sort order column: " + sortCol);
             }
         }
     }
