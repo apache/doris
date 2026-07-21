@@ -744,6 +744,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi
 
+# patch paimon-rust
+if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_RUST " ]]; then
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/paimon-rust-c-header-gen.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${PAIMON_RUST_SOURCE}"
+fi
+
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE
     if [[ ! -f "$PATCHED_MARK" ]] ; then
