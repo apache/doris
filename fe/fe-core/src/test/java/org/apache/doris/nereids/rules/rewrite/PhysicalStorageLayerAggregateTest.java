@@ -127,6 +127,29 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
 
     @Test
     public void testNullableFileCountUsesStorageLayerAggregate() {
+        LogicalAggregate<LogicalFileScan> aggregate = newNullableFileCountAggregate();
+        LogicalFileScan fileScan = aggregate.child();
+
+        PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
+                .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                .matches(logicalAggregate(
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                && agg.getCountArgumentExprIds().equals(
+                                        ImmutableList.of(fileScan.getOutput().get(0).getExprId())))));
+    }
+
+    @Test
+    public void testNullableFileCountDoesNotUseV1StorageLayerAggregate() {
+        LogicalAggregate<LogicalFileScan> aggregate = newNullableFileCountAggregate();
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        context.getConnectContext().getSessionVariable().enableFileScannerV2 = false;
+
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                .nonMatch(physicalStorageLayerAggregate());
+    }
+
+    private LogicalAggregate<LogicalFileScan> newNullableFileCountAggregate() {
         Column nullableColumn = new Column("value", Type.INT, true);
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
@@ -142,17 +165,10 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         LogicalFileScan fileScan = new LogicalFileScan(new RelationId(1), table,
                 ImmutableList.of("catalog", "db"), Collections.emptyList(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        LogicalAggregate<LogicalFileScan> aggregate = new LogicalAggregate<>(
+        return new LogicalAggregate<>(
                 Collections.emptyList(),
                 ImmutableList.of(new Alias(new Count(fileScan.getOutput().get(0)), "count")),
                 true, Optional.empty(), fileScan);
-
-        PlanChecker.from(MemoTestUtils.createCascadesContext(aggregate))
-                .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
-                .matches(logicalAggregate(
-                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
-                                && agg.getCountArgumentExprIds().equals(
-                                        ImmutableList.of(fileScan.getOutput().get(0).getExprId())))));
     }
 
     @Override

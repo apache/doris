@@ -740,12 +740,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 }
             }
             if (mergeOp == PushDownAggOp.COUNT || mergeOp == PushDownAggOp.MIX) {
-                // File COUNT carries its semantic argument to the V2 reader, which counts
-                // definition levels instead of substituting the file row count. Keep nullable
-                // rejection for OLAP and mixed aggregates, whose storage shortcuts still require
-                // COUNT(col) to be equivalent to COUNT(*).
+                // Nullable file COUNT is exact only when this query is routed to FileScannerV2,
+                // which carries the semantic argument and counts definition levels. Gating on the
+                // session switch keeps V1 on its original full-column evaluation path.
                 boolean supportsNullableFileCount = logicalScan instanceof LogicalFileScan
-                        && mergeOp == PushDownAggOp.COUNT;
+                        && mergeOp == PushDownAggOp.COUNT
+                        && cascadesContext.getConnectContext() != null
+                        && cascadesContext.getConnectContext().getSessionVariable().enableFileScannerV2;
                 if (column.isAllowNull() && checkNullSlots.contains(slot)
                         && !supportsNullableFileCount) {
                     return canNotPush;
