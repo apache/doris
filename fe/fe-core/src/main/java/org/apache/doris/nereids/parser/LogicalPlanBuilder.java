@@ -8315,16 +8315,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             for (DorisParser.WorkloadPolicyActionContext actionCtx :
                     ctx.workloadPolicyActions().workloadPolicyAction()) {
                 try {
-                    if (actionCtx.SET_SESSION_VARIABLE() != null) {
-                        actions.add(new WorkloadActionMeta("SET_SESSION_VARIABLE",
-                                stripQuotes(actionCtx.STRING_LITERAL().getText())));
-                    } else {
-                        String identifier = actionCtx.identifier().getText();
-                        String value = actionCtx.STRING_LITERAL() != null
-                                ? stripQuotes(actionCtx.STRING_LITERAL().getText())
-                                : null;
-                        actions.add(new WorkloadActionMeta(identifier, value));
-                    }
+                    String identifier = actionCtx.identifier().getText();
+                    String value = actionCtx.STRING_LITERAL() != null
+                            ? stripQuotes(actionCtx.STRING_LITERAL().getText())
+                            : null;
+                    actions.add(new WorkloadActionMeta(identifier, value));
                 } catch (UserException e) {
                     throw new AnalysisException(e.getMessage(), e);
                 }
