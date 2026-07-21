@@ -41,7 +41,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -146,10 +145,7 @@ public final class RuntimeFilter {
     // legacy target expression that will be sent to BE.
     private final Map<PlanNodeId, Map<Long, TTargetExprMonotonicity>> targetPartitionMonotonicityByScanId
             = new HashMap<>();
-    // Exact RF leaf slots that must receive serialized partition boundaries,
-    // grouped by target scan node and base partition-column ordinal.
-    private final Map<PlanNodeId, Map<Integer, Set<Integer>>> partitionPruningTargetSlotsByScanId
-            = new HashMap<>();
+    private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
 
     /**
      * Internal representation of a runtime filter target.
@@ -399,16 +395,10 @@ public final class RuntimeFilter {
     }
 
     /**
-     * Record the exact RF leaf slot that needs boundaries for one base partition column.
+     * Record that a target can drive partition pruning and needs scan boundaries serialized.
      */
-    public void markTargetCanPrunePartitions(
-            PlanNodeId scanNodeId, int partitionColumnIndex, SlotId partitionSlotId) {
-        Preconditions.checkArgument(partitionColumnIndex >= 0);
-        Preconditions.checkNotNull(partitionSlotId);
-        partitionPruningTargetSlotsByScanId
-                .computeIfAbsent(scanNodeId, id -> new HashMap<>())
-                .computeIfAbsent(partitionColumnIndex, index -> new HashSet<>())
-                .add(partitionSlotId.asInt());
+    public void markTargetCanPrunePartitions(PlanNodeId scanNodeId) {
+        partitionPruningTargetScanIds.add(scanNodeId);
     }
 
     /**
@@ -429,11 +419,7 @@ public final class RuntimeFilter {
      * RuntimeFilterPartitionPruneClassifier.
      */
     public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
-        return partitionPruningTargetSlotsByScanId.containsKey(scanNodeId);
-    }
-
-    public Map<Integer, Set<Integer>> getPartitionPruningTargetSlots(PlanNodeId scanNodeId) {
-        return partitionPruningTargetSlotsByScanId.getOrDefault(scanNodeId, Collections.emptyMap());
+        return partitionPruningTargetScanIds.contains(scanNodeId);
     }
 
     public boolean hasTargets() {

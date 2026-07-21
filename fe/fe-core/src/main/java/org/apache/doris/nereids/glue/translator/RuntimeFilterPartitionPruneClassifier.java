@@ -91,7 +91,7 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (partitionColumnIndex < 0) {
                 return Classification.unsupported("target SlotRef is not a partition column");
             }
-            if (!hasSerializedBoundary(partitionColumnIndex, partType)) {
+            if (partType == PartitionType.RANGE && partitionColumnIndex != 0) {
                 return Classification.unsupported("target SlotRef has no serialized partition boundary");
             }
             Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
@@ -99,16 +99,20 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (partitionMonotonicity.isEmpty()) {
                 return Classification.unsupported("target SlotRef has no prunable selected partitions");
             }
-            return Classification.supportedPartitions(slotRef, partitionColumnIndex, partitionMonotonicity);
+            return Classification.supportedPartitions(
+                    slotRef, partitionColumnIndex, partitionMonotonicity);
         }
 
         SlotRef leafSlot = findUniqueSlotRef(targetExpr);
-        int partitionColumnIndex = leafSlot == null ? -1
-                : findPartitionColumnIndex(leafSlot, partitionInfo.getPartitionColumns());
+        if (leafSlot == null) {
+            return Classification.unsupported("target expression is not rooted on one partition column");
+        }
+        int partitionColumnIndex = findPartitionColumnIndex(
+                leafSlot, partitionInfo.getPartitionColumns());
         if (partitionColumnIndex < 0) {
             return Classification.unsupported("target expression is not rooted on one partition column");
         }
-        if (!hasSerializedBoundary(partitionColumnIndex, partType)) {
+        if (partType == PartitionType.RANGE && partitionColumnIndex != 0) {
             return Classification.unsupported("target expression has no serialized partition boundary");
         }
         if (partType == PartitionType.LIST) {
@@ -120,7 +124,8 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (partitionMonotonicity.isEmpty()) {
                 return Classification.unsupported("target expression has no prunable selected partitions");
             }
-            return Classification.supportedPartitions(leafSlot, partitionColumnIndex, partitionMonotonicity);
+            return Classification.supportedPartitions(
+                    leafSlot, partitionColumnIndex, partitionMonotonicity);
         }
 
         Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
@@ -128,7 +133,8 @@ final class RuntimeFilterPartitionPruneClassifier {
         if (partitionMonotonicity.isEmpty()) {
             return Classification.unsupported("target expression is not monotonic on selected partitions");
         }
-        return Classification.supportedPartitions(leafSlot, partitionColumnIndex, partitionMonotonicity);
+        return Classification.supportedPartitions(
+                leafSlot, partitionColumnIndex, partitionMonotonicity);
     }
 
     private static boolean hasUnsupportedAutomaticPartitionExpression(PartitionInfo partitionInfo) {
@@ -153,10 +159,6 @@ final class RuntimeFilterPartitionPruneClassifier {
             }
         }
         return false;
-    }
-
-    private static boolean hasSerializedBoundary(int partitionColumnIndex, PartitionType partType) {
-        return partType != PartitionType.RANGE || partitionColumnIndex == 0;
     }
 
     private static int findPartitionColumnIndex(SlotRef slotRef, List<Column> partitionColumns) {
@@ -312,7 +314,8 @@ final class RuntimeFilterPartitionPruneClassifier {
 
         static Classification supportedPartitions(SlotRef partitionSlot, int partitionColumnIndex,
                 Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
-            return new Classification(true, partitionSlot, partitionColumnIndex, partitionMonotonicity, "");
+            return new Classification(
+                    true, partitionSlot, partitionColumnIndex, partitionMonotonicity, "");
         }
 
         static Classification unsupported(String reason) {

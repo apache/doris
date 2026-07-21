@@ -386,9 +386,7 @@ public class RuntimeFilterTranslator {
         if (classification.canPrunePartitions()) {
             Preconditions.checkState(scanNode instanceof OlapScanNode,
                     "partition-pruning runtime filter target must be an OlapScanNode");
-            runtimeFilter.markTargetCanPrunePartitions(
-                    scanNode.getId(), classification.getPartitionColumnIndex(),
-                    classification.getPartitionSlot().getSlotId());
+            runtimeFilter.markTargetCanPrunePartitions(scanNode.getId());
             ((OlapScanNode) scanNode).snapshotPartitionBoundariesForRuntimeFilter(
                     classification.getPartitionColumnIndex(),
                     classification.getPartitionSlot().getSlotId().asInt());
