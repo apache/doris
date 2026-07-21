@@ -17,13 +17,19 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
+import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.PartitionViewCacheKey;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.function.Supplier;
 
 /**
  * Tests PaimonConnector's FIX-4 cache knobs (CI 973411): the {@code meta.cache.paimon.table.ttl-second}
@@ -82,5 +88,65 @@ public class PaimonConnectorCacheTest {
         Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
         Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
         Assertions.assertDoesNotThrow(connector::invalidateAll);
+    }
+
+    // ============ PERF-06: derived partition-view cache A (no session=user gate) + invalidation ============
+
+    @Test
+    public void partitionViewCacheAlwaysBuilt() {
+        // Unlike iceberg, paimon has NO session=user / per-user credential-isolation cache-disabling
+        // convention (a paimon catalog authenticates at catalog-creation time, not per-query session
+        // identity), so the connector must construct cache A unconditionally on every flavor. MUTATION: a
+        // stray session-like gate leaving the field null on some property combination -> red.
+        Assertions.assertNotNull(connector(Collections.emptyMap()).partitionViewCacheForTest(),
+                "a fresh paimon connector must always build the partition-view cache");
+        Map<String, String> withTtl = props("3600");
+        Assertions.assertNotNull(connector(withTtl).partitionViewCacheForTest(),
+                "the partition-view cache is independent of meta.cache.paimon.table.ttl-second");
+    }
+
+    @Test
+    public void refreshHooksInvalidatePartitionViewCache() {
+        // The REFRESH hooks must clear cache A too (else external DDL/writes stay invisible beyond the TTL):
+        // REFRESH TABLE drops that table's snapshot entries, REFRESH DATABASE that db's, REFRESH CATALOG
+        // everything. Asserted via a counting loader (the framework's size() is package-private): after
+        // invalidation the loader must run again. MUTATION: an invalidate* hook not routed to the view cache
+        // -> the entry survives -> loader not re-run -> a loads assert below red.
+        PaimonConnector connector = connector(Collections.emptyMap());
+        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = connector.partitionViewCacheForTest();
+        Assertions.assertNotNull(cache);
+        int[] loads = {0};
+        Supplier<List<ConnectorPartitionInfo>> loader = () -> {
+            loads[0]++;
+            return Collections.emptyList();
+        };
+        PartitionViewCacheKey db1t1 = new PartitionViewCacheKey("db1", "t1", 1L, -1L);
+        PartitionViewCacheKey db1t2 = new PartitionViewCacheKey("db1", "t2", 1L, -1L);
+        PartitionViewCacheKey db2t1 = new PartitionViewCacheKey("db2", "t1", 1L, -1L);
+
+        // REFRESH TABLE db1.t1 -> only db1.t1 re-loads.
+        cache.get(db1t1, loader);
+        cache.get(db1t1, loader);
+        Assertions.assertEquals(1, loads[0], "second get is a hit");
+        connector.invalidateTable("db1", "t1");
+        cache.get(db1t1, loader);
+        Assertions.assertEquals(2, loads[0], "REFRESH TABLE forces a reload of db1.t1");
+
+        // REFRESH DATABASE db1 -> db1.t2 re-loads; db2.t1 unaffected.
+        cache.get(db1t2, loader);   // loads=3 (miss)
+        cache.get(db2t1, loader);   // loads=4 (miss)
+        cache.get(db1t2, loader);   // hit
+        cache.get(db2t1, loader);   // hit
+        Assertions.assertEquals(4, loads[0]);
+        connector.invalidateDb("db1");
+        cache.get(db2t1, loader);   // db2 untouched -> hit
+        Assertions.assertEquals(4, loads[0], "REFRESH DATABASE db1 must NOT drop db2's entries");
+        cache.get(db1t2, loader);   // db1.t2 dropped -> miss
+        Assertions.assertEquals(5, loads[0], "REFRESH DATABASE db1 drops db1's entries");
+
+        // REFRESH CATALOG -> everything re-loads.
+        connector.invalidateAll();
+        cache.get(db2t1, loader);
+        Assertions.assertEquals(6, loads[0], "REFRESH CATALOG drops everything");
     }
 }
