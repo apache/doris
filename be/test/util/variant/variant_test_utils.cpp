@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "common/exception.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "util/utf8_check.h"
 
 namespace doris {

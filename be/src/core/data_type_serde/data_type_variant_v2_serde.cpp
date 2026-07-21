@@ -17,16 +17,115 @@
 
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 
+#include <arrow/array/builder_binary.h>
+
+#include <algorithm>
+#include <cstring>
+#include <limits>
+#include <orc/Vector.hh>
+#include <utility>
+
+#include "common/cast_set.h"
 #include "common/exception.h"
+#include "core/arena.h"
+#include "core/assert_cast.h"
+#include "core/column/column_const.h"
+#include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type_serde/data_type_string_serde.h"
+#include "core/types.h"
+#include "core/value/jsonb_value.h"
+#include "core/value/variant/variant_batch_builder.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
+#include "util/jsonb_writer.h"
+#include "util/mysql_row_buffer.h"
 
 namespace doris {
 namespace {
+
+using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 using data_type_variant_v2_serde_internal::CountingWriter;
 using data_type_variant_v2_serde_internal::ReadInput;
 using data_type_variant_v2_serde_internal::checked_row;
 using data_type_variant_v2_serde_internal::for_each_value;
 using data_type_variant_v2_serde_internal::write_json_value;
+
+constexpr size_t VARIANT_V2_TYPE_META_BYTES = sizeof(int32_t) * 4;
+
+const ColumnVariantV2& get_variant_v2_column(const IColumn& column) {
+    const IColumn* physical = &column;
+    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+        physical = &constant->get_data_column();
+    }
+    return assert_cast<const ColumnVariantV2&>(*physical);
+}
+
+void write_variant_v2_type(const DataTypePtr& type, char*& buf) {
+    uint32_t precision = type->get_precision();
+    uint32_t scale = type->get_scale();
+    if (type->get_primitive_type() == TYPE_DECIMALV2) {
+        const auto& decimal = assert_cast<const DataTypeDecimalV2&>(*type);
+        precision = decimal.get_original_precision();
+        scale = decimal.get_original_scale();
+    }
+    const int32_t length = is_string_type(type->get_primitive_type())
+                                   ? assert_cast<const DataTypeString&>(*type).len()
+                                   : -1;
+    unaligned_store<int32_t>(buf, static_cast<int32_t>(type->get_primitive_type()));
+    buf += sizeof(int32_t);
+    unaligned_store<uint32_t>(buf, precision);
+    buf += sizeof(uint32_t);
+    unaligned_store<uint32_t>(buf, scale);
+    buf += sizeof(uint32_t);
+    unaligned_store<int32_t>(buf, length);
+    buf += sizeof(int32_t);
+}
+
+DataTypePtr read_variant_v2_type(const char*& buf) {
+    const auto primitive = static_cast<PrimitiveType>(unaligned_load<int32_t>(buf));
+    buf += sizeof(int32_t);
+    const auto precision = unaligned_load<uint32_t>(buf);
+    buf += sizeof(uint32_t);
+    const auto scale = unaligned_load<uint32_t>(buf);
+    buf += sizeof(uint32_t);
+    const auto length = unaligned_load<int32_t>(buf);
+    buf += sizeof(int32_t);
+    if (!column_variant_v2_internal::is_supported_typed_identity(primitive)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Unsupported Variant V2 typed identity {}",
+                        static_cast<int32_t>(primitive));
+    }
+    return DataTypeFactory::instance().create_data_type(primitive, false, precision, scale, length);
+}
+
+char* serialize_meta_ids(const IColumn& column, char* buf) {
+    const auto& ids = assert_cast<const MetaIdsColumn&>(column).get_data();
+    unaligned_store<size_t>(buf, ids.size());
+    buf += sizeof(size_t);
+    const size_t bytes = ids.size() * sizeof(uint32_t);
+    if (bytes != 0) {
+        std::memcpy(buf, ids.data(), bytes);
+    }
+    return buf + bytes;
+}
+
+const char* deserialize_meta_ids(const char* buf, MutableColumnPtr* column) {
+    const auto size = unaligned_load<size_t>(buf);
+    buf += sizeof(size_t);
+    auto& ids = assert_cast<MetaIdsColumn&>(**column).get_data();
+    ids.resize(size);
+    const size_t bytes = size * sizeof(uint32_t);
+    if (bytes != 0) {
+        std::memcpy(ids.data(), buf, bytes);
+    }
+    return buf + bytes;
+}
 
 void preflight_json(const ReadInput& input, size_t start, size_t end,
                     const DataTypeSerDe::FormatOptions& options) {
@@ -41,6 +140,92 @@ void preflight_json(const ReadInput& input, size_t start, size_t end,
 } // namespace
 
 DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level) : DataTypeSerDe(nesting_level) {}
+
+int64_t DataTypeVariantV2SerDe::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                                  int be_exec_version) {
+    const auto& variant = get_variant_v2_column(column);
+    int64_t size = sizeof(bool) + sizeof(size_t) * 2 + sizeof(bool);
+    if (variant.is_typed()) {
+        const DataTypePtr nullable_type = make_nullable(variant._typed_type);
+        return size + VARIANT_V2_TYPE_META_BYTES +
+               nullable_type->get_uncompressed_serialized_bytes(*variant._typed, be_exec_version);
+    }
+    const DataTypeString string_type;
+    size += string_type.get_uncompressed_serialized_bytes(*variant._metadatas, be_exec_version);
+    size += sizeof(size_t) + variant._meta_ids->size() * sizeof(uint32_t);
+    size += string_type.get_uncompressed_serialized_bytes(*variant._values, be_exec_version);
+    return size;
+}
+
+char* DataTypeVariantV2SerDe::serialize(const IColumn& column, char* buf, int be_exec_version) {
+    const IColumn* physical = &column;
+    size_t saved_rows = 0;
+    buf = serialize_const_flag_and_row_num(&physical, buf, &saved_rows);
+    const auto& variant = assert_cast<const ColumnVariantV2&>(*physical);
+    DCHECK_EQ(variant.size(), saved_rows);
+    unaligned_store<bool>(buf, variant.is_typed());
+    buf += sizeof(bool);
+    if (variant.is_typed()) {
+        write_variant_v2_type(variant._typed_type, buf);
+        return make_nullable(variant._typed_type)->serialize(*variant._typed, buf, be_exec_version);
+    }
+    const DataTypeString string_type;
+    buf = string_type.serialize(*variant._metadatas, buf, be_exec_version);
+    buf = serialize_meta_ids(*variant._meta_ids, buf);
+    return string_type.serialize(*variant._values, buf, be_exec_version);
+}
+
+const char* DataTypeVariantV2SerDe::deserialize(const char* buf, MutableColumnPtr* column,
+                                                int be_exec_version) {
+    auto* destination = assert_cast<ColumnVariantV2*>(column->get());
+    size_t saved_rows = 0;
+    buf = deserialize_const_flag_and_row_num(buf, column, &saved_rows);
+    const bool typed = unaligned_load<bool>(buf);
+    buf += sizeof(bool);
+
+    ColumnVariantV2::MutablePtr decoded;
+    if (typed) {
+        DataTypePtr type = read_variant_v2_type(buf);
+        const DataTypePtr nullable_type = make_nullable(type);
+        MutableColumnPtr typed_column = nullable_type->create_column();
+        buf = nullable_type->deserialize(buf, &typed_column, be_exec_version);
+        decoded = ColumnVariantV2::create_typed(std::move(typed_column), std::move(type));
+    } else {
+        const DataTypeString string_type;
+        MutableColumnPtr metadatas = string_type.create_column();
+        MutableColumnPtr meta_ids = MetaIdsColumn::create();
+        MutableColumnPtr values = string_type.create_column();
+        buf = string_type.deserialize(buf, &metadatas, be_exec_version);
+        buf = deserialize_meta_ids(buf, &meta_ids);
+        buf = string_type.deserialize(buf, &values, be_exec_version);
+
+        const auto& ids = assert_cast<const MetaIdsColumn&>(*meta_ids).get_data();
+        if (ids.size() != values->size()) {
+            throw Exception(Status::Corruption(
+                    "ColumnVariantV2 metadata id count {} does not match value count {}",
+                    ids.size(), values->size()));
+        }
+        for (uint32_t id : ids) {
+            if (id >= metadatas->size()) {
+                throw Exception(Status::Corruption(
+                        "ColumnVariantV2 metadata id {} exceeds metadata count {}", id,
+                        metadatas->size()));
+            }
+        }
+        decoded = ColumnVariantV2::create();
+        static_cast<IColumn::Ptr&>(decoded->_metadatas) = std::move(metadatas);
+        static_cast<IColumn::Ptr&>(decoded->_meta_ids) = std::move(meta_ids);
+        static_cast<IColumn::Ptr&>(decoded->_values) = std::move(values);
+        decoded->sanity_check();
+    }
+    if (decoded->size() != saved_rows) {
+        throw Exception(Status::Corruption(
+                "ColumnVariantV2 saved row count {} does not match decoded row count {}",
+                saved_rows, decoded->size()));
+    }
+    destination->_adopt_state_from(*decoded);
+    return buf;
+}
 
 std::string DataTypeVariantV2SerDe::get_name() const {
     return "Variant";
@@ -95,20 +280,6 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
                          "read_column_from_arrow with type " + column.get_name());
 }
 
-} // namespace doris
-#include <limits>
-
-#include "common/cast_set.h"
-#include "common/exception.h"
-#include "core/column/variant_v2/column_variant_v2.h"
-#include "core/data_type_serde/data_type_string_serde.h"
-#include "core/data_type_serde/data_type_variant_v2_serde.h"
-#include "core/value/jsonb_value.h"
-#include "core/value/variant/variant_block_builder.h"
-#include "exprs/function/parse/variant_jsonb.h"
-#include "util/jsonb_writer.h"
-
-namespace doris {
 namespace {
 
 ColumnVariantV2& destination(IColumn& column) {
@@ -132,10 +303,10 @@ void require_jsonb_write(bool written, const char* operation) {
 Status DataTypeVariantV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions&) const {
     RETURN_IF_CATCH_EXCEPTION({
-        JsonToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder;
         encoder.add_json({slice.data, slice.size});
-        VariantEncodedBlock block = encoder.finish_block();
-        destination(column).insert_encoded_block(block);
+        VariantBatchBuilder block = encoder.finish_batch();
+        destination(column).insert_encoded_batch(block);
     });
     return Status::OK();
 }
@@ -150,12 +321,12 @@ Status DataTypeVariantV2SerDe::deserialize_one_cell_from_csv(IColumn& column, Sl
         if (slice.size != 0 && options.escape_char != 0) {
             escape_string_for_csv(slice.data, &slice.size, options.escape_char, options.quote_char);
         }
-        VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 1});
+        VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
         auto row = builder.begin_row();
         row.add_string({slice.data, slice.size});
         row.finish();
-        VariantEncodedBlock block = builder.finish_block();
-        destination(column).insert_encoded_block(block);
+        VariantBatchBuilder block = builder.finish_batch();
+        destination(column).insert_encoded_batch(block);
     });
     return Status::OK();
 }
@@ -175,12 +346,12 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
         if (slices.empty()) {
             return Status::OK();
         }
-        JsonToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder;
         for (const Slice& slice : slices) {
             encoder.add_json({slice.data, slice.size});
         }
-        VariantEncodedBlock block = encoder.finish_block();
-        result.insert_encoded_block(block);
+        VariantBatchBuilder block = encoder.finish_batch();
+        result.insert_encoded_batch(block);
         *num_deserialized += slices.size();
     });
     return Status::OK();
@@ -217,24 +388,10 @@ void DataTypeVariantV2SerDe::read_one_cell_from_jsonb(IColumn& column,
     const auto* binary = arg->unpack<JsonbBinaryVal>();
     JsonbToVariantEncoder encoder;
     encoder.add_jsonb({binary->getBlob(), binary->getBlobLen()});
-    VariantEncodedBlock block = encoder.finish_block();
-    destination(column).insert_encoded_block(block);
+    VariantBatchBuilder block = encoder.finish_batch();
+    destination(column).insert_encoded_batch(block);
 }
 
-} // namespace doris
-#include <arrow/array/builder_binary.h>
-
-#include <algorithm>
-#include <limits>
-#include <orc/Vector.hh>
-
-#include "common/cast_set.h"
-#include "common/exception.h"
-#include "core/arena.h"
-#include "core/data_type_serde/data_type_variant_v2_serde.h"
-#include "util/mysql_row_buffer.h"
-
-namespace doris {
 namespace {
 
 using data_type_variant_v2_serde_internal::CountingWriter;

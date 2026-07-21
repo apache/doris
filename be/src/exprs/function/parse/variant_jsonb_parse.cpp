@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/parse/variant_jsonb.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
 
 #include <array>
 #include <cstdint>
@@ -24,7 +24,7 @@
 
 #include "common/exception.h"
 #include "core/types.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -473,7 +473,7 @@ private:
 struct JsonbToVariantEncoder::Impl {
     enum class State : uint8_t { COLLECTING, FINISHED, FAILED };
 
-    explicit Impl(VariantBlockBuilder::ReserveHint hint) : builder(hint) {}
+    explicit Impl(VariantBatchBuilder::ReserveHint hint) : builder(hint) {}
 
     void require_collecting() const {
         if (state == State::FINISHED) {
@@ -486,13 +486,13 @@ struct JsonbToVariantEncoder::Impl {
         }
     }
 
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     State state = State::COLLECTING;
 };
 
 JsonbToVariantEncoder::JsonbToVariantEncoder()
-        : JsonbToVariantEncoder(VariantBlockBuilder::ReserveHint {}) {}
-JsonbToVariantEncoder::JsonbToVariantEncoder(VariantBlockBuilder::ReserveHint hint)
+        : JsonbToVariantEncoder(VariantBatchBuilder::ReserveHint {}) {}
+JsonbToVariantEncoder::JsonbToVariantEncoder(VariantBatchBuilder::ReserveHint hint)
         : _impl(std::make_unique<Impl>(hint)) {}
 JsonbToVariantEncoder::~JsonbToVariantEncoder() = default;
 JsonbToVariantEncoder::JsonbToVariantEncoder(JsonbToVariantEncoder&&) noexcept = default;
@@ -522,10 +522,10 @@ void JsonbToVariantEncoder::add_jsonb(StringRef document) {
     }
 }
 
-VariantEncodedBlock JsonbToVariantEncoder::finish_block() {
+VariantBatchBuilder JsonbToVariantEncoder::finish_batch() {
     _impl->require_collecting();
     try {
-        VariantEncodedBlock block = _impl->builder.finish_block();
+        VariantBatchBuilder block = _impl->builder.finish_batch();
         _impl->state = Impl::State::FINISHED;
         return block;
     } catch (...) {
@@ -534,7 +534,7 @@ VariantEncodedBlock JsonbToVariantEncoder::finish_block() {
     }
 }
 
-void jsonb_to_variant(StringRef document, VariantBlockBuilder::Row& row, uint32_t initial_depth) {
+void jsonb_to_variant(StringRef document, VariantBatchBuilder::Row& row, uint32_t initial_depth) {
     try {
         collect_jsonb_document(document, row, initial_depth);
     } catch (...) {

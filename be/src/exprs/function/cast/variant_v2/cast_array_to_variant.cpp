@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
@@ -165,7 +165,7 @@ Status build_array_encode_plan(const ColumnPtr& source, const DataTypePtr& sourc
     return build_array_leaf_plan(source, primitive, plan);
 }
 
-void append_array_value(const ArrayEncodePlan& plan, size_t index, VariantBlockBuilder::Row* row) {
+void append_array_value(const ArrayEncodePlan& plan, size_t index, VariantBatchBuilder::Row* row) {
     if (!plan.effective_nulls.empty() && plan.effective_nulls[index] != 0) {
         row->add_null();
         return;
@@ -193,7 +193,7 @@ Status cast_array_to_variant(const ColumnPtr& source, const DataTypePtr& source_
     }
     ArrayEncodePlan plan;
     RETURN_IF_ERROR(build_array_encode_plan(source, source_type, nullptr, forced_nulls, &plan));
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = rows});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
     for (size_t row_index = 0; row_index < rows; ++row_index) {
         auto row = builder.begin_row();
         if (!forced_nulls.empty() && forced_nulls[row_index] != 0) {
@@ -203,9 +203,9 @@ Status cast_array_to_variant(const ColumnPtr& source, const DataTypePtr& source_
         }
         row.finish();
     }
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block);
+    result->insert_encoded_batch(block);
     *output = std::move(result);
     return Status::OK();
 }

@@ -21,7 +21,7 @@
 #include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
-#include "exprs/function/parse/variant_jsonb.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"
@@ -56,7 +56,7 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
         return Status::InvalidArgument("Invalid JSONB input shape for Variant V2 CAST");
     }
-    JsonbToVariantEncoder encoder(VariantBlockBuilder::ReserveHint {.rows = rows});
+    JsonbToVariantEncoder encoder(VariantBatchBuilder::ReserveHint {.rows = rows});
     for (size_t row = 0; row < rows; ++row) {
         if (!forced_nulls.empty() && forced_nulls[row] != 0) {
             encoder.add_null();
@@ -64,9 +64,9 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
             encoder.add_jsonb(strings->get_data_at(row));
         }
     }
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block);
+    result->insert_encoded_batch(block);
     *output = std::move(result);
     return Status::OK();
 }

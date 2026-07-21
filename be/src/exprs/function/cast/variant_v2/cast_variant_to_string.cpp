@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 

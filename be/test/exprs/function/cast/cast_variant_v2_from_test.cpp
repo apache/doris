@@ -35,7 +35,7 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function_context.h"
@@ -68,15 +68,15 @@ CastResult execute_from_variant(const ColumnPtr& source, const DataTypePtr& targ
                        .initial_result = std::move(initial_result)};
 }
 
-ColumnVariantV2::MutablePtr finish(VariantBlockBuilder* builder) {
-    VariantEncodedBlock block = builder->finish_block();
+ColumnVariantV2::MutablePtr finish(VariantBatchBuilder* builder) {
+    VariantBatchBuilder block = builder->finish_batch();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block);
+    result->insert_encoded_batch(block);
     return result;
 }
 
 ColumnVariantV2::MutablePtr mixed_scalar_values() {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 4});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 4});
     {
         auto row = builder.begin_row();
         row.add_string(StringRef("42"));
@@ -181,7 +181,7 @@ TEST(CastVariantV2FromTest, TypedScalarDelegatesToConcreteNonStrictCast) {
 }
 
 TEST(CastVariantV2FromTest, StringUsesConcreteScalarsAndExplicitDocumentRules) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 5});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 5});
     {
         auto row = builder.begin_row();
         auto object = row.start_object();
@@ -241,7 +241,7 @@ TEST(CastVariantV2FromTest, EOnlyScalarStringRulesStayJsonQuoted) {
     for (size_t index = 0; index < uuid.size(); ++index) {
         uuid[index] = static_cast<uint8_t>(index);
     }
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 3});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 3});
     {
         auto row = builder.begin_row();
         row.add_binary(StringRef(binary.data(), binary.size()));
@@ -268,7 +268,7 @@ TEST(CastVariantV2FromTest, EOnlyScalarStringRulesStayJsonQuoted) {
 }
 
 TEST(CastVariantV2FromTest, JsonbPreservesObjectAndInnerVariantNull) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 2});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 2});
     {
         auto row = builder.begin_row();
         auto object = row.start_object();
@@ -292,7 +292,7 @@ TEST(CastVariantV2FromTest, JsonbPreservesObjectAndInnerVariantNull) {
 
 TEST(CastVariantV2FromTest, NanosFloorToMicrosAndUtcUsesSessionTimezone) {
     constexpr std::array<int64_t, 6> NANOS {-1, -999, -1000, 0, 999, 1000};
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = NANOS.size() + 1});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = NANOS.size() + 1});
     for (int64_t nanos : NANOS) {
         auto row = builder.begin_row();
         row.add_timestamp_nanos(nanos, false);
@@ -319,7 +319,7 @@ TEST(CastVariantV2FromTest, NanosFloorToMicrosAndUtcUsesSessionTimezone) {
 }
 
 TEST(CastVariantV2FromTest, ArrayLeafNullSemanticsAreTargetSpecific) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 1});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto row = builder.begin_row();
     auto array = row.start_array();
     row.add_null();
@@ -410,7 +410,7 @@ TEST(CastVariantV2FromTest, NestedArrayRoundTripPreservesNullAndEmptyArray) {
 }
 
 TEST(CastVariantV2FromTest, DecimalScale38CastsAndScale39IsRejectedAtEncodingBoundary) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 1});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto row = builder.begin_row();
     row.add_decimal(1, 38);
     row.finish();
@@ -424,7 +424,7 @@ TEST(CastVariantV2FromTest, DecimalScale38CastsAndScale39IsRejectedAtEncodingBou
                       .value,
               1);
 
-    VariantBlockBuilder invalid_builder;
+    VariantBatchBuilder invalid_builder;
     auto invalid_row = invalid_builder.begin_row();
     EXPECT_THROW(invalid_row.add_decimal(1, 39), Exception);
 }

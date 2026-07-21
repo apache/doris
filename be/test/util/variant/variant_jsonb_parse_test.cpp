@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/parse/variant_jsonb.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
 
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
@@ -34,7 +34,7 @@
 #include <vector>
 
 #include "common/exception.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "util/jsonb_writer.h"
 #include "variant_test_utils.h"
@@ -71,11 +71,11 @@ std::string jsonb_bytes(JsonbWriter& writer) {
 }
 
 OwnedVariant encode_jsonb(std::string_view document) {
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     jsonb_to_variant(string_ref(document), row);
     row.finish();
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     validate_canonical(block.value_at(0));
     const VariantMetadataRef metadata = block.metadata_ref();
     const VariantRef value = block.value_at(0);
@@ -83,22 +83,22 @@ OwnedVariant encode_jsonb(std::string_view document) {
             .value = std::string(value.value.data, value.value.size)};
 }
 
-std::string block_value_bytes(const VariantEncodedBlock& block) {
+std::string block_value_bytes(const VariantBatchBuilder& block) {
     const StringRef bytes = block.value_bytes();
     return {bytes.data, bytes.size};
 }
 
-std::vector<uint32_t> block_value_offsets(const VariantEncodedBlock& block) {
+std::vector<uint32_t> block_value_offsets(const VariantBatchBuilder& block) {
     const std::span<const uint32_t> offsets = block.value_offsets();
     return {offsets.begin(), offsets.end()};
 }
 
 void expect_jsonb_failure_and_aborted( // NOLINT(readability-function-cognitive-complexity) --
         std::string_view document) {   // GoogleTest exception macros inflate the metric.
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     EXPECT_THROW(jsonb_to_variant(string_ref(document), row), Exception);
-    EXPECT_EQ(builder.finish_block().num_rows(), 0);
+    EXPECT_EQ(builder.finish_batch().num_rows(), 0);
 }
 
 template <typename Decimal>
@@ -137,11 +137,11 @@ __int128 power_of_ten_128(uint8_t exponent) {
 
 template <typename Fill>
 OwnedVariant build_variant(Fill&& fill) {
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     fill(row);
     row.finish();
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     validate_canonical(block.value_at(0));
     const VariantMetadataRef metadata = block.metadata_ref();
     const VariantRef value = block.value_at(0);
@@ -173,8 +173,8 @@ std::string_view jsonb_blob(const JsonbValue* value) {
 }
 
 OwnedVariant nested_variant_arrays(uint32_t count) {
-    return build_variant([&](VariantBlockBuilder::Row& builder) {
-        std::vector<VariantBlockBuilder::Row::ArrayScope> scopes;
+    return build_variant([&](VariantBatchBuilder::Row& builder) {
+        std::vector<VariantBatchBuilder::Row::ArrayScope> scopes;
         scopes.reserve(count);
         for (uint32_t index = 0; index < count; ++index) {
             scopes.push_back(builder.start_array());
@@ -309,7 +309,7 @@ TEST(VariantJsonbTest, Decimal256IsRejectedAndAbortsRow) {
     JsonbWriter decimal256;
     ASSERT_TRUE(decimal256.writeDecimal(Decimal256 {wide::Int256(-12'345)}, 5, 3));
     const std::string decimal256_document = jsonb_bytes(decimal256);
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     try {
         jsonb_to_variant(StringRef(decimal256_document), row);
@@ -318,7 +318,7 @@ TEST(VariantJsonbTest, Decimal256IsRejectedAndAbortsRow) {
         EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
         EXPECT_NE(std::string_view(exception.what()).find("DECIMAL256"), std::string_view::npos);
     }
-    EXPECT_EQ(builder.finish_block().num_rows(), 0);
+    EXPECT_EQ(builder.finish_batch().num_rows(), 0);
 }
 
 TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
@@ -349,10 +349,10 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
         }
     }
 
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     EXPECT_THROW(jsonb_to_variant({static_cast<const char*>(nullptr), 1}, row), Exception);
-    EXPECT_EQ(builder.finish_block().num_rows(), 0);
+    EXPECT_EQ(builder.finish_batch().num_rows(), 0);
 }
 
 TEST(VariantJsonbTest, ContainersEmptyKeyAndMaximumKeyLength) {
@@ -457,7 +457,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     }
     const std::string binary("\0\x01\x02\xFF", 4);
     const std::string long_string(64, 's');
-    const OwnedVariant encoded = build_variant([&](VariantBlockBuilder::Row& builder) {
+    const OwnedVariant encoded = build_variant([&](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         builder.add_bool(true);
@@ -529,7 +529,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
 }
 
 TEST(VariantJsonbTest, TimestampFallbackUsesSharedTimezoneContract) {
-    const OwnedVariant encoded = build_variant([](VariantBlockBuilder::Row& builder) {
+    const OwnedVariant encoded = build_variant([](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_timestamp_micros(-1, true);
         builder.add_timestamp_micros(-1, false);
@@ -548,7 +548,7 @@ TEST(VariantJsonbTest, TimestampFallbackUsesSharedTimezoneContract) {
 }
 
 TEST(VariantJsonbTest, DecimalScale38OutputIsAcceptedByJsonbReader) {
-    const OwnedVariant source = build_variant([](VariantBlockBuilder::Row& builder) {
+    const OwnedVariant source = build_variant([](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_decimal(1, 38, 4);
         builder.add_decimal(-1, 38, 8);
@@ -584,7 +584,7 @@ TEST(VariantJsonbTest, Int128FallbackRoundTrips) {
 
 TEST(VariantJsonbTest, VariantEmptyContainersAndJsonbKeyBoundaries) {
     const std::string maximum_key(255, 'm');
-    const OwnedVariant source = build_variant([&](VariantBlockBuilder::Row& builder) {
+    const OwnedVariant source = build_variant([&](VariantBatchBuilder::Row& builder) {
         auto root = builder.start_array();
         auto empty_object = builder.start_object();
         empty_object.finish();
@@ -661,7 +661,7 @@ TEST(VariantJsonbTest, VariantContainerDepthUsesWriterLimit) {
 TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
      VariantFailuresResetWriterAndRejectUnrepresentableKeys) { // GoogleTest macros inflate metric.
     const OwnedVariant valid =
-            build_variant([](VariantBlockBuilder::Row& builder) { builder.add_null(); });
+            build_variant([](VariantBatchBuilder::Row& builder) { builder.add_null(); });
     OwnedVariant trailing = valid;
     trailing.value.push_back('\0');
 
@@ -673,7 +673,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     EXPECT_TRUE(jsonb_root(jsonb_bytes(writer))->isNull());
 
     const std::string oversized_key(256, 'k');
-    const OwnedVariant oversized = build_variant([&](VariantBlockBuilder::Row& builder) {
+    const OwnedVariant oversized = build_variant([&](VariantBatchBuilder::Row& builder) {
         auto object = builder.start_object();
         object.add_key(StringRef(oversized_key));
         builder.add_null();
@@ -683,7 +683,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
 
     const OwnedVariant invalid_time = build_variant(
-            [](VariantBlockBuilder::Row& builder) { builder.add_time_ntz_micros(-1); });
+            [](VariantBatchBuilder::Row& builder) { builder.add_time_ntz_micros(-1); });
     EXPECT_THROW(variant_to_jsonb(invalid_time.ref(), writer), Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
 }
@@ -737,7 +737,7 @@ TEST(VariantJsonbTest, MalformedVariantStringsAndDecimalsFailExplicitly) {
                  Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
 
-    const OwnedVariant valid_array = build_variant([](VariantBlockBuilder::Row& builder) {
+    const OwnedVariant valid_array = build_variant([](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         array.finish();
@@ -763,7 +763,7 @@ TEST(VariantJsonbTest, MalformedVariantStringsAndDecimalsFailExplicitly) {
 TEST(VariantJsonbBlockTest, ExplicitNullPlaceholderProducesOneNullRow) {
     JsonbToVariantEncoder encoder({.rows = 1, .scalar_bytes = 1, .nodes = 1});
     encoder.add_null();
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     ASSERT_EQ(block.num_rows(), 1);
     EXPECT_TRUE(block.value_at(0).is_null());
     EXPECT_EQ(block.metadata_ref().dict_size(), 0);
@@ -777,7 +777,7 @@ TEST(VariantJsonbBlockTest, RealJsonbAndEmptyDocumentsProduceNullRows) {
     JsonbToVariantEncoder encoder;
     encoder.add_jsonb(StringRef(document));
     encoder.add_jsonb(StringRef {});
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     ASSERT_EQ(block.num_rows(), 2);
     EXPECT_TRUE(block.value_at(0).is_null());
     EXPECT_TRUE(block.value_at(1).is_null());
@@ -786,8 +786,8 @@ TEST(VariantJsonbBlockTest, RealJsonbAndEmptyDocumentsProduceNullRows) {
 }
 
 TEST(VariantJsonbBlockTest, EmptyEncoderProducesMinimalEmptyBlock) {
-    JsonbToVariantEncoder encoder(VariantBlockBuilder::ReserveHint {});
-    VariantEncodedBlock block = encoder.finish_block();
+    JsonbToVariantEncoder encoder(VariantBatchBuilder::ReserveHint {});
+    VariantBatchBuilder block = encoder.finish_batch();
     const std::string expected_metadata("\x11\0\0", 3);
     EXPECT_EQ(std::string(block.metadata_ref().data, block.metadata_ref().size), expected_metadata);
     EXPECT_EQ(block_value_bytes(block), "");
@@ -814,7 +814,7 @@ TEST(VariantJsonbBlockTest, AddCopiesBorrowedDocumentBeforeCallerMutatesIt) {
                                    .children = 1});
     encoder.add_jsonb(StringRef(document));
     document.assign(document.size(), '\0');
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     ASSERT_EQ(block.num_rows(), 1);
     EXPECT_EQ(std::string(block.metadata_ref().data, block.metadata_ref().size), expected.metadata);
     EXPECT_EQ(block_value_bytes(block), expected.value);
@@ -849,7 +849,7 @@ TEST(VariantJsonbBlockTest, SharesDictionaryAcrossObjectsArraysAndNullRows) {
     encoder.add_jsonb(StringRef(first));
     encoder.add_jsonb(StringRef(second));
     encoder.add_jsonb(StringRef(null_document));
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     ASSERT_EQ(block.num_rows(), 3);
     ASSERT_EQ(block.metadata_ref().dict_size(), 2);
     EXPECT_EQ(block.metadata_ref().key_at(0), string_ref("a"));
@@ -891,7 +891,7 @@ TEST(VariantJsonbBlockTest, SingleCellOutputMatchesRowAdapter) {
 
     JsonbToVariantEncoder encoder;
     encoder.add_jsonb(StringRef(document));
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     ASSERT_EQ(block.num_rows(), 1);
     EXPECT_EQ(std::string(block.metadata_ref().data, block.metadata_ref().size), expected.metadata);
     EXPECT_EQ(block_value_bytes(block), expected.value);
@@ -900,7 +900,7 @@ TEST(VariantJsonbBlockTest, SingleCellOutputMatchesRowAdapter) {
     expect_jsonb_exception_code(ErrorCode::INVALID_ARGUMENT,
                                 [&] { encoder.add_jsonb(StringRef(document)); });
     expect_jsonb_exception_code(ErrorCode::INVALID_ARGUMENT,
-                                [&] { static_cast<void>(encoder.finish_block()); });
+                                [&] { static_cast<void>(encoder.finish_batch()); });
 }
 
 TEST(VariantJsonbBlockTest, InvalidDuplicateAndDeepInputsAreTerminal) {
@@ -909,7 +909,7 @@ TEST(VariantJsonbBlockTest, InvalidDuplicateAndDeepInputsAreTerminal) {
     expect_jsonb_exception_code(ErrorCode::CORRUPTION,
                                 [&] { bad_version_encoder.add_jsonb(StringRef(bad_version)); });
     expect_jsonb_exception_code(ErrorCode::INVALID_ARGUMENT,
-                                [&] { static_cast<void>(bad_version_encoder.finish_block()); });
+                                [&] { static_cast<void>(bad_version_encoder.finish_batch()); });
 
     JsonbWriter duplicate_writer;
     ASSERT_TRUE(duplicate_writer.writeStartObject());
@@ -930,7 +930,7 @@ TEST(VariantJsonbBlockTest, InvalidDuplicateAndDeepInputsAreTerminal) {
     expect_jsonb_exception_code(ErrorCode::INVALID_ARGUMENT,
                                 [&] { deep_encoder.add_jsonb(StringRef(too_deep)); });
     expect_jsonb_exception_code(ErrorCode::INVALID_ARGUMENT,
-                                [&] { static_cast<void>(deep_encoder.finish_block()); });
+                                [&] { static_cast<void>(deep_encoder.finish_batch()); });
 }
 
 struct JsonbBlockBenchmarkResult {
@@ -949,7 +949,7 @@ uint64_t run_jsonb_block_benchmark(StringRef document, uint32_t rows) {
     for (uint32_t row = 0; row < rows; ++row) {
         encoder.add_jsonb(document);
     }
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     return block.value_bytes().size + block.metadata_ref().size;
 }
 

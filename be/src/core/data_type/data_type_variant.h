@@ -33,7 +33,6 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_variant.h"
-#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -62,14 +61,10 @@ public:
     const std::string get_family_name() const override { return "Variant"; }
 
     Status check_column(const IColumn& column) const override {
-        if (is_variant_v2()) {
-            return check_column_non_nested_type<ColumnVariantV2>(column);
-        }
         return check_column_non_nested_type<ColumnVariant>(column);
     }
     MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
-    virtual bool is_variant_v2() const { return false; }
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -86,11 +81,9 @@ public:
         node->set_type(TTypeNodeType::VARIANT);
         node->set_variant_max_subcolumns_count(_max_subcolumns_count);
         node->set_variant_enable_doc_mode(_enable_doc_mode);
-        node->set_variant_is_v2(is_variant_v2());
     }
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
     bool enable_doc_mode() const { return _enable_doc_mode; }
 };
-
 } // namespace doris

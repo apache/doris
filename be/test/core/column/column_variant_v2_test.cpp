@@ -55,14 +55,14 @@
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/timestamptz_value.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/string_hash_map.h"
 #include "exec/common/sip_hash.h"
-#include "exprs/function/parse/variant_json.h"
-#include "exprs/function/parse/variant_jsonb.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_writer.h"
 #include "util/variant/variant_test_utils.h"
 
@@ -72,11 +72,11 @@ namespace {
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 VariantField encode_json(std::string_view json) {
-    JsonToVariantEncoder encoder({.max_json_key_length = 255,
-                                  .throw_on_invalid_json = true,
-                                  .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::encode(block.value_at(0));
 }
 
@@ -253,23 +253,6 @@ size_t metadata_count(ColumnVariantV2& column) {
     return assert_cast<const ColumnString&>(*subcolumn_address(column, 0)).size();
 }
 
-void rebuild_metadata_index(ColumnVariantV2& column) {
-    ColumnVariantV2::TestAccess::reset_metadata_index(column);
-    ASSERT_GT(column.size(), 0);
-    const VariantMetadataRef metadata = column.get_value_ref(0).metadata;
-    ColumnVariantV2::TestAccess::find_or_insert_metadata(column, {metadata.data, metadata.size});
-}
-
-void expect_metadata_index_empty(const ColumnVariantV2& column) {
-    auto clone_without_index = column.clone();
-    EXPECT_EQ(column.allocated_bytes(), clone_without_index->allocated_bytes());
-}
-
-void expect_metadata_index_present(const ColumnVariantV2& column) {
-    auto clone_without_index = column.clone();
-    EXPECT_GT(column.allocated_bytes(), clone_without_index->allocated_bytes());
-}
-
 struct JsonWriter {
     void write(const char* data, size_t size) { value.append(data, size); }
 
@@ -412,11 +395,6 @@ constexpr uint32_t pack_olap_date(uint32_t year, uint32_t month, uint32_t day) {
     return (year << 9) | (month << 5) | day;
 }
 
-void expect_stats(const ColumnVariantV2::TypedEncodingStats& stats, size_t largeint, size_t ip) {
-    EXPECT_EQ(stats.largeint_string_fallback_rows, largeint);
-    EXPECT_EQ(stats.ip_string_fallback_rows, ip);
-}
-
 void validate_encoded_column(const ColumnVariantV2& column) {
     ASSERT_FALSE(column.is_typed());
     for (size_t row = 0; row < column.size(); ++row) {
@@ -425,14 +403,12 @@ void validate_encoded_column(const ColumnVariantV2& column) {
 }
 
 template <typename CheckValue>
-void expect_single_typed_encoding(ColumnPtr nullable, DataTypePtr type, CheckValue&& check_value,
-                                  size_t largeint_fallback = 0, size_t ip_fallback = 0) {
+void expect_single_typed_encoding(ColumnPtr nullable, DataTypePtr type, CheckValue&& check_value) {
     auto column = ColumnVariantV2::create_typed(std::move(nullable), std::move(type));
-    const ColumnVariantV2::TypedEncodingStats stats = column->ensure_encoded();
+    column->ensure_encoded();
     EXPECT_FALSE(column->is_typed());
     ASSERT_EQ(column->size(), 1);
     EXPECT_EQ(metadata_count(*column), 1);
-    expect_stats(stats, largeint_fallback, ip_fallback);
     check_value(column->get_value_ref(0));
     validate_encoded_column(*column);
 }
@@ -828,7 +804,7 @@ TEST(ColumnVariantV2Test, PreservesLegalNoncanonicalBytes) {
     EXPECT_EQ(assert_cast<const ColumnString&>(*children[0]).size(), 1);
 }
 
-TEST(ColumnVariantV2Test, ReadViewRejectsMalformedMetadataAndTrailingValueBytes) {
+TEST(ColumnVariantV2Test, InsertRejectsMalformedMetadataAndTrailingValueBytes) {
     OwnedEncodedData invalid_metadata;
     invalid_metadata.metadata_bytes.assign(1, static_cast<char>(VARIANT_ENCODING_VERSION));
     invalid_metadata.metadata_offsets = {0, 1};
@@ -838,10 +814,7 @@ TEST(ColumnVariantV2Test, ReadViewRejectsMalformedMetadataAndTrailingValueBytes)
                                  << VARIANT_VALUE_HEADER_SHIFT));
     invalid_metadata.value_offsets = {0, 1};
     auto metadata_column = ColumnVariantV2::create();
-    metadata_column->insert_encoded_rows(invalid_metadata.view());
-    const auto metadata_view = metadata_column->read_view();
-    EXPECT_FALSE(metadata_view.is_typed());
-    EXPECT_THROW(static_cast<void>(metadata_view.metadata_at(0)), Exception);
+    EXPECT_THROW(metadata_column->insert_encoded_rows(invalid_metadata.view()), Exception);
 
     OwnedEncodedData trailing_value;
     trailing_value.metadata_bytes = empty_metadata_bytes();
@@ -853,13 +826,10 @@ TEST(ColumnVariantV2Test, ReadViewRejectsMalformedMetadataAndTrailingValueBytes)
                                  << VARIANT_VALUE_HEADER_SHIFT));
     trailing_value.value_offsets = {0, 2};
     auto value_column = ColumnVariantV2::create();
-    value_column->insert_encoded_rows(trailing_value.view());
-    const auto value_view = value_column->read_view();
-    EXPECT_FALSE(value_view.is_typed());
-    EXPECT_THROW(static_cast<void>(value_view.value_at(0)), Exception);
+    EXPECT_THROW(value_column->insert_encoded_rows(trailing_value.view()), Exception);
 }
 
-TEST(ColumnVariantV2Test, ReadViewBorrowsEncodedStateAndCachesDenseMetadata) {
+TEST(ColumnVariantV2Test, ReadViewBorrowsValidatedEncodedState) {
     auto column = ColumnVariantV2::create();
     insert_encoded_field(*column, encode_json(R"({"a":1})"));
     insert_encoded_field(*column, encode_json(R"({"a":2})"));
@@ -873,9 +843,9 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsEncodedStateAndCachesDenseMetadata) {
     EXPECT_EQ(view.metadata_id_at(0), 0);
     EXPECT_EQ(view.metadata_id_at(1), 0);
     const VariantMetadataRef first_metadata = view.metadata_at(0);
-    const VariantMetadataRef cached_metadata = view.metadata_at(0);
-    EXPECT_EQ(first_metadata.data, cached_metadata.data);
-    EXPECT_EQ(first_metadata.size, cached_metadata.size);
+    const VariantMetadataRef second_metadata = view.metadata_at(0);
+    EXPECT_EQ(first_metadata.data, second_metadata.data);
+    EXPECT_EQ(first_metadata.size, second_metadata.size);
     VariantRef value;
     ASSERT_TRUE(view.value_at(1).object_find(StringRef("a"), &value));
     EXPECT_EQ(value.get_int(), 2);
@@ -969,29 +939,6 @@ TEST(ColumnVariantV2Test, RemapsDistinctAndDuplicateMetadataBlobs) {
     EXPECT_EQ(value.get_int(), 3);
     ASSERT_TRUE(destination->get_value_ref(2).object_find(StringRef("a"), &value));
     EXPECT_EQ(value.get_int(), 2);
-
-    const uint64_t forced_hash = 7;
-    auto collision = ColumnVariantV2::create();
-    const uint32_t a_id = ColumnVariantV2::TestAccess::find_or_insert_metadata(
-            *collision, {object_a_one.ref().metadata.data, object_a_one.ref().metadata.size},
-            forced_hash);
-    const uint32_t b_id = ColumnVariantV2::TestAccess::find_or_insert_metadata(
-            *collision, {object_b.ref().metadata.data, object_b.ref().metadata.size}, forced_hash);
-    const uint32_t a_again = ColumnVariantV2::TestAccess::find_or_insert_metadata(
-            *collision, {object_a_one.ref().metadata.data, object_a_one.ref().metadata.size},
-            forced_hash);
-    EXPECT_NE(a_id, b_id);
-    EXPECT_EQ(a_id, a_again);
-
-    auto accounting = ColumnVariantV2::create();
-    insert_encoded_field(*accounting, object_a_one);
-    ColumnVariantV2::TestAccess::reset_metadata_index(*accounting);
-    const size_t without_index = accounting->allocated_bytes();
-    EXPECT_EQ(ColumnVariantV2::TestAccess::find_or_insert_metadata(
-                      *accounting,
-                      {object_a_one.ref().metadata.data, object_a_one.ref().metadata.size}),
-              0);
-    EXPECT_GT(accounting->allocated_bytes(), without_index);
 }
 
 TEST(ColumnVariantV2Test, BulkAppendSharedMetadataAtLeast64KRows) {
@@ -1015,39 +962,39 @@ TEST(ColumnVariantV2Test, BulkAppendSharedMetadataAtLeast64KRows) {
     EXPECT_TRUE(destination->get_value_ref(ROWS - 1).is_null());
 }
 
-TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
+TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     {
-        JsonToVariantEncoder encoder;
-        VariantEncodedBlock block = encoder.finish_block();
+        JsonStringToVariantEncoder encoder;
+        VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block);
+        column->insert_encoded_batch(block);
         EXPECT_EQ(column->size(), 0);
         EXPECT_EQ(metadata_count(*column), 0);
     }
 
     {
-        JsonToVariantEncoder encoder({.max_json_key_length = 255,
-                                      .throw_on_invalid_json = true,
-                                      .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                            .throw_on_invalid_json = true,
+                                            .check_duplicate_json_path = false});
         encoder.add_json(StringRef("7", 1));
-        VariantEncodedBlock block = encoder.finish_block();
+        VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block);
+        column->insert_encoded_batch(block);
         ASSERT_EQ(column->size(), 1);
         EXPECT_EQ(column->get_value_ref(0).get_int(), 7);
     }
 
     {
-        JsonToVariantEncoder encoder({.max_json_key_length = 255,
-                                      .throw_on_invalid_json = true,
-                                      .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                            .throw_on_invalid_json = true,
+                                            .check_duplicate_json_path = false});
         constexpr std::string_view FIRST = R"({"a":[1,{"b":true}]})";
         constexpr std::string_view SECOND = R"({"b":2,"a":[]})";
         encoder.add_json({FIRST.data(), FIRST.size()});
         encoder.add_json({SECOND.data(), SECOND.size()});
-        VariantEncodedBlock block = encoder.finish_block();
+        VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block);
+        column->insert_encoded_batch(block);
         ASSERT_EQ(column->size(), 2);
         EXPECT_EQ(metadata_count(*column), 1);
         VariantRef nested;
@@ -1073,9 +1020,9 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
                                    static_cast<size_t>(writer.getOutput()->getSize()));
         JsonbToVariantEncoder encoder;
         encoder.add_jsonb(StringRef(document));
-        VariantEncodedBlock block = encoder.finish_block();
+        VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
-        column->insert_encoded_block(block);
+        column->insert_encoded_batch(block);
         ASSERT_EQ(column->size(), 1);
         VariantRef array;
         ASSERT_TRUE(column->get_value_ref(0).object_find(StringRef("jsonb", 5), &array));
@@ -1085,27 +1032,27 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlocksDirectly) {
     }
 }
 
-TEST(ColumnVariantV2Test, InsertsCodecOwnedBlockAtLeast64KRows) {
+TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchAtLeast64KRows) {
     constexpr uint32_t ROWS = 65'536;
-    VariantBlockBuilder builder({.rows = ROWS, .nodes = ROWS});
+    VariantBatchBuilder builder({.rows = ROWS, .nodes = ROWS});
     for (uint32_t index = 0; index < ROWS; ++index) {
         auto row = builder.begin_row();
         row.add_null();
         row.finish();
     }
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     ASSERT_EQ(block.value_offsets().size(), static_cast<size_t>(ROWS) + 1);
     ASSERT_EQ(block.value_offsets().back(), ROWS);
 
     auto column = ColumnVariantV2::create();
-    column->insert_encoded_block(block);
+    column->insert_encoded_batch(block);
     ASSERT_EQ(column->size(), ROWS);
     EXPECT_TRUE(column->get_value_ref(0).is_null());
     EXPECT_TRUE(column->get_value_ref(ROWS / 2).is_null());
     EXPECT_TRUE(column->get_value_ref(ROWS - 1).is_null());
 }
 
-TEST(ColumnVariantV2Test, CowCloneForEachAndClearRebuildMetadataIndex) {
+TEST(ColumnVariantV2Test, CowCloneForEachAndClear) {
     auto column = ColumnVariantV2::create();
     insert_encoded_field(*column, encode_json(R"({"a":1})"));
     insert_encoded_field(*column, encode_json(R"({"b":2})"));
@@ -1118,7 +1065,6 @@ TEST(ColumnVariantV2Test, CowCloneForEachAndClearRebuildMetadataIndex) {
     EXPECT_EQ(metadata_count(detached), ORIGINAL_METADATA_COUNT);
     EXPECT_EQ(original->size(), 2);
 
-    ColumnVariantV2::TestAccess::reset_metadata_index(detached);
     insert_encoded_field(detached, encode_json(R"({"b":4})"));
     EXPECT_EQ(metadata_count(detached), ORIGINAL_METADATA_COUNT);
     detached.clear();
@@ -1210,8 +1156,6 @@ TEST(ColumnVariantV2Test, ConstFiltersMatchColumnStringAndKeepMetadataReadOnly) 
     EXPECT_EQ(filtered_variant.get_value_ref(0).metadata.data,
               source->get_value_ref(1).metadata.data);
     EXPECT_EQ(source->allocated_bytes(), source_allocated);
-    auto filtered_without_index = filtered->clone();
-    EXPECT_EQ(filtered->allocated_bytes(), filtered_without_index->allocated_bytes());
 
     IColumn::Filter none(source->size(), 0);
     ColumnPtr empty = std::as_const(*source).filter(none, 0);
@@ -1229,48 +1173,30 @@ TEST(ColumnVariantV2Test, ConstFiltersMatchColumnStringAndKeepMetadataReadOnly) 
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertion macros inflate it.
-TEST(ColumnVariantV2Test, InPlaceFilterPrevalidatesAndPreservesMetadataIndex) {
+TEST(ColumnVariantV2Test, InPlaceFilterPrevalidatesInputs) {
     auto column = ColumnVariantV2::create();
     auto reference = ColumnString::create();
     fill_row_transform_columns(*column, *reference);
-    ColumnVariantV2::TestAccess::reset_metadata_index(*column);
-    const VariantMetadataRef indexed_metadata = column->get_value_ref(0).metadata;
-    EXPECT_EQ(ColumnVariantV2::TestAccess::find_or_insert_metadata(
-                      *column, {indexed_metadata.data, indexed_metadata.size}),
-              0);
 
     IColumn::Filter mixed {1, 0, 1, 0, 1};
     EXPECT_EQ(column->filter(mixed), 3);
     EXPECT_EQ(reference->filter(mixed), 3);
     expect_values_match(*column, *reference);
-    auto clone_without_index = column->clone();
-    EXPECT_GT(column->allocated_bytes(), clone_without_index->allocated_bytes());
 
     auto all_column = ColumnVariantV2::create();
     auto all_reference = ColumnString::create();
     fill_row_transform_columns(*all_column, *all_reference);
-    ColumnVariantV2::TestAccess::reset_metadata_index(*all_column);
-    const VariantMetadataRef all_indexed = all_column->get_value_ref(0).metadata;
-    ColumnVariantV2::TestAccess::find_or_insert_metadata(*all_column,
-                                                         {all_indexed.data, all_indexed.size});
     IColumn::Filter all(all_column->size(), 1);
     EXPECT_EQ(all_column->filter(all), all_reference->filter(all));
     expect_values_match(*all_column, *all_reference);
-    auto all_without_index = all_column->clone();
-    EXPECT_GT(all_column->allocated_bytes(), all_without_index->allocated_bytes());
 
     auto none_column = ColumnVariantV2::create();
     auto none_reference = ColumnString::create();
     fill_row_transform_columns(*none_column, *none_reference);
     const size_t none_metadata_count = metadata_count(*none_column);
-    const VariantMetadataRef none_indexed = none_column->get_value_ref(0).metadata;
-    ColumnVariantV2::TestAccess::find_or_insert_metadata(*none_column,
-                                                         {none_indexed.data, none_indexed.size});
     IColumn::Filter none(none_column->size(), 0);
     EXPECT_EQ(none_column->filter(none), none_reference->filter(none));
     EXPECT_EQ(none_column->size(), 0);
-    auto none_without_index = none_column->clone();
-    EXPECT_GT(none_column->allocated_bytes(), none_without_index->allocated_bytes());
     EXPECT_EQ(metadata_count(*none_column), none_metadata_count);
 
     auto invalid_column = ColumnVariantV2::create();
@@ -1311,8 +1237,6 @@ TEST(ColumnVariantV2Test, PermuteMatchesColumnStringAndRejectsInvalidInputs) {
     MutableColumnPtr limited_reference = reference->permute(permutation, 3);
     auto& limited_variant = assert_cast<ColumnVariantV2&>(*limited);
     expect_values_match(limited_variant, assert_cast<const ColumnString&>(*limited_reference));
-    auto limited_without_index = limited_variant.clone();
-    EXPECT_EQ(limited_variant.allocated_bytes(), limited_without_index->allocated_bytes());
     EXPECT_EQ(subcolumns(limited_variant)[0]->byte_size(), metadata_bytes);
     EXPECT_EQ(limited_variant.get_value_ref(0).metadata.data,
               source->get_value_ref(4).metadata.data);
@@ -1329,16 +1253,12 @@ TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {
     auto pop_reference = ColumnString::create();
     fill_row_transform_columns(*pop_column, *pop_reference);
     const size_t metadata_bytes = subcolumns(*pop_column)[0]->byte_size();
-    const VariantMetadataRef pop_indexed = pop_column->get_value_ref(0).metadata;
-    ColumnVariantV2::TestAccess::find_or_insert_metadata(*pop_column,
-                                                         {pop_indexed.data, pop_indexed.size});
 
     pop_column->pop_back(0);
     pop_reference->pop_back(0);
     pop_column->pop_back(2);
     pop_reference->pop_back(2);
     expect_values_match(*pop_column, *pop_reference);
-    expect_metadata_index_present(*pop_column);
 
     const size_t size_before_invalid_pop = pop_column->size();
     EXPECT_DEATH(pop_column->pop_back(size_before_invalid_pop + 1),
@@ -1362,14 +1282,9 @@ TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {
     auto resize_column = ColumnVariantV2::create();
     auto resize_reference = ColumnString::create();
     fill_row_transform_columns(*resize_column, *resize_reference);
-    ColumnVariantV2::TestAccess::reset_metadata_index(*resize_column);
-    const VariantMetadataRef resize_indexed = resize_column->get_value_ref(0).metadata;
-    ColumnVariantV2::TestAccess::find_or_insert_metadata(
-            *resize_column, {resize_indexed.data, resize_indexed.size});
     resize_column->resize(3);
     resize_reference->resize(3);
     expect_values_match(*resize_column, *resize_reference);
-    expect_metadata_index_present(*resize_column);
     resize_column->resize(3);
     expect_values_match(*resize_column, *resize_reference);
 
@@ -1378,7 +1293,6 @@ TEST(ColumnVariantV2Test, PopBackAndResizeCoverBoundsShrinkAndGrowth) {
     resize_reference->insert_data("{}", 2);
     resize_reference->insert_data("{}", 2);
     expect_values_match(*resize_column, *resize_reference);
-    expect_metadata_index_present(*resize_column);
 
     auto empty = ColumnVariantV2::create();
     empty->resize(3);
@@ -1405,12 +1319,9 @@ TEST(ColumnVariantV2Test, CloneFamilyPreservesCowAndMetadataContracts) {
     auto reference = ColumnString::create();
     fill_row_transform_columns(*source, *reference);
     const size_t source_metadata_count = metadata_count(*source);
-    const VariantMetadataRef indexed_metadata = source->get_value_ref(0).metadata;
-    ColumnVariantV2::TestAccess::find_or_insert_metadata(
-            *source, {indexed_metadata.data, indexed_metadata.size});
 
     auto shallow = source->clone();
-    EXPECT_GT(source->allocated_bytes(), shallow->allocated_bytes());
+    EXPECT_EQ(source->allocated_bytes(), shallow->allocated_bytes());
     for (size_t index = 0; index < 3; ++index) {
         EXPECT_EQ(subcolumn_address(*source, index),
                   subcolumn_address(assert_cast<ColumnVariantV2&>(*shallow), index));
@@ -1437,31 +1348,22 @@ TEST(ColumnVariantV2Test, CloneFamilyPreservesCowAndMetadataContracts) {
     EXPECT_EQ(zero_variant.size(), 0);
     EXPECT_EQ(metadata_count(zero_variant), 0);
 
-    rebuild_metadata_index(*source);
     MutableColumnPtr shrunk = source->clone_resized(3);
     auto& shrunk_variant = assert_cast<ColumnVariantV2&>(*shrunk);
     auto shrunk_reference = std::as_const(*reference).clone_resized(3);
-    expect_metadata_index_present(*source);
-    expect_metadata_index_empty(shrunk_variant);
     expect_values_match(shrunk_variant, assert_cast<const ColumnString&>(*shrunk_reference));
     EXPECT_EQ(metadata_count(shrunk_variant), source_metadata_count);
     EXPECT_EQ(subcolumn_address(shrunk_variant, 0), subcolumn_address(*source, 0));
     EXPECT_NE(subcolumn_address(shrunk_variant, 1), subcolumn_address(*source, 1));
     EXPECT_NE(subcolumn_address(shrunk_variant, 2), subcolumn_address(*source, 2));
 
-    rebuild_metadata_index(*source);
     MutableColumnPtr equal = source->clone_resized(source->size());
     auto& equal_variant = assert_cast<ColumnVariantV2&>(*equal);
-    expect_metadata_index_present(*source);
-    expect_metadata_index_empty(equal_variant);
     expect_values_match(equal_variant, *reference);
     EXPECT_EQ(metadata_count(equal_variant), source_metadata_count);
 
-    rebuild_metadata_index(*source);
     MutableColumnPtr grown = source->clone_resized(source->size() + 2);
     auto& grown_variant = assert_cast<ColumnVariantV2&>(*grown);
-    expect_metadata_index_present(*source);
-    expect_metadata_index_empty(grown_variant);
     ASSERT_EQ(grown_variant.size(), source->size() + 2);
     for (size_t row = 0; row < source->size(); ++row) {
         EXPECT_EQ(json_at(grown_variant, row), as_view(reference->get_data_at(row)));
@@ -1478,7 +1380,6 @@ TEST(ColumnVariantV2Test, CloneFamilyPreservesCowAndMetadataContracts) {
     EXPECT_EQ(fresh_source->size(), 0);
     EXPECT_EQ(metadata_count(*fresh_source), 0);
     ASSERT_EQ(fresh_grown_variant.size(), 3);
-    expect_metadata_index_empty(fresh_grown_variant);
     EXPECT_EQ(metadata_count(fresh_grown_variant), 1);
     for (size_t row = 0; row < fresh_grown_variant.size(); ++row) {
         EXPECT_EQ(json_at(fresh_grown_variant, row), "{}");
@@ -1868,18 +1769,6 @@ TEST(ColumnVariantV2Test, RejectsInvalidBulkOffsetsAndMetadataIds) {
                 column->insert_encoded_rows(invalid.view(true));
             },
             "omitted metadata ids");
-
-    EXPECT_DEATH(
-            {
-                auto source = ColumnVariantV2::create();
-                insert_encoded_field(*source, encode_json("1"));
-                auto invalid_ids = MetaIdsColumn::create();
-                invalid_ids->insert_value(9);
-                replace_subcolumn(*source, 1, invalid_ids->get_ptr());
-                auto destination = ColumnVariantV2::create();
-                destination->insert_range_from(*source, 0, 1);
-            },
-            "metadata id");
 }
 
 TEST(ColumnVariantV2Test, CowDetachAndClear) {
@@ -1936,9 +1825,11 @@ TEST(ColumnVariantV2Test, TypedConstructionAndNullableInvariant) {
     EXPECT_EQ(column->typed_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
     EXPECT_EQ(column->byte_size(), subcolumns(*column).front()->byte_size());
     column->sanity_check();
+    const IColumn* typed_storage = &column->typed_column();
     column->clear();
     EXPECT_TRUE(column->is_typed());
     EXPECT_EQ(column->size(), 0);
+    EXPECT_EQ(&column->typed_column(), typed_storage);
 
     auto state_api = typed_int32(VALUES, NULLS);
     auto same_structure = typed_int32(VALUES, NULLS);
@@ -2042,11 +1933,11 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsTypedStateWithoutMaterializingIt) {
 TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     auto booleans = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnUInt8, UInt8>({0, 1}, {0, 0}), std::make_shared<DataTypeBool>());
-    expect_stats(booleans->ensure_encoded(), 0, 0);
+    booleans->ensure_encoded();
     EXPECT_EQ(booleans->get_value_ref(0).primitive_id(), VariantPrimitiveId::FALSE_VALUE);
     EXPECT_EQ(booleans->get_value_ref(1).primitive_id(), VariantPrimitiveId::TRUE_VALUE);
     validate_encoded_column(*booleans);
-    expect_stats(booleans->ensure_encoded(), 0, 0);
+    booleans->ensure_encoded();
     validate_encoded_column(*booleans);
 
     expect_single_typed_encoding(nullable_fixed<ColumnInt8, Int8>({-7}, {0}),
@@ -2080,7 +1971,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
             nullable_fixed<ColumnInt128, Int128>(
                     {decimal38_max, outside_decimal38, -outside_decimal38}, {0, 0, 0}),
             std::make_shared<DataTypeInt128>());
-    expect_stats(largeints->ensure_encoded(), 2, 0);
+    largeints->ensure_encoded();
     EXPECT_EQ(largeints->get_value_ref(0).primitive_id(), VariantPrimitiveId::DECIMAL16);
     EXPECT_EQ(largeints->get_value_ref(0).get_decimal(), (VariantDecimal {decimal38_max, 0, 16}));
     EXPECT_EQ(largeints->get_value_ref(1).get_string(),
@@ -2179,7 +2070,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
         auto strings =
                 ColumnVariantV2::create_typed(nullable_strings(STRINGS, STRING_NULLS),
                                               std::make_shared<DataTypeString>(64, primitive));
-        expect_stats(strings->ensure_encoded(), 0, 0);
+        strings->ensure_encoded();
         EXPECT_EQ(strings->get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING);
         EXPECT_EQ(strings->get_value_ref(0).get_string(), StringRef(short_text));
         EXPECT_EQ(strings->get_value_ref(1).primitive_id(), VariantPrimitiveId::STRING);
@@ -2191,13 +2082,12 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     ASSERT_TRUE(IPv4Value::from_string(ipv4, "192.0.2.1"));
     expect_single_typed_encoding(
             nullable_fixed<ColumnIPv4, IPv4>({ipv4}, {0}), std::make_shared<DataTypeIPv4>(),
-            [](VariantRef value) { EXPECT_EQ(value.get_string(), StringRef("192.0.2.1")); }, 0, 1);
+            [](VariantRef value) { EXPECT_EQ(value.get_string(), StringRef("192.0.2.1")); });
     IPv6 ipv6 {};
     ASSERT_TRUE(IPv6Value::from_string(ipv6, "2001:db8::1"));
     expect_single_typed_encoding(
             nullable_fixed<ColumnIPv6, IPv6>({ipv6}, {0}), std::make_shared<DataTypeIPv6>(),
-            [](VariantRef value) { EXPECT_EQ(value.get_string(), StringRef("2001:db8::1")); }, 0,
-            1);
+            [](VariantRef value) { EXPECT_EQ(value.get_string(), StringRef("2001:db8::1")); });
 
     constexpr std::array<int32_t, 3> NULL_VALUES {1, 0, -2};
     constexpr std::array<uint8_t, 3> INNER_NULLS {0, 0, 1};
@@ -2215,7 +2105,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     EXPECT_FALSE(empty->is_typed());
     EXPECT_EQ(empty->size(), 0);
     EXPECT_EQ(metadata_count(*empty), 0);
-    expect_stats(empty->ensure_encoded(), 0, 0);
+    empty->ensure_encoded();
 
     auto zero_date_nested = ColumnDateV2::create();
     const ColumnDateV2::value_type valid_date =
@@ -2304,14 +2194,17 @@ TEST(ColumnVariantV2Test, TypedRowTransformsCloneAndCow) {
     EXPECT_EQ(json_at(grown_variant, VALUES.size()), "{}");
     EXPECT_TRUE(source->is_typed());
 
+    const IColumn* source_storage = &source->typed_column();
     source->pop_back(2);
     EXPECT_TRUE(source->is_typed());
+    EXPECT_EQ(&source->typed_column(), source_storage);
     EXPECT_EQ(source->size(), 3);
     constexpr std::array<int32_t, 3> POPPED_VALUES {1, 2, 3};
     constexpr std::array<uint8_t, 3> POPPED_NULLS {0, 1, 0};
     expect_int32_rows(*source, POPPED_VALUES, POPPED_NULLS);
     source->resize(2);
     EXPECT_TRUE(source->is_typed());
+    EXPECT_EQ(&source->typed_column(), source_storage);
     expect_int32_rows(*source, SHRUNK_VALUES, SHRUNK_NULLS);
     source->resize(4);
     EXPECT_FALSE(source->is_typed());
@@ -2351,8 +2244,10 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     const std::vector<ColumnPtr> source_children = subcolumns(*source);
 
     auto same_type = typed_int32(DESTINATION_VALUES, DESTINATION_NULLS);
+    const IColumn* same_type_storage = &same_type->typed_column();
     same_type->insert_range_from(*source, 0, source->size());
     EXPECT_TRUE(same_type->is_typed());
+    EXPECT_EQ(&same_type->typed_column(), same_type_storage);
     EXPECT_EQ(same_type->size(), 4);
     constexpr std::array<int32_t, 4> RANGE_VALUES {9, 1, 2, 3};
     constexpr std::array<uint8_t, 4> RANGE_NULLS {0, 0, 1, 0};

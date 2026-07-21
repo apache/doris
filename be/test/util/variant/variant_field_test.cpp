@@ -29,8 +29,8 @@
 
 #include "common/exception.h"
 #include "core/field.h"
-#include "core/value/variant/variant_encoding.h"
-#include "exprs/function/parse/variant_json.h"
+#include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/json/json_parser.h"
 #include "util/json/simd_json_parser.h"
 
@@ -213,11 +213,11 @@ void expect_encode_and_decode_preservation(const std::string& metadata_bytes,
 }
 
 VariantField encode_json(std::string_view json) {
-    JsonToVariantEncoder encoder({.max_json_key_length = 255,
-                                  .throw_on_invalid_json = true,
-                                  .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::encode(block.value_at(0));
 }
 

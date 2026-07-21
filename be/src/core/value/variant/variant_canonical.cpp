@@ -31,8 +31,8 @@
 #include <vector>
 
 #include "common/exception.h"
-#include "core/value/variant/variant_encoding.h"
 #include "core/value/variant/variant_field.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/sip_hash.h"
 #include "util/hash_util.hpp"
 #include "util/utf8_check.h"

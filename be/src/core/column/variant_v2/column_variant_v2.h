@@ -17,28 +17,22 @@
 
 #pragma once
 
-#include <memory>
 #include <span>
 #include <string>
 
 #include "core/column/column.h"
-#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "core/value/variant/variant_value.h"
 
 namespace doris {
 
-class VariantEncodedBlock;
+class DataTypeVariantV2SerDe;
+class VariantBatchBuilder;
 
 // ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes or one nullable
-// typed scalar column. Mixed operations materialize the typed state as encoded bytes atomically.
+// typed scalar column. Mixed operations materialize the typed state as encoded bytes on demand.
 class ColumnVariantV2 final : public COWHelper<IColumn, ColumnVariantV2> {
 public:
-    struct TypedEncodingStats {
-        size_t largeint_string_fallback_rows = 0;
-        size_t ip_string_fallback_rows = 0;
-    };
-
     struct EncodedDataView {
         StringRef metadata_bytes;
         std::span<const uint32_t> metadata_offsets;
@@ -49,8 +43,7 @@ public:
 
     // Borrowed immutable adapter for whole-column E/T readers. The source column owns every
     // referenced column, type, and byte; any structural mutation invalidates this view. Encoded
-    // metadata is validated lazily once per dense id, and values are required to occupy their exact
-    // row boundary. The cache is call-local and uses tracked storage.
+    // bytes have already been validated at their insertion or deserialization boundary.
     class ReadView {
     public:
         bool is_typed() const noexcept { return _typed_state; }
@@ -73,29 +66,15 @@ public:
         const IColumn* _values = nullptr;
         const IColumn* _typed = nullptr;
         const DataTypePtr* _typed_type = nullptr;
-        mutable DorisVector<uint8_t> _validated_metadata;
     };
 
 #ifdef BE_TEST
-    // Narrow unit-test seam for deterministic hash-collision and lazy-index coverage.
+    // Narrow unit-test seam for encoded-state invariant coverage.
     struct TestAccess {
-        static uint32_t find_or_insert_metadata(ColumnVariantV2& column, StringRef metadata) {
-            return column._find_or_insert_metadata(metadata);
-        }
-
-        static uint32_t find_or_insert_metadata(ColumnVariantV2& column, StringRef metadata,
-                                                uint64_t hash) {
-            return column._find_or_insert_metadata(metadata, hash);
-        }
-
-        static void reset_metadata_index(ColumnVariantV2& column);
-
         static void replace_encoded_subcolumn(ColumnVariantV2& column, size_t index,
                                               ColumnPtr replacement);
     };
 #endif
-
-    ~ColumnVariantV2() override;
 
     // The input must be an exact, non-Const ColumnNullable whose nested column matches the
     // non-nullable supported scalar type.
@@ -104,7 +83,7 @@ public:
     bool is_typed() const noexcept { return _typed != nullptr; }
     const IColumn& typed_column() const;
     const DataTypePtr& typed_type() const;
-    TypedEncodingStats ensure_encoded();
+    void ensure_encoded();
     ReadView read_view() const;
 
     std::string get_name() const override;
@@ -128,7 +107,7 @@ public:
 
     // Direct shared-metadata codec adapter. The block already uses ColumnString-compatible uint32
     // offsets, so this path borrows its buffers without an O(rows) offset conversion.
-    void insert_encoded_block(const VariantEncodedBlock& block);
+    void insert_encoded_batch(const VariantBatchBuilder& block);
 
     // The returned view borrows this column's metadata and value buffers. Any structural mutation,
     // including insert, clear, COW mutation, or future row transformations, may invalidate it.
@@ -186,17 +165,14 @@ public:
 
 private:
     friend class COWHelper<IColumn, ColumnVariantV2>;
-
-    struct MetaDictIndex;
+    friend class DataTypeVariantV2SerDe;
 
     ColumnVariantV2();
     ColumnVariantV2(const ColumnVariantV2& other);
 
     uint32_t _find_or_insert_metadata(StringRef metadata);
-    uint32_t _find_or_insert_metadata(StringRef metadata, uint64_t hash);
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
-    void _rollback_metadata(size_t old_count, IColumn::Ptr original_metadata);
     void _check_invariants() const;
     void mutate_subcolumns() override;
 
@@ -212,9 +188,6 @@ private:
     // single type described by _typed_type.
     IColumn::WrappedPtr _typed;
     DataTypePtr _typed_type;
-
-    // T2.2 supplies the actual lookup structure. COW copies and structural mutation discard it.
-    std::unique_ptr<MetaDictIndex> _meta_index;
 };
 
 } // namespace doris

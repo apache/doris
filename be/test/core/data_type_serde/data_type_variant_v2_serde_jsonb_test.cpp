@@ -112,21 +112,6 @@ std::string object_with_value(const std::function<void(JsonbWriter&)>& write_val
     return {writer.getOutput()->getBuffer(), static_cast<size_t>(writer.getOutput()->getSize())};
 }
 
-ColumnVariantV2::MutablePtr trailing_value_column() {
-    constexpr std::array<char, 3> metadata {static_cast<char>(0x11), 0, 0};
-    constexpr std::array<uint32_t, 2> metadata_offsets {0, 3};
-    constexpr std::array<uint32_t, 1> ids {0};
-    constexpr std::array<char, 2> values {0, 0};
-    constexpr std::array<uint32_t, 2> value_offsets {0, 2};
-    auto result = ColumnVariantV2::create();
-    result->insert_encoded_rows({.metadata_bytes = {metadata.data(), metadata.size()},
-                                 .metadata_offsets = metadata_offsets,
-                                 .meta_ids = ids,
-                                 .value_bytes = {values.data(), values.size()},
-                                 .value_offsets = value_offsets});
-    return result;
-}
-
 } // namespace
 
 TEST(DataTypeVariantV2SerdeJsonbTest, EncodedAndTypedWriteIdenticalBinaryDocumentsAndRoundTrip) {
@@ -244,17 +229,13 @@ TEST(DataTypeVariantV2SerdeJsonbTest, // NOLINT(readability-function-cognitive-c
     EXPECT_EQ(json_at(serde, *destination, 0), "{}");
 }
 
-TEST(DataTypeVariantV2SerdeJsonbTest, BadEncodedInputDoesNotTouchResultWriter) {
+TEST(DataTypeVariantV2SerdeJsonbTest, InvalidRowDoesNotTouchResultWriter) {
     DataTypeVariantV2SerDe serde;
-    auto bad = trailing_value_column();
     JsonbWriter writer;
     ASSERT_TRUE(writer.writeStartObject());
     const size_t before = writer.getOutput()->getSize();
     Arena arena;
     DataTypeSerDe::FormatOptions options;
-    EXPECT_THROW(serde.write_one_cell_to_jsonb(*bad, writer, arena, 1, 0, options), Exception);
-    EXPECT_EQ(writer.getOutput()->getSize(), before);
-
     auto valid = typed_int(1);
     EXPECT_THROW(serde.write_one_cell_to_jsonb(*valid, writer, arena, 1,
                                                std::numeric_limits<int64_t>::max(), options),

@@ -28,7 +28,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_variant.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_uniq.h"
 
@@ -56,7 +56,7 @@ private:
 };
 
 ColumnVariantV2::MutablePtr encoded_values() {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 7});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 7});
     {
         auto row = builder.begin_row();
         row.add_int(1);
@@ -109,9 +109,9 @@ ColumnVariantV2::MutablePtr encoded_values() {
         row.finish();
     }
 
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     auto column = ColumnVariantV2::create();
-    column->insert_encoded_block(block);
+    column->insert_encoded_batch(block);
     return column;
 }
 

@@ -27,8 +27,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/common/variant_util.h"
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/json/json_parser.h"
 
@@ -74,10 +75,8 @@ public:
         DORIS_CHECK_EQ(result_is_nullable, ERROR_TO_NULL || input_nulls != nullptr);
         auto result_nulls = ColumnUInt8::create(input_rows_count, uint8_t {0});
 
-        const auto* variant_type = dynamic_cast<const DataTypeVariant*>(
-                remove_nullable(block.get_by_position(result).type).get());
-        DORIS_CHECK(variant_type != nullptr);
-        if (!variant_type->is_variant_v2()) {
+        const IDataType* result_type = remove_nullable(block.get_by_position(result).type).get();
+        if (const auto* variant_type = dynamic_cast<const DataTypeVariant*>(result_type)) {
             const int32_t max_subcolumns_count = variant_type->variant_max_subcolumns_count();
             const bool enable_doc_mode = variant_type->enable_doc_mode();
             auto values = ColumnVariant::create(max_subcolumns_count, enable_doc_mode);
@@ -144,8 +143,9 @@ public:
             block.replace_by_position(result, std::move(output));
             return Status::OK();
         }
+        DORIS_CHECK(dynamic_cast<const DataTypeVariantV2*>(result_type) != nullptr);
 
-        JsonToVariantEncoder encoder(JsonToVariantOptions::current_config());
+        JsonStringToVariantEncoder encoder(JsonToVariantOptions::current_config());
         const StringRef null_json("null", 4);
         for (size_t row = 0; row < input_rows_count; ++row) {
             if (input_nulls != nullptr && (*input_nulls)[row] != 0) {
@@ -166,9 +166,9 @@ public:
             result_nulls->get_data()[row] = 1;
         }
 
-        VariantEncodedBlock encoded = encoder.finish_block();
+        VariantBatchBuilder encoded = encoder.finish_batch();
         auto values = ColumnVariantV2::create();
-        values->insert_encoded_block(encoded);
+        values->insert_encoded_batch(encoded);
 
         ColumnPtr output;
         if (result_is_nullable) {

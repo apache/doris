@@ -20,9 +20,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_value.h"
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 
 namespace doris {
 
@@ -31,18 +31,18 @@ template <class OS_TYPE>
 class JsonbWriterT;
 using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 
-// Appends exactly one complete JSONB value to an active block-builder row. This is the storage
+// Appends exactly one complete JSONB value to an active batch-builder row. This is the storage
 // assembler adapter over the same bounded parser; failure aborts the active row.
-void jsonb_to_variant(StringRef document, VariantBlockBuilder::Row& row,
+void jsonb_to_variant(StringRef document, VariantBatchBuilder::Row& row,
                       uint32_t initial_depth = 0);
 
-// Converts a sequence of complete JSONB documents into one shared-metadata Variant block. Input
-// bytes only need to remain alive for add_jsonb(). A failed add_jsonb()/finish_block() is terminal,
-// as is a successful finish_block().
+// Converts a sequence of complete JSONB documents into one shared-metadata Variant batch. Input
+// bytes only need to remain alive for add_jsonb(). A failed add_jsonb()/finish_batch() is terminal,
+// as is a successful finish_batch().
 class JsonbToVariantEncoder {
 public:
     JsonbToVariantEncoder();
-    explicit JsonbToVariantEncoder(VariantBlockBuilder::ReserveHint hint);
+    explicit JsonbToVariantEncoder(VariantBatchBuilder::ReserveHint hint);
     ~JsonbToVariantEncoder();
 
     JsonbToVariantEncoder(const JsonbToVariantEncoder&) = delete;
@@ -52,7 +52,7 @@ public:
 
     void add_null();
     void add_jsonb(StringRef document);
-    VariantEncodedBlock finish_block();
+    VariantBatchBuilder finish_batch();
 
 private:
     struct Impl;

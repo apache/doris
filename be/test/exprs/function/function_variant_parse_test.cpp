@@ -34,9 +34,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_test_util.h"
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -85,8 +85,11 @@ ExecutionResult execute_parse(std::string_view function_name, ColumnPtr input,
                               const DataTypePtr& input_type, size_t rows,
                               DataTypePtr result_type = nullptr, bool use_variant_v2 = true) {
     if (result_type == nullptr) {
-        result_type = use_variant_v2 ? std::make_shared<DataTypeVariantV2>()
-                                     : std::make_shared<DataTypeVariant>();
+        if (use_variant_v2) {
+            result_type = std::make_shared<DataTypeVariantV2>();
+        } else {
+            result_type = std::make_shared<DataTypeVariant>();
+        }
         if (function_name == "parse_to_variant_error_to_null" || input_type->is_nullable()) {
             result_type = make_nullable(result_type);
         }

@@ -36,8 +36,8 @@
 #include <utility>
 #include <vector>
 
-#include "core/value/variant/variant_block_builder.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "core/value/variant/variant_value.h"
 #include "variant_test_utils.h"
 
@@ -437,12 +437,12 @@ std::string describe(VariantRef value) {
     throw std::runtime_error("Unknown Variant primitive in golden semantic decoder");
 }
 
-EncodedVariant build_doris(const std::function<void(VariantBlockBuilder::Row&)>& append) {
-    VariantBlockBuilder builder;
+EncodedVariant build_doris(const std::function<void(VariantBatchBuilder::Row&)>& append) {
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     append(row);
     row.finish();
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     const VariantMetadataRef metadata = block.metadata_ref();
     const VariantRef value = block.value_at(0);
     return {.metadata = std::string(metadata.data, metadata.size),
@@ -453,110 +453,110 @@ EncodedVariant build_doris(const std::function<void(VariantBlockBuilder::Row&)>&
 std::map<std::string, EncodedVariant> doris_vectors() {
     std::map<std::string, EncodedVariant> vectors;
     auto add = [&vectors](std::string name,
-                          const std::function<void(VariantBlockBuilder::Row&)>& append) {
+                          const std::function<void(VariantBatchBuilder::Row&)>& append) {
         vectors.emplace(std::move(name), build_doris(append));
     };
 
-    add("doris_null", [](VariantBlockBuilder::Row& builder) { builder.add_null(); });
-    add("doris_true", [](VariantBlockBuilder::Row& builder) { builder.add_bool(true); });
-    add("doris_false", [](VariantBlockBuilder::Row& builder) { builder.add_bool(false); });
-    add("doris_int8", [](VariantBlockBuilder::Row& builder) { builder.add_int(-7); });
-    add("doris_int8_min", [](VariantBlockBuilder::Row& builder) {
+    add("doris_null", [](VariantBatchBuilder::Row& builder) { builder.add_null(); });
+    add("doris_true", [](VariantBatchBuilder::Row& builder) { builder.add_bool(true); });
+    add("doris_false", [](VariantBatchBuilder::Row& builder) { builder.add_bool(false); });
+    add("doris_int8", [](VariantBatchBuilder::Row& builder) { builder.add_int(-7); });
+    add("doris_int8_min", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int8_t>::min());
     });
-    add("doris_int8_max", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int8_max", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int8_t>::max());
     });
-    add("doris_int16", [](VariantBlockBuilder::Row& builder) { builder.add_int(128); });
-    add("doris_int16_min", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int16", [](VariantBatchBuilder::Row& builder) { builder.add_int(128); });
+    add("doris_int16_min", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int16_t>::min());
     });
-    add("doris_int16_max", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int16_max", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int16_t>::max());
     });
-    add("doris_int32", [](VariantBlockBuilder::Row& builder) { builder.add_int(32768); });
-    add("doris_int32_min", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int32", [](VariantBatchBuilder::Row& builder) { builder.add_int(32768); });
+    add("doris_int32_min", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int32_t>::min());
     });
-    add("doris_int32_max", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int32_max", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int32_t>::max());
     });
-    add("doris_int64", [](VariantBlockBuilder::Row& builder) { builder.add_int(2147483648L); });
-    add("doris_int64_min", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int64", [](VariantBatchBuilder::Row& builder) { builder.add_int(2147483648L); });
+    add("doris_int64_min", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int64_t>::min());
     });
-    add("doris_int64_max", [](VariantBlockBuilder::Row& builder) {
+    add("doris_int64_max", [](VariantBatchBuilder::Row& builder) {
         builder.add_int(std::numeric_limits<int64_t>::max());
     });
-    add("doris_double", [](VariantBlockBuilder::Row& builder) {
+    add("doris_double", [](VariantBatchBuilder::Row& builder) {
         builder.add_double(std::bit_cast<double>(uint64_t {0x400921fb54442d18}));
     });
     add("doris_decimal4",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(1234567, 2); });
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(1234567, 2); });
     add("doris_decimal8",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(123456789012345LL, 5); });
-    add("doris_decimal16", [](VariantBlockBuilder::Row& builder) {
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(123456789012345LL, 5); });
+    add("doris_decimal16", [](VariantBatchBuilder::Row& builder) {
         builder.add_decimal(parse_int128("12345678901234567891234567890"), 10);
     });
     add("doris_decimal4_precision9_max",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(999'999'999, 2); });
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(999'999'999, 2); });
     add("doris_decimal4_precision9_min",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(-999'999'999, 2); });
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(-999'999'999, 2); });
     add("doris_decimal8_precision10_min",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(1'000'000'000, 0); });
-    add("doris_decimal8_precision18_max", [](VariantBlockBuilder::Row& builder) {
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(1'000'000'000, 0); });
+    add("doris_decimal8_precision18_max", [](VariantBatchBuilder::Row& builder) {
         builder.add_decimal(999'999'999'999'999'999LL, 0);
     });
-    add("doris_decimal16_precision19_min", [](VariantBlockBuilder::Row& builder) {
+    add("doris_decimal16_precision19_min", [](VariantBatchBuilder::Row& builder) {
         builder.add_decimal(parse_int128("1000000000000000000"), 0);
     });
-    add("doris_decimal16_precision38_max", [](VariantBlockBuilder::Row& builder) {
+    add("doris_decimal16_precision38_max", [](VariantBatchBuilder::Row& builder) {
         builder.add_decimal(parse_int128("99999999999999999999999999999999999999"), 0);
     });
     add("doris_decimal4_scale38_min_unit",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(-1, 38); });
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(-1, 38); });
     add("doris_decimal4_trailing_zero",
-        [](VariantBlockBuilder::Row& builder) { builder.add_decimal(12'300, 4); });
-    add("doris_date", [](VariantBlockBuilder::Row& builder) { builder.add_date(-12345); });
-    add("doris_timestamp_tz", [](VariantBlockBuilder::Row& builder) {
+        [](VariantBatchBuilder::Row& builder) { builder.add_decimal(12'300, 4); });
+    add("doris_date", [](VariantBatchBuilder::Row& builder) { builder.add_date(-12345); });
+    add("doris_timestamp_tz", [](VariantBatchBuilder::Row& builder) {
         builder.add_timestamp_micros(-1234567890123L, true);
     });
-    add("doris_timestamp_ntz", [](VariantBlockBuilder::Row& builder) {
+    add("doris_timestamp_ntz", [](VariantBatchBuilder::Row& builder) {
         builder.add_timestamp_micros(2234567890123L, false);
     });
-    add("doris_float", [](VariantBlockBuilder::Row& builder) { builder.add_float(1.5F); });
-    add("doris_binary", [](VariantBlockBuilder::Row& builder) {
+    add("doris_float", [](VariantBatchBuilder::Row& builder) { builder.add_float(1.5F); });
+    add("doris_binary", [](VariantBatchBuilder::Row& builder) {
         const std::string binary("\0\x01\xFF", 3);
         builder.add_binary(StringRef(binary));
     });
-    add("doris_long_string", [](VariantBlockBuilder::Row& builder) {
+    add("doris_long_string", [](VariantBatchBuilder::Row& builder) {
         const std::string text(64, 'L');
         builder.add_string(StringRef(text));
     });
     add("doris_time",
-        [](VariantBlockBuilder::Row& builder) { builder.add_time_ntz_micros(86'399'999'999L); });
-    add("doris_timestamp_nanos_tz", [](VariantBlockBuilder::Row& builder) {
+        [](VariantBatchBuilder::Row& builder) { builder.add_time_ntz_micros(86'399'999'999L); });
+    add("doris_timestamp_nanos_tz", [](VariantBatchBuilder::Row& builder) {
         builder.add_timestamp_nanos(-3234567890123L, true);
     });
-    add("doris_timestamp_nanos_ntz", [](VariantBlockBuilder::Row& builder) {
+    add("doris_timestamp_nanos_ntz", [](VariantBatchBuilder::Row& builder) {
         builder.add_timestamp_nanos(4234567890123L, false);
     });
-    add("doris_uuid", [](VariantBlockBuilder::Row& builder) {
+    add("doris_uuid", [](VariantBatchBuilder::Row& builder) {
         const std::array<uint8_t, 16> uuid {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                                             0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
         builder.add_uuid(uuid);
     });
     add("doris_short_empty",
-        [](VariantBlockBuilder::Row& builder) { builder.add_string(StringRef("", 0)); });
-    add("doris_short_63", [](VariantBlockBuilder::Row& builder) {
+        [](VariantBatchBuilder::Row& builder) { builder.add_string(StringRef("", 0)); });
+    add("doris_short_63", [](VariantBatchBuilder::Row& builder) {
         const std::string text(63, 's');
         builder.add_string(StringRef(text));
     });
-    add("doris_unicode_string", [](VariantBlockBuilder::Row& builder) {
+    add("doris_unicode_string", [](VariantBatchBuilder::Row& builder) {
         constexpr std::string_view text = "A\xC3\xA9\xE4\xB8\xAD\xF0\x90\x80\x80";
         builder.add_string(string_ref(text));
     });
-    add("doris_object", [](VariantBlockBuilder::Row& builder) {
+    add("doris_object", [](VariantBatchBuilder::Row& builder) {
         auto object = builder.start_object();
         object.add_key(string_ref("z"));
         builder.add_int(1);
@@ -564,14 +564,14 @@ std::map<std::string, EncodedVariant> doris_vectors() {
         builder.add_string(string_ref("x"));
         object.finish();
     });
-    add("doris_array", [](VariantBlockBuilder::Row& builder) {
+    add("doris_array", [](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_int(1);
         builder.add_string(string_ref("x"));
         builder.add_bool(false);
         array.finish();
     });
-    add("doris_nested", [](VariantBlockBuilder::Row& builder) {
+    add("doris_nested", [](VariantBatchBuilder::Row& builder) {
         auto root = builder.start_object();
         root.add_key(string_ref("arr"));
         auto array = builder.start_array();
@@ -583,7 +583,7 @@ std::map<std::string, EncodedVariant> doris_vectors() {
         array.finish();
         root.finish();
     });
-    add("doris_unicode_object", [](VariantBlockBuilder::Row& builder) {
+    add("doris_unicode_object", [](VariantBatchBuilder::Row& builder) {
         constexpr std::string_view first = "\xC3\xA9";
         constexpr std::string_view second = "\xEE\x80\x80";
         auto object = builder.start_object();

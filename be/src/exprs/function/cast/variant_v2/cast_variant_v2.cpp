@@ -26,7 +26,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 
 namespace doris::CastWrapper {
@@ -85,15 +85,15 @@ Status execute_to_variant(const DataTypePtr& captured_from_type, FunctionContext
     ColumnPtr output;
     try {
         if (primitive == INVALID_TYPE) {
-            VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = rows});
+            VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
             for (size_t row_index = 0; row_index < rows; ++row_index) {
                 auto row = builder.begin_row();
                 row.add_null();
                 row.finish();
             }
-            VariantEncodedBlock encoded_block = builder.finish_block();
+            VariantBatchBuilder encoded_block = builder.finish_batch();
             auto nulls = ColumnVariantV2::create();
-            nulls->insert_encoded_block(encoded_block);
+            nulls->insert_encoded_batch(encoded_block);
             output = std::move(nulls);
         } else if (primitive == TYPE_VARIANT) {
             if (check_and_get_column<ColumnVariantV2>(source) == nullptr) {

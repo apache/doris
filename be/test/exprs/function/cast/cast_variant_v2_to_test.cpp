@@ -36,7 +36,7 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function_context.h"
 #include "gtest/gtest.h"
@@ -67,13 +67,13 @@ CastResult execute_to_variant(const ColumnPtr& source, const DataTypePtr& source
 }
 
 ColumnVariantV2::MutablePtr one_encoded_int(int64_t value) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = 1});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto row = builder.begin_row();
     row.add_int(value);
     row.finish();
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block);
+    result->insert_encoded_batch(block);
     return result;
 }
 

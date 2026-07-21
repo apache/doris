@@ -32,6 +32,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
@@ -152,13 +153,12 @@ private:
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
         case PrimitiveType::TYPE_VARIANT: {
-            const auto* variant_type =
-                    dynamic_cast<const DataTypeVariant*>(remove_nullable(data_type()).get());
-            DORIS_CHECK(variant_type != nullptr);
-            if (variant_type->is_variant_v2()) {
+            const IDataType* variant_type = remove_nullable(data_type()).get();
+            if (dynamic_cast<const DataTypeVariantV2*>(variant_type) != nullptr) {
                 return _execute_update_result_impl<IndexType, ColumnVariantV2>(
                         then_idx, then_columns, rows_count);
             }
+            DORIS_CHECK(dynamic_cast<const DataTypeVariant*>(variant_type) != nullptr);
             return _execute_update_result_impl<IndexType, ColumnVariant>(then_idx, then_columns,
                                                                          rows_count);
         }

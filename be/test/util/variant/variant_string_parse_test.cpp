@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
@@ -39,9 +39,9 @@
 #include "core/column/column_variant.h"
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/variant_util.h"
 #include "variant_test_utils.h"
 
@@ -64,11 +64,11 @@ struct OwnedValue {
 
 template <typename Fill>
 OwnedValue build_value(Fill&& fill) {
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     auto row = builder.begin_row();
     fill(row);
     row.finish();
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     const VariantMetadataRef metadata = block.metadata_ref();
     const VariantRef value = block.value_at(0);
     return {.metadata = std::string(metadata.data, metadata.size),
@@ -88,21 +88,21 @@ std::string print_json(VariantRef value,
     return writer.value;
 }
 
-VariantEncodedBlock encode_jsons(const std::vector<std::string_view>& jsons,
+VariantBatchBuilder encode_jsons(const std::vector<std::string_view>& jsons,
                                  JsonToVariantOptions options = {}) {
-    JsonToVariantEncoder encoder(options);
+    JsonStringToVariantEncoder encoder(options);
     for (std::string_view json : jsons) {
         encoder.add_json(string_ref(json));
     }
-    return encoder.finish_block();
+    return encoder.finish_batch();
 }
 
-std::string block_value_bytes(const VariantEncodedBlock& block) {
+std::string block_value_bytes(const VariantBatchBuilder& block) {
     const StringRef bytes = block.value_bytes();
     return {bytes.data, bytes.size};
 }
 
-std::vector<uint32_t> block_value_offsets(const VariantEncodedBlock& block) {
+std::vector<uint32_t> block_value_offsets(const VariantBatchBuilder& block) {
     const std::span<const uint32_t> offsets = block.value_offsets();
     return {offsets.begin(), offsets.end()};
 }
@@ -125,14 +125,14 @@ std::string nested_array_json(uint32_t array_count) {
 }
 
 OwnedValue nested_array_value(uint32_t array_count) {
-    return build_value([&](VariantBlockBuilder::Row& builder) {
-        std::vector<VariantBlockBuilder::Row::ArrayScope> scopes;
+    return build_value([&](VariantBatchBuilder::Row& builder) {
+        std::vector<VariantBatchBuilder::Row::ArrayScope> scopes;
         scopes.reserve(array_count);
         for (uint32_t depth = 0; depth < array_count; ++depth) {
             scopes.emplace_back(builder.start_array());
         }
         builder.add_int(0);
-        for (VariantBlockBuilder::Row::ArrayScope& scope : std::ranges::reverse_view(scopes)) {
+        for (VariantBatchBuilder::Row::ArrayScope& scope : std::ranges::reverse_view(scopes)) {
             scope.finish();
         }
     });
@@ -175,7 +175,7 @@ TEST(VariantJsonTest, AllPrimitiveIdsUseStableJsonMappings) {
         uuid[index] = index;
     }
 
-    const OwnedValue owned = build_value([&](VariantBlockBuilder::Row& builder) {
+    const OwnedValue owned = build_value([&](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         builder.add_bool(true);
@@ -235,7 +235,7 @@ TEST(VariantJsonTest, AllPrimitiveIdsUseStableJsonMappings) {
 }
 
 TEST(VariantJsonTest, FloatingPointSpecialValuesAreQuoted) {
-    const OwnedValue owned = build_value([](VariantBlockBuilder::Row& builder) {
+    const OwnedValue owned = build_value([](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_float(std::numeric_limits<float>::quiet_NaN());
         builder.add_float(std::numeric_limits<float>::infinity());
@@ -246,7 +246,7 @@ TEST(VariantJsonTest, FloatingPointSpecialValuesAreQuoted) {
 }
 
 TEST(VariantJsonTest, TimestampPrecisionTimezoneAndNegativeEpochAreStable) {
-    const OwnedValue owned = build_value([](VariantBlockBuilder::Row& builder) {
+    const OwnedValue owned = build_value([](VariantBatchBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_timestamp_micros(0, true);
         builder.add_timestamp_micros(-1, true);
@@ -266,7 +266,7 @@ TEST(VariantJsonTest, TimestampPrecisionTimezoneAndNegativeEpochAreStable) {
 TEST(VariantJsonTest, EncoderCopiesRowsBeforeParserReuseAndProducesCanonicalValues) {
     const std::vector<std::string_view> inputs {R"({"z":1,"a":[true,null,"x"]})",
                                                 R"(18446744073709551615)", R"("last")"};
-    VariantEncodedBlock block = encode_jsons(inputs);
+    VariantBatchBuilder block = encode_jsons(inputs);
     ASSERT_EQ(block.num_rows(), inputs.size());
     EXPECT_EQ(print_json(block.value_at(0)), R"({"a":[true,null,"x"],"z":1})");
     EXPECT_EQ(print_json(block.value_at(1)), "18446744073709551615");
@@ -278,14 +278,14 @@ TEST(VariantJsonTest, EncoderCopiesRowsBeforeParserReuseAndProducesCanonicalValu
     }
     validate_canonical(block.metadata_ref(), std::span<const VariantRef>(rows));
 
-    VariantEncodedBlock reparsed = encode_jsons({print_json(block.value_at(0))});
+    VariantBatchBuilder reparsed = encode_jsons({print_json(block.value_at(0))});
     EXPECT_TRUE(canonical_equals(block.value_at(0), reparsed.value_at(0)));
 }
 
 TEST(VariantJsonTest, DuplicateKeysKeepFirstCompleteSubtreeWhenEnabled) {
     JsonToVariantOptions options;
     options.check_duplicate_json_path = true;
-    VariantEncodedBlock block = encode_jsons(
+    VariantBatchBuilder block = encode_jsons(
             {R"({"a":1,"a":[2]})", R"({"a":[1],"a":2})", R"({"a":{"b":1},"a":{"c":2}})"}, options);
     ASSERT_EQ(block.num_rows(), 3);
     EXPECT_EQ(print_json(block.value_at(0)), R"({"a":1})");
@@ -294,7 +294,7 @@ TEST(VariantJsonTest, DuplicateKeysKeepFirstCompleteSubtreeWhenEnabled) {
 
     // This is member-level first-wins semantics. It deliberately removes the old PathInData
     // flatten/merge artifact; it is not evidence that the broader T0.2 comparison is complete.
-    VariantEncodedBlock dotted = encode_jsons({R"({"a.b":1,"a":{"b":2}})"}, options);
+    VariantBatchBuilder dotted = encode_jsons({R"({"a.b":1,"a":{"b":2}})"}, options);
     EXPECT_EQ(print_json(dotted.value_at(0)), R"({"a":{"b":2},"a.b":1})");
 }
 
@@ -308,7 +308,7 @@ TEST(VariantJsonTest, DuplicateKeysFailWithoutPerObjectHashWhenDisabled) {
 TEST(VariantJsonTest, RepeatedDuplicateSchemasStayStableAcrossSchemaAndScalarRows) {
     JsonToVariantOptions options;
     options.check_duplicate_json_path = true;
-    VariantEncodedBlock block =
+    VariantBatchBuilder block =
             encode_jsons({R"({"a":1,"a":2})", R"({"a":3,"a":4})", "null", R"({"a":5,"a":6})",
                           R"({"b":7,"b":8})", R"({"b":9,"b":10})"},
                          options);
@@ -347,7 +347,7 @@ TEST(VariantJsonTest, KeyLengthBoundaryIsMeasuredInUtf8Bytes) {
     options.max_json_key_length = 255;
     const std::string key255(255, 'k');
     const std::string key256(256, 'k');
-    VariantEncodedBlock block = encode_jsons({R"({")" + key255 + R"(":1})"}, options);
+    VariantBatchBuilder block = encode_jsons({R"({")" + key255 + R"(":1})"}, options);
     EXPECT_EQ(block.metadata_ref().key_at(0), StringRef(key255));
     expect_exception_code(ErrorCode::INVALID_ARGUMENT, [&] {
         static_cast<void>(encode_jsons({R"({")" + key256 + R"(":1})"}, options));
@@ -357,7 +357,7 @@ TEST(VariantJsonTest, KeyLengthBoundaryIsMeasuredInUtf8Bytes) {
 TEST(VariantJsonTest, EmptyAndInvalidInputFollowExplicitPolicy) {
     JsonToVariantOptions permissive;
     permissive.throw_on_invalid_json = false;
-    VariantEncodedBlock block = encode_jsons({std::string_view {}, "{"}, permissive);
+    VariantBatchBuilder block = encode_jsons({std::string_view {}, "{"}, permissive);
     ASSERT_EQ(block.num_rows(), 2);
     EXPECT_EQ(print_json(block.value_at(0)), "{}");
     EXPECT_EQ(print_json(block.value_at(1)), R"("{")");
@@ -372,18 +372,18 @@ TEST(VariantJsonTest, EmptyAndInvalidInputFollowExplicitPolicy) {
         static_cast<void>(encode_jsons({std::string_view(invalid_utf8)}, permissive));
     });
 
-    JsonToVariantEncoder null_input(permissive);
+    JsonStringToVariantEncoder null_input(permissive);
     expect_exception_code(ErrorCode::INVALID_ARGUMENT, [&] {
         null_input.add_json({static_cast<const char*>(nullptr), 1});
     });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(null_input.finish_block()); });
+                          [&] { static_cast<void>(null_input.finish_batch()); });
 }
 
 TEST(VariantJsonTest, RecoverableRowErrorRollsBackAndContinues) {
     JsonToVariantOptions strict;
     strict.throw_on_invalid_json = true;
-    JsonToVariantEncoder encoder(strict);
+    JsonStringToVariantEncoder encoder(strict);
 
     encoder.add_json(string_ref(R"({"before":1})"));
     const Status invalid = encoder.try_add_json(string_ref("{"));
@@ -391,7 +391,7 @@ TEST(VariantJsonTest, RecoverableRowErrorRollsBackAndContinues) {
     EXPECT_EQ(invalid.code(), ErrorCode::INVALID_ARGUMENT) << invalid.to_string();
     ASSERT_TRUE(encoder.try_add_json(string_ref(R"([2,{"after":3}])")).ok());
 
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     ASSERT_EQ(block.num_rows(), 2);
     EXPECT_EQ(print_json(block.value_at(0)), R"({"before":1})");
     EXPECT_EQ(print_json(block.value_at(1)), R"([2,{"after":3}])");
@@ -399,7 +399,7 @@ TEST(VariantJsonTest, RecoverableRowErrorRollsBackAndContinues) {
 
 TEST(VariantJsonTest, DepthBoundaryMatchesCanonicalTraversal) {
     const std::string accepted_json = nested_array_json(VARIANT_MAX_NESTING_DEPTH);
-    VariantEncodedBlock accepted = encode_jsons({accepted_json});
+    VariantBatchBuilder accepted = encode_jsons({accepted_json});
     EXPECT_NO_THROW(static_cast<void>(print_json(accepted.value_at(0))));
     EXPECT_TRUE(canonical_equals(accepted.value_at(0), accepted.value_at(0)));
 
@@ -416,15 +416,15 @@ TEST(VariantJsonTest, DepthBoundaryMatchesCanonicalTraversal) {
 }
 
 TEST(VariantJsonTest, StringsKeysAndBinaryAreEscapedWithoutFlattening) {
-    VariantEncodedBlock block =
+    VariantBatchBuilder block =
             encode_jsons({R"({"a.b":1,"a":{"b":2},"line\u2028key":"x\n\t\"\\"})"});
     EXPECT_EQ(print_json(block.value_at(0)),
               "{\"a\":{\"b\":2},\"a.b\":1,\"line\\u2028key\":\"x\\n\\t\\\"\\\\\"}");
 }
 
 TEST(VariantJsonTest, BlockOwnsStableBoundariesAndStateTransitionsAreTerminal) {
-    JsonToVariantEncoder empty_encoder;
-    VariantEncodedBlock empty = empty_encoder.finish_block();
+    JsonStringToVariantEncoder empty_encoder;
+    VariantBatchBuilder empty = empty_encoder.finish_batch();
     EXPECT_EQ(empty.num_rows(), 0);
     EXPECT_EQ(block_value_offsets(empty), (std::vector<uint32_t> {0}));
     EXPECT_EQ(block_value_bytes(empty), "");
@@ -432,18 +432,18 @@ TEST(VariantJsonTest, BlockOwnsStableBoundariesAndStateTransitionsAreTerminal) {
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { static_cast<void>(empty.value_at(0)); });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(empty_encoder.finish_block()); });
+                          [&] { static_cast<void>(empty_encoder.finish_batch()); });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { empty_encoder.add_json(string_ref("null")); });
 
     JsonToVariantOptions strict;
     strict.throw_on_invalid_json = true;
-    JsonToVariantEncoder failed(strict);
+    JsonStringToVariantEncoder failed(strict);
     expect_exception_code(ErrorCode::INVALID_ARGUMENT, [&] { failed.add_json(string_ref("{")); });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { failed.add_json(string_ref("null")); });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(failed.finish_block()); });
+                          [&] { static_cast<void>(failed.finish_batch()); });
 }
 
 TEST(VariantJsonBlockTest, SharedBuilderIsByteEquivalentToExistingJsonAndTerminal) {
@@ -458,11 +458,11 @@ TEST(VariantJsonBlockTest, SharedBuilderIsByteEquivalentToExistingJsonAndTermina
     };
     const std::vector<uint32_t> expected_offsets {0, 19, 26, 29};
 
-    JsonToVariantEncoder json_encoder;
+    JsonStringToVariantEncoder json_encoder;
     json_encoder.add_json(string_ref(R"({"z":1,"a":[true,null,"x"]})"));
     json_encoder.add_json(string_ref(R"("scalar")"));
     json_encoder.add_json(string_ref("{}"));
-    VariantEncodedBlock json_block = json_encoder.finish_block();
+    VariantBatchBuilder json_block = json_encoder.finish_batch();
     EXPECT_EQ(std::string(json_block.metadata_ref().data, json_block.metadata_ref().size),
               expected_metadata);
     EXPECT_EQ(block_value_bytes(json_block), expected_values);
@@ -470,9 +470,9 @@ TEST(VariantJsonBlockTest, SharedBuilderIsByteEquivalentToExistingJsonAndTermina
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { json_encoder.add_json(string_ref("null")); });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(json_encoder.finish_block()); });
+                          [&] { static_cast<void>(json_encoder.finish_batch()); });
 
-    VariantBlockBuilder builder({.rows = 3,
+    VariantBatchBuilder builder({.rows = 3,
                                  .metadata_keys = 2,
                                  .scalar_bytes = 16,
                                  .nodes = 8,
@@ -504,7 +504,7 @@ TEST(VariantJsonBlockTest, SharedBuilderIsByteEquivalentToExistingJsonAndTermina
         row.finish();
     }
 
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     EXPECT_EQ(std::string(block.metadata_ref().data, block.metadata_ref().size), expected_metadata);
     EXPECT_EQ(block_value_bytes(block), expected_values);
     EXPECT_EQ(block_value_offsets(block), expected_offsets);
@@ -513,7 +513,7 @@ TEST(VariantJsonBlockTest, SharedBuilderIsByteEquivalentToExistingJsonAndTermina
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
                           [&] { static_cast<void>(builder.begin_row()); });
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { static_cast<void>(builder.finish_block()); });
+                          [&] { static_cast<void>(builder.finish_batch()); });
 }
 
 TEST(VariantJsonTest, CurrentConfigIsSnapshottedAndExplicitOptionsAreValidated) {
@@ -526,11 +526,11 @@ TEST(VariantJsonTest, CurrentConfigIsSnapshottedAndExplicitOptionsAreValidated) 
     JsonToVariantOptions invalid;
     invalid.max_json_key_length = 0;
     expect_exception_code(ErrorCode::INVALID_ARGUMENT,
-                          [&] { JsonToVariantEncoder encoder(invalid); });
+                          [&] { JsonStringToVariantEncoder encoder(invalid); });
 }
 
 TEST(VariantJsonTest, StaticDispatchWritesDirectlyToBufferWritable) {
-    VariantEncodedBlock block = encode_jsons({R"({"a":1,"b":[true,"x"]})"});
+    VariantBatchBuilder block = encode_jsons({R"({"a":1,"b":[true,"x"]})"});
     auto column = ColumnString::create();
     BufferWritable writer(*column);
     to_json(block.value_at(0), writer);
@@ -541,13 +541,13 @@ TEST(VariantJsonTest, StaticDispatchWritesDirectlyToBufferWritable) {
 
 TEST(VariantJsonTest, ExternalMalformedValueReturnsExplicitErrors) {
     OwnedValue string_value = build_value(
-            [](VariantBlockBuilder::Row& builder) { builder.add_string(string_ref("valid")); });
+            [](VariantBatchBuilder::Row& builder) { builder.add_string(string_ref("valid")); });
     string_value.value.back() = static_cast<char>(0xFF);
     expect_exception_code(ErrorCode::CORRUPTION,
                           [&] { static_cast<void>(print_json(string_value.ref())); });
 
     OwnedValue trailing =
-            build_value([](VariantBlockBuilder::Row& builder) { builder.add_int(1); });
+            build_value([](VariantBatchBuilder::Row& builder) { builder.add_int(1); });
     trailing.value.push_back('\0');
     expect_exception_code(ErrorCode::CORRUPTION,
                           [&] { static_cast<void>(print_json(trailing.ref())); });
@@ -648,11 +648,11 @@ TEST(VariantJsonTest, DISABLED_MB1Initial) {
 
     const auto [new_seconds, new_checksum] =
             measure_mb1(workloads, [](const std::string& json, uint32_t count) {
-                JsonToVariantEncoder encoder;
+                JsonStringToVariantEncoder encoder;
                 for (uint32_t row = 0; row < count; ++row) {
                     encoder.add_json(StringRef(json));
                 }
-                VariantEncodedBlock block = encoder.finish_block();
+                VariantBatchBuilder block = encoder.finish_batch();
                 return block.value_bytes().size + block.metadata_ref().size;
             });
 

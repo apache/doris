@@ -32,16 +32,11 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
-#include "core/value/variant/variant_scalar_encoding.h"
 #include "exec/common/format_ip.h"
 
 namespace doris::column_variant_v2_internal {
-
-// Records the approved physical fallback chosen while adapting one Doris typed scalar to Variant.
-// The visitor below is synchronous: any borrowed string produced for a callback is valid only until
-// that callback returns.
-enum class TypedFallbackKind : uint8_t { NONE, LARGEINT, IP };
 
 bool is_supported_typed_identity(PrimitiveType type);
 bool exact_typed_identity(const DataTypePtr& left, const DataTypePtr& right);
@@ -96,88 +91,72 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
     if constexpr (Type == TYPE_BOOLEAN) {
         const bool value = column.get_data()[row] != 0;
         callback([value] { return VariantScalarEncodingPlan::boolean(value); },
-                 [value] { return VariantCanonicalScalarRef::boolean(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::boolean(value); });
     } else if constexpr (Type == TYPE_TINYINT || Type == TYPE_SMALLINT || Type == TYPE_INT ||
                          Type == TYPE_BIGINT) {
         const auto value = column.get_data()[row];
         callback([value] { return VariantScalarEncodingPlan::integer(value); },
-                 [value] { return VariantCanonicalScalarRef::exact_integer(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::exact_integer(value); });
     } else if constexpr (Type == TYPE_LARGEINT) {
         const __int128 value = column.get_data()[row];
         if (detail::unsigned_magnitude(value) <= detail::MAX_DECIMAL38) {
             callback([value] { return VariantScalarEncodingPlan::largeint(value); },
-                     [value] { return VariantCanonicalScalarRef::exact_integer(value); },
-                     TypedFallbackKind::NONE);
+                     [value] { return VariantCanonicalScalarRef::exact_integer(value); });
         } else {
             std::array<char, 40> buffer {};
             const size_t size = detail::format_int128(value, buffer.data());
             const StringRef text(buffer.data(), size);
             callback([text] { return VariantScalarEncodingPlan::string(text); },
-                     [text] { return VariantCanonicalScalarRef::string(text); },
-                     TypedFallbackKind::LARGEINT);
+                     [text] { return VariantCanonicalScalarRef::string(text); });
         }
     } else if constexpr (Type == TYPE_FLOAT) {
         const float value = column.get_data()[row];
         callback([value] { return VariantScalarEncodingPlan::float32(value); },
-                 [value] { return VariantCanonicalScalarRef::float32(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::float32(value); });
     } else if constexpr (Type == TYPE_DOUBLE) {
         const double value = column.get_data()[row];
         callback([value] { return VariantScalarEncodingPlan::float64(value); },
-                 [value] { return VariantCanonicalScalarRef::float64(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::float64(value); });
     } else if constexpr (Type == TYPE_DECIMALV2) {
         const __int128 value = column.get_data()[row].value();
         callback([value, scale] { return VariantScalarEncodingPlan::decimal(value, scale, 16); },
-                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); },
-                 TypedFallbackKind::NONE);
+                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); });
     } else if constexpr (Type == TYPE_DECIMAL32) {
         const int32_t value = column.get_data()[row].value;
         callback([value, scale] { return VariantScalarEncodingPlan::decimal(value, scale, 4); },
-                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); },
-                 TypedFallbackKind::NONE);
+                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); });
     } else if constexpr (Type == TYPE_DECIMAL64) {
         const int64_t value = column.get_data()[row].value;
         callback([value, scale] { return VariantScalarEncodingPlan::decimal(value, scale, 8); },
-                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); },
-                 TypedFallbackKind::NONE);
+                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); });
     } else if constexpr (Type == TYPE_DECIMAL128I) {
         const __int128 value = column.get_data()[row].value;
         callback([value, scale] { return VariantScalarEncodingPlan::decimal(value, scale, 16); },
-                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); },
-                 TypedFallbackKind::NONE);
+                 [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); });
     } else if constexpr (Type == TYPE_DATE) {
         const int32_t value = detail::days_since_epoch(column.get_data()[row], row, "DATE");
         callback([value] { return VariantScalarEncodingPlan::date(value); },
-                 [value] { return VariantCanonicalScalarRef::date(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::date(value); });
     } else if constexpr (Type == TYPE_DATEV2) {
         const int32_t value = detail::days_since_epoch(column.get_data()[row], row, "DATEV2");
         callback([value] { return VariantScalarEncodingPlan::date(value); },
-                 [value] { return VariantCanonicalScalarRef::date(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::date(value); });
     } else if constexpr (Type == TYPE_DATETIME) {
         const int64_t value = detail::timestamp_micros(column.get_data()[row], row, "DATETIME");
         callback([value] { return VariantScalarEncodingPlan::timestamp_micros(value, false); },
-                 [value] { return VariantCanonicalScalarRef::timestamp_micros(value, false); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::timestamp_micros(value, false); });
     } else if constexpr (Type == TYPE_DATETIMEV2) {
         const int64_t value = detail::timestamp_micros(column.get_data()[row], row, "DATETIMEV2");
         callback([value] { return VariantScalarEncodingPlan::timestamp_micros(value, false); },
-                 [value] { return VariantCanonicalScalarRef::timestamp_micros(value, false); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::timestamp_micros(value, false); });
     } else if constexpr (Type == TYPE_TIMESTAMPTZ) {
         const int64_t value = detail::timestamp_micros(column.get_data()[row], row, "TIMESTAMPTZ");
         callback([value] { return VariantScalarEncodingPlan::timestamp_micros(value, true); },
-                 [value] { return VariantCanonicalScalarRef::timestamp_micros(value, true); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::timestamp_micros(value, true); });
     } else if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
         const StringRef value = column.get_data_at(row);
         callback([value] { return VariantScalarEncodingPlan::string(value); },
-                 [value] { return VariantCanonicalScalarRef::string(value); },
-                 TypedFallbackKind::NONE);
+                 [value] { return VariantCanonicalScalarRef::string(value); });
     } else if constexpr (Type == TYPE_IPV4) {
         std::array<char, IPV4_MAX_TEXT_LENGTH + 1> buffer {};
         char* end = buffer.data();
@@ -185,7 +164,7 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
         format_ipv4(address, end);
         const StringRef text(buffer.data(), end - buffer.data());
         callback([text] { return VariantScalarEncodingPlan::string(text); },
-                 [text] { return VariantCanonicalScalarRef::string(text); }, TypedFallbackKind::IP);
+                 [text] { return VariantCanonicalScalarRef::string(text); });
     } else if constexpr (Type == TYPE_IPV6) {
         std::array<char, IPV6_MAX_TEXT_LENGTH + 1> buffer {};
         IPv6 address = column.get_data()[row];
@@ -193,7 +172,7 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
         format_ipv6(reinterpret_cast<unsigned char*>(&address), end);
         const StringRef text(buffer.data(), end - buffer.data());
         callback([text] { return VariantScalarEncodingPlan::string(text); },
-                 [text] { return VariantCanonicalScalarRef::string(text); }, TypedFallbackKind::IP);
+                 [text] { return VariantCanonicalScalarRef::string(text); });
     }
 }
 
@@ -214,16 +193,13 @@ void visit_typed_rows(const ColumnNullable& nullable, const Column& column, uint
         if (null_map[row] != 0) {
             callback(
                     row, [] { return VariantScalarEncodingPlan::null_value(); },
-                    [] { return VariantCanonicalScalarRef::null_value(); },
-                    TypedFallbackKind::NONE);
+                    [] { return VariantCanonicalScalarRef::null_value(); });
             continue;
         }
         with_typed_scalar<Type>(
-                column, row, variant_scale,
-                [&](auto&& physical_factory, auto&& canonical_factory, TypedFallbackKind fallback) {
+                column, row, variant_scale, [&](auto&& physical_factory, auto&& canonical_factory) {
                     callback(row, std::forward<decltype(physical_factory)>(physical_factory),
-                             std::forward<decltype(canonical_factory)>(canonical_factory),
-                             fallback);
+                             std::forward<decltype(canonical_factory)>(canonical_factory));
                 });
     }
 }
@@ -232,8 +208,7 @@ template <PrimitiveType Type, typename Column, typename Callback>
 void visit_typed_canonical_rows(const ColumnNullable& nullable, const Column& column,
                                 uint32_t scale, size_t start, size_t end, Callback&& callback) {
     visit_typed_rows<Type>(
-            nullable, column, scale, start, end,
-            [&](size_t row, auto&&, auto&& canonical_factory, TypedFallbackKind) {
+            nullable, column, scale, start, end, [&](size_t row, auto&&, auto&& canonical_factory) {
                 callback(row, std::forward<decltype(canonical_factory)>(canonical_factory));
             });
 }

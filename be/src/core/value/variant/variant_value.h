@@ -22,8 +22,8 @@
 #include <cstdint>
 
 #include "core/string_ref.h"
-#include "core/value/variant/variant_encoding.h"
 #include "core/value/variant/variant_metadata.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 
 namespace doris {
 
