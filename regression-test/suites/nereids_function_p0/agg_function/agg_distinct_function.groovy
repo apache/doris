@@ -64,8 +64,8 @@ suite("agg_distinct_function") {
     order_qt_group_bit_or_group "select k, group_bit_or(distinct a) from agg_distinct_function group by k order by k"
     qt_group_bit_xor "select group_bit_xor(distinct a) from agg_distinct_function"
     order_qt_group_bit_xor_group "select k, group_bit_xor(distinct a) from agg_distinct_function group by k order by k"
-    qt_group_bitmap_xor "select bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))) from agg_distinct_function"
-    order_qt_group_bitmap_xor_group "select k, bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))) from agg_distinct_function group by k order by k"
+//    qt_group_bitmap_xor "select bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))) from agg_distinct_function"
+//    order_qt_group_bitmap_xor_group "select k, bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))) from agg_distinct_function group by k order by k"
     qt_group_concat "select group_concat(distinct s order by s) from agg_distinct_function"
     order_qt_group_concat_group "select k, group_concat(distinct s order by s) from agg_distinct_function group by k order by k"
     qt_histogram "select histogram(distinct a) from agg_distinct_function"
@@ -141,8 +141,8 @@ suite("agg_distinct_function") {
     order_qt_two_group_bit_or_group "select k, group_bit_or(distinct a), group_bit_or(distinct b) from agg_distinct_function group by k order by k"
     qt_two_group_bit_xor "select group_bit_xor(distinct a), group_bit_xor(distinct b) from agg_distinct_function"
     order_qt_two_group_bit_xor_group "select k, group_bit_xor(distinct a), group_bit_xor(distinct b) from agg_distinct_function group by k order by k"
-    qt_two_group_bitmap_xor "select bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))), bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(b))) from agg_distinct_function"
-    order_qt_two_group_bitmap_xor_group "select k, bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))), bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(b))) from agg_distinct_function group by k order by k"
+//    qt_two_group_bitmap_xor "select bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))), bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(b))) from agg_distinct_function"
+//    order_qt_two_group_bitmap_xor_group "select k, bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))), bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(b))) from agg_distinct_function group by k order by k"
     qt_two_group_concat "select group_concat(distinct s order by s), group_concat(distinct cast(a as string) order by cast(a as string)) from agg_distinct_function"
     order_qt_two_group_concat_group "select k, group_concat(distinct s order by s), group_concat(distinct cast(a as string) order by cast(a as string)) from agg_distinct_function group by k order by k"
     qt_two_histogram "select histogram(distinct a), histogram(distinct b) from agg_distinct_function"
@@ -204,4 +204,9 @@ suite("agg_distinct_function") {
         select exponential_moving_average(distinct 1.0, a, b),exponential_moving_average(distinct 5.0, a, b)
         from agg_distinct_function group by rollup(k)
     """
+
+    explain {
+        sql "select bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))) from agg_distinct_function"
+        exception "group_bitmap_xor does not support DISTINCT"
+    }
 }
