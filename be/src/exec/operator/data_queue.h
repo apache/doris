@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -29,6 +30,15 @@
 namespace doris {
 
 class Dependency;
+
+struct DataQueueBlock {
+    std::unique_ptr<Block> block;
+    bool eos = false;
+
+private:
+    int child_idx = 0;
+    friend class DataQueue;
+};
 
 // Per child sub-queue. Groups all parallel state so that the lock/field
 // relationship is explicit and can be checked by clang -Wthread-safety.
@@ -46,7 +56,7 @@ struct SubQueue {
     AnnotatedMutex free_lock;
     std::deque<std::unique_ptr<Block>> free_blocks GUARDED_BY(free_lock);
 
-    // blocks_in_queue is readable from lock-free fast paths (remaining_has_data),
+    // blocks_in_queue is readable from lock-free fast paths (get_block_from_queue),
     // so it remains atomic and is intentionally not GUARDED_BY.
     std::atomic_uint32_t blocks_in_queue {0};
 
@@ -82,18 +92,13 @@ public:
     DataQueue(int child_count = 1);
     ~DataQueue() = default;
 
-    Status get_block_from_queue(std::unique_ptr<Block>* block, int* child_idx = nullptr);
-    Status push_block(std::unique_ptr<Block> block, int child_idx = 0);
+    Result<DataQueueBlock> get_block_from_queue();
+    Status push_block(std::unique_ptr<Block> block, int child_idx, bool eos);
 
     std::unique_ptr<Block> get_free_block(int child_idx = 0);
-    void push_free_block(std::unique_ptr<Block> output_block, int child_idx = 0);
+    void push_free_block(DataQueueBlock&& queue_block);
 
-    void set_finish(int child_idx = 0);
-    bool is_all_finish();
-
-    // This function is not thread safe, should be called in Operator::get_block()
-    bool remaining_has_data();
-    bool has_more_data() const;
+    std::string debug_string() const;
 
     void set_source_dependency(std::shared_ptr<Dependency> source_dependency)
             NO_THREAD_SAFETY_ANALYSIS;
@@ -104,8 +109,12 @@ public:
     void terminate();
 
 private:
+    bool is_all_finish() const;
+    bool has_more_data() const;
     void clear_free_blocks();
+    void mark_finish(int child_idx);
     void set_source_ready();
+    void set_source_always_ready();
     void set_source_block();
 
     std::vector<std::unique_ptr<SubQueue>> _sub_queues;
@@ -117,7 +126,7 @@ private:
     std::atomic_uint32_t _cur_blocks_total_nums = 0;
 
     //this will be indicate which queue has data, it's useful when have many queues
-    std::atomic_int _flag_queue_idx = 0;
+    int _flag_queue_idx = 0;
     // only used by streaming agg source operator
 
     std::atomic_bool _is_low_memory_mode = false;

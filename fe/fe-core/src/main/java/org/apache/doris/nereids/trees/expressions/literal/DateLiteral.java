@@ -370,7 +370,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
         day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
 
-        if (checkDatetime(dateTime) || checkRange(year, month, day) || checkDate(year, month, day)) {
+        if (checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("date/datetime literal [" + s + "] is out of range");
         }
     }

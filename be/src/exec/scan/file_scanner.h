@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -79,6 +80,10 @@ public:
     }
     const VExprContextSPtrs& TEST_runtime_filter_partition_prune_ctxs() const {
         return _runtime_filter_partition_prune_ctxs;
+    }
+    static TPushAggOp::type TEST_effective_push_down_agg_type(
+            TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        return _effective_push_down_agg_type(agg_type, count_slot_ids);
     }
 #endif
 
@@ -334,9 +339,28 @@ private:
     void _update_adaptive_batch_size_before_truncate(const Block& block);
     void _update_adaptive_batch_size_after_truncate(const Block& block);
 
+    static TPushAggOp::type _effective_push_down_agg_type(
+            TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        if (agg_type != TPushAggOp::type::COUNT) {
+            return agg_type;
+        }
+        // V1's CountReader receives only the file's total row count and emits that many synthetic
+        // rows. This is exact for COUNT(*)/COUNT(1), but it has no column metadata for NULL or CAST
+        // semantics. For example, a 10,000-row file with 9,015 non-null values must return 10,000
+        // for COUNT(*) and 9,015 for COUNT(nullable_col); CountReader can produce only the former.
+        // Therefore a non-empty argument list must use the normal reader. nullopt is an old FE plan
+        // that predates the argument field; treating it as empty would silently reinterpret unknown
+        // semantics as COUNT(*).
+        return count_slot_ids.has_value() && count_slot_ids->empty() ? TPushAggOp::type::COUNT
+                                                                     : TPushAggOp::type::NONE;
+    }
+
     TPushAggOp::type _get_push_down_agg_type() const {
-        return _local_state == nullptr ? TPushAggOp::type::NONE
-                                       : _local_state->get_push_down_agg_type();
+        if (_local_state == nullptr) {
+            return TPushAggOp::type::NONE;
+        }
+        return _effective_push_down_agg_type(_local_state->get_push_down_agg_type(),
+                                             _local_state->get_push_down_count_slot_ids());
     }
 
     // enable the file meta cache only when

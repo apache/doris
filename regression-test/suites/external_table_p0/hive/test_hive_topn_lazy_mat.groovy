@@ -223,6 +223,15 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
 
+        // Output aliases must not be used to resolve physical Hive column indices.
+        explain {
+            sql "select name as lazy_alias from orc_topn_lazy_mat_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("column_descs_lists[[`name` text NULL]]")
+            contains("column_idxs_lists: [[1]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
         explain {
             sql """ select a.name,length(a.name),a.value,b.*,a.* from  parquet_topn_lazy_mat_table as a    
             join  orc_topn_lazy_mat_table as b on a.id = b.id order by a.name    limit 10 """
