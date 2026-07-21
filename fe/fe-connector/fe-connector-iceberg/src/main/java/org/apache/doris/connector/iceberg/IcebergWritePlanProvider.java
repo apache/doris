@@ -384,6 +384,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Schema (no v3 row-lineage append — that is REWRITE/procedures, P6.4).
         tSink.setSchemaJson(SchemaParser.toJson(table.schema()));
+        // #65782: gate BE-side column-stats collection on the table's iceberg metrics policy; a fully-disabled
+        // table (all columns metrics=none) skips BE collection entirely. Same schema the sink advertises.
+        tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, table.schema()));
 
         // Partition spec (only for a partitioned table, mirroring legacy spec().isPartitioned()).
         if (table.spec().isPartitioned()) {
@@ -442,8 +445,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setWriteType(TIcebergWriteType.REWRITE);
         if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
             // iceberg v3 format requires the row-lineage fields when rewriting data files.
-            tSink.setSchemaJson(SchemaParser.toJson(
-                    IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema())));
+            Schema rewriteSchema = IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema());
+            tSink.setSchemaJson(SchemaParser.toJson(rewriteSchema));
+            // #65782: the collect flag must reflect the same (v3-appended) schema the sink advertises.
+            tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, rewriteSchema));
         }
         return tSink;
     }
@@ -508,6 +513,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Schema schema = formatVersion >= 3
                 ? IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema()) : table.schema();
         tSink.setSchemaJson(SchemaParser.toJson(schema));
+        // #65782: gate BE-side column-stats collection on the table's iceberg metrics policy (v3-appended schema).
+        tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, schema));
 
         if (table.spec().isPartitioned()) {
             tSink.setPartitionSpecsJson(Maps.transformValues(table.specs(), PartitionSpecParser::toJson));
