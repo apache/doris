@@ -281,6 +281,8 @@ public interface Plan extends TreeNode<Plan> {
         computeEqualSet(fdBuilder);
         computeFd(fdBuilder);
 
+        fdBuilder.normalizeUniqueSetsToEqualSetRoot();
+
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
             // all slots dependent unique slot
@@ -298,6 +300,7 @@ public interface Plan extends TreeNode<Plan> {
             fdBuilder.addUniformByEqualSet(validEqualSet);
             fdBuilder.addUniqueByEqualSet(validEqualSet);
         }
+
         Set<Slot> output = this.getOutputSet();
         for (Plan child : children()) {
             if (!output.containsAll(child.getOutputSet())) {

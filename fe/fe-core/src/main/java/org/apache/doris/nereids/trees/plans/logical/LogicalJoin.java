@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -612,6 +613,37 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         } else if (joinType.isRightSemiOrAntiJoin() || joinType.isAsofRightJoin()) {
             builder.addUniqueSlot(right().getLogicalProperties().getTrait());
         }
+
+        // Union propagation:
+        // For INNER / CROSS / LEFT_OUTER / RIGHT_OUTER / FULL_OUTER joins, if the left side
+        // is unique on U_L and the right side is unique on U_R, then the join output is unique
+        // on U_L ∪ U_R.
+        // Proof sketch (INNER): two output rows (l_a, r_a) and (l_b, r_b) agreeing on U_L ∪ U_R
+        // must agree on U_L (so l_a = l_b by L's uniqueness on U_L) and on U_R (so r_a = r_b),
+        // hence the two rows are identical.
+        if (joinType.isInnerJoin() || joinType.isCrossJoin()
+                || joinType.isLeftOuterJoin() || joinType.isRightOuterJoin()
+                || joinType.isFullOuterJoin()) {
+            List<Set<Slot>> leftUniqueSets =
+                    left().getLogicalProperties().getTrait().getAllUniqueSets();
+            List<Set<Slot>> rightUniqueSets =
+                    right().getLogicalProperties().getTrait().getAllUniqueSets();
+            if (!leftUniqueSets.isEmpty() && !rightUniqueSets.isEmpty()) {
+                int count = 0;
+                outer:
+                for (Set<Slot> leftUnique : leftUniqueSets) {
+                    for (Set<Slot> rightUnique : rightUniqueSets) {
+                        if (count >= DataTrait.UNIQUE_UNION_LIMIT) {
+                            break outer;
+                        }
+                        builder.addUniqueSlot(ImmutableSet.<Slot>builder()
+                                .addAll(leftUnique).addAll(rightUnique).build());
+                        count++;
+                    }
+                }
+            }
+        }
+
         // if there is non-equal join conditions, don't propagate unique
         if (hashJoinConjuncts.isEmpty()) {
             return;
