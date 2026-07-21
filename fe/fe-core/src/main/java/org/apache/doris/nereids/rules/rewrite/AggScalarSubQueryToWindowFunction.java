@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -63,6 +64,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -342,6 +344,16 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         createSlotMapping(outerTables, innerTables);
 
+        // Shared-table scans must have equivalent row-domain semantics.
+        // Table.getId() equality alone is insufficient: wrappers
+        // (RowBinlogTableWrapper, OlapTableStreamWrapper) share the base
+        // table ID but read different rows.  Likewise, two scans of the
+        // same base table can differ by @incr params, partition/tablet
+        // selection, index, snapshot, or sample.
+        if (!isSameScanDomain(outerTables, innerTables)) {
+            return false;
+        }
+
         // Identify and stash the sole outer-only table for downstream checks
         // and for rewrite().  checkRelation() already validated that exactly
         // one outer-only table exists.
@@ -406,6 +418,62 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                 }
             }
         }
+    }
+
+    /**
+     * Verify that every pair of outer/inner scans sharing the same table ID
+     * has equivalent row-domain semantics.  Table.getId() equality alone is
+     * insufficient — wrappers (RowBinlogTableWrapper, OlapTableStreamWrapper)
+     * share the base table ID but read different rows, and even two scans of
+     * the same base table can differ by {@code @incr} params, partition/tablet
+     * selection, index, snapshot, or table sample.
+     */
+    private static boolean isSameScanDomain(List<CatalogRelation> outerTables,
+                                            List<CatalogRelation> innerTables) {
+        for (CatalogRelation outerTable : outerTables) {
+            for (CatalogRelation innerTable : innerTables) {
+                if (innerTable.getTable().getId() != outerTable.getTable().getId()) {
+                    continue;
+                }
+                // Different table objects with the same ID means one is a
+                // wrapper (RowBinlogTableWrapper, OlapTableStreamWrapper, …)
+                // and the other is the base table.  They read different rows.
+                if (innerTable.getTable() != outerTable.getTable()) {
+                    return false;
+                }
+                // If both are LogicalOlapScan, compare scan-domain properties.
+                if (innerTable instanceof LogicalOlapScan
+                        && outerTable instanceof LogicalOlapScan) {
+                    LogicalOlapScan innerScan = (LogicalOlapScan) innerTable;
+                    LogicalOlapScan outerScan = (LogicalOlapScan) outerTable;
+                    // Different selected index → different row set.
+                    if (innerScan.getSelectedIndexId() != outerScan.getSelectedIndexId()) {
+                        return false;
+                    }
+                    // Different scan params (e.g. @incr) → different row set.
+                    if (!Objects.equals(
+                            innerScan.getScanParams(), outerScan.getScanParams())) {
+                        return false;
+                    }
+                    // Different table sample → different row set.
+                    if (!Objects.equals(
+                            innerScan.getTableSample(), outerScan.getTableSample())) {
+                        return false;
+                    }
+                    // Different partition selection → different row set.
+                    if (!innerScan.getSelectedPartitionIds()
+                            .equals(outerScan.getSelectedPartitionIds())) {
+                        return false;
+                    }
+                    // Different tablet selection → different row set.
+                    if (!innerScan.getSelectedTabletIds()
+                            .equals(outerScan.getSelectedTabletIds())) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     /**
