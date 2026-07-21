@@ -29,10 +29,12 @@
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
+#include "benchmark_pdep_unpack.hpp"
 #include "benchmark_string.hpp"
 #include "benchmark_string_replace.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
@@ -76,6 +78,8 @@ BENCHMARK(Example1);
 // ThreadContext + mem tracker, otherwise the allocator throws E-7412. Mirrors
 // the minimal subset of be/test/testutil/run_all_tests.cpp::main.
 int main(int argc, char** argv) {
+    doris::config::enable_bmi2_optimizations = true;
+
     SCOPED_INIT_THREAD_CONTEXT();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     doris::thread_context()->thread_mem_tracker_mgr->init();
