@@ -213,6 +213,7 @@ ES 连接器**已迁走**（fe-core 无 `datasource/es/`、pom 无 elasticsearch
 ### 批次 5 —— live 源特有逻辑的迁移（独立设计，非本次"删依赖"）
 按数据源分别设计 SPI 委派，把以下请出 fe-core（**顺序 2026-07-21 调整**：iceberg 行级 DML 工作量最大、移到最后；先做小而独立的项）：
 - **legacy engine=hive 簇**（`HiveTable`/`HMSResource`/`BrokerFileGroup` 分支/`Env` show-create/`ranger-hive` 授权包）。
+  > **⚠️ 2026-07-21 T5.1 执行纠正**：经侦察+对抗复核，本文 B.2 把 `HiveTable` 标"仍 live"**判定过宽**——engine=hive 内部建表在 `InternalCatalog:1285` 已抛错拒建、`new HiveTable(` 仅存在于单测、broker LOAD-FROM-TABLE 唯一引擎 Spark Load 已禁、`type=hms` 建资源孤儿。故这簇是**已废弃/死功能**（对外 Hive 已由外部 HMS 连接器承接，无活能力可迁；"迁进连接器"是类别错误），**正解=瘦身成持久化空壳**（仿 `EsTable`/`EsResource`，保留 Gson 反序列化注册），**非 SPI 迁移**。`ranger-hive` 授权包属独立轴（T5.2），不在 T5.1 内。详见 HANDOFF/TASKLIST T5.1。
 - **hudi `hudi_meta` TVF**（3 文件）。
 - **paimon / es 的 `CreateTableInfo` 分支**、`Coordinator` 按源 if-链、`AzureProperties.isIcebergRestCatalog`（有 TODO）、`DatasourcePrintableMap` 的 maxcompute 遮蔽（改字符串字面量）。
 - **es 兼容桩**（`EsTable`/`EsResource`）——碰持久化兼容，长期保留候选。

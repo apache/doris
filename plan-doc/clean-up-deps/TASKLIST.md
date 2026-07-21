@@ -65,11 +65,11 @@
 
 ## Batch 5 — LIVE 源特有逻辑迁移（大工程 · 独立设计 · 大概率跨多个 session）
 
-**前置**：Batch 1–3 完成更干净。**风险**：高——**这些是 live 未迁移特性，须走连接器 SPI 委派，不是删除**。每子项先出迁移设计再动手，遵守架构铁律（HANDOFF §2）。
+**前置**：Batch 1–3 完成更干净。**风险**：高。**⚠️ 每子项动手前必须先核实"到底是 live 待迁移，还是已废弃/死"** —— T5.1（engine=hive）实证证明原假设"这些都是 live 未迁移特性、须走 SPI 委派"**不成立**：它已是废弃/死功能，正解是"瘦身成持久化空壳"而非 SPI 迁移（详见 T5.1 与 HANDOFF）。故后续 T5.x 别默认 SPI 委派——先判活死：真 live→连接器 SPI 委派；死/废弃→按持久化兼容义务处置（能删净则删，碰 Gson 老镜像则留空壳，仿 EsTable/EsResource）。每子项先出定性+设计再动手，遵守架构铁律（HANDOFF §2）。
 
 > **顺序**（2026-07-21 用户调整）：iceberg 行级 DML 簇工作量最大、风险最高，**移到最后**做；先啃独立性强、边界清晰的小项（hudi TVF、ranger-hive、engine=hive、散点分支）。es 兼容桩碰持久化兼容，属长期保留候选。
 
-- [ ] **T5.1** legacy `engine=hive` 簇：`catalog/HiveTable.java`（源特有类 + 属性解析）、`catalog/HMSResource.java`、`load/BrokerFileGroup.java:198` + `nereids/load/NereidsBrokerFileGroup.java:215`、`catalog/Env.java:4480/:4847` show-create 臂。
+- [x] **T5.1** legacy `engine=hive` 簇：`catalog/HiveTable.java`、`catalog/HMSResource.java`、`load/BrokerFileGroup.java` + `nereids/load/NereidsBrokerFileGroup.java`、`catalog/Env.java` show-create 臂。**重大纠正（侦察+对抗复核，4 条证伪全 refuted=false/high）：这簇不是"live 待 SPI 迁移"，而是已废弃/死功能** —— engine=hive 内部建表在 `InternalCatalog:1285` 直接抛错、`new HiveTable(` 仅存在于单测、broker `LOAD FROM TABLE` 唯一引擎 Spark Load 已禁用、`CREATE RESOURCE type=hms` 可建但无人消费（孤儿）；对外 Hive 早由外部 HMS 连接器承接，无"活能力"可迁（Trino 参照：核心零连接器表类、从无内部表引擎→"迁进连接器"是类别错误）。**处置=瘦身成持久化空壳（用户签字 A 方案）**：`HiveTable`/`HMSResource` 仿 `EsTable`/`EsResource` 削成 Gson 空壳（删 validate/toThrift/属性解析/4-arg ctor/getters），**保留** `GsonUtils` 两处 `registerSubtype` + `Resource.getLegacyClazz` HMS 映射（老镜像反序列化命脉，删则 `JsonParseException` → FE 启动挂）；`Resource` case HMS 建资源改抛（对齐 ES）；`Env` 两处 show-create 臂收敛成废弃注释（对齐 ODBC/ES/JDBC）；两处 broker `instanceof HiveTable` 分支塌成废弃抛错；删 `MaterializeProbeVisitor` 死残项（分析文档漏项/drift）；删旧 `HiveTableTest`，新增 `LegacyHiveMetaGsonCompatTest`（守注册+@SerializedName 标签双不变量，2/2 过）。改 `LoadCommand` 过期注释；修 CI `drop_resource.groovy`（HMS→HDFS 资源，保住 DROP RESOURCE 覆盖）。**验证**：`-am` test-compile 绿（gates 过）、守卫测试 2/2、5 维对抗 clean-room review（0 blocker/1 major 已修/1 minor 已修/2 nit）。9 文件 +41/−248。
 - [ ] **T5.2** `ranger-hive` 授权包（`catalog/authorizer/ranger/hive/*`，9 文件，ServiceLoader head `RangerHiveAccessControllerFactory`）——授权迁移轴。
 - [ ] **T5.3** hudi `hudi_meta` TVF：`tablefunction/HudiTableValuedFunction.java`、`tablefunction/MetadataGenerator.java`（`hudiMetadataResult` + `case HUDI`）、`nereids/trees/expressions/functions/table/HudiMeta.java`。
 - [ ] **T5.4** 分散的按源分支：
@@ -92,4 +92,4 @@
 | 2 | 死代码 + 注释纠错 | 低 | — | ✅ `0102a022341`（avro 注释顺延 B3） |
 | 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ✅ 迁测试 `24ddc8d615b` + 删 iceberg 簇 `379e4b07066` + aws-json/avro/parquet `d0f6d3878d3` |
 | 4 | 待定依赖定性 | 低 | — | ✅ 三项全删（dynamodb/logs/bce + 孤立 mqtt/validation-api） |
-| 5 | LIVE 源特有逻辑迁移 | 高 | B1–3 | ⬜ **下一步** |
+| 5 | LIVE 源特有逻辑迁移/废弃清理 | 高 | B1–3 | 🔄 **进行中**：T5.1 engine=hive✅（废弃→持久化空壳）；T5.2 ranger-hive / T5.3 hudi TVF / T5.4 散点分支 / T5.5 es 桩 / T5.6 iceberg 行级DML ⬜ |
