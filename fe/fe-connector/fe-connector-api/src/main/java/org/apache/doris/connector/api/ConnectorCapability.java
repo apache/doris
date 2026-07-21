@@ -139,15 +139,6 @@ public enum ConnectorCapability {
      */
     SUPPORTS_USER_SESSION,
     /**
-     * Indicates the connector exposes a metadata table (e.g. the hudi commit timeline) whose rows are read via
-     * {@link ConnectorMetadata#getMetadataTableRows}.
-     *
-     * <p>The {@code hudi_meta()} / TIMELINE table-valued function's plugin-driven arm delegates to the connector
-     * only when it declares this; a connector with no metadata table must NOT declare it so the TVF rejects the
-     * table with "not a hudi table". Hudi declares it connector-wide (every hudi table has a commit timeline).</p>
-     */
-    SUPPORTS_METADATA_TABLE,
-    /**
      * Indicates the connector's file-scan tables support {@code ANALYZE ... WITH SAMPLE} (scale-factor estimation
      * from raw per-file byte sizes via {@link ConnectorStatisticsOps#listFileSizes}, with fe-core doing the
      * Doris-type slot-width math).

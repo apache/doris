@@ -265,17 +265,6 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Returns whether THIS table exposes a connector metadata table (e.g. the hudi commit timeline) queryable via
-     * the {@code hudi_meta()} / TIMELINE TVF. Resolved per-table via {@link #hasScanCapability}: a uniform
-     * connector (hudi) declares it connector-wide, and the hive gateway reflects it onto a hudi-on-HMS table's
-     * schema so the TVF keeps serving it after the flip; a connector with no metadata table returns false and the
-     * TVF rejects the table.
-     */
-    public boolean supportsMetadataTable() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_METADATA_TABLE);
-    }
-
-    /**
      * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
      * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
      * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.
@@ -894,33 +883,6 @@ public class PluginDrivenExternalTable extends ExternalTable {
             nameToValues.put(partition.getPartitionName(), values);
         }
         return nameToValues;
-    }
-
-    /**
-     * Engine-neutral rows for a connector metadata table (the {@code hudi_meta()} / TIMELINE TVF), sourced from
-     * the connector's {@link ConnectorMetadata#getMetadataTableRows} in one round-trip. {@code kind} selects the
-     * metadata table (currently only {@code "timeline"}). Each returned row is the ordered String cell values the
-     * TVF renders (nulls -> SQL NULL). Empty for an unresolved handle. A NEW standalone method (like
-     * {@link #getNameToPartitionValues}) — byte/cost-invariant for paimon/iceberg, which never declare
-     * {@code SUPPORTS_METADATA_TABLE} and so never reach this via the capability-gated TVF arm. No TCCL pin here;
-     * the connector pins internally (bundled hudi timeline reflection).
-     */
-    public List<List<String>> getMetadataTableRows(String kind) {
-        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return Collections.emptyList();
-        }
-        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
-        Connector connector = pluginCatalog.getConnector();
-        if (connector == null) {
-            return Collections.emptyList();
-        }
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            return Collections.emptyList();
-        }
-        return metadata.getMetadataTableRows(session, handleOpt.get(), kind);
     }
 
     @Override

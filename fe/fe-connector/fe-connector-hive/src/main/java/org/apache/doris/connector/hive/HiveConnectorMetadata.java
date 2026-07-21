@@ -953,24 +953,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Engine-neutral rows for a connector metadata table (currently only the hudi commit timeline). A plain-hive
-     * table has no metadata table, so the hive branch returns nothing; a foreign (hudi-on-HMS) handle is diverted
-     * to the owning sibling connector, whose {@code getMetadataTableRows} produces the real timeline (and pins the
-     * TCCL itself). Without this divert a flipped hudi-on-HMS table would fall through to the SPI-default empty list
-     * even though {@link #reflectSiblingScanCapabilities} reflects the hudi sibling's {@code SUPPORTS_METADATA_TABLE}
-     * and so makes the {@code hudi_meta()} / TIMELINE gate pass — i.e. OK-but-empty instead of the real timeline.
-     * Mirrors the {@link #listFileSizes} / {@link #estimateDataSizeByListingFiles} per-handle divert.
-     */
-    @Override
-    public List<List<String>> getMetadataTableRows(ConnectorSession session, ConnectorTableHandle handle,
-            String kind) {
-        if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getMetadataTableRows(session, handle, kind);
-        }
-        return Collections.emptyList();
-    }
-
-    /**
      * Sampling + summing + scale-up core of {@link #estimateDataSizeByListingFiles}, isolated from the
      * {@code FileSystem} I/O (injected as {@code sizeOf}) so the estimation math is unit-testable. Returns -1
      * when the size cannot be estimated (no listable location, a zero/negative sum, or any error).
