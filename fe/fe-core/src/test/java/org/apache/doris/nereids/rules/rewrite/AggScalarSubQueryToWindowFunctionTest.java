@@ -2789,6 +2789,86 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 + "window aggregate");
     }
 
+    @Test
+    public void testMismatchedScanDomainsRejected() throws Exception {
+        // A shared table scan with different row-domain semantics
+        // (e.g. @incr on the outer fact scan vs. a normal base-table
+        // inner fact2 scan) must be rejected.  checkRelation() pairs
+        // scans by Table.getId(), but a wrapper/scan-param mismatch
+        // means the two scans read different rows — the window would
+        // compute over a different row set than the original scalar
+        // subquery.
+        createTable("CREATE TABLE fact_msd (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_msd (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_msd add constraint uq_dim_msd_k unique (k)");
+
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_msd f, dim_msd d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_msd f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan preRule = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .getPlan();
+
+        // Precondition: the rule would normally match.
+        Plan normalResult = new AggScalarSubQueryToWindowFunction()
+                .rewriteRoot(preRule, null);
+        Assertions.assertTrue(normalResult.anyMatch(LogicalWindow.class::isInstance),
+                "With unique constraint the rule should normally produce a window");
+
+        // Attach INCREMENTAL_READ scan params ONLY to the outer shared-table
+        // scan (fact f), not the inner scan (fact f2).  The DefaultPlanRewriter
+        // visits left child before right child, so the first fact_msd scan
+        // encountered is the outer one.
+        final boolean[] modified = {false};
+        org.apache.doris.analysis.TableScanParams incrParams =
+                new org.apache.doris.analysis.TableScanParams(
+                        org.apache.doris.analysis.TableScanParams.INCREMENTAL_READ,
+                        null, null);
+        Plan incrPlan = preRule.accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalOlapScan(LogicalOlapScan scan, Object ctx) {
+                if (!modified[0] && scan.getTable().getName().equals("fact_msd")) {
+                    modified[0] = true;
+                    return scan.withTableScanParams(incrParams);
+                }
+                return scan;
+            }
+        }, null);
+
+        Plan plan = new AggScalarSubQueryToWindowFunction()
+                .rewriteRoot(incrPlan, null);
+
+        // Rule must NOT match — the outer and inner shared-table scans
+        // have different row domains.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Mismatched scan domains on shared table must be rejected: "
+                + "the outer scan has @incr params but the inner scan "
+                + "reads the full base table");
+    }
+
     private void check(String sql) {
         System.out.printf("Test:\n%s\n\n", sql);
         Plan plan = PlanChecker.from(createCascadesContext(sql))
