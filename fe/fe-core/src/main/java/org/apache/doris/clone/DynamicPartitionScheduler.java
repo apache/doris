@@ -209,17 +209,43 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     /**
-     * Get all partitions except the current one. When currentUtcBorder is non-null,
-     * the current partition is identified by matching its range lower bound against
-     * currentUtcBorder rather than by name. For TIMESTAMPTZ tables both names and
-     * ranges are UTC-based, so the name-based fallback is also correct; the range
-     * check provides an additional safety layer.
+     * Get all partitions except the current one. When currentKey is non-null,
+     * the current partition is identified by matching its range lower bound
+     * against currentKey (parsed from currentUtcBorder).  When currentKey is
+     * null, fall back to name-based exclusion against nowPartitionName.
+     *
+     * <p>The two filters are mutually exclusive — when a range key is available
+     * it alone identifies the current partition.  Applying both filters on top
+     * of each other would double-exclude: after the range match removes the
+     * current partition (whose name may use an old prefix after a prefix change),
+     * the name filter could then catch a <em>different</em> partition whose name
+     * happens to match the new prefix, losing two partitions and corrupting
+     * auto-bucket calculations.
      */
     public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName,
             String currentUtcBorder) {
         table.readLock();
         try {
             RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
+            // Parse the range key once, before the stream.  A single parse
+            // avoids redundant PartitionKey.createPartitionKey calls for every
+            // partition while holding the table read lock.
+            PartitionKey currentKey = null;
+            if (currentUtcBorder != null) {
+                try {
+                    Column partitionColumn = info.getPartitionColumns().get(0);
+                    PartitionValue currentValue = new PartitionValue(currentUtcBorder);
+                    currentKey = PartitionKey.createPartitionKey(
+                            Collections.singletonList(currentValue),
+                            Collections.singletonList(partitionColumn));
+                } catch (AnalysisException e) {
+                    // Parsing failed — fall back to name-based exclusion below.
+                    currentKey = null;
+                }
+            }
+
+            final PartitionKey rangeKey = currentKey;
+
             List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
             idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
             return idToItems.stream()
@@ -228,33 +254,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         if (partition == null) {
                             return false;
                         }
-                        // When currentUtcBorder is available, exclude the current
-                        // partition by comparing range lower bounds, not names.
-                        // Use PartitionKey.compareTo (not getStringValue) to
-                        // handle scale differences: a TIMESTAMPTZ(6) lower key
-                        // stores "2026-07-20 00:00:00.000000+00:00" while
-                        // currentUtcBorder is "2026-07-20 00:00:00+00:00" —
-                        // the string representations differ even though they
-                        // represent the same instant.
-                        if (currentUtcBorder != null) {
+                        if (rangeKey != null) {
+                            // Range-based exclusion only — mutually exclusive
+                            // with name-based exclusion to avoid double-filtering.
                             RangePartitionItem item = (RangePartitionItem) info.getItem(partition.getId());
                             if (item != null) {
                                 PartitionKey lower = item.getItems().lowerEndpoint();
-                                try {
-                                    Column partitionColumn = info.getPartitionColumns().get(0);
-                                    PartitionValue currentValue = new PartitionValue(currentUtcBorder);
-                                    PartitionKey currentKey = PartitionKey.createPartitionKey(
-                                            Collections.singletonList(currentValue),
-                                            Collections.singletonList(partitionColumn));
-                                    if (lower.compareTo(currentKey) == 0) {
-                                        return false; // current partition
-                                    }
-                                } catch (AnalysisException e) {
-                                    // Fall back to name-based comparison
-                                    return !partition.getName().equals(nowPartitionName);
+                                if (lower.compareTo(rangeKey) == 0) {
+                                    return false; // current partition
                                 }
                             }
+                            return true; // not the current — keep it
                         }
+                        // Name-based exclusion (fallback when no range key).
                         return !partition.getName().equals(nowPartitionName);
                     })
                     .collect(Collectors.toList());
