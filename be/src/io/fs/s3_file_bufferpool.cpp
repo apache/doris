@@ -171,7 +171,8 @@ void UploadFileBuffer::on_upload() {
  * write the content of the memory buffer to local file cache
  */
 void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
-    if (!config::enable_file_cache || _alloc_holder == nullptr) {
+    if (!config::enable_file_cache_write_from_s3_file_writer || !config::enable_file_cache ||
+        _alloc_holder == nullptr) {
         return;
     }
     if (_holder) {

@@ -315,6 +315,42 @@ public:
     }
 };
 
+TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
+    bool upload_called = false;
+    bool cache_allocator_called = false;
+    bool completion_called = false;
+    bool original_enable_file_cache = config::enable_file_cache;
+    bool original_enable_file_cache_write = config::enable_file_cache_write_from_s3_file_writer;
+    Defer restore_config {[&]() {
+        config::enable_file_cache = original_enable_file_cache;
+        config::enable_file_cache_write_from_s3_file_writer = original_enable_file_cache_write;
+    }};
+    config::enable_file_cache = true;
+    config::enable_file_cache_write_from_s3_file_writer = false;
+
+    OperationState state(
+            [&completion_called](Status status) {
+                EXPECT_TRUE(status.ok()) << status;
+                completion_called = true;
+                return false;
+            },
+            [] { return false; });
+    UploadFileBuffer buffer([&upload_called](UploadFileBuffer&) { upload_called = true; },
+                            std::move(state), 0,
+                            [&cache_allocator_called]() -> FileBlocksHolderPtr {
+                                cache_allocator_called = true;
+                                return nullptr;
+                            });
+
+    std::string data = "test data";
+    ASSERT_TRUE(buffer.append_data(Slice(data)).ok());
+    buffer.on_upload();
+
+    EXPECT_TRUE(upload_called);
+    EXPECT_TRUE(completion_called);
+    EXPECT_FALSE(cache_allocator_called);
+}
+
 TEST_F(S3FileWriterTest, multi_part_io_error) {
     mock_client = std::make_shared<MockS3Client>();
     doris::io::FileWriterOptions state;
