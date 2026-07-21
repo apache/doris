@@ -108,6 +108,10 @@ struct FileCacheAllocatorBuilder {
     uint64_t _expiration_time;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache
+
+    /// Allocate cache blocks covering `[offset, offset + size)`. The requested range is expanded
+    /// to the cache's canonical block boundaries so metadata-only allocations and data-buffer
+    /// allocations for the same remote file always produce compatible cells.
     FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size, int64_t tablet_id) const;
 };
 
