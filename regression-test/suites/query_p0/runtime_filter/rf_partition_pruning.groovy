@@ -1623,7 +1623,67 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "IN_OR_BLOOM_FILTER", 8, 6)
 
     // ============================================================
-    // Test 53: Switch off enable_runtime_filter_partition_prune -> no pruning
+    // Test 53: Sync MV aliases the base RANGE partition column.
+    // The RF target uses the rollup slot mv_k, while partition metadata is
+    // defined on base column k. FE must serialize the base boundaries with
+    // the MV target slot ID so BE can prune before creating scanners.
+    // ============================================================
+    sql "drop table if exists rf_prune_mv_alias_fact"
+    sql """
+        CREATE TABLE rf_prune_mv_alias_fact (
+            id BIGINT NOT NULL,
+            k INT NOT NULL,
+            v BIGINT NOT NULL
+        ) DUPLICATE KEY(id)
+        PARTITION BY RANGE(k) (
+            PARTITION p0 VALUES [(0),(10)),
+            PARTITION p1 VALUES [(10),(20)),
+            PARTITION p2 VALUES [(20),(30)),
+            PARTITION p3 VALUES [(30),(40))
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO rf_prune_mv_alias_fact
+        SELECT number, number % 40, number * 3
+        FROM numbers("number" = "4000")
+    """
+
+    sql "drop table if exists rf_prune_mv_alias_dim"
+    sql """
+        CREATE TABLE rf_prune_mv_alias_dim (
+            scenario VARCHAR(16) NOT NULL,
+            k INT NOT NULL
+        ) DUPLICATE KEY(scenario, k)
+        DISTRIBUTED BY HASH(k) BUCKETS 2
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO rf_prune_mv_alias_dim VALUES ('one', 7), ('two', 7), ('two', 27)"""
+
+    create_sync_mv(context.dbName, "rf_prune_mv_alias_fact", "rf_prune_mv_alias_detail", """
+        SELECT k AS mv_k, id AS mv_id, v AS mv_v
+        FROM rf_prune_mv_alias_fact
+    """)
+    sql "set enable_materialized_view_rewrite=true"
+    sql "set pre_materialized_view_rewrite_strategy='TRY_IN_RBO'"
+
+    order_qt_sync_mv_alias_minmax """
+        SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+            COUNT(*), COALESCE(SUM(f.v), 0)
+        FROM rf_prune_mv_alias_fact f
+        JOIN [broadcast] (
+            SELECT k FROM rf_prune_mv_alias_dim WHERE scenario = 'one'
+        ) d ON f.k = d.k
+    """
+    assertPruningProfile(
+        "count(*), coalesce(sum(f.v), 0) FROM rf_prune_mv_alias_fact f "
+                + "JOIN [broadcast] (SELECT k FROM rf_prune_mv_alias_dim WHERE scenario = 'one') d "
+                + "ON f.k = d.k",
+        "MIN_MAX", 4, 3)
+
+    // ============================================================
+    // Test 54: Switch off enable_runtime_filter_partition_prune -> no pruning
     // ============================================================
     sql "set enable_runtime_filter_partition_prune=false"
     def token_off = UUID.randomUUID().toString()

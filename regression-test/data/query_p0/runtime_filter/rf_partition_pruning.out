@@ -144,3 +144,6 @@ Beijing	3
 
 -- !list_str_bloom --
 3	c
+
+-- !sync_mv_alias_minmax --
+100	596100
