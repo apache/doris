@@ -1160,7 +1160,6 @@ TEST(VariantBatchBuilderTest, ReserveHintIsVisibleThroughOwningBufferCounters) {
     EXPECT_GE(initial.child_capacity, hint.children);
     EXPECT_GE(initial.scope_stack_capacity, hint.containers);
     EXPECT_GE(initial.object_id_scratch_capacity, hint.children);
-    EXPECT_GE(initial.key_reference_capacity, hint.children);
     EXPECT_GE(initial.container_plan_capacity, hint.containers);
     EXPECT_GE(initial.planned_object_child_capacity, hint.children);
     EXPECT_GE(initial.previous_object_token_capacity, hint.containers);
@@ -1841,7 +1840,7 @@ VariantBatchBuilder::TestCounters collect_capacity_counters(size_t rows) {
     return builder.test_counters();
 }
 
-std::array<size_t, 12> owning_buffer_growths(const VariantBatchBuilder::TestCounters& value) {
+std::array<size_t, 11> owning_buffer_growths(const VariantBatchBuilder::TestCounters& value) {
     return {value.metadata_capacity_growths,
             value.scalar_capacity_growths,
             value.node_capacity_growths,
@@ -1849,7 +1848,6 @@ std::array<size_t, 12> owning_buffer_growths(const VariantBatchBuilder::TestCoun
             value.child_capacity_growths,
             value.scope_stack_capacity_growths,
             value.object_id_scratch_capacity_growths,
-            value.key_reference_capacity_growths,
             value.container_plan_capacity_growths,
             value.planned_object_child_capacity_growths,
             value.row_root_capacity_growths,

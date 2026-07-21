@@ -515,12 +515,12 @@ struct VariantMetadataBuilder::Impl {
 
     Keys keys;
     KeyMap key_to_temporary_id;
-    DorisVector<uint64_t> key_use_counts;
     DorisVector<uint32_t> temporary_to_final_id;
     PaddedPODArray<char> encoded;
-    uint64_t active_collectors = 0;
+    size_t row_start_key_count = 0;
     size_t key_capacity_growths = 0;
     uint32_t sealed_key_count = 0;
+    bool row_active = false;
     bool sealed = false;
 };
 
@@ -548,13 +548,10 @@ uint32_t VariantMetadataBuilder::register_key(StringRef key) {
     if (key.size != 0) {
         _impl->keys.back().insert(key.data, key.data + key.size);
     }
-    const size_t old_capacity = _impl->key_use_counts.capacity();
-    _impl->key_use_counts.push_back(0);
-    if (_impl->key_use_counts.capacity() != old_capacity) {
-        ++_impl->key_capacity_growths;
-    }
     const StringRef owned_key {_impl->keys.back().data(), _impl->keys.back().size()};
+    const size_t old_capacity = _impl->key_to_temporary_id.capacity();
     const auto [unused, inserted] = _impl->key_to_temporary_id.emplace(owned_key, temporary_id);
+    _impl->key_capacity_growths += old_capacity != _impl->key_to_temporary_id.capacity();
     static_cast<void>(unused);
     DCHECK(inserted);
     return temporary_id;
@@ -565,34 +562,28 @@ void VariantMetadataBuilder::_begin_row() {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot create a Variant row builder after metadata seal");
     }
-    ++_impl->active_collectors;
-}
-
-void VariantMetadataBuilder::_retain_key(uint32_t temporary_id) noexcept {
-    DCHECK_LT(temporary_id, _impl->key_use_counts.size());
-    DCHECK(!_impl->sealed);
-    DCHECK_LT(_impl->key_use_counts[temporary_id], std::numeric_limits<uint64_t>::max());
-    ++_impl->key_use_counts[temporary_id];
+    DCHECK(!_impl->row_active);
+    _impl->row_start_key_count = _impl->keys.size();
+    _impl->row_active = true;
 }
 
 void VariantMetadataBuilder::_complete_row() noexcept {
     DCHECK(!_impl->sealed);
-    DCHECK_GT(_impl->active_collectors, 0);
-    --_impl->active_collectors;
+    DCHECK(_impl->row_active);
+    _impl->row_active = false;
 }
 
-void VariantMetadataBuilder::_abort_row(const uint32_t* temporary_ids, size_t count,
-                                        bool was_collecting) noexcept {
+void VariantMetadataBuilder::_abort_row() noexcept {
     DCHECK(!_impl->sealed);
-    for (size_t index = 0; index < count; ++index) {
-        DCHECK_LT(temporary_ids[index], _impl->key_use_counts.size());
-        DCHECK_GT(_impl->key_use_counts[temporary_ids[index]], 0);
-        --_impl->key_use_counts[temporary_ids[index]];
+    DCHECK(_impl->row_active);
+    DCHECK_LE(_impl->row_start_key_count, _impl->keys.size());
+    while (_impl->keys.size() > _impl->row_start_key_count) {
+        const StringRef key {_impl->keys.back().data(), _impl->keys.back().size()};
+        const size_t erased = _impl->key_to_temporary_id.erase(key);
+        DCHECK_EQ(erased, 1);
+        _impl->keys.pop_back();
     }
-    if (was_collecting) {
-        DCHECK_GT(_impl->active_collectors, 0);
-        --_impl->active_collectors;
-    }
+    _impl->row_active = false;
 }
 
 void VariantMetadataBuilder::_reserve_keys(size_t count) {
@@ -600,7 +591,6 @@ void VariantMetadataBuilder::_reserve_keys(size_t count) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot reserve Variant metadata keys after seal");
     }
-    _impl->key_use_counts.reserve(count);
     _impl->key_to_temporary_id.reserve(count);
 }
 
@@ -610,7 +600,7 @@ StringRef VariantMetadataBuilder::_temporary_key(uint32_t temporary_id) const no
 }
 
 size_t VariantMetadataBuilder::_key_capacity() const noexcept {
-    return _impl->key_use_counts.capacity();
+    return _impl->key_to_temporary_id.capacity();
 }
 
 size_t VariantMetadataBuilder::_key_capacity_growths() const noexcept {
@@ -621,18 +611,15 @@ void VariantMetadataBuilder::seal() {
     if (_impl->sealed) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant metadata is already sealed");
     }
-    if (_impl->active_collectors != 0) {
+    if (_impl->row_active) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Cannot seal Variant metadata while {} row builders are incomplete",
-                        _impl->active_collectors);
+                        "Cannot seal Variant metadata while a row builder is incomplete");
     }
 
     DorisVector<uint32_t> sorted_temporary_ids;
     sorted_temporary_ids.reserve(_impl->keys.size());
     for (uint32_t temporary_id = 0; temporary_id < _impl->keys.size(); ++temporary_id) {
-        if (_impl->key_use_counts[temporary_id] != 0) {
-            sorted_temporary_ids.push_back(temporary_id);
-        }
+        sorted_temporary_ids.push_back(temporary_id);
     }
     std::ranges::sort(sorted_temporary_ids, [this](uint32_t left, uint32_t right) {
         const StringRef left_key {_impl->keys[left].data(), _impl->keys[left].size()};
@@ -723,7 +710,6 @@ PaddedPODArray<char> VariantMetadataBuilder::_take_encoded_metadata() noexcept {
     PaddedPODArray<char> encoded = std::move(_impl->encoded);
     release_batch_container(_impl->keys);
     release_batch_container(_impl->key_to_temporary_id);
-    release_batch_container(_impl->key_use_counts);
     release_batch_container(_impl->temporary_to_final_id);
     return encoded;
 }
@@ -781,7 +767,6 @@ public:
         size_t nodes;
         size_t containers;
         size_t children;
-        size_t key_references;
     };
 
     struct CapacitySnapshot {
@@ -791,7 +776,6 @@ public:
         size_t children;
         size_t scope_stack;
         size_t object_id_scratch;
-        size_t key_references;
         size_t container_plans;
         size_t planned_object_children;
     };
@@ -820,7 +804,6 @@ public:
         children.reserve(child_count);
         scope_stack.reserve(container_count);
         object_id_scratch.reserve(child_count);
-        key_references.reserve(child_count);
         container_plans.reserve(container_count);
         planned_object_children.reserve(child_count);
     }
@@ -832,7 +815,6 @@ public:
                 .children = children.capacity(),
                 .scope_stack = scope_stack.capacity(),
                 .object_id_scratch = object_id_scratch.capacity(),
-                .key_references = key_references.capacity(),
                 .container_plans = container_plans.capacity(),
                 .planned_object_children = planned_object_children.capacity()};
     }
@@ -841,8 +823,7 @@ public:
         return {.scalar_bytes = scalar_bytes.size(),
                 .nodes = nodes.size(),
                 .containers = containers.size(),
-                .children = children.size(),
-                .key_references = key_references.size()};
+                .children = children.size()};
     }
 
     void begin_collection(DorisVector<uint32_t>* previous_tokens = nullptr,
@@ -862,12 +843,10 @@ public:
         DCHECK_LE(start.nodes, nodes.size());
         DCHECK_LE(start.containers, containers.size());
         DCHECK_LE(start.children, children.size());
-        DCHECK_LE(start.key_references, key_references.size());
         scalar_bytes.resize(start.scalar_bytes);
         nodes.resize(start.nodes);
         containers.erase(containers.begin() + start.containers, containers.end());
         children.resize(start.children);
-        key_references.resize(start.key_references);
         scope_stack.clear();
         active_container = INVALID_INDEX;
         object_id_scratch.clear();
@@ -891,21 +870,6 @@ public:
         pending_object_tokens->clear();
         previous_object_tokens = nullptr;
         pending_object_tokens = nullptr;
-    }
-
-    void discard_key_references(size_t begin) noexcept {
-        DCHECK_LE(begin, key_references.size());
-        key_references.resize(begin);
-    }
-
-    const uint32_t* key_reference_data(size_t begin) const noexcept {
-        DCHECK_LE(begin, key_references.size());
-        return key_references.empty() ? nullptr : key_references.data() + begin;
-    }
-
-    size_t key_reference_count(size_t begin) const noexcept {
-        DCHECK_LE(begin, key_references.size());
-        return key_references.size() - begin;
     }
 
     void ensure_collecting() const {
@@ -985,20 +949,14 @@ public:
 
     void add_value(VariantRef value) {
         ensure_can_add_value();
-        planned_object_children.clear();
-        try {
-            validate_import_root(value);
-            if (scope_stack.size() > VARIANT_MAX_NESTING_DEPTH) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Variant import exceeds maximum nesting depth {}",
-                                VARIANT_MAX_NESTING_DEPTH);
-            }
-            import_node(value, static_cast<uint32_t>(scope_stack.size()));
-        } catch (...) {
-            // The caller still owns row rollback; only release importer scratch here.
-            planned_object_children.clear();
-            throw;
+        DCHECK(planned_object_children.empty());
+        validate_import_root(value);
+        if (scope_stack.size() > VARIANT_MAX_NESTING_DEPTH) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Variant import exceeds maximum nesting depth {}",
+                            VARIANT_MAX_NESTING_DEPTH);
         }
+        import_node(value, static_cast<uint32_t>(scope_stack.size()));
         DCHECK(planned_object_children.empty());
     }
 
@@ -1334,8 +1292,6 @@ public:
             temporary_id = metadata.register_key(key);
         }
 
-        key_references.push_back(temporary_id);
-        metadata._retain_key(temporary_id);
         commit_key(token, temporary_id);
         if (key_hit) {
             object.previous_child_cursor = next_previous_child;
@@ -1649,7 +1605,6 @@ public:
         release_batch_container(children);
         release_batch_container(scope_stack);
         release_batch_container(object_id_scratch);
-        release_batch_container(key_references);
         release_batch_container(container_plans);
         release_batch_container(planned_object_children);
         previous_object_tokens = nullptr;
@@ -1665,7 +1620,6 @@ public:
     DorisVector<Child> children;
     DorisVector<uint32_t> scope_stack;
     DorisVector<uint32_t> object_id_scratch;
-    DorisVector<uint32_t> key_references;
     DorisVector<ContainerPlan> container_plans;
     DorisVector<FinalChild> planned_object_children;
     DorisVector<uint32_t>* previous_object_tokens = nullptr;
@@ -1717,7 +1671,6 @@ struct VariantBatchBuilder::Impl {
         counters.scope_stack_capacity_growths += before.scope_stack != after.scope_stack;
         counters.object_id_scratch_capacity_growths +=
                 before.object_id_scratch != after.object_id_scratch;
-        counters.key_reference_capacity_growths += before.key_references != after.key_references;
         counters.container_plan_capacity_growths += before.container_plans != after.container_plans;
         counters.planned_object_child_capacity_growths +=
                 before.planned_object_children != after.planned_object_children;
@@ -1739,7 +1692,6 @@ struct VariantBatchBuilder::Impl {
         counters.child_capacity = capacity.children;
         counters.scope_stack_capacity = capacity.scope_stack;
         counters.object_id_scratch_capacity = capacity.object_id_scratch;
-        counters.key_reference_capacity = capacity.key_references;
         counters.container_plan_capacity = capacity.container_plans;
         counters.planned_object_child_capacity = capacity.planned_object_children;
         counters.row_root_capacity = roots.capacity();
@@ -1883,7 +1835,6 @@ void VariantBatchBuilder::_finish_row(uint64_t generation) {
     _impl->observe_root_growth(root_capacity);
 #endif
     _impl->metadata._complete_row();
-    _impl->collection.discard_key_references(_impl->row_start.key_references);
     _impl->collection.publish_object_links();
     _impl->collection.state = VariantCollectionCore::State::FINISHED;
 #ifdef BE_TEST
@@ -1896,9 +1847,7 @@ void VariantBatchBuilder::_abort_row_noexcept(uint64_t generation) noexcept {
     if (!_impl->row_active || generation != _impl->active_generation) {
         return;
     }
-    _impl->metadata._abort_row(
-            _impl->collection.key_reference_data(_impl->row_start.key_references),
-            _impl->collection.key_reference_count(_impl->row_start.key_references), true);
+    _impl->metadata._abort_row();
     _impl->collection.rollback(_impl->row_start);
 #ifdef BE_TEST
     _impl->observe_collection_growth(_impl->row_capacity_start);

@@ -551,17 +551,36 @@ void ColumnVariantV2::insert_encoded_rows( // NOLINT(readability-function-size)
 }
 
 void ColumnVariantV2::insert_encoded_batch(const VariantBatchBuilder& block) {
-    const VariantMetadataRef metadata = block.metadata_ref();
-    if (metadata.size > std::numeric_limits<uint32_t>::max()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant block metadata exceeds the ColumnString uint32 byte limit");
+    if (_typed) {
+        ensure_encoded();
     }
-    const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(metadata.size)};
-    insert_encoded_rows({.metadata_bytes = {metadata.data, metadata.size},
-                         .metadata_offsets = metadata_offsets,
-                         .meta_ids = {},
-                         .value_bytes = block.value_bytes(),
-                         .value_offsets = block.value_offsets()});
+    DORIS_CHECK(_typed_type == nullptr) << "encoded state cannot retain a typed data type";
+
+    const size_t rows = block.num_rows();
+    const std::span<const uint32_t> offsets = block.value_offsets();
+    DORIS_CHECK_EQ(offsets.size(), rows + 1)
+            << "VariantBatchBuilder must be materialized before insertion";
+    if (rows == 0) {
+        return;
+    }
+
+    const VariantMetadataRef metadata = block.metadata_ref();
+    const StringRef value_bytes = block.value_bytes();
+    DORIS_CHECK_EQ(offsets.front(), 0);
+    DORIS_CHECK_EQ(static_cast<size_t>(offsets.back()), value_bytes.size);
+
+    require_exclusive(_meta_ids, "metadata ids");
+    require_exclusive(_values, "values");
+    auto& values = assert_cast<ColumnString&>(*_values);
+    auto& metadata_ids = assert_cast<MetaIdsColumn&>(*_meta_ids);
+    reserve_rows(values, metadata_ids, value_bytes.size, rows);
+
+    const uint32_t id = _find_or_insert_metadata({metadata.data, metadata.size});
+    values.insert_many_continuous_binary_data(value_bytes.data, offsets.data(), rows);
+    metadata_ids.insert_many_vals(id, rows);
+
+    DCHECK_EQ(_meta_ids->size(), _values->size());
+    _check_invariants();
 }
 
 VariantRef ColumnVariantV2::get_value_ref(size_t row) const {

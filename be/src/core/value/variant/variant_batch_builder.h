@@ -117,9 +117,8 @@ private:
     friend class VariantCollectionCore;
 
     void _begin_row();
-    void _retain_key(uint32_t temporary_id) noexcept;
     void _complete_row() noexcept;
-    void _abort_row(const uint32_t* temporary_ids, size_t count, bool was_collecting) noexcept;
+    void _abort_row() noexcept;
     void _reserve_keys(size_t count);
     PaddedPODArray<char> _take_encoded_metadata() noexcept;
     StringRef _temporary_key(uint32_t temporary_id) const noexcept;
@@ -155,7 +154,6 @@ public:
         size_t child_capacity_growths = 0;
         size_t scope_stack_capacity_growths = 0;
         size_t object_id_scratch_capacity_growths = 0;
-        size_t key_reference_capacity_growths = 0;
         size_t container_plan_capacity_growths = 0;
         size_t planned_object_child_capacity_growths = 0;
         size_t row_root_capacity_growths = 0;
@@ -172,7 +170,6 @@ public:
         size_t child_capacity = 0;
         size_t scope_stack_capacity = 0;
         size_t object_id_scratch_capacity = 0;
-        size_t key_reference_capacity = 0;
         size_t container_plan_capacity = 0;
         size_t planned_object_child_capacity = 0;
         size_t row_root_capacity = 0;
@@ -183,9 +180,8 @@ public:
             return metadata_capacity_growths + scalar_capacity_growths + node_capacity_growths +
                    container_capacity_growths + child_capacity_growths +
                    scope_stack_capacity_growths + object_id_scratch_capacity_growths +
-                   key_reference_capacity_growths + container_plan_capacity_growths +
-                   planned_object_child_capacity_growths + row_root_capacity_growths +
-                   object_token_capacity_growths;
+                   container_plan_capacity_growths + planned_object_child_capacity_growths +
+                   row_root_capacity_growths + object_token_capacity_growths;
         }
     };
 #endif

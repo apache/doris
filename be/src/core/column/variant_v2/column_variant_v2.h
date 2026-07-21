@@ -113,8 +113,9 @@ public:
     // metadata blob. Input buffers must not alias this column; use insert_range_from for that case.
     void insert_encoded_rows(const EncodedDataView& data);
 
-    // Direct shared-metadata codec adapter. The block already uses ColumnString-compatible uint32
-    // offsets, so this path borrows its buffers without an O(rows) offset conversion.
+    // Direct trusted codec adapter. VariantBatchBuilder already produces canonical metadata,
+    // validated values, and ColumnString-compatible uint32 offsets, so this path copies its buffers
+    // without validating the encoded tree a second time.
     void insert_encoded_batch(const VariantBatchBuilder& block);
 
     // The returned view borrows this column's metadata and value buffers. Any structural mutation,
