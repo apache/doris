@@ -367,10 +367,7 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
                     SELECT count(*), sum(length(payload))
                     FROM test_s3_rate_limiter_get
                 """
-                check { result, exception, startTime, endTime ->
-                    assertNotNull(exception, "internal GET should be rejected by token_limit")
-                    logger.info("internal GET token_limit error: ${exception}")
-                }
+                exception "s3 get request exceeds QPS limit, rejected by BE rate limiter"
             }
             after = snapshotMetrics()
             assertMetricChanges(before, after, ["s3_get_rate_limit_rejected_count"])
