@@ -44,11 +44,19 @@ import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.TableScan;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -57,6 +65,52 @@ import java.util.List;
 import java.util.Map;
 
 class StatisticsUtilTest {
+    @Test
+    void getIcebergColumnStatsReturnsEmptyForDisabledMetrics() {
+        // Port of #65782 (read side): a metrics-mode=none table omits the column from the data-file stats maps,
+        // so the reader must return unknown (empty) rather than fabricating zero-valued statistics.
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
+        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(table.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
+        Mockito.when(tableScan.planFiles())
+                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
+        Mockito.when(fileScanTask.spec()).thenReturn(spec);
+        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
+        Mockito.when(dataFile.columnSizes()).thenReturn(Map.of());
+        Mockito.when(dataFile.nullValueCounts()).thenReturn(Map.of());
+
+        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+    }
+
+    @Test
+    void getIcebergColumnStatsReturnsEmptyWhenCloseFails() {
+        // Port of #65782 (read side): a failed scan close must not resurrect partial accumulators into
+        // fabricated statistics; the reader returns unknown (empty) instead.
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
+        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(table.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
+        Mockito.when(tableScan.planFiles()).thenReturn(CloseableIterable.combine(
+                List.of(fileScanTask), () -> {
+                    throw new IOException("close failed");
+                }));
+        Mockito.when(fileScanTask.spec()).thenReturn(spec);
+        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
+        Mockito.when(dataFile.columnSizes()).thenReturn(Map.of());
+        Mockito.when(dataFile.nullValueCounts()).thenReturn(Map.of());
+
+        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+    }
+
     @Test
     void testConvertToDouble() {
         try {
