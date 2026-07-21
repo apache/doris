@@ -257,7 +257,8 @@ public class OlapScanNodeTest {
                 new PlanNodeId(1), tupleDescriptor, "rfppScanNode", ScanContext.EMPTY);
         scanNode.setSelectedPartitionIds(Lists.newArrayList(oldTargetPartitionId, afterPartitionId));
         scanNode.snapshotSelectedPartitionNames();
-        scanNode.snapshotPartitionBoundariesForRuntimeFilter();
+        scanNode.snapshotPartitionBoundariesForRuntimeFilter(
+                0, partitionSlot.getId().asInt());
 
         // Simulate REPLACE PARTITION after planning but before Thrift serialization.
         partitionInfo.dropPartition(oldTargetPartitionId);
@@ -265,7 +266,8 @@ public class OlapScanNodeTest {
         livePartitions.remove(oldTargetPartitionId);
         livePartitions.put(replacementPartitionId, mockPartition("p_target"));
 
-        scanNode.snapshotPartitionBoundariesForRuntimeFilter();
+        scanNode.snapshotPartitionBoundariesForRuntimeFilter(
+                0, partitionSlot.getId().asInt());
         TOlapScanNode thriftScanNode = new TOlapScanNode();
         scanNode.setPartitionBoundariesForRuntimeFilter(thriftScanNode);
         List<Long> serializedPartitionIds = thriftScanNode.getPartitionBoundaries().stream()
