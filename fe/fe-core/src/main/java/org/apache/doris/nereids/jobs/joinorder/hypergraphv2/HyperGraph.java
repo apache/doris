@@ -145,9 +145,9 @@ public class HyperGraph {
     public List<NamedExpression> getProjectedAliases(long left, long right) {
         ImmutableList.Builder<NamedExpression> aliasList = ImmutableList.builder();
         if (left == right) {
-            List<NamedExpression> as = nodeToProjectedAliases.get(left);
-            if (as != null) {
-                aliasList.addAll(as);
+            List<NamedExpression> namedExpressions = nodeToProjectedAliases.get(left);
+            if (namedExpressions != null) {
+                aliasList.addAll(namedExpressions);
             }
         } else {
             long nodes = LongBitmap.newBitmapUnion(left, right);
@@ -159,26 +159,6 @@ public class HyperGraph {
             }
         }
         return aliasList.build();
-    }
-
-    /**
-     * Returns ordered Project layers for the given left/right nodes.
-     * Each inner list is one LogicalProject layer; layers are ordered bottom-up.
-     * PlanReceiver emits each layer as a separate LogicalProject to preserve
-     * materialization boundaries for volatile expressions.
-     * Uses isSubset(key, nodes) rather than exact match because DPHyp may
-     * build a superset of the key without ever building the key independently
-     * (e.g., {A,B} forms only as part of {A,B,C}). Without isSubset the layer
-     * would be lost entirely. The trade-off: a volatile alias may materialize
-     * above unrelated nodes inside the same nullable subtree — this is inherent
-     * to DPHyp reordering within inner-join clusters.
-     */
-    public List<List<NamedExpression>> getProjectedAliasLayers(long left, long right) {
-        List<NamedExpression> aliases = getProjectedAliases(left, right);
-        if (aliases.isEmpty()) {
-            return new ArrayList<>();
-        }
-        return ImmutableList.of(aliases);
     }
 
     /**
