@@ -129,8 +129,8 @@ struct ReadProfile {
 };
 
 struct TableReadOptions {
-    // Columns need to be read from file and output by table reader. They are all in table/global
-    // schema semantics.
+    // Columns required by the scan. They are all in table/global schema semantics;
+    // ColumnDefinition::is_output_slot distinguishes output from predicate-only dependencies.
     const std::vector<ColumnDefinition> projected_columns;
     // All complex conjuncts from scan operator
     const VExprContextSPtrs conjuncts;

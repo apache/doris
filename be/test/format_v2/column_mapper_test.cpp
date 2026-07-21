@@ -2490,6 +2490,37 @@ TEST(ColumnMapperScanRequestTest, HiddenTopLevelFilterMappingUsesNameFallback) {
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(1)).local_index(), LocalIndex(1));
 }
 
+TEST(ColumnMapperScanRequestTest, OrdinaryPredicateOnlyMappingDiscardsPayloadAfterFilter) {
+    const auto int_type = i32();
+    auto quantity = name_col("ss_quantity", int_type);
+    quantity.is_output_slot = false;
+    auto tax = name_col("ss_ext_tax", int_type);
+    const std::vector<ColumnDefinition> table_schema = {quantity, tax};
+    const std::vector<ColumnDefinition> file_schema = {
+            name_col("ss_quantity", int_type, 0),
+            name_col("ss_ext_tax", int_type, 1),
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_FALSE(mapper.mappings()[0].is_output_slot);
+    EXPECT_TRUE(mapper.mappings()[1].is_output_slot);
+
+    auto filter_expr = int_gt(table_slot(7, 0, int_type, "ss_quantity"), 20);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, table_schema, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(0));
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
+    EXPECT_EQ(request.predicate_only_columns, std::vector<LocalColumnId>({LocalColumnId(0)}));
+}
+
 TEST(ColumnMapperScanRequestTest, StructOutputAndFilterOnlyChildAreMerged) {
     const auto int_type = i32();
     const auto string_type = str();

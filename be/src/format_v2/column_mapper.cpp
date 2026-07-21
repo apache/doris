@@ -412,7 +412,8 @@ std::string ColumnDefinition::debug_string() const {
         << join_debug_strings(identity_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)
-        << ", is_partition_key=" << is_partition_key << "}";
+        << ", is_partition_key=" << is_partition_key << ", is_output_slot=" << is_output_slot
+        << "}";
     return out.str();
 }
 
@@ -451,7 +452,8 @@ std::string ColumnMapping::debug_string() const {
         << ", has_projection=" << (projection != nullptr) << ", child_mappings="
         << join_debug_strings(child_mappings,
                               [](const ColumnMapping& child) { return child.debug_string(); })
-        << ", is_trivial=" << is_trivial << ", is_constant=" << constant_index.has_value()
+        << ", is_trivial=" << is_trivial << ", is_output_slot=" << is_output_slot
+        << ", is_constant=" << constant_index.has_value()
         << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
         << ", has_default_expr=" << (default_expr != nullptr) << "}";
@@ -2120,6 +2122,7 @@ Status TableColumnMapper::create_mapping(const std::vector<ColumnDefinition>& pr
         ColumnMapping mapping;
         RETURN_IF_ERROR(_create_mapping_for_column(projected_columns[column_idx],
                                                    GlobalIndex(column_idx), &mapping));
+        mapping.is_output_slot = projected_columns[column_idx].is_output_slot;
         _mappings.push_back(std::move(mapping));
     }
     return Status::OK();
@@ -2193,24 +2196,14 @@ Status TableColumnMapper::create_scan_request(
     // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
     RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state));
-    for (const auto& mapping : _hidden_mappings) {
-        if (!mapping.file_local_id.has_value()) {
-            continue;
-        }
-        const auto local_id = LocalColumnId(*mapping.file_local_id);
-        const bool is_visible_output =
-                std::ranges::any_of(_mappings, [local_id](const ColumnMapping& visible_mapping) {
-                    return visible_mapping.file_local_id.has_value() &&
-                           LocalColumnId(*visible_mapping.file_local_id) == local_id;
+    for (const auto& predicate_column : file_request->predicate_columns) {
+        const auto local_id = predicate_column.column_id();
+        const bool is_output =
+                std::ranges::any_of(_mappings, [local_id](const ColumnMapping& mapping) {
+                    return mapping.is_output_slot && mapping.file_local_id.has_value() &&
+                           LocalColumnId(*mapping.file_local_id) == local_id;
                 });
-        if (is_visible_output) {
-            continue;
-        }
-        if (std::ranges::any_of(file_request->predicate_columns,
-                                [local_id](const LocalColumnIndex& projection) {
-                                    return projection.column_id() == local_id;
-                                }) &&
-            !file_request->is_predicate_only(local_id)) {
+        if (!is_output && !file_request->is_predicate_only(local_id)) {
             file_request->predicate_only_columns.push_back(local_id);
         }
     }

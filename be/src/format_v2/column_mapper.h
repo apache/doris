@@ -131,6 +131,9 @@ struct ColumnMapping {
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
+    // True when this top-level mapping is required after scan predicates have run. Hidden filter
+    // mappings and ordinary predicate-only mappings keep this false.
+    bool is_output_slot = false;
     // Effective file type after applying casts/remaps/nested projection pruning.
     DataTypePtr file_type;
     // Target table/global type after final materialization.
@@ -251,9 +254,9 @@ protected:
     ColumnMapping* _find_filter_mapping(GlobalIndex global_index);
 
     TableColumnMapperOptions _options;
-    // Column mapping for each projected column, in the same order as projected_columns. Each entry
-    // describes how to get one table/global column from file-local sources, and carries metadata
-    // for filter localization and result finalize.
+    // Column mapping for each scan-required column, in the same order as projected_columns. Each
+    // entry describes how to get one table/global column from file-local sources, and carries
+    // metadata for filter localization, scan-output liveness, and result finalize.
     std::vector<ColumnMapping> _mappings;
     // Predicate-only top-level columns are not output projection columns, so keep their mappings
     // here. They are visible only to filter localization and file-reader predicate construction.

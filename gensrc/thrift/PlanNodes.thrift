@@ -283,6 +283,10 @@ struct TFileScanSlotInfo {
     // Populated by FE from Column.getDefaultValue() or NULL literal.
     // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
     4: optional Exprs.TExpr default_value_expr;
+    // Whether this source slot is required by the scan node's output projection. False means the
+    // slot is needed only while evaluating scan predicates and its payload can be discarded after
+    // filtering.
+    5: optional bool is_output_slot;
 }
 
 // descirbe how to read file

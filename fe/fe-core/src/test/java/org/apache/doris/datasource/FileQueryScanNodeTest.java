@@ -161,4 +161,34 @@ public class FileQueryScanNodeTest {
         Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
     }
+
+    @Test
+    public void testUpdateRequiredSlotsMarksPredicateOnlySlot() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+        node.setTargetTable(table);
+
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor outputSlot = new SlotDescriptor(new SlotId(1), desc.getId());
+        outputSlot.setColumn(new Column("ss_ext_tax", Type.INT));
+        desc.addSlot(outputSlot);
+        SlotDescriptor predicateSlot = new SlotDescriptor(new SlotId(2), desc.getId());
+        predicateSlot.setColumn(new Column("ss_quantity", Type.INT));
+        desc.addSlot(predicateSlot);
+        Mockito.when(table.getFullSchema()).thenReturn(
+                Arrays.asList(outputSlot.getColumn(), predicateSlot.getColumn()));
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        params.setRequiredSlots(Arrays.asList(
+                new TFileScanSlotInfo().setSlotId(outputSlot.getId().asInt()),
+                new TFileScanSlotInfo().setSlotId(predicateSlot.getId().asInt())));
+        node.params = params;
+        node.setRequiredByProjectSlotIds(Collections.singleton(outputSlot.getId()));
+
+        UPDATE_REQUIRED_SLOTS_METHOD.invoke(node);
+
+        Assert.assertTrue(node.params.getRequiredSlots().get(0).isIsOutputSlot());
+        Assert.assertFalse(node.params.getRequiredSlots().get(1).isIsOutputSlot());
+    }
 }

@@ -897,6 +897,7 @@ Status RowIdStorageReader::read_batch_external_row(
             colname_to_slot_id.emplace(slot.col_name(), slot.id());
             TFileScanSlotInfo slot_info;
             slot_info.slot_id = slot.id();
+            slot_info.__set_is_output_slot(true);
             auto column_idx = request_block_desc.column_idxs(slot_idx);
             if (partition_name_set.contains(slot.col_name())) {
                 //This is partition column.
