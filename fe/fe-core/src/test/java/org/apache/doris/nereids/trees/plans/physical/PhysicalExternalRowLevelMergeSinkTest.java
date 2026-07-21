@@ -32,14 +32,14 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
-import org.apache.doris.nereids.properties.DistributionSpecMerge.IcebergPartitionField;
+import org.apache.doris.nereids.properties.DistributionSpecMerge.MergePartitionField;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink.InsertPartitionFieldResult;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink.InsertPartitionFieldResult;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -58,27 +58,27 @@ import java.util.Optional;
 import java.util.TreeMap;
 
 /**
- * Tests for the dual-mode partition-field resolution added to {@link PhysicalIcebergMergeSink} for the
+ * Tests for the dual-mode partition-field resolution added to {@link PhysicalExternalRowLevelMergeSink} for the
  * iceberg SPI cutover (P6.6 C3b-core step 2). Pre-flip the merge-write distribution walks the native
  * iceberg {@code PartitionSpec}; post-flip it must reproduce the <em>byte-identical</em> distribution
  * from the connector's engine-neutral {@link ConnectorWritePartitionSpec}.
  *
- * <p>The parity core is {@link PhysicalIcebergMergeSink#reconstructPartitionFields} — a pure function
+ * <p>The parity core is {@link PhysicalExternalRowLevelMergeSink#reconstructPartitionFields} — a pure function
  * tested here directly (no mocks) to pin the three legacy parities that a silent divergence would break:
  * <ul>
  *   <li><b>P1 hard-fail clear</b> — an unresolvable source column (null name, or a name absent from the
  *       bound expr-id map) clears the accumulated fields and fails the whole spec, short-circuited before
- *       the {@link IcebergPartitionField} ctor's non-null expr-id requirement;</li>
+ *       the {@link MergePartitionField} ctor's non-null expr-id requirement;</li>
  *   <li><b>P2 non-identity pre-pass</b> — {@code hasNonIdentity} is computed over <em>all</em> fields
  *       from the transform string, independent of resolvability and of where the build loop short-circuits;</li>
  *   <li><b>spec-id carry</b> — the spec id rides every partitioned outcome, null only when unpartitioned.</li>
  * </ul>
- * Two mocked-chain tests on {@link PhysicalIcebergMergeSink#getRequirePhysicalProperties()} pin the
+ * Two mocked-chain tests on {@link PhysicalExternalRowLevelMergeSink#getRequirePhysicalProperties()} pin the
  * dual-mode dispatch (a {@link PluginDrivenExternalTable} routes to the connector branch and its spec
  * flows into the {@link DistributionSpecMerge}) and the {@code enableIcebergMergePartitioning} gate
  * (off → no connector consultation).</p>
  */
-public class PhysicalIcebergMergeSinkTest {
+public class PhysicalExternalRowLevelMergeSinkTest {
 
     private ConnectContext connectContext;
 
@@ -101,9 +101,9 @@ public class PhysicalIcebergMergeSinkTest {
         ExprId a = exprId("a");
         ExprId b = exprId("b");
         Map<String, ExprId> map = map("a", a, "b", b);
-        List<IcebergPartitionField> out = new ArrayList<>();
+        List<MergePartitionField> out = new ArrayList<>();
 
-        InsertPartitionFieldResult result = PhysicalIcebergMergeSink.reconstructPartitionFields(out,
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
                 spec(9, field("identity", null, "a", "a", 1), field("identity", null, "b", "b", 2)),
                 map);
 
@@ -111,8 +111,8 @@ public class PhysicalIcebergMergeSinkTest {
         Assertions.assertFalse(result.hasNonIdentity, "two identity transforms => no non-identity");
         Assertions.assertEquals(Integer.valueOf(9), result.partitionSpecId, "spec id must be carried");
         Assertions.assertEquals(
-                ImmutableList.of(new IcebergPartitionField("identity", a, null, "a", 1),
-                        new IcebergPartitionField("identity", b, null, "b", 2)),
+                ImmutableList.of(new MergePartitionField("identity", a, null, "a", 1),
+                        new MergePartitionField("identity", b, null, "b", 2)),
                 out,
                 "fields must carry transform/exprId/param/name/sourceId verbatim and in order");
     }
@@ -120,28 +120,28 @@ public class PhysicalIcebergMergeSinkTest {
     @Test
     public void reconstructCarriesNonIdentityTransformAndParam() {
         ExprId id = exprId("id");
-        List<IcebergPartitionField> out = new ArrayList<>();
+        List<MergePartitionField> out = new ArrayList<>();
 
-        InsertPartitionFieldResult result = PhysicalIcebergMergeSink.reconstructPartitionFields(out,
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
                 spec(3, field("bucket[16]", 16, "id", "id_bucket", 5)), map("id", id));
 
         Assertions.assertTrue(result.success);
         Assertions.assertTrue(result.hasNonIdentity, "a non-identity transform must set hasNonIdentity");
         Assertions.assertEquals(Integer.valueOf(3), result.partitionSpecId);
         Assertions.assertEquals(
-                ImmutableList.of(new IcebergPartitionField("bucket[16]", id, 16, "id_bucket", 5)), out,
+                ImmutableList.of(new MergePartitionField("bucket[16]", id, 16, "id_bucket", 5)), out,
                 "transform param/name/sourceId must be carried verbatim from the connector field");
     }
 
     @Test
     public void reconstructNullSourceColumnNameHardFailsAndClears() {
         // PARITY-1a: a null source-column-name field hard-fails the whole spec; the already-added prior
-        // field is cleared (so the result is EMPTY, not a partial list) and no IcebergPartitionField is
+        // field is cleared (so the result is EMPTY, not a partial list) and no MergePartitionField is
         // constructed with a null expr id (which would NPE).
         ExprId a = exprId("a");
-        List<IcebergPartitionField> out = new ArrayList<>();
+        List<MergePartitionField> out = new ArrayList<>();
 
-        InsertPartitionFieldResult result = PhysicalIcebergMergeSink.reconstructPartitionFields(out,
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
                 spec(4, field("identity", null, "a", "a", 1), field("bucket[8]", 8, null, "x_bucket", 9)),
                 map("a", a));
 
@@ -155,9 +155,9 @@ public class PhysicalIcebergMergeSinkTest {
     public void reconstructUnresolvedExprIdHardFailsAndClears() {
         // PARITY-1b: a source column name that is not in the bound expr-id map hard-fails and clears.
         ExprId a = exprId("a");
-        List<IcebergPartitionField> out = new ArrayList<>();
+        List<MergePartitionField> out = new ArrayList<>();
 
-        InsertPartitionFieldResult result = PhysicalIcebergMergeSink.reconstructPartitionFields(out,
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
                 spec(7, field("identity", null, "a", "a", 1), field("identity", null, "ghost", "ghost", 2)),
                 map("a", a));
 
@@ -172,9 +172,9 @@ public class PhysicalIcebergMergeSinkTest {
         // PARITY-2 independence: the build loop short-circuits on field 0 (null name), but the
         // hasNonIdentity pre-pass over ALL fields must still see the bucket[16] at field 1. A mutation
         // computing hasNonIdentity inside the build loop would exit before field 1 and wrongly report false.
-        List<IcebergPartitionField> out = new ArrayList<>();
+        List<MergePartitionField> out = new ArrayList<>();
 
-        InsertPartitionFieldResult result = PhysicalIcebergMergeSink.reconstructPartitionFields(out,
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
                 spec(2, field("identity", null, null, "a", 1), field("bucket[16]", 16, "b", "b_bucket", 2)),
                 map("b", exprId("b")));
 
@@ -188,9 +188,9 @@ public class PhysicalIcebergMergeSinkTest {
     @Test
     public void reconstructNullSpecIsUnpartitioned() {
         // A null connector spec == unpartitioned target (legacy spec().isPartitioned() gate).
-        List<IcebergPartitionField> out = new ArrayList<>();
+        List<MergePartitionField> out = new ArrayList<>();
 
-        InsertPartitionFieldResult result = PhysicalIcebergMergeSink.reconstructPartitionFields(out, null,
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out, null,
                 map("a", exprId("a")));
 
         Assertions.assertFalse(result.success);
@@ -211,7 +211,7 @@ public class PhysicalIcebergMergeSinkTest {
         SlotReference opSlot = new SlotReference(MergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
         SlotReference rowidSlot = new SlotReference(Column.ICEBERG_ROWID_COL, IntegerType.INSTANCE);
 
-        PhysicalIcebergMergeSink<Plan> sink = pluginSink(
+        PhysicalExternalRowLevelMergeSink<Plan> sink = pluginSink(
                 spec(11, field("identity", null, "id", "id", 1)),
                 ImmutableList.of(id),                                  // partition columns
                 ImmutableList.of(id),                                  // visible cols
@@ -225,7 +225,7 @@ public class PhysicalIcebergMergeSinkTest {
         Assertions.assertFalse(dist.isInsertRandom(), "a resolvable connector partitioning must not be random");
         Assertions.assertEquals(Integer.valueOf(11), dist.getPartitionSpecId(), "connector spec id must be carried");
         Assertions.assertEquals(
-                ImmutableList.of(new IcebergPartitionField("identity", idSlot.getExprId(), null, "id", 1)),
+                ImmutableList.of(new MergePartitionField("identity", idSlot.getExprId(), null, "id", 1)),
                 dist.getInsertPartitionFields(),
                 "the connector partition field must be reconstructed against the bound id slot");
         Assertions.assertEquals(ImmutableList.of(idSlot.getExprId()), dist.getInsertPartitionExprIds(),
@@ -243,7 +243,7 @@ public class PhysicalIcebergMergeSinkTest {
         SlotReference rowidSlot = new SlotReference(Column.ICEBERG_ROWID_COL, IntegerType.INSTANCE);
         PluginDrivenExternalTable table = pluginTable(spec(11, field("identity", null, "id", "id", 1)),
                 ImmutableList.of(id), true);
-        PhysicalIcebergMergeSink<Plan> sink = sinkWith(table, ImmutableList.of(id),
+        PhysicalExternalRowLevelMergeSink<Plan> sink = sinkWith(table, ImmutableList.of(id),
                 ImmutableList.of(idSlot, opSlot, rowidSlot));
 
         PhysicalProperties props = sink.getRequirePhysicalProperties();
@@ -270,7 +270,7 @@ public class PhysicalIcebergMergeSinkTest {
         // the only partitioning signal, and the absent handle must suppress it.
         PluginDrivenExternalTable table = pluginTable(spec(11, field("identity", null, "id", "id", 1)),
                 ImmutableList.of(), false);
-        PhysicalIcebergMergeSink<Plan> sink = sinkWith(table, ImmutableList.of(id),
+        PhysicalExternalRowLevelMergeSink<Plan> sink = sinkWith(table, ImmutableList.of(id),
                 ImmutableList.of(idSlot, opSlot, rowidSlot));
 
         PhysicalProperties props = sink.getRequirePhysicalProperties();
@@ -336,23 +336,23 @@ public class PhysicalIcebergMergeSinkTest {
         return table;
     }
 
-    private static PhysicalIcebergMergeSink<Plan> pluginSink(ConnectorWritePartitionSpec writeSpec,
+    private static PhysicalExternalRowLevelMergeSink<Plan> pluginSink(ConnectorWritePartitionSpec writeSpec,
             List<Column> partitionColumns, List<Column> cols, List<Slot> childOutput) {
         return sinkWith(pluginTable(writeSpec, partitionColumns, true), cols, childOutput);
     }
 
     /**
-     * Builds a {@link PhysicalIcebergMergeSink} exercising only {@code getRequirePhysicalProperties()}.
+     * Builds a {@link PhysicalExternalRowLevelMergeSink} exercising only {@code getRequirePhysicalProperties()}.
      * CALLS_REAL_METHODS skips the heavyweight ctor and injects the three read fields ({@code targetTable},
      * {@code cols}, and the single child via {@code children}), mirroring {@code PhysicalConnectorTableSinkTest}.
      */
-    private static PhysicalIcebergMergeSink<Plan> sinkWith(PluginDrivenExternalTable table,
+    private static PhysicalExternalRowLevelMergeSink<Plan> sinkWith(PluginDrivenExternalTable table,
             List<Column> cols, List<Slot> childOutput) {
         Plan child = Mockito.mock(Plan.class);
         Mockito.when(child.getOutput()).thenReturn(childOutput);
         @SuppressWarnings("unchecked")
-        PhysicalIcebergMergeSink<Plan> sink =
-                Mockito.mock(PhysicalIcebergMergeSink.class, Mockito.CALLS_REAL_METHODS);
+        PhysicalExternalRowLevelMergeSink<Plan> sink =
+                Mockito.mock(PhysicalExternalRowLevelMergeSink.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(sink, "targetTable", table);
         Deencapsulation.setField(sink, "cols", cols);
         Deencapsulation.setField(sink, "children", ImmutableList.of(child));

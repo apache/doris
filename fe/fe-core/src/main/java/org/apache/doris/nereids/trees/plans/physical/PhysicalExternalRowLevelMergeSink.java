@@ -59,13 +59,14 @@ import java.util.TreeMap;
  * Physical Iceberg Merge Sink for UPDATE operations.
  * This sink is responsible for writing position delete files and data files.
  */
-public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
+        extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final DeleteCommandContext deleteContext;
 
     /**
      * Constructor
      */
-    public PhysicalIcebergMergeSink(ExternalDatabase database,
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
@@ -80,7 +81,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
     /**
      * Constructor
      */
-    public PhysicalIcebergMergeSink(ExternalDatabase database,
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
@@ -90,10 +91,10 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_ICEBERG_MERGE_SINK, database, targetTable, cols, outputExprs, groupExpression,
-                logicalProperties, physicalProperties, statistics, child);
+        super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_MERGE_SINK, database, targetTable, cols, outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.deleteContext = Objects.requireNonNull(
-                deleteContext, "deleteContext != null in PhysicalIcebergMergeSink");
+                deleteContext, "deleteContext != null in PhysicalExternalRowLevelMergeSink");
     }
 
     public DeleteCommandContext getDeleteContext() {
@@ -102,7 +103,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalIcebergMergeSink<>(
+        return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable,
                 cols, outputExprs, deleteContext, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
@@ -110,12 +111,12 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalIcebergMergeSink(this, context);
+        return visitor.visitPhysicalExternalRowLevelMergeSink(this, context);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalIcebergMergeSink<>(
+        return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, getLogicalProperties(), child());
     }
@@ -123,14 +124,14 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalIcebergMergeSink<>(
+        return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalIcebergMergeSink<>(
+        return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
@@ -146,7 +147,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         if (!super.equals(o)) {
             return false;
         }
-        PhysicalIcebergMergeSink<?> that = (PhysicalIcebergMergeSink<?>) o;
+        PhysicalExternalRowLevelMergeSink<?> that = (PhysicalExternalRowLevelMergeSink<?>) o;
         return Objects.equals(deleteContext, that.deleteContext);
     }
 
@@ -188,7 +189,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         }
 
         List<ExprId> insertPartitionExprIds = new ArrayList<>();
-        List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields = new ArrayList<>();
+        List<DistributionSpecMerge.MergePartitionField> insertPartitionFields = new ArrayList<>();
         Integer partitionSpecId = null;
         List<Column> partitionColumns = targetTable.getPartitionColumns(Optional.empty());
         Map<String, ExprId> columnExprIdMap = buildColumnExprIdMap(outputSlots, nameToExprId);
@@ -279,7 +280,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
      * Routes entirely through neutral connector SPI (no {@code instanceof Iceberg*}, no native types).
      */
     private InsertPartitionFieldResult getIcebergPartitioning(
-            List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
             ExternalTable table,
             Map<String, ExprId> columnExprIdMap) {
         return buildInsertPartitionFieldsFromConnector(
@@ -295,7 +296,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
      * native walk, which only ever returns result objects from inside the distribution derivation.
      */
     private InsertPartitionFieldResult buildInsertPartitionFieldsFromConnector(
-            List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
             PluginDrivenExternalTable table,
             Map<String, ExprId> columnExprIdMap) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
@@ -327,7 +328,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
      *   <li><b>P1 hard-fail clear:</b> a field with a {@code null} source column name, or one whose name
      *       does not resolve to a bound expr id, clears the accumulated fields and returns
      *       {@code success=false} — short-circuited <em>before</em> constructing the field, since the
-     *       {@link DistributionSpecMerge.IcebergPartitionField} ctor requires a non-null expr id;</li>
+     *       {@link DistributionSpecMerge.MergePartitionField} ctor requires a non-null expr id;</li>
      *   <li><b>P2 non-identity pre-pass:</b> {@code hasNonIdentity} is computed over <em>all</em> fields
      *       from the transform string ({@code !"identity".equals}) independently of resolvability,
      *       matching legacy {@code field.transform().isIdentity()} (only {@code Identity.toString()} is
@@ -339,7 +340,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
      * {@code spec().isPartitioned()}), yielding {@code (false, false, null)}.
      */
     static InsertPartitionFieldResult reconstructPartitionFields(
-            List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
+            List<DistributionSpecMerge.MergePartitionField> insertPartitionFields,
             ConnectorWritePartitionSpec spec,
             Map<String, ExprId> columnExprIdMap) {
         if (spec == null) {
@@ -364,7 +365,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 insertPartitionFields.clear();
                 return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
             }
-            insertPartitionFields.add(new DistributionSpecMerge.IcebergPartitionField(
+            insertPartitionFields.add(new DistributionSpecMerge.MergePartitionField(
                     field.getTransform(), exprId, field.getTransformParam(),
                     field.getFieldName(), field.getSourceId()));
         }

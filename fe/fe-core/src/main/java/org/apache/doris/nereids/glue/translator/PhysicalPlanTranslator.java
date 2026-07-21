@@ -119,14 +119,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
@@ -545,23 +545,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink,
-                                                       PlanTranslatorContext context) {
-        PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
+    public PlanFragment visitPhysicalExternalRowLevelDeleteSink(
+            PhysicalExternalRowLevelDeleteSink<? extends Plan> deleteSink, PlanTranslatorContext context) {
+        PlanFragment rootFragment = deleteSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
         // The DELETE target is a PluginDrivenExternalTable: route through the connector's
         // PluginDrivenTableSink with WriteOperation.DELETE so the connector's planWrite emits its
         // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
-        rootFragment.setSink(buildPluginRowLevelDmlSink(icebergDeleteSink, WriteOperation.DELETE));
+        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE));
         return rootFragment;
     }
 
     @Override
-    public PlanFragment visitPhysicalIcebergMergeSink(PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink,
-                                                      PlanTranslatorContext context) {
-        PlanFragment rootFragment = icebergMergeSink.child().accept(this, context);
+    public PlanFragment visitPhysicalExternalRowLevelMergeSink(
+            PhysicalExternalRowLevelMergeSink<? extends Plan> mergeSink, PlanTranslatorContext context) {
+        PlanFragment rootFragment = mergeSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
         // BE's viceberg_merge_sink resolves the operation / row-id columns by the output-expr names
         // (TPlanFragment.output_exprs), which are the sink-input slots' col_names — independent of the sink
@@ -569,7 +569,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // unless we materialize the label here; this must happen before the sink is built (the connector
         // receives only ConnectorColumns + table metadata and cannot recover the slot hint).
         List<Expr> outputExprs = Lists.newArrayList();
-        for (Slot slot : icebergMergeSink.getOutput()) {
+        for (Slot slot : mergeSink.getOutput()) {
             SlotRef slotRef = Objects.requireNonNull(context.findSlotRef(slot.getExprId()),
                     "Missing slot ref for iceberg merge sink output");
             SlotDescriptor slotDesc = slotRef.getDesc();
@@ -588,7 +588,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // The MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
         // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
         // TIcebergMergeSink dialect (which threads its own sort_fields).
-        rootFragment.setSink(buildPluginRowLevelDmlSink(icebergMergeSink, WriteOperation.MERGE));
+        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE));
         return rootFragment;
     }
 
@@ -3304,10 +3304,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             for (ExprId exprId : mergeSpec.getDeletePartitionExprIds()) {
                 deletePartitionExprs.add(context.findSlotRef(exprId));
             }
-            List<DataPartition.IcebergPartitionField> insertPartitionFields = Lists.newArrayList();
-            for (DistributionSpecMerge.IcebergPartitionField field : mergeSpec.getInsertPartitionFields()) {
+            List<DataPartition.MergePartitionField> insertPartitionFields = Lists.newArrayList();
+            for (DistributionSpecMerge.MergePartitionField field : mergeSpec.getInsertPartitionFields()) {
                 Expr sourceExpr = context.findSlotRef(field.getSourceExprId());
-                insertPartitionFields.add(new DataPartition.IcebergPartitionField(
+                insertPartitionFields.add(new DataPartition.MergePartitionField(
                         sourceExpr,
                         field.getTransform(),
                         field.getParam(),

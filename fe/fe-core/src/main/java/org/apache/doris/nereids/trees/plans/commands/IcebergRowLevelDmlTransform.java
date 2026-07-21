@@ -37,8 +37,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
@@ -54,10 +54,10 @@ import java.util.function.Predicate;
  * Iceberg {@link RowLevelDmlTransform}: routes {@code DELETE}/{@code UPDATE}/{@code MERGE INTO} on iceberg
  * tables through the generic {@link RowLevelDmlCommand} shell.
  *
- * <p>Per the T07c "delegated synthesis" decision, the iceberg plan-synthesis algebra is <b>not</b> relocated:
- * {@link #synthesize} constructs the corresponding {@code Iceberg*Command} (same package) and calls its
- * (now package-visible) synthesis method, so the synthesized {@code LogicalIceberg{Delete,Merge}Sink} tree is
- * byte-identical to legacy. The per-executor-only bits (conflict-filter stash, finalize) are routed here via
+ * <p>The iceberg plan-synthesis algebra lives in same-package neutral helpers: {@link #synthesize} constructs
+ * the corresponding {@code ExternalRowLevel*PlanBuilder} and calls its (package-visible) synthesis method, so
+ * the synthesized {@code LogicalExternalRowLevel{Delete,Merge}Sink} tree is the generic row-level DML sink.
+ * The per-executor-only bits (conflict-filter stash, finalize) are routed here via
  * {@code instanceof}-free op switches; the O5-2 exclusion predicate mirrors legacy
  * {@code IcebergConflictDetectionFilterUtils} (note the {@code equalsIgnoreCase} vs {@code equals} asymmetry).</p>
  */
@@ -150,15 +150,18 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
         ExternalTable icebergTable = (ExternalTable) args.getTable();
         switch (op) {
             case DELETE:
-                return new IcebergDeleteCommand(args.getNameParts(), args.getTableAlias(), args.isTempPart(),
+                return new ExternalRowLevelDeletePlanBuilder(
+                        args.getNameParts(), args.getTableAlias(), args.isTempPart(),
                         args.getPartitions(), args.getLogicalQuery(), args.getDeleteCtx())
                         .completeQueryPlan(ctx, args.getLogicalQuery(), icebergTable);
             case UPDATE:
-                return new IcebergUpdateCommand(args.getNameParts(), args.getTableAlias(), args.getAssignments(),
+                return new ExternalRowLevelUpdatePlanBuilder(
+                        args.getNameParts(), args.getTableAlias(), args.getAssignments(),
                         args.getLogicalQuery(), args.getDeleteCtx())
                         .buildMergePlan(ctx, args.getLogicalQuery(), args.getAssignments(), icebergTable);
             default:
-                return new IcebergMergeCommand(args.getTargetNameParts(), args.getTargetAlias(), args.getCte(),
+                return new ExternalRowLevelMergePlanBuilder(
+                        args.getTargetNameParts(), args.getTargetAlias(), args.getCte(),
                         args.getSource(), args.getOnClause(), args.getMatchedClauses(), args.getNotMatchedClauses())
                         .buildMergePlan(ctx, icebergTable);
         }
@@ -184,7 +187,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
                 if (!plan.isPresent()) {
                     throw new AnalysisException("DELETE command must contain target table");
                 }
-                if (!(plan.get() instanceof PhysicalIcebergDeleteSink)) {
+                if (!(plan.get() instanceof PhysicalExternalRowLevelDeleteSink)) {
                     throw new AnalysisException("DELETE plan must use Iceberg delete sink");
                 }
                 return plan.get();
@@ -192,7 +195,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
                 if (!plan.isPresent()) {
                     throw new AnalysisException("UPDATE command must contain target table");
                 }
-                if (!(plan.get() instanceof PhysicalIcebergMergeSink)) {
+                if (!(plan.get() instanceof PhysicalExternalRowLevelMergeSink)) {
                     throw new AnalysisException("UPDATE merge plan must use Iceberg merge sink");
                 }
                 return plan.get();
@@ -200,7 +203,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
                 if (!plan.isPresent()) {
                     throw new AnalysisException("MERGE INTO command must contain target table");
                 }
-                if (!(plan.get() instanceof PhysicalIcebergMergeSink)) {
+                if (!(plan.get() instanceof PhysicalExternalRowLevelMergeSink)) {
                     throw new AnalysisException("MERGE INTO plan must use Iceberg merge sink");
                 }
                 return plan.get();

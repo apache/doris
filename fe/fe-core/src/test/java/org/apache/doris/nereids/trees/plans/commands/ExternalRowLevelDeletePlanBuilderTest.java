@@ -23,11 +23,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for IcebergDeleteCommand.
+ * Unit tests for ExternalRowLevelDeletePlanBuilder.
  *
  * Tests the query plan generation logic for Position Delete.
  */
-public class IcebergDeleteCommandTest {
+public class ExternalRowLevelDeletePlanBuilderTest {
 
     @Test
     public void testPositionDeletePlanContainsRowId() {
@@ -44,7 +44,7 @@ public class IcebergDeleteCommandTest {
 
         // TODO: Add full test when mock infrastructure is ready
         // Example:
-        // IcebergDeleteCommand command = new IcebergDeleteCommand(
+        // ExternalRowLevelDeletePlanBuilder command = new ExternalRowLevelDeletePlanBuilder(
         //     nameParts, logicalQuery, table, partitions);
         // LogicalPlan plan = command.completeQueryPlan(ctx, logicalQuery, table);
         // Assertions.assertTrue(plan.getOutput().stream()

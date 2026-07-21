@@ -20,20 +20,21 @@ package org.apache.doris.nereids.rules.implementation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
 
 import java.util.Optional;
 
 /**
- * Implementation rule that convert logical IcebergMergeSink to physical IcebergMergeSink.
+ * Implementation rule that converts the logical external row-level delete sink to its physical form.
  */
-public class LogicalIcebergMergeSinkToPhysicalIcebergMergeSink extends OneImplementationRuleFactory {
+public class LogicalExternalRowLevelDeleteSinkToPhysicalExternalRowLevelDeleteSink
+        extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalIcebergMergeSink().thenApply(ctx -> {
-            LogicalIcebergMergeSink<? extends Plan> sink = ctx.root;
-            return new PhysicalIcebergMergeSink<>(
+        return logicalExternalRowLevelDeleteSink().thenApply(ctx -> {
+            LogicalExternalRowLevelDeleteSink<? extends Plan> sink = ctx.root;
+            return new PhysicalExternalRowLevelDeleteSink<>(
                     sink.getDatabase(),
                     sink.getTargetTable(),
                     sink.getCols(),
@@ -44,6 +45,6 @@ public class LogicalIcebergMergeSinkToPhysicalIcebergMergeSink extends OneImplem
                     null,
                     null,
                     sink.child());
-        }).toRule(RuleType.LOGICAL_ICEBERG_MERGE_SINK_TO_PHYSICAL_ICEBERG_MERGE_SINK_RULE);
+        }).toRule(RuleType.LOGICAL_EXTERNAL_ROW_LEVEL_DELETE_SINK_TO_PHYSICAL_EXTERNAL_ROW_LEVEL_DELETE_SINK_RULE);
     }
 }

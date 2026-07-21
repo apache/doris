@@ -36,8 +36,8 @@ import java.util.Optional;
  * resolves the table (preserving its own swallow/throw discipline) and builds the matching variant via the
  * {@code forDelete}/{@code forUpdate}/{@code forMerge} factories. Fields are a union across the three
  * operations; only the relevant ones are populated per factory. {@code cte} is forwarded for MERGE only —
- * UPDATE/DELETE drop it, faithful to legacy {@code IcebergUpdateCommand}/{@code IcebergDeleteCommand}, which
- * carry no CTE.</p>
+ * UPDATE/DELETE drop it, faithful to {@code ExternalRowLevelUpdatePlanBuilder}/
+ * {@code ExternalRowLevelDeletePlanBuilder}, which carry no CTE.</p>
  */
 public final class RowLevelDmlArgs {
 
@@ -85,21 +85,21 @@ public final class RowLevelDmlArgs {
         this.notMatchedClauses = notMatchedClauses;
     }
 
-    /** Arguments for a DELETE (mirrors the legacy {@code IcebergDeleteCommand} constructor inputs). */
+    /** Arguments for a DELETE (mirrors the legacy {@code ExternalRowLevelDeletePlanBuilder} constructor inputs). */
     public static RowLevelDmlArgs forDelete(TableIf table, List<String> nameParts, String tableAlias,
             boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery, DeleteCommandContext deleteCtx) {
         return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, deleteCtx, isTempPart, partitions,
                 null, null, null, null, null, null, null, null);
     }
 
-    /** Arguments for an UPDATE (mirrors the legacy {@code IcebergUpdateCommand} constructor inputs). */
+    /** Arguments for an UPDATE (mirrors the legacy {@code ExternalRowLevelUpdatePlanBuilder} constructor inputs). */
     public static RowLevelDmlArgs forUpdate(TableIf table, List<String> nameParts, String tableAlias,
             List<EqualTo> assignments, LogicalPlan logicalQuery, DeleteCommandContext deleteCtx) {
         return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, deleteCtx, false, null,
                 assignments, null, null, null, null, null, null, null);
     }
 
-    /** Arguments for a MERGE INTO (mirrors the legacy {@code IcebergMergeCommand} constructor inputs). */
+    /** Arguments for a MERGE INTO (mirrors the legacy {@code ExternalRowLevelMergePlanBuilder} constructor inputs). */
     public static RowLevelDmlArgs forMerge(TableIf table, List<String> targetNameParts, Optional<String> targetAlias,
             Optional<LogicalPlan> cte, LogicalPlan source, Expression onClause,
             List<MergeMatchedClause> matchedClauses, List<MergeNotMatchedClause> notMatchedClauses) {

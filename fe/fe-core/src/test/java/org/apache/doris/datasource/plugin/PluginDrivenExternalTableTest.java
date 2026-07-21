@@ -69,7 +69,7 @@ import java.util.Set;
  * so these tests use a generic invisible synthetic column.
  *
  * <p>Mockito {@code CALLS_REAL_METHODS} runs the real getFullSchema/needInternalHiddenColumns/fetch+append
- * over stubbed seams (schema cache, the connector chain), mirroring {@code PhysicalIcebergMergeSinkTest}.</p>
+ * over stubbed seams (schema cache, the connector chain), mirroring {@code PhysicalExternalRowLevelMergeSinkTest}.</p>
  */
 public class PluginDrivenExternalTableTest {
 

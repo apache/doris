@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
@@ -58,7 +58,7 @@ import java.util.stream.Collectors;
  *   3. Merge sink writes position deletes and new data files
  *   4. RowDelta commits delete + insert atomically
  */
-public class IcebergUpdateCommand {
+public class ExternalRowLevelUpdatePlanBuilder {
 
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
@@ -69,7 +69,7 @@ public class IcebergUpdateCommand {
     /**
      * constructor
      */
-    public IcebergUpdateCommand(
+    public ExternalRowLevelUpdatePlanBuilder(
             List<String> nameParts,
             String tableAlias,
             List<EqualTo> assignments,
@@ -129,7 +129,7 @@ public class IcebergUpdateCommand {
             outputExprs = ImmutableList.of();
         }
 
-        return new LogicalIcebergMergeSink<>(
+        return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),

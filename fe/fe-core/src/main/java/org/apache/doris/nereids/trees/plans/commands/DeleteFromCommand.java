@@ -131,7 +131,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Check if target table is Iceberg table and route to IcebergDeleteCommand if so
+        // Check if target table is Iceberg table and route to ExternalRowLevelDeletePlanBuilder if so
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = null;
         try {

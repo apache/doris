@@ -287,7 +287,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Table table = resolveTable(session, (IcebergTableHandle) tableHandle);
         PartitionSpec spec = table.spec();
         if (spec == null || !spec.isPartitioned()) {
-            // null == "unpartitioned" (legacy PhysicalIcebergMergeSink.buildInsertPartitionFields gates on
+            // null == "unpartitioned" (legacy PhysicalExternalRowLevelMergeSink.buildInsertPartitionFields gates on
             // spec().isPartitioned()) -> the engine uses its non-partitioned merge distribution.
             return null;
         }

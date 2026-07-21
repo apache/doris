@@ -27,7 +27,7 @@ package org.apache.doris.connector.api.write;
  * {@code (transform, exprId, transformParam, fieldName, sourceId)}.</p>
  *
  * <p>The fields map 1:1 onto the legacy iceberg partition walk
- * ({@code PhysicalIcebergMergeSink.buildInsertPartitionFields}): {@code transform} is the iceberg
+ * ({@code PhysicalExternalRowLevelMergeSink.buildInsertPartitionFields}): {@code transform} is the iceberg
  * {@code PartitionField.transform().toString()} (e.g. {@code "identity"}, {@code "bucket[16]"},
  * {@code "day"}); {@code transformParam} is its parsed bracket argument ({@code 16} for {@code bucket[16]},
  * {@code null} when absent); {@code sourceColumnName} is the base column name the field is derived from

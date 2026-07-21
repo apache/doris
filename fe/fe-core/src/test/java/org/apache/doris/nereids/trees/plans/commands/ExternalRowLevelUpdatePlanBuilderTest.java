@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-public class IcebergUpdateCommandTest {
+public class ExternalRowLevelUpdatePlanBuilderTest {
 
     @BeforeAll
     public static void setUp() {
@@ -62,7 +62,7 @@ public class IcebergUpdateCommandTest {
         ctx.setThreadLocalInfo();
         LogicalPlan basePlan = new LogicalOneRowRelation(new RelationId(0),
                 ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy")));
-        IcebergUpdateCommand command = new IcebergUpdateCommand(
+        ExternalRowLevelUpdatePlanBuilder command = new ExternalRowLevelUpdatePlanBuilder(
                 ImmutableList.of("test_catalog", "test_db", "test_table"),
                 null,
                 ImmutableList.of(),
@@ -100,7 +100,7 @@ public class IcebergUpdateCommandTest {
 
     @Test
     public void testBuildUpdateSelectItemsSkipsHiddenColumns() {
-        IcebergUpdateCommand command = new IcebergUpdateCommand(
+        ExternalRowLevelUpdatePlanBuilder command = new ExternalRowLevelUpdatePlanBuilder(
                 ImmutableList.of("test_catalog", "test_db", "test_table"),
                 "t",
                 ImmutableList.of(),

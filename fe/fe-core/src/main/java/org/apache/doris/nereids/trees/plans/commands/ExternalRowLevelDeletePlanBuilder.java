@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
@@ -55,7 +55,7 @@ import java.util.Optional;
  *
  * The legacy Command execution half was removed as dead post-cutover code.
  */
-public class IcebergDeleteCommand {
+public class ExternalRowLevelDeletePlanBuilder {
 
     protected final List<String> nameParts;
     protected final String tableAlias;
@@ -67,7 +67,7 @@ public class IcebergDeleteCommand {
     /**
      * constructor
      */
-    public IcebergDeleteCommand(
+    public ExternalRowLevelDeletePlanBuilder(
             List<String> nameParts,
             String tableAlias,
             boolean isTempPart,
@@ -103,8 +103,8 @@ public class IcebergDeleteCommand {
             outputExprs = ImmutableList.of();
         }
 
-        // Wrap query plan with LogicalIcebergDeleteSink
-        LogicalIcebergDeleteSink<LogicalPlan> deleteSink = new LogicalIcebergDeleteSink<>(
+        // Wrap query plan with LogicalExternalRowLevelDeleteSink
+        LogicalExternalRowLevelDeleteSink<LogicalPlan> deleteSink = new LogicalExternalRowLevelDeleteSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),  // cols

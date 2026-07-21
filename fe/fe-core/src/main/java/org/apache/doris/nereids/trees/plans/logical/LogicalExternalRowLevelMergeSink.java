@@ -42,7 +42,7 @@ import java.util.Optional;
  * Logical Iceberg Merge Sink for UPDATE operations.
  * This sink is responsible for routing rows to position delete and data insert.
  */
-public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
+public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
@@ -57,7 +57,7 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
      * iceberg table. Every consumer ({@code ExplainCommand}, the implementation rule, the translator) only
      * uses the generic {@code getId()}/schema API, so the widening is byte-identical pre-flip.</p>
      */
-    public LogicalIcebergMergeSink(ExternalDatabase database,
+    public LogicalExternalRowLevelMergeSink(ExternalDatabase database,
                                    ExternalTable targetTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
@@ -65,29 +65,33 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
-        super(PlanType.LOGICAL_ICEBERG_MERGE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
-        this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergMergeSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergMergeSink");
-        this.deleteContext = Objects.requireNonNull(deleteContext, "deleteContext != null in LogicalIcebergMergeSink");
+        super(PlanType.LOGICAL_EXTERNAL_ROW_LEVEL_MERGE_SINK, outputExprs, groupExpression, logicalProperties,
+                cols, child);
+        this.database = Objects.requireNonNull(database,
+                "database != null in LogicalExternalRowLevelMergeSink");
+        this.targetTable = Objects.requireNonNull(targetTable,
+                "targetTable != null in LogicalExternalRowLevelMergeSink");
+        this.deleteContext = Objects.requireNonNull(deleteContext,
+                "deleteContext != null in LogicalExternalRowLevelMergeSink");
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIcebergMergeSink<>(database, targetTable, cols, output,
+        return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, output,
                 deleteContext, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1, "LogicalIcebergMergeSink only accepts one child");
-        return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
+        Preconditions.checkArgument(children.size() == 1, "LogicalExternalRowLevelMergeSink only accepts one child");
+        return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, Optional.empty(), Optional.empty(), children.get(0));
     }
 
-    public LogicalIcebergMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
+    public LogicalExternalRowLevelMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, Optional.empty(), Optional.empty(), child());
     }
 
@@ -114,7 +118,7 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         if (!super.equals(o)) {
             return false;
         }
-        LogicalIcebergMergeSink<?> that = (LogicalIcebergMergeSink<?>) o;
+        LogicalExternalRowLevelMergeSink<?> that = (LogicalExternalRowLevelMergeSink<?>) o;
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(deleteContext, that.deleteContext)
@@ -128,7 +132,7 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalIcebergMergeSink[" + id.asInt() + "]",
+        return Utils.toSqlString("LogicalExternalRowLevelMergeSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
@@ -138,19 +142,19 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalIcebergMergeSink(this, context);
+        return visitor.visitLogicalExternalRowLevelMergeSink(this, context);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, logicalProperties, children.get(0));
     }
 }

@@ -42,7 +42,7 @@ import java.util.Optional;
  * Logical Iceberg Delete Sink for DELETE operations.
  * This sink is responsible for writing position delete files.
  */
-public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
+public class LogicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
@@ -57,7 +57,7 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
      * iceberg table. Every consumer ({@code ExplainCommand}, the implementation rule, the translator) only
      * uses the generic {@code getId()}/schema API, so the widening is byte-identical pre-flip.</p>
      */
-    public LogicalIcebergDeleteSink(ExternalDatabase database,
+    public LogicalExternalRowLevelDeleteSink(ExternalDatabase database,
                                    ExternalTable targetTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
@@ -65,29 +65,33 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
-        super(PlanType.LOGICAL_ICEBERG_DELETE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
-        this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergDeleteSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergDeleteSink");
-        this.deleteContext = Objects.requireNonNull(deleteContext, "deleteContext != null in LogicalIcebergDeleteSink");
+        super(PlanType.LOGICAL_EXTERNAL_ROW_LEVEL_DELETE_SINK, outputExprs, groupExpression, logicalProperties,
+                cols, child);
+        this.database = Objects.requireNonNull(database,
+                "database != null in LogicalExternalRowLevelDeleteSink");
+        this.targetTable = Objects.requireNonNull(targetTable,
+                "targetTable != null in LogicalExternalRowLevelDeleteSink");
+        this.deleteContext = Objects.requireNonNull(deleteContext,
+                "deleteContext != null in LogicalExternalRowLevelDeleteSink");
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, output,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, output,
                 deleteContext, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1, "LogicalIcebergDeleteSink only accepts one child");
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        Preconditions.checkArgument(children.size() == 1, "LogicalExternalRowLevelDeleteSink only accepts one child");
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, Optional.empty(), Optional.empty(), children.get(0));
     }
 
-    public LogicalIcebergDeleteSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+    public LogicalExternalRowLevelDeleteSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, Optional.empty(), Optional.empty(), child());
     }
 
@@ -114,7 +118,7 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
         if (!super.equals(o)) {
             return false;
         }
-        LogicalIcebergDeleteSink<?> that = (LogicalIcebergDeleteSink<?>) o;
+        LogicalExternalRowLevelDeleteSink<?> that = (LogicalExternalRowLevelDeleteSink<?>) o;
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(deleteContext, that.deleteContext)
@@ -128,7 +132,7 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalIcebergDeleteSink[" + id.asInt() + "]",
+        return Utils.toSqlString("LogicalExternalRowLevelDeleteSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
@@ -139,19 +143,19 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalIcebergDeleteSink(this, context);
+        return visitor.visitLogicalExternalRowLevelDeleteSink(this, context);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, logicalProperties, children.get(0));
     }
 }

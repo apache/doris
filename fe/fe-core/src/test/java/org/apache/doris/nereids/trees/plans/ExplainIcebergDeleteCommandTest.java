@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import org.junit.jupiter.api.Assertions;
@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
  *
  * This test verifies:
  * 1. DELETE command can be parsed correctly
- * 2. Delete plan contains LogicalIcebergDeleteSink
+ * 2. Delete plan contains LogicalExternalRowLevelDeleteSink
  * 3. Delete plan includes $row_id metadata column
  */
 public class ExplainIcebergDeleteCommandTest {
@@ -42,13 +42,13 @@ public class ExplainIcebergDeleteCommandTest {
     @Test
     public void testParseDeleteFromTable() {
         // Test basic DELETE statement parsing
-        // Parser generates DeleteFromCommand, which is converted to IcebergDeleteCommand during analysis
+        // Parser generates DeleteFromCommand, which is converted to ExternalRowLevelDeletePlanBuilder during analysis
         String sql = "DELETE FROM iceberg_catalog.test_db.test_table WHERE id > 100";
         LogicalPlan plan = parser.parseSingle(sql);
 
         Assertions.assertNotNull(plan);
         // Parser generates generic DeleteFromCommand
-        // IcebergDeleteCommand is created during table resolution
+        // ExternalRowLevelDeletePlanBuilder is created during table resolution
         Assertions.assertTrue(plan instanceof DeleteFromCommand);
     }
 
@@ -86,8 +86,8 @@ public class ExplainIcebergDeleteCommandTest {
     }
 
     @Test
-    public void testLogicalIcebergDeleteSinkCreation() {
-        // Test that LogicalIcebergDeleteSink can be created with proper context
+    public void testLogicalExternalRowLevelDeleteSinkCreation() {
+        // Test that LogicalExternalRowLevelDeleteSink can be created with proper context
         DeleteCommandContext ctx = new DeleteCommandContext();
         ctx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
 
@@ -111,7 +111,7 @@ public class ExplainIcebergDeleteCommandTest {
             Assertions.assertNotNull(plan);
 
             // In actual implementation, we would verify the explain output contains:
-            // - "IcebergDeleteSink" or "ICEBERG_DELETE_SINK"
+            // - "IcebergDeleteSink" or "EXTERNAL_ROW_LEVEL_DELETE_SINK"
             // - "$row_id" column reference
             // - Delete file type information
             // TODO: Add full explain output verification when TestWithFeService is available
@@ -148,16 +148,16 @@ public class ExplainIcebergDeleteCommandTest {
 
     @Test
     public void testPlanVisitorForDeleteSink() {
-        // Test that a plan visitor can traverse and find LogicalIcebergDeleteSink
+        // Test that a plan visitor can traverse and find LogicalExternalRowLevelDeleteSink
         // This is a placeholder for more detailed plan structure verification
 
         class DeleteSinkFinder extends DefaultPlanVisitor<Boolean, Void> {
             @Override
             public Boolean visit(Plan plan, Void context) {
-                if (plan instanceof LogicalIcebergDeleteSink) {
+                if (plan instanceof LogicalExternalRowLevelDeleteSink) {
                     return true;
                 }
-                if (plan instanceof PhysicalIcebergDeleteSink) {
+                if (plan instanceof PhysicalExternalRowLevelDeleteSink) {
                     return true;
                 }
                 for (Plan child : plan.children()) {

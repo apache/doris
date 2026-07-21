@@ -47,8 +47,8 @@ import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -74,7 +74,7 @@ import java.util.Optional;
  * Iceberg MERGE INTO plan synthesizer, invoked via IcebergRowLevelDmlTransform.synthesize
  * (legacy execution half removed as dead post-cutover code).
  */
-public class IcebergMergeCommand {
+public class ExternalRowLevelMergePlanBuilder {
     private static final String BRANCH_LABEL = "__DORIS_ICEBERG_MERGE_INTO_BRANCH_LABEL__";
 
     private final List<String> targetNameParts;
@@ -90,7 +90,7 @@ public class IcebergMergeCommand {
     /**
      * constructor.
      */
-    public IcebergMergeCommand(List<String> targetNameParts, Optional<String> targetAlias,
+    public ExternalRowLevelMergePlanBuilder(List<String> targetNameParts, Optional<String> targetAlias,
             Optional<LogicalPlan> cte, LogicalPlan source, Expression onClause,
             List<MergeMatchedClause> matchedClauses, List<MergeNotMatchedClause> notMatchedClauses) {
         this.targetNameParts = Utils.copyRequiredList(targetNameParts);
@@ -396,7 +396,7 @@ public class IcebergMergeCommand {
             outputExprs = ImmutableList.of();
         }
 
-        return new LogicalIcebergMergeSink<>(
+        return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),

@@ -45,13 +45,14 @@ import java.util.Optional;
  * Physical Iceberg Delete Sink for DELETE operations.
  * This sink is responsible for writing position delete files.
  */
-public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+public class PhysicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan>
+        extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final DeleteCommandContext deleteContext;
 
     /**
      * Constructor
      */
-    public PhysicalIcebergDeleteSink(ExternalDatabase database,
+    public PhysicalExternalRowLevelDeleteSink(ExternalDatabase database,
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
@@ -66,7 +67,7 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     /**
      * Constructor
      */
-    public PhysicalIcebergDeleteSink(ExternalDatabase database,
+    public PhysicalExternalRowLevelDeleteSink(ExternalDatabase database,
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
@@ -76,10 +77,10 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_ICEBERG_DELETE_SINK, database, targetTable, cols, outputExprs, groupExpression,
-                logicalProperties, physicalProperties, statistics, child);
+        super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_DELETE_SINK, database, targetTable, cols, outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.deleteContext = Objects.requireNonNull(
-                deleteContext, "deleteContext != null in PhysicalIcebergDeleteSink");
+                deleteContext, "deleteContext != null in PhysicalExternalRowLevelDeleteSink");
     }
 
     public DeleteCommandContext getDeleteContext() {
@@ -88,7 +89,7 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalIcebergDeleteSink<>(
+        return new PhysicalExternalRowLevelDeleteSink<>(
                 database, targetTable,
                 cols, outputExprs, deleteContext, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
@@ -96,12 +97,12 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalIcebergDeleteSink(this, context);
+        return visitor.visitPhysicalExternalRowLevelDeleteSink(this, context);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalIcebergDeleteSink<>(
+        return new PhysicalExternalRowLevelDeleteSink<>(
                 database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, getLogicalProperties(), child());
     }
@@ -109,14 +110,14 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalIcebergDeleteSink<>(
+        return new PhysicalExternalRowLevelDeleteSink<>(
                 database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalIcebergDeleteSink<>(
+        return new PhysicalExternalRowLevelDeleteSink<>(
                 database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
@@ -132,7 +133,7 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
         if (!super.equals(o)) {
             return false;
         }
-        PhysicalIcebergDeleteSink<?> that = (PhysicalIcebergDeleteSink<?>) o;
+        PhysicalExternalRowLevelDeleteSink<?> that = (PhysicalExternalRowLevelDeleteSink<?>) o;
         return Objects.equals(deleteContext, that.deleteContext);
     }
 

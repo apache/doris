@@ -98,7 +98,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Check if target table is Iceberg table and route to IcebergUpdateCommand if so
+        // Check if target table is Iceberg table and route to ExternalRowLevelUpdatePlanBuilder if so
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = null;
         try {

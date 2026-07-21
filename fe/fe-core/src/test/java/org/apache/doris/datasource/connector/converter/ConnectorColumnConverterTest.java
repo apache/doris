@@ -294,7 +294,7 @@ class ConnectorColumnConverterTest {
         Assertions.assertEquals(Column.ICEBERG_ROWID_COL, converted.getName());
         Assertions.assertFalse(converted.isVisible(), "the row-id column must be hidden");
         Assertions.assertFalse(converted.isAllowNull(), "the row-id column must be not-null");
-        // Pin the exact STRUCT type (field names + order + scalar types). Load-bearing: IcebergMergeCommand
+        // Pin the exact STRUCT type (field names + order + scalar types). Load-bearing: ExternalRowLevelMergePlanBuilder
         // types the not-matched INSERT-branch row-id NULL literal from this column's type, and BE resolves the
         // STRUCT fields by name — so STRING must stay ScalarType.createStringType(), not drift to another form.
         StructType expected = new StructType(new ArrayList<>(Arrays.asList(

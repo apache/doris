@@ -626,7 +626,7 @@ public class IcebergWritePlanProviderTest {
     // ───────────────────────────── getWritePartitioning (connector declares, ② C3b-core) ─────────────────────────────
     //
     // WHY: post-flip the iceberg merge-write distribution (DistributionSpecMerge) is built fe-core-side, but
-    // its native partition-spec walk (PhysicalIcebergMergeSink.buildInsertPartitionFields ->
+    // its native partition-spec walk (PhysicalExternalRowLevelMergeSink.buildInsertPartitionFields ->
     // icebergTable.getIcebergTable().spec()) is DEAD once iceberg is a PluginDrivenExternalCatalog (the native
     // table is unreachable across the connector's isolated classloader). The connector therefore declares the
     // partitioning in an engine-neutral carrier; the engine resolves source-column names to expr ids locally.
