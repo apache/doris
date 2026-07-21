@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -73,7 +75,7 @@ class IvmAggAvgProcessorTest extends IvmAggProcessorTestBase {
                 ImmutableMap.of(
                         IvmAggStateKey.SUM, slot("__ivm_sum", sumType),
                         IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE)),
-                valueArg());
+                ImmutableList.of(slot("v", visibleType)));
 
         Map<String, Expression> finalByName = apply(processor, target,
                 ImmutableList.of(
@@ -85,9 +87,15 @@ class IvmAggAvgProcessorTest extends IvmAggProcessorTestBase {
 
         Expression avgValue = finalByName.get("avg_v");
         List<Divide> divides = avgValue.collectToList(node -> node instanceof Divide);
+        List<Truncate> truncates = avgValue.collectToList(node -> node instanceof Truncate);
         Assertions.assertFalse(avgValue instanceof If);
         Assertions.assertEquals(1, divides.size());
         Assertions.assertTrue(divides.get(0).right() instanceof If);
+        Assertions.assertEquals(1, truncates.size());
+        Assertions.assertTrue(truncates.get(0).getDataType() instanceof DecimalV3Type);
+        Assertions.assertEquals(visibleType.getScale(),
+                ((DecimalV3Type) truncates.get(0).getDataType()).getScale());
+        Assertions.assertEquals(4, ((IntegerLiteral) truncates.get(0).child(1)).getValue());
 
         If guardedCount = (If) divides.get(0).right();
         Assertions.assertEquals(guardedCount.getTrueValue().getDataType(),
