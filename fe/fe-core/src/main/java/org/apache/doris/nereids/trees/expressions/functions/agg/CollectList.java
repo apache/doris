@@ -113,7 +113,7 @@ public class CollectList extends NotNullableAggregateFunction
     public void checkLegalityBeforeTypeCoercion() {
         if (arity() == 2 && !getArgument(1).isConstant()) {
             throw new AnalysisException(
-                    "topn requires second parameter must be a constant: "
+                    "collect_list requires second parameter must be a constant: "
                             + this.toSql());
         }
     }

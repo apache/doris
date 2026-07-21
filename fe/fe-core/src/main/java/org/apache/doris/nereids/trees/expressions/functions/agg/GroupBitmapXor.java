@@ -55,8 +55,7 @@ public class GroupBitmapXor extends NullableAggregateFunction
     }
 
     private GroupBitmapXor(boolean distinct, boolean alwaysNullable, Expression arg0) {
-        /* distinct is meaningless to bitmap */
-        super("group_bitmap_xor", false, alwaysNullable, arg0);
+        super("group_bitmap_xor", distinct, alwaysNullable, arg0);
     }
 
     /** constructor for withChildren and reuse signature */

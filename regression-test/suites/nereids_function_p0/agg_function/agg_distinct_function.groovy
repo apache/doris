@@ -76,7 +76,7 @@ suite("agg_distinct_function") {
     order_qt_hll_union_agg_group "select k, hll_union_agg(distinct hll_hash(a)) from agg_distinct_function group by k order by k"
     qt_kurt "select kurt(distinct a) from agg_distinct_function"
     order_qt_kurt_group "select k, kurt(distinct a) from agg_distinct_function group by k order by k"
-    order_qt_map_agg """
+    order_qt_map_agg_group """
         SELECT
             array_sort(map_keys(m)) AS sorted_keys,
             array_sortby(map_values(m), map_keys(m)) AS values_by_sorted_key
@@ -86,7 +86,7 @@ suite("agg_distinct_function") {
             group by k
         ) t;
     """
-    order_qt_map_agg_group """
+    order_qt_map_agg """
        SELECT
             array_sort(map_keys(m)) AS sorted_keys,
             array_sortby(map_values(m), map_keys(m)) AS values_by_sorted_key

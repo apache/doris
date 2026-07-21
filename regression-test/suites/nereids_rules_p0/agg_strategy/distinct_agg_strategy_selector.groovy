@@ -63,7 +63,7 @@ suite("distinct_agg_strategy_selector") {
     order_qt_count_distinct_group "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000;"
     order_qt_count_distinct_group_with_gby "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000 group by c_10;"
 
-    sql """
+    multi_sql """
     SET enable_nereids_planner = true;
     
     DROP VIEW IF EXISTS v_distinct_guard_repro;
