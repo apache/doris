@@ -205,7 +205,7 @@ suite("agg_distinct_function") {
         from agg_distinct_function group by rollup(k)
     """
 
-    explain {
+    test {
         sql "select bitmap_to_string(group_bitmap_xor(distinct bitmap_hash(a))) from agg_distinct_function"
         exception "group_bitmap_xor does not support DISTINCT"
     }
