@@ -50,9 +50,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -332,39 +330,24 @@ public class PlanReceiver extends AbstractReceiver {
             logicalPlan = new LogicalProject<>(allProjects, join);
         }
 
-        // Emit projected alias layers. Instead of stacking one LogicalProject
-        // per layer (which breaks when an upper layer references a lower
-        // layer's alias), build a cross-layer replacement map bottom-up and
-        // inline all references into a single Project node. Volatile/non-
-        // movable expressions are already excluded by isValidProject, so
-        // inlining is safe.
+        // Emit projected aliases as a single LogicalProject node.
+        // Cross-layer references (e.g., z = x + 1 referencing x = COALESCE(v, 0))
+        // were already resolved at graph-build time, so only one Project is needed.
+        // Carry forward child slots still required by parents (e.g., join keys)
+        // or by deferred alias layers (e.g., B.w for a later y=B.w+1).
+        // Use the full requireSlots so that deferred-layer inputs survive
+        // through intermediate layers.
         if (hyperGraph.hasProjectedAliases()) {
-            List<List<NamedExpression>> layers = hyperGraph.getProjectedAliasLayers(left, right);
-            if (!layers.isEmpty()) {
-                // Bottom-up: each layer's aliases may be referenced by later
-                // layers via their output slots. Resolve those references so
-                // the final Project is self-contained.
-                Map<Slot, Expression> crossLayerReplaceMap = new LinkedHashMap<>();
-                List<NamedExpression> mergedLayer = new ArrayList<>();
-                for (List<NamedExpression> layer : layers) {
-                    for (NamedExpression expr : layer) {
-                        NamedExpression resolved = (NamedExpression) ExpressionUtils.replace(
-                                expr, crossLayerReplaceMap);
-                        mergedLayer.add(resolved);
-                        if (expr instanceof Alias) {
-                            crossLayerReplaceMap.put(expr.toSlot(), ((Alias) expr).child());
-                        }
-                    }
+            List<NamedExpression> aliases = hyperGraph.getProjectedAliases(left, right);
+            if (!aliases.isEmpty()) {
+                Set<ExprId> aliasExprIds = new HashSet<>();
+                for (NamedExpression a : aliases) {
+                    aliasExprIds.add(a.getExprId());
                 }
-                // Carry forward child slots still required by parents or
-                // deferred alias layers (e.g., join keys).
-                Set<ExprId> layerExprIds = new HashSet<>();
-                for (NamedExpression a : mergedLayer) {
-                    layerExprIds.add(a.getExprId());
-                }
+                List<NamedExpression> mergedLayer = new ArrayList<>(aliases);
                 for (Slot childSlot : logicalPlan.getOutputSet()) {
                     if (requireSlots.contains(childSlot)
-                            && !layerExprIds.contains(childSlot.getExprId())) {
+                            && !aliasExprIds.contains(childSlot.getExprId())) {
                         mergedLayer.add(childSlot);
                     }
                 }
