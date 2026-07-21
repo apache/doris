@@ -36,19 +36,27 @@ public class StreamingJdbcUrlNormalizerTest {
     }
 
     @Test
-    public void testNormalizeMysqlJdbcUrlOverridesOppositeValues() {
-        String jdbcUrl = StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL,
-                "jdbc:mysql://127.0.0.1:3306/test?tinyInt1isBit=true"
-                        + "&yearIsDateType=true&useUnicode=false&characterEncoding=GBK");
+    public void testNormalizeMysqlJdbcUrlPreservesExplicitValues() {
+        String jdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?tinyInt1isBit=true"
+                + "&yearIsDateType=true&useUnicode=false&characterEncoding=GBK";
 
-        Assert.assertTrue(jdbcUrl.contains("tinyInt1isBit=false"));
-        Assert.assertTrue(jdbcUrl.contains("yearIsDateType=false"));
-        Assert.assertTrue(jdbcUrl.contains("useUnicode=true"));
-        Assert.assertTrue(jdbcUrl.contains("characterEncoding=GBK&characterEncoding=utf-8"));
-        Assert.assertFalse(jdbcUrl.contains("tinyInt1isBit=true"));
-        Assert.assertFalse(jdbcUrl.contains("yearIsDateType=true"));
-        Assert.assertFalse(jdbcUrl.contains("useUnicode=false"));
-        Assert.assertFalse(jdbcUrl.contains("rewriteBatchedStatements"));
+        Assert.assertEquals(jdbcUrl,
+                StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, jdbcUrl));
+
+        String partialJdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=true";
+        Assert.assertEquals(partialJdbcUrl + "&tinyInt1isBit=false"
+                        + "&useUnicode=true&characterEncoding=utf-8",
+                StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, partialJdbcUrl));
+    }
+
+    @Test
+    public void testNormalizeMysqlJdbcUrlMatchesExactParameterNames() {
+        String jdbcUrl = "jdbc:mysql://127.0.0.1:3306/test?YEARISDATETYPE=true"
+                + "&custom=characterEncoding=utf-8";
+
+        Assert.assertEquals(jdbcUrl + "&yearIsDateType=false&tinyInt1isBit=false"
+                        + "&useUnicode=true&characterEncoding=utf-8",
+                StreamingJdbcUrlNormalizer.normalize(DataSourceType.MYSQL, jdbcUrl));
     }
 
     @Test

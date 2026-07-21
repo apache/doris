@@ -288,9 +288,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 "password is required property");
         Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DATABASE) != null,
                 "database is required property");
-        sourceProperties.put(DataSourceConfigKeys.JDBC_URL,
-                StreamingJdbcUrlNormalizer.normalize(dataSourceType,
-                        sourceProperties.get(DataSourceConfigKeys.JDBC_URL)));
         if (!sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
             sourceProperties.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_LATEST);
         }
@@ -300,11 +297,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
+        Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
         // Key: source table name (PG/MySQL); Value: CreateTableCommand for the Doris target table.
         // The two names differ when "table.<src>.target_table" is configured.
         LinkedHashMap<String, CreateTableCommand> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
-                        dataSourceType, sourceProperties, targetProperties);
+                        dataSourceType, effectiveSourceProperties, targetProperties);
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
         Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
         for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
@@ -539,7 +537,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Map<String, String> mergedSourceProperties = new HashMap<>(this.sourceProperties);
             mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
             Map<String, String> newConvertedSourceProperties =
-                    StreamingJobUtils.convertCertFile(getDbId(), mergedSourceProperties);
+                    buildConvertedSourceProperties(mergedSourceProperties);
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
@@ -680,9 +678,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private Map<String, String> getConvertedSourceProperties() throws JobException {
         if (convertedSourceProperties == null) {
-            this.convertedSourceProperties = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
+            this.convertedSourceProperties = buildConvertedSourceProperties(sourceProperties);
         }
         return convertedSourceProperties;
+    }
+
+    private Map<String, String> buildConvertedSourceProperties(Map<String, String> inputProperties)
+            throws JobException {
+        Map<String, String> convertedProperties =
+                StreamingJobUtils.convertCertFile(getDbId(), inputProperties);
+        convertedProperties.put(DataSourceConfigKeys.JDBC_URL,
+                StreamingJdbcUrlNormalizer.normalize(dataSourceType,
+                        convertedProperties.get(DataSourceConfigKeys.JDBC_URL)));
+        return convertedProperties;
     }
 
     private Map<String, String> getOriginTvfProps() {

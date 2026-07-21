@@ -440,7 +440,7 @@ public class JdbcResource extends Resource {
      * @param expectedVal
      * @return
      */
-    public static String checkAndSetJdbcBoolParam(String dbType, String jdbcUrl, String params, String unexpectedVal,
+    private static String checkAndSetJdbcBoolParam(String dbType, String jdbcUrl, String params, String unexpectedVal,
             String expectedVal) {
         String delimiter = getDelimiter(jdbcUrl, dbType);
         String unexpectedParams = params + "=" + unexpectedVal;
@@ -467,7 +467,7 @@ public class JdbcResource extends Resource {
      * @param params
      * @return
      */
-    public static String checkAndSetJdbcParam(String dbType, String jdbcUrl, String params, String expectedVal) {
+    private static String checkAndSetJdbcParam(String dbType, String jdbcUrl, String params, String expectedVal) {
         String delimiter = getDelimiter(jdbcUrl, dbType);
         String expectedParams = params + "=" + expectedVal;
 
