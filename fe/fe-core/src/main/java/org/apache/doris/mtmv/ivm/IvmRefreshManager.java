@@ -92,7 +92,7 @@ public class IvmRefreshManager {
     IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
         ConnectContext connectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        return new IvmRefreshContext(mtmv, connectContext, new IvmRewriteResult());
+        return new IvmRefreshContext(mtmv, connectContext);
     }
 
     private IvmRefreshResult doRefreshInternal(IvmRefreshContext context) throws Exception {
@@ -101,14 +101,14 @@ public class IvmRefreshManager {
         try {
             executeInternalRefresh(context);
         } catch (IvmException e) {
-            IvmRefreshResult result = fallbackResult(context, e.getFailureReason(), e.getMessage());
+            IvmRefreshResult result = fallbackResult(e.getFailureReason(), e.getMessage());
             LOG.warn("IVM refresh fell back for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         } catch (Exception e) {
             String detail = Util.getRootCauseMessage(e);
             Optional<IvmFailureReason> failureReason = IvmFailureClassifier.classifyExecutionFailure(detail);
             if (failureReason.isPresent()) {
-                IvmRefreshResult result = fallbackResult(context, failureReason.get(), detail);
+                IvmRefreshResult result = fallbackResult(failureReason.get(), detail);
                 LOG.warn("IVM execution guard fell back for mv={}, result={}", mtmv.getName(), result, e);
                 return result;
             }
@@ -117,10 +117,8 @@ public class IvmRefreshManager {
         return IvmRefreshResult.success();
     }
 
-    private IvmRefreshResult fallbackResult(IvmRefreshContext context,
-            IvmFailureReason failureReason, String detail) {
-        return IvmRefreshResult.fallback(
-                failureReason, detail, context.getRewriteResult().getPlanSignature());
+    private IvmRefreshResult fallbackResult(IvmFailureReason failureReason, String detail) {
+        return IvmRefreshResult.fallback(failureReason, detail);
     }
 
     @VisibleForTesting
@@ -128,7 +126,6 @@ public class IvmRefreshManager {
         MTMV mtmv = context.getMtmv();
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
-        statementContext.setIvmRefreshContext(Optional.of(context));
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, false)));
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
@@ -182,6 +179,7 @@ public class IvmRefreshManager {
 
     public static void finishIvmFullRefresh(MTMV mtmv, long expectedGeneration,
             IvmPlanSignature planSignature) throws JobException {
+        Objects.requireNonNull(planSignature, "planSignature can not be null");
         mtmv.writeMvLock();
         try {
             if (expectedGeneration != mtmv.getIvmBinlogBrokenGeneration()) {
@@ -189,14 +187,12 @@ public class IvmRefreshManager {
                         + mtmv.getName());
             }
             IvmInfo updatedIvmInfo = new IvmInfo(mtmv.getIvmInfo());
-            if (planSignature != null) {
-                updatedIvmInfo.setPlanSignature(planSignature.getSha256());
-            }
+            updatedIvmInfo.setPlanSignature(planSignature.getSha256());
             updatedIvmInfo.setBinlogBroken(false);
             persistFullRefreshIvmInfo(mtmv, updatedIvmInfo);
             LOG.info("IVM baseline published after full refresh for mv={}, signature={}, canonicalLayout={}",
                     mtmv.getName(), updatedIvmInfo.getPlanSignature(),
-                    planSignature == null ? "unchanged" : planSignature.getCanonicalString());
+                    planSignature.getCanonicalString());
         } finally {
             mtmv.writeMvUnlock();
         }

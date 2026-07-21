@@ -139,7 +139,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         ConnectContext connectContext = ConnectContext.get();
         boolean ivmRewriteEnabled = connectContext != null
                 && connectContext.getStatementContext() != null
-                && connectContext.getStatementContext().getIvmRewriteContext().isPresent();
+                && connectContext.getStatementContext().isIvmMTMVRewrite();
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
