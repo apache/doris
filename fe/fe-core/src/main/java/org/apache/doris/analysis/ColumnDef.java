@@ -29,10 +29,30 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -314,6 +334,13 @@ public class ColumnDef {
         Preconditions.checkArgument(type.isScalarType());
         ScalarType scalarType = (ScalarType) type;
 
+        if (defaultValueExprDef != null && defaultValueExprDef.isExpressionSql()) {
+            validateDefaultValueExpressionSql(type, defaultValue);
+            String foldedLiteralDefaultValue = computeRealDefaultValueForExpressionSql(type, defaultValue);
+            validateDefaultValue(type, foldedLiteralDefaultValue, null);
+            return;
+        }
+
         // check if default value is valid.
         // first, check if the type of defaultValue matches primitiveType.
         // if not check it first, some literal constructor will throw AnalysisException,
@@ -448,6 +475,80 @@ public class ColumnDef {
             default:
                 throw new AnalysisException("Unsupported type: " + type);
         }
+    }
+
+    private static void validateDefaultValueExpressionSql(Type type, String defaultExprSql)
+            throws AnalysisException {
+        Expression parsedExpr = new NereidsParser().parseExpression(defaultExprSql);
+
+        if (parsedExpr.anyMatch(e -> e instanceof UnboundSlot)) {
+            throw new AnalysisException("Default value expression cannot contain column reference: " + defaultExprSql);
+        }
+        if (parsedExpr.anyMatch(e -> e instanceof SubqueryExpr)) {
+            throw new AnalysisException("Default value expression cannot contain subquery: " + defaultExprSql);
+        }
+
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, true, true);
+        Expression expr;
+        try {
+            expr = analyzer.analyze(parsedExpr);
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
+        if (expr.anyMatch(e -> e instanceof Slot)) {
+            throw new AnalysisException("Default value expression cannot contain column reference: " + defaultExprSql);
+        }
+        if (expr.anyMatch(e -> e instanceof SubqueryExpr)) {
+            throw new AnalysisException("Default value expression cannot contain subquery: " + defaultExprSql);
+        }
+        if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
+            throw new AnalysisException(
+                "Default value expression cannot contain aggregate function: " + defaultExprSql);
+        }
+        if (expr.anyMatch(e -> e instanceof WindowExpression)) {
+            throw new AnalysisException("Default value expression cannot contain window function: " + defaultExprSql);
+        }
+        if (expr.anyMatch(e -> e instanceof Udf)) {
+            throw new AnalysisException("Default value expression cannot contain UDF: " + defaultExprSql);
+        }
+
+        java.util.Set<String> allowedNonDeterministic = ImmutableSet.of(
+                "now", "current_timestamp", "localtime", "localtimestamp", "current_date");
+        if (expr.anyMatch(e -> e instanceof BoundFunction
+                && !((ExpressionTrait) e).isDeterministic()
+                && !allowedNonDeterministic.contains(((BoundFunction) e).getName().toLowerCase()))) {
+            throw new AnalysisException("Default value expression contains non-deterministic function other than "
+                + "now/current_timestamp/current_date: " + defaultExprSql);
+        }
+
+        DataType targetType = DataType.fromCatalogType(type);
+        TypeCoercionUtils.castIfNotSameType(expr, targetType);
+    }
+
+    private static String computeRealDefaultValueForExpressionSql(Type type, String defaultExprSql)
+            throws AnalysisException {
+        Expression parsedExpr = new NereidsParser().parseExpression(defaultExprSql);
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, true, true);
+        Expression expr;
+        try {
+            expr = analyzer.analyze(parsedExpr);
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
+        DataType targetType = DataType.fromCatalogType(type);
+        expr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(CascadesContext.initTempContext());
+        Expression folded = FoldConstantRuleOnFE.evaluate(expr, rewriteContext);
+
+        if (!(folded instanceof Literal) || folded instanceof NullLiteral) {
+            throw new AnalysisException("Default value expression must be foldable to a non-null literal: "
+                    + defaultExprSql);
+        }
+
+        return ((Literal) folded).getStringValue();
     }
 
     public String toSql() {

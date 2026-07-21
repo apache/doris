@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -187,6 +188,15 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 && targetTable.getSequenceCol() == null
                 && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
                 && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
+
+        if (isPartialUpdate
+                && targetTable.hasExpressionDefaultValue()
+                && !ctx.getSessionVariable().isAllowPartialUpdateWithExpressionDefault()) {
+            throw new AnalysisException("Partial update is not supported for table with expression default value. "
+                    + "You can set session variable '"
+                    + SessionVariable.ALLOW_PARTIAL_UPDATE_WITH_EXPRESSION_DEFAULT
+                    + "'=true to bypass this check (may be unsafe). ");
+        }
 
         List<String> partialUpdateColNames = new ArrayList<>();
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();

@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
@@ -3234,6 +3235,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (hasVariantColumns()) {
             throw new UserException("Flexible partial update can only support table without variant columns.");
         }
+    }
+
+    public boolean hasExpressionDefaultValue() {
+        return getFullSchema().stream().anyMatch(col -> {
+            DefaultValueExprDef exprDef = col.getDefaultValueExprDef();
+            return exprDef != null && exprDef.isExpressionSql();
+        });
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {

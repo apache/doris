@@ -644,6 +644,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
+    public static final String ALLOW_PARTIAL_UPDATE_WITH_EXPRESSION_DEFAULT =
+            "allow_partial_update_with_expression_default";
+
     public static final String PARTIAL_UPDATE_NEW_KEY_BEHAVIOR = "partial_update_new_key_behavior";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
@@ -2841,6 +2844,14 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VarAttrDef.VarAttr(name = ALLOW_PARTIAL_UPDATE_WITH_EXPRESSION_DEFAULT, needForward = true,
+            description = {"当表包含 DEFAULT <表达式> 列默认值时，是否允许部分列更新/导入。"
+                    + "开启可能导致部分场景使用 DDL 时刻折叠的静态默认值。",
+                    "Whether to allow partial update/load when table contains DEFAULT <expression> column defaults."
+                    + " Enabling it may cause some paths to use the static literal folded at DDL time."})
+    public boolean allowPartialUpdateWithExpressionDefault = false;
+
 
     @VarAttrDef.VarAttr(name = PARTIAL_UPDATE_NEW_KEY_BEHAVIOR, needForward = true, description = {
             "用于设置部分列更新中对于新插入的行的行为",
@@ -5634,6 +5645,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
+    public boolean isAllowPartialUpdateWithExpressionDefault() {
+        return allowPartialUpdateWithExpressionDefault;
+    }
+
+    public void setAllowPartialUpdateWithExpressionDefault(boolean allowPartialUpdateWithExpressionDefault) {
+        this.allowPartialUpdateWithExpressionDefault = allowPartialUpdateWithExpressionDefault;
     }
 
     public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
