@@ -65,14 +65,14 @@ public class HyperGraph {
     private final List<Edge> joinEdges;
     private final List<AbstractNode> nodes;
     private final List<NamedExpression> finalProjects;
-    // Each value is an ordered list of Project layers (each layer = one LogicalProject's expressions).
-    // Layers preserve materialization boundaries for volatile expressions (e.g., uuid())
-    // and let consumer aliases reference producer aliases via separate Project nodes.
-    private final Map<Long, List<List<NamedExpression>>> nodeToProjectedAliases;
+    // Each value is a flattened list of projected aliases for a given bitmap.
+    // Cross-layer references (e.g., z = x + 1 referencing x = COALESCE(v, 0))
+    // are resolved at flush time so that only a single layer is stored.
+    private final Map<Long, List<NamedExpression>> nodeToProjectedAliases;
     private final CascadesContext ctx;
 
     HyperGraph(List<NamedExpression> finalProjects, List<Edge> joinEdges, List<AbstractNode> nodes,
-               Map<Long, List<List<NamedExpression>>> nodeToProjectedAliases, CascadesContext ctx) {
+               Map<Long, List<NamedExpression>> nodeToProjectedAliases, CascadesContext ctx) {
         this.finalProjects = ImmutableList.copyOf(finalProjects);
         this.joinEdges = ImmutableList.copyOf(joinEdges);
         this.nodes = ImmutableList.copyOf(nodes);
@@ -145,16 +145,16 @@ public class HyperGraph {
     public List<NamedExpression> getProjectedAliases(long left, long right) {
         ImmutableList.Builder<NamedExpression> aliasList = ImmutableList.builder();
         if (left == right) {
-            List<List<NamedExpression>> layers = nodeToProjectedAliases.get(left);
-            if (layers != null) {
-                layers.forEach(aliasList::addAll);
+            List<NamedExpression> as = nodeToProjectedAliases.get(left);
+            if (as != null) {
+                aliasList.addAll(as);
             }
         } else {
             long nodes = LongBitmap.newBitmapUnion(left, right);
-            for (Map.Entry<Long, List<List<NamedExpression>>> entry : nodeToProjectedAliases.entrySet()) {
+            for (Map.Entry<Long, List<NamedExpression>> entry : nodeToProjectedAliases.entrySet()) {
                 if (!LongBitmap.isSubset(entry.getKey(), left) && !LongBitmap.isSubset(entry.getKey(), right)
                         && LongBitmap.isSubset(entry.getKey(), nodes)) {
-                    entry.getValue().forEach(aliasList::addAll);
+                    aliasList.addAll(entry.getValue());
                 }
             }
         }
@@ -174,22 +174,11 @@ public class HyperGraph {
      * to DPHyp reordering within inner-join clusters.
      */
     public List<List<NamedExpression>> getProjectedAliasLayers(long left, long right) {
-        List<List<NamedExpression>> result = new ArrayList<>();
-        if (left == right) {
-            List<List<NamedExpression>> layers = nodeToProjectedAliases.get(left);
-            if (layers != null) {
-                result.addAll(layers);
-            }
-        } else {
-            long nodes = LongBitmap.newBitmapUnion(left, right);
-            for (Map.Entry<Long, List<List<NamedExpression>>> entry : nodeToProjectedAliases.entrySet()) {
-                if (!LongBitmap.isSubset(entry.getKey(), left) && !LongBitmap.isSubset(entry.getKey(), right)
-                        && LongBitmap.isSubset(entry.getKey(), nodes)) {
-                    result.addAll(entry.getValue());
-                }
-            }
+        List<NamedExpression> aliases = getProjectedAliases(left, right);
+        if (aliases.isEmpty()) {
+            return new ArrayList<>();
         }
-        return result;
+        return ImmutableList.of(aliases);
     }
 
     /**
@@ -205,12 +194,10 @@ public class HyperGraph {
      */
     public Set<Slot> getAllAliasInputSlotsForNodes(long nodes) {
         Set<Slot> result = new HashSet<>();
-        for (Map.Entry<Long, List<List<NamedExpression>>> entry : nodeToProjectedAliases.entrySet()) {
+        for (Map.Entry<Long, List<NamedExpression>> entry : nodeToProjectedAliases.entrySet()) {
             if (LongBitmap.isOverlap(nodes, entry.getKey())) {
-                for (List<NamedExpression> layer : entry.getValue()) {
-                    for (NamedExpression alias : layer) {
-                        result.addAll(alias.getInputSlots());
-                    }
+                for (NamedExpression alias : entry.getValue()) {
+                    result.addAll(alias.getInputSlots());
                 }
             }
         }
@@ -237,15 +224,13 @@ public class HyperGraph {
         if (!hasProjectedAliases()) {
             return true;
         }
-        List<List<NamedExpression>> splitLayers = getProjectedAliasLayers(left, right);
-        if (splitLayers.isEmpty()) {
+        List<NamedExpression> splitAliases = getProjectedAliases(left, right);
+        if (splitAliases.isEmpty()) {
             return true;
         }
         Set<ExprId> splitAliasExprIds = new HashSet<>();
-        for (List<NamedExpression> layer : splitLayers) {
-            for (NamedExpression alias : layer) {
-                splitAliasExprIds.add(alias.getExprId());
-            }
+        for (NamedExpression alias : splitAliases) {
+            splitAliasExprIds.add(alias.getExprId());
         }
         for (Slot slot : edge.getInputSlots()) {
             if (splitAliasExprIds.contains(slot.getExprId())) {
@@ -383,7 +368,7 @@ public class HyperGraph {
         // addAlias method add slots from both simple node and joined nodes, depending on the alias's input slots
         private final HashMap<Slot, Long> slotToHyperNodeMap = new LinkedHashMap<>();
 
-        private final Map<Long, List<List<NamedExpression>>> nodeToProjectedAliases = new LinkedHashMap<>();
+        private final Map<Long, List<NamedExpression>> nodeToProjectedAliases = new LinkedHashMap<>();
 
         // Accumulates aliases for the current Project layer. Reset for each new Project
         // in buildForDPhyper so that each source Project forms a separate layer,
@@ -459,11 +444,29 @@ public class HyperGraph {
                         this.addAlias((Alias) expr, res.second, isNullableSide);
                     }
                 }
-                // Flush the layer if non-empty
+                // Flush the layer if non-empty. If aliases for this key already
+                // exist, resolve cross-layer references (e.g., z = x + 1 where
+                // x was defined by an earlier Project on the same subtree) and
+                // merge into the existing single layer. Cross-layer resolution
+                // is safe because volatile/non-movable expressions are already
+                // excluded by isValidProject.
                 if (!this.currentProjectedAliasLayer.isEmpty()) {
-                    nodeToProjectedAliases
-                            .computeIfAbsent(res.second, k -> new ArrayList<>())
-                            .add(this.currentProjectedAliasLayer);
+                    long key = res.second;
+                    List<NamedExpression> existing = nodeToProjectedAliases.get(key);
+                    if (existing != null) {
+                        Map<Slot, Expression> replaceMap = new LinkedHashMap<>();
+                        for (NamedExpression a : existing) {
+                            if (a instanceof Alias) {
+                                replaceMap.put(a.toSlot(), ((Alias) a).child());
+                            }
+                        }
+                        for (NamedExpression expr : currentProjectedAliasLayer) {
+                            existing.add((NamedExpression) ExpressionUtils.replace(expr, replaceMap));
+                        }
+                    } else {
+                        nodeToProjectedAliases.put(key,
+                                new ArrayList<>(currentProjectedAliasLayer));
+                    }
                 }
                 this.currentProjectedAliasLayer = savedLayer;
                 return res;
