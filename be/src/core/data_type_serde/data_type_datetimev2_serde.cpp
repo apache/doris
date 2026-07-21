@@ -23,6 +23,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
@@ -35,13 +36,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-
-enum {
-    DIVISOR_FOR_SECOND = 1,
-    DIVISOR_FOR_MILLI = 1000,
-    DIVISOR_FOR_MICRO = 1000000,
-    DIVISOR_FOR_NANO = 1000000000
-};
 
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
@@ -455,13 +449,14 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
                                                       const NullMap* null_map,
                                                       arrow::ArrayBuilder* array_builder,
                                                       int64_t start, int64_t end,
-                                                      const cctz::time_zone& ctz) const {
+                                                      const cctz::time_zone&) const {
     const auto& col_data = static_cast<const ColumnDateTimeV2&>(column).get_data();
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     std::shared_ptr<arrow::TimestampType> timestamp_type =
             std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
-    const std::string& timezone = timestamp_type->timezone();
-    const cctz::time_zone& real_ctz = timezone.empty() ? cctz::utc_time_zone() : ctz;
+    DORIS_CHECK(timestamp_type->timezone().empty())
+            << "DATETIMEV2 requires a timezone-naive Arrow timestamp";
+    static const auto utc_timezone = cctz::utc_time_zone();
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(
@@ -469,7 +464,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val = col_data[i];
-            datetime_val.unix_timestamp(&timestamp, real_ctz);
+            datetime_val.unix_timestamp(&timestamp, utc_timezone);
 
             if (_scale > 3) {
                 uint32_t microsecond = datetime_val.microsecond();
@@ -488,62 +483,43 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
 Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
-                                                       const cctz::time_zone& ctz) const {
+                                                       const cctz::time_zone&) const {
     if (config::enable_arrow_input_validation) {
         check_arrow_no_offset(*arrow_array);
     }
     auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
-    int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
         const auto* concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
-        switch (type->unit()) {
-        case arrow::TimeUnit::type::SECOND: {
-            divisor = DIVISOR_FOR_SECOND;
-            break;
-        }
-        case arrow::TimeUnit::type::MILLI: {
-            divisor = DIVISOR_FOR_MILLI;
-            break;
-        }
-        case arrow::TimeUnit::type::MICRO: {
-            divisor = DIVISOR_FOR_MICRO;
-            break;
-        }
-        case arrow::TimeUnit::type::NANO: {
-            divisor = DIVISOR_FOR_NANO;
-            break;
-        }
-        default: {
-            LOG(WARNING) << "not support convert to datetimev2 from time_unit:" << type->unit();
-            return Status::InvalidArgument("not support convert to datetimev2 from time_unit: {}",
-                                           type->unit());
-        }
-        }
+        DORIS_CHECK(type->timezone().empty())
+                << "DATETIMEV2 requires a timezone-naive Arrow timestamp";
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
-
-            DateV2Value<DateTimeV2ValueType> v;
-            // C++ integer division truncates toward zero. Normalize the remainder so a negative
-            // timestamp still has a non-negative fractional part, e.g. -876544us becomes
-            // -1 second and 123456us.
-            int64_t seconds = date_value / divisor;
-            int64_t remainder = date_value % divisor;
-            if (remainder < 0) {
-                --seconds;
-                remainder += divisor;
+            int64_t timestamp_micros;
+            switch (type->unit()) {
+            case arrow::TimeUnit::type::SECOND:
+                timestamp_micros = date_value * 1000000;
+                break;
+            case arrow::TimeUnit::type::MILLI:
+                timestamp_micros = date_value * 1000;
+                break;
+            case arrow::TimeUnit::type::MICRO:
+                timestamp_micros = date_value;
+                break;
+            case arrow::TimeUnit::type::NANO:
+                timestamp_micros = date_value / 1000;
+                if (date_value % 1000 < 0) {
+                    --timestamp_micros;
+                }
+                break;
+            default:
+                return Status::InvalidArgument(
+                        "not support convert to datetimev2 from time_unit: {}", type->unit());
             }
-            v.from_unixtime(seconds, ctz);
-            // Get the fractional part.
-            // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
-            // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
-            // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
-            // set_microsecond(111000)
-            v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
-            col_data.emplace_back(v);
+            RETURN_IF_ERROR(append_datetimev2_from_epoch_micros(col_data, timestamp_micros));
         }
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
