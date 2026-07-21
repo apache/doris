@@ -21,7 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import java.util.Objects;
 
-/** Exception for known IVM analysis failures that can be mapped to a failure reason. */
+/** Exception for known IVM failures that can be mapped to a failure reason. */
 public class IvmException extends AnalysisException {
     private final IvmFailureReason failureReason;
 

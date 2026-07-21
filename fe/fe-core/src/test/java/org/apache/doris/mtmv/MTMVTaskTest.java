@@ -38,7 +38,6 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
-import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
@@ -639,7 +638,7 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testIvmExecutionFailureDoesNotFallback() throws Exception {
+    public void testIvmExecutionFailureFallsBackToPartitions() throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
@@ -648,12 +647,11 @@ public class MTMVTaskTest {
         MTMVRefreshContext refreshContext = mockIvmRefreshContext();
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, constructionContext) -> Mockito.when(mock.doRefresh(mtmv)).thenThrow(
-                        new IvmException(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, "delta failed")))) {
+                (mock, constructionContext) -> Mockito.when(mock.doRefresh(mtmv)).thenReturn(
+                        IvmRefreshResult.fallback(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, "delta failed")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
-            JobException exception = Assert.assertThrows(JobException.class,
-                    () -> Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request));
-            Assert.assertTrue(exception.getMessage().contains("INCREMENTAL_EXECUTION_FAILED"));
+            Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
+            Assert.assertEquals("FALLBACK_ALLOWED", result.toString());
         }
 
         Assert.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED.name(),
