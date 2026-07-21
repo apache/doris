@@ -483,7 +483,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
 Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
-                                                       const cctz::time_zone&) const {
+                                                       const cctz::time_zone& ctz) const {
     if (config::enable_arrow_input_validation) {
         check_arrow_no_offset(*arrow_array);
     }
@@ -491,8 +491,6 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
         const auto* concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
-        DORIS_CHECK(type->timezone().empty())
-                << "DATETIMEV2 requires a timezone-naive Arrow timestamp";
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
@@ -519,7 +517,11 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                 return Status::InvalidArgument(
                         "not support convert to datetimev2 from time_unit: {}", type->unit());
             }
-            RETURN_IF_ERROR(append_datetimev2_from_epoch_micros(col_data, timestamp_micros));
+            if (type->timezone().empty()) {
+                RETURN_IF_ERROR(append_datetimev2_from_epoch_micros(col_data, timestamp_micros));
+            } else {
+                append_datetimev2_from_utc_epoch_micros(col_data, timestamp_micros, ctz);
+            }
         }
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
