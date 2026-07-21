@@ -43,20 +43,11 @@
 
 **前置**：Batch 2（T2.1 已删主源码 iceberg 引用）。**风险**：中（碰测试归属 + 依赖树 + parquet 换库）。整批一起验证。
 
-- [ ] **T3.1** 迁走/删除 5 个 iceberg 测试类（本质是连接器 metastore/property 测试，应落 `fe-connector-iceberg`）：
-  - `src/test/java/org/apache/doris/datasource/property/metastore/AWSTest.java`（@Disabled，用 iceberg-aws GlueCatalog）
-  - `.../metastore/IcebergGlueRestCatalogTest.java`（@Disabled，iceberg-core + iceberg-aws）
-  - `.../metastore/IcebergUnityCatalogRestCatalogTest.java`（iceberg-core + rest）
-  - `.../metastore/IcebergDlfRestCatalogTest.java`（iceberg-core）
-  - `.../datasource/s3tables/S3TablesTest.java`（iceberg-core + s3-tables-catalog）
-  - 决策点：能迁到连接器就迁（保留覆盖）；确无价值再删。迁移是首选。
-- [ ] **T3.2** 删依赖（`fe/fe-core/pom.xml`）：`iceberg-core`、`iceberg-aws`、`glue`、`s3tables`、`s3-tables-catalog-for-iceberg`、`aws-json-protocol`。
-  - 复核：删后 `grep -rn "org.apache.iceberg\|services.glue\|s3tables\|s3-tables" fe/fe-core/src` 为空。
-- [ ] **T3.3** parquet：`parquet-avro` → `parquet-hadoop`（+ `parquet-column` 兜底）；删 `avro` 显式声明。
-  - 判据：`ParquetReader`/`BrokerInputFile`/`LocalInputFile` 只用 `org.apache.parquet.{io,column,hadoop,schema}`，不用 `parquet.avro`；版本由 dependencyManagement 兜底。
-  - 注意 avro 仍会经 `hive-exec`(runtime) 留在 runtime 类路径——这是预期，删的只是显式声明。
-- [ ] **T3.V** 验证：**全量到测试编译**（`-DskipTests` 仍编译测试）；跑受影响单测（parquet 导入路径 `ImportAction`、statistics）；确认 `check-connector-imports` 无新违规。
-- [ ] **T3.C** commit（`[chore](fe-core) relocate iceberg catalog tests to connector; drop iceberg/glue/s3tables/avro deps`）。
+- [x] **T3.1** 迁 5 个 iceberg 测试类到 `fe-connector-iceberg`（用户拍板 **migrate**）。落在 `org.apache.doris.connector.iceberg.catalog`。**纠正原分析**：它们 0 个 Doris import、直连外部服务测 iceberg SDK，非 property 解析测试。连接器 test classpath 已备齐 iceberg-core/aws/s3-tables-catalog/junit5 + 传递 guava/hadoop → REST/Unity/Dlf/S3Tables 仅改 package；**AWSTest** 删非 iceberg 的 v1-SDK `testAWSS3` + 把唯一 v1 类字面量换成配置字符串（连接器只带 v2）。commit `24ddc8d615b`（双模块 test-compile 绿）。
+- [x] **T3.2**（部分）删依赖：`iceberg-core`、`iceberg-aws`、`glue`、`s3tables`、`s3-tables-catalog-for-iceberg` 已删；`grep iceberg/glue/s3tables fe/fe-core/src` = 空。commit `379e4b07066`（`-am` test-compile 绿，gates 过）。**`aws-json-protocol` 未删**（见 T3.3-defer）。
+- [~] **T3.3 / aws-json-protocol（deferred，须先验证）**：`aws-json-protocol` 摘除 + `avro` 显式声明删除 + `parquet-avro`→`parquet-hadoop` 替换 + 改 avro "For Iceberg" 注释。三者耦合、且 `dependency:tree -Dincludes` 因 nearest-wins 把 direct 声明提顶层、掩盖 kept 模块是否传递供给。做法：删声明后重跑 `-am dependency:tree`（或 `-Dverbose`）确认仍传递可得 + 运行期协议推理（json 仅 glue/s3tables/iceberg-aws；avro 由 hive-exec runtime 兜底）+ 全量 test-compile（ParquetReader 只用 `parquet.{io,column,hadoop,schema}`）。
+- [x] **T3.V**（已做部分）：迁移 + iceberg 簇删除后 fe-core 与连接器均 `-am` test-compile 绿；validate gates 过。deferred 三项另行验证。
+- [x] **T3.C**（已提交 2 个）：`24ddc8d615b`（迁测试）、`379e4b07066`（删 iceberg 簇）。deferred 三项待第 3 个 commit。
 
 ---
 
@@ -96,6 +87,6 @@
 | 0 | 起步 | — | — | ✅ |
 | 1 | 零风险依赖删除 | 低 | — | ✅ `76e6d5fcf2d` |
 | 2 | 死代码 + 注释纠错 | 低 | — | ✅ `0102a022341`（avro 注释顺延 B3） |
-| 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ⬜ **下一步** |
+| 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | 🟡 大部完成（迁测试 `24ddc8d615b` + 删 iceberg 簇 `379e4b07066`）；尾巴 aws-json/avro/parquet 待验证 |
 | 4 | 待定依赖定性 | 低 | — | ⬜ |
 | 5 | LIVE 源特有逻辑迁移 | 高 | B1–3 | ⬜ |
