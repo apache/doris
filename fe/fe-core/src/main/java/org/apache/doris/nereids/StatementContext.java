@@ -37,7 +37,6 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.ivm.IvmRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -127,7 +126,6 @@ public class StatementContext implements Closeable {
 
     private ConnectContext connectContext;
     private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
-    private Optional<IvmRefreshContext> ivmRefreshContext = Optional.empty();
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -503,12 +501,8 @@ public class StatementContext implements Closeable {
         this.ivmRewriteContext = Objects.requireNonNull(ivmRewriteContext, "ivmRewriteContext can not be null");
     }
 
-    public Optional<IvmRefreshContext> getIvmRefreshContext() {
-        return ivmRefreshContext;
-    }
-
-    public void setIvmRefreshContext(Optional<IvmRefreshContext> ivmRefreshContext) {
-        this.ivmRefreshContext = Objects.requireNonNull(ivmRefreshContext, "ivmRefreshContext can not be null");
+    public boolean isIvmMTMVRewrite() {
+        return getIvmRewriteContext().isPresent();
     }
 
     public Set<String> getUsedAIResourceNames() {

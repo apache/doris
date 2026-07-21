@@ -287,7 +287,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             Plan analyzedPlan = buildResult.planner.getAnalyzedPlan();
             lineagePlan = Optional.ofNullable(analyzedPlan);
             // Fast INSERT INTO VALUES does not retain an analyzed plan and cannot contain table stream scans.
-            if (analyzedPlan != null && !ctx.getStatementContext().getIvmRewriteContext().isPresent()) {
+            if (analyzedPlan != null && !ctx.getStatementContext().isIvmMTMVRewrite()) {
                 for (LogicalOlapTableStreamScan streamScan : analyzedPlan
                         .<LogicalOlapTableStreamScan>collectToList(LogicalOlapTableStreamScan.class::isInstance)) {
                     OlapTableStreamWrapper wrapper = streamScan.getTable();

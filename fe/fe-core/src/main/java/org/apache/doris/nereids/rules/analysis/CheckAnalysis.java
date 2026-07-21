@@ -260,7 +260,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     private void checkIvmExpression(Plan plan, ConnectContext connectContext) {
         if (connectContext == null
                 || connectContext.getStatementContext() == null
-                || !connectContext.getStatementContext().getIvmRewriteContext().isPresent()) {
+                || !connectContext.getStatementContext().isIvmMTMVRewrite()) {
             return;
         }
         for (Expression expr : plan.getExpressions()) {

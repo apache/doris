@@ -20,8 +20,10 @@ import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
     def commitFailureDebugPoint = "DatabaseTransactionMgr.commitTransaction.failed"
+    def rpcFailureDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure"
 
     GetDebugPoint().disableDebugPointForAllFEs(commitFailureDebugPoint)
+    GetDebugPoint().disableDebugPointForAllFEs(rpcFailureDebugPoint)
     sql """drop materialized view if exists ivm_exec_fail_mv"""
     sql """drop table if exists ivm_exec_fail_t"""
 
@@ -90,6 +92,21 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
     assertTrue(failedTask.IvmFallbackReason == null || failedTask.IvmFallbackReason.toString() == "\\N")
     assertTrue(failedTask.ErrorMsg.toString().contains(commitFailureDebugPoint))
     order_qt_execution_failure_mv_unchanged """
+        SELECT id, v1 FROM ivm_exec_fail_mv ORDER BY id
+    """
+
+    def retryTask
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs(rpcFailureDebugPoint, [execute: 1])
+        sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK"""
+        retryTask = latestTask()
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs(rpcFailureDebugPoint)
+    }
+
+    assertEquals("SUCCESS", retryTask.Status.toString())
+    assertTrue(retryTask.IvmFallbackReason == null || retryTask.IvmFallbackReason.toString() == "\\N")
+    order_qt_execution_failure_retry_succeeds """
         SELECT id, v1 FROM ivm_exec_fail_mv ORDER BY id
     """
 }

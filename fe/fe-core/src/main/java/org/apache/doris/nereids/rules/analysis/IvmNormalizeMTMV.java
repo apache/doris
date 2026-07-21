@@ -184,7 +184,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         boolean enabledByIvmRewriteContext = jobContext.getCascadesContext().getStatementContext()
-                .getIvmRewriteContext().isPresent();
+                .isIvmMTMVRewrite();
         if (!enabledByIvmRewriteContext) {
             return plan;
         }

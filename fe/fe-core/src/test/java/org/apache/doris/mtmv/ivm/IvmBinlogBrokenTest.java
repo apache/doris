@@ -147,16 +147,28 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         Assertions.assertFalse(mtmv.markIvmBinlogBroken());
         Assertions.assertTrue(mtmv.getIvmBinlogBrokenGeneration() > markerGeneration);
 
+        IvmPlanSignature signature = new IvmPlanSignature("current plan", "current-signature");
         JobException exception = Assertions.assertThrows(JobException.class,
-                () -> IvmRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, null));
+                () -> IvmRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, signature));
         Assertions.assertTrue(exception.getMessage().contains("Base table metadata changed"));
         Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
 
-        IvmPlanSignature signature = new IvmPlanSignature("current plan", "current-signature");
         IvmRefreshManager.finishIvmFullRefresh(
                 mtmv, mtmv.getIvmBinlogBrokenGeneration(), signature);
         Assertions.assertFalse(mtmv.getIvmInfo().isBinlogBroken());
         Assertions.assertEquals(signature.getSha256(), mtmv.getIvmInfo().getPlanSignature());
+    }
+
+    @Test
+    public void testCompleteRefreshRequiresPlanSignature() throws Exception {
+        String db = "ivm_broken_complete_refresh_signature";
+        createPartitionedIvmTableAndMv(db);
+        MTMV mtmv = getMtmv(db);
+        long markerGeneration = IvmRefreshManager.markIvmBaselineBroken(mtmv);
+
+        Assertions.assertThrows(NullPointerException.class,
+                () -> IvmRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, null));
+        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
     }
 
     @Test

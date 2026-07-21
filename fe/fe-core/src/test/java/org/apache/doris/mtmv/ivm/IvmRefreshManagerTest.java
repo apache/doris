@@ -113,17 +113,15 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerPreservesPlanSignatureFromMismatch() {
+    public void testManagerReturnsPlanSignatureMismatchFallback() {
         MTMV mtmv = mockMtmv();
-        IvmPlanSignature signature = new IvmPlanSignature("current plan", "current-signature");
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.planSignatureMismatch = signature;
+        manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, result.getFailureReason());
-        Assertions.assertSame(signature, result.getPlanSignature());
     }
 
     @Test
@@ -228,7 +226,6 @@ public class IvmRefreshManagerTest {
         @Override
         void executeInternalRefresh(IvmRefreshContext ctx) throws Exception {
             if (planSignatureMismatch != null) {
-                ctx.getRewriteResult().setPlanSignature(planSignatureMismatch);
                 throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, "layout drift");
             }
             if (throwIvmExceptionOnAnalyze) {
