@@ -494,31 +494,10 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>glue</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>apache-client</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- Required at runtime by hadoop-aws (and iceberg-aws's S3FileIO): their S3 I/O paths use
+        <!-- Required at runtime by hadoop-aws: its S3 I/O paths use
              software.amazon.awssdk.transfer.s3.S3TransferManager / ObjectTransfer and related classes
              from this jar.  Without it the FE classloader throws NoClassDefFoundError when loading the
-             object-store / Iceberg catalog metadata. -->
+             object-store filesystem. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
@@ -682,15 +661,6 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3tables</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.s3tables</groupId>
-            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
-            <version>${s3tables.catalog.version}</version>
         </dependency>
         <!-- AWS SDK Core -->
         <dependency>
