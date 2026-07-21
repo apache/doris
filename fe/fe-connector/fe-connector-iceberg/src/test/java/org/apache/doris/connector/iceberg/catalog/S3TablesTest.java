@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.s3tables;
+package org.apache.doris.connector.iceberg.catalog;
 
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Table;

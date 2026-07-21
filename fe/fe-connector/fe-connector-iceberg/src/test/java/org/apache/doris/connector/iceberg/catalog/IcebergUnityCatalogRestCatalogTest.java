@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.metastore;
+package org.apache.doris.connector.iceberg.catalog;
 
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
