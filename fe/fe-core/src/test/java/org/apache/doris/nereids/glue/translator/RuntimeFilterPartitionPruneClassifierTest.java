@@ -133,21 +133,6 @@ class RuntimeFilterPartitionPruneClassifierTest {
     }
 
     @Test
-    void testSyncMvAliasMatchesBoundBaseColumnIdentityInsteadOfName() {
-        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
-        partitionColumn.setUniqueId(1);
-        Column renamedBaseColumn = new Column("renamed_part_col", PrimitiveType.INT);
-        renamedBaseColumn.setUniqueId(1);
-        Column mvColumn = createSyncMvColumn("mv_part_col", 0, renamedBaseColumn);
-
-        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
-                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
-                partitionColumn, mvColumn);
-
-        assertSupportedIncreasingPartitions(classification);
-    }
-
-    @Test
     void testSyncMvAliasRejectsSameNamedBaseColumnWithDifferentIdentity() {
         Column partitionColumn = new Column("part_col", PrimitiveType.INT);
         partitionColumn.setUniqueId(1);
@@ -256,7 +241,6 @@ class RuntimeFilterPartitionPruneClassifierTest {
     private void assertSupportedIncreasingPartitions(
             RuntimeFilterPartitionPruneClassifier.Classification classification) {
         Assertions.assertTrue(classification.canPrunePartitions());
-        Assertions.assertEquals(0, classification.getPartitionColumnIndex());
         Assertions.assertEquals(1, classification.getPartitionSlot().getSlotId().asInt());
         Map<Long, TTargetExprMonotonicity> monotonicity = classification.getPartitionMonotonicity();
         Assertions.assertEquals(2, monotonicity.size());

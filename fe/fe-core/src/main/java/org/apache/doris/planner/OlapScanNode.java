@@ -1385,20 +1385,25 @@ public class OlapScanNode extends ScanNode {
             return;
         }
 
-        // The classifier records the exact RF leaf slot together with the matched
-        // base partition-column ordinal. Do not infer this binding from scan-column
-        // names: a synchronous MV may expose one base column through multiple aliases.
-        Map<Integer, Set<Integer>> partitionColumnToSlotIds = Maps.newHashMap();
+        // Bind boundaries to the actual RF leaf slots. For a synchronous MV
+        // alias, resolve its base partition column through the bound defineExpr.
+        Map<Integer, Integer> pruningSlotToPartitionColumnIndex = Maps.newTreeMap();
         PlanNodeId myId = getId();
         for (RuntimeFilter rf : runtimeFilters) {
-            for (Map.Entry<Integer, Set<Integer>> entry
-                    : rf.getPartitionPruningTargetSlots(myId).entrySet()) {
-                partitionColumnToSlotIds
-                        .computeIfAbsent(entry.getKey(), index -> Sets.newTreeSet())
-                        .addAll(entry.getValue());
+            if (!rf.canPrunePartitionsFor(myId)) {
+                continue;
             }
+            Expr targetExpr = Preconditions.checkNotNull(rf.getTargetExpr(myId));
+            Set<SlotId> targetSlotIds = Sets.newHashSet();
+            Expr.extractSlots(targetExpr, targetSlotIds);
+            Preconditions.checkState(targetSlotIds.size() == 1);
+            SlotId targetSlotId = targetSlotIds.iterator().next();
+            SlotDescriptor targetSlot = Preconditions.checkNotNull(desc.getSlot(targetSlotId.asInt()));
+            int partitionColumnIndex = findPartitionColumnIndex(targetSlot.getColumn(), partColumns);
+            Preconditions.checkState(partitionColumnIndex >= 0);
+            pruningSlotToPartitionColumnIndex.put(targetSlotId.asInt(), partitionColumnIndex);
         }
-        if (partitionColumnToSlotIds.isEmpty()) {
+        if (pruningSlotToPartitionColumnIndex.isEmpty()) {
             return;
         }
 
@@ -1408,12 +1413,17 @@ public class OlapScanNode extends ScanNode {
             if (item == null) {
                 continue;
             }
-            if (item instanceof RangePartitionItem) {
-                addRangeBoundaries(boundaries, partitionId, (RangePartitionItem) item,
-                        partColumns, partitionColumnToSlotIds);
-            } else if (item instanceof ListPartitionItem) {
-                addListBoundaries(boundaries, partitionId, (ListPartitionItem) item,
-                        partColumns, partitionColumnToSlotIds);
+            for (Map.Entry<Integer, Integer> entry : pruningSlotToPartitionColumnIndex.entrySet()) {
+                int slotId = entry.getKey();
+                int partitionColumnIndex = entry.getValue();
+                if (item instanceof RangePartitionItem) {
+                    Preconditions.checkState(partitionColumnIndex == 0);
+                    addRangeBoundary(boundaries, partitionId, (RangePartitionItem) item,
+                            partColumns.size(), slotId);
+                } else if (item instanceof ListPartitionItem) {
+                    addListBoundary(boundaries, partitionId, (ListPartitionItem) item,
+                            partitionColumnIndex, slotId);
+                }
             }
         }
         if (!boundaries.isEmpty()) {
@@ -1421,9 +1431,43 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    private void addRangeBoundaries(List<TPartitionBoundary> boundaries, long partitionId,
-            RangePartitionItem rangeItem, List<Column> partColumns,
-            Map<Integer, Set<Integer>> partitionColumnToSlotIds) {
+    private int findPartitionColumnIndex(Column targetColumn, List<Column> partitionColumns) {
+        targetColumn = getBaseColumn(targetColumn);
+        if (targetColumn == null) {
+            return -1;
+        }
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            Column partitionColumn = partitionColumns.get(i);
+            if (targetColumn == partitionColumn) {
+                return i;
+            }
+            int targetUniqueId = targetColumn.getUniqueId();
+            int partitionUniqueId = partitionColumn.getUniqueId();
+            if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
+                    && partitionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE) {
+                if (targetUniqueId == partitionUniqueId) {
+                    return i;
+                }
+            } else if (targetColumn.equals(partitionColumn)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private Column getBaseColumn(Column targetColumn) {
+        if (!targetColumn.isMaterializedViewColumn()) {
+            return targetColumn;
+        }
+        Expr defineExpr = targetColumn.getDefineExpr();
+        if (defineExpr instanceof SlotRef && ((SlotRef) defineExpr).getColumn() != null) {
+            return ((SlotRef) defineExpr).getColumn();
+        }
+        return null;
+    }
+
+    private void addRangeBoundary(List<TPartitionBoundary> boundaries, long partitionId,
+            RangePartitionItem rangeItem, int partitionColumnCount, int slotId) {
         // We always project a (possibly multi-column) RANGE partition onto its
         // first partition column, since the BE pruner only consumes per-column
         // boundaries. Projection rules (lex compare semantics):
@@ -1442,39 +1486,32 @@ public class OlapScanNode extends ScanNode {
         // UNDER-approximation. Example: partition [(1,1), (1,5)) projects to
         // {1}, but [1, 1) is empty and would let the BE wrongly prune the
         // partition for an RF like k1 = 1.
-        Set<Integer> slotIds = partitionColumnToSlotIds.get(0);
-        if (slotIds == null) {
-            return;
-        }
         com.google.common.collect.Range<PartitionKey> range = rangeItem.getItems();
-        for (Integer slotId : slotIds) {
-            TPartitionBoundary boundary = new TPartitionBoundary();
-            boundary.setPartitionId(partitionId);
-            boundary.setSlotId(slotId);
-            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
-                LiteralExpr lower = range.lowerEndpoint().getKeys().get(0);
-                if (!(lower instanceof MaxLiteral)) {
-                    boundary.setRangeStart(
-                            ExprToThriftVisitor.treeToThrift(lower).getNodes().get(0));
-                }
+        TPartitionBoundary boundary = new TPartitionBoundary();
+        boundary.setPartitionId(partitionId);
+        boundary.setSlotId(slotId);
+        if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
+            LiteralExpr lower = range.lowerEndpoint().getKeys().get(0);
+            if (!(lower instanceof MaxLiteral)) {
+                boundary.setRangeStart(
+                        ExprToThriftVisitor.treeToThrift(lower).getNodes().get(0));
             }
-            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
-                LiteralExpr upper = range.upperEndpoint().getKeys().get(0);
-                if (!(upper instanceof MaxLiteral)) {
-                    boundary.setRangeEnd(
-                            ExprToThriftVisitor.treeToThrift(upper).getNodes().get(0));
-                }
-            }
-            if (partColumns.size() > 1) {
-                boundary.setRangeEndInclusive(true);
-            }
-            boundaries.add(boundary);
         }
+        if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
+            LiteralExpr upper = range.upperEndpoint().getKeys().get(0);
+            if (!(upper instanceof MaxLiteral)) {
+                boundary.setRangeEnd(
+                        ExprToThriftVisitor.treeToThrift(upper).getNodes().get(0));
+            }
+        }
+        if (partitionColumnCount > 1) {
+            boundary.setRangeEndInclusive(true);
+        }
+        boundaries.add(boundary);
     }
 
-    private void addListBoundaries(List<TPartitionBoundary> boundaries, long partitionId,
-            ListPartitionItem listItem, List<Column> partColumns,
-            Map<Integer, Set<Integer>> partitionColumnToSlotIds) {
+    private void addListBoundary(List<TPartitionBoundary> boundaries, long partitionId,
+            ListPartitionItem listItem, int partitionColumnIndex, int slotId) {
         if (listItem.isDefaultPartition()) {
             return;
         }
@@ -1484,30 +1521,22 @@ public class OlapScanNode extends ScanNode {
         // them into ColumnValueRange::set_contain_null(true) rather than
         // treating NULL as an ordinary fixed value (which would crash the
         // typed value extractor in the parser).
-        for (int i = 0; i < partColumns.size(); i++) {
-            Set<Integer> slotIds = partitionColumnToSlotIds.get(i);
-            if (slotIds == null) {
-                continue;
-            }
-            List<TExprNode> listValues = new ArrayList<>(partitionKeys.size());
-            for (PartitionKey pk : partitionKeys) {
-                LiteralExpr literalExpr = pk.getKeys().get(i);
-                if (literalExpr.isNullLiteral()) {
-                    listValues.add(ExprToThriftVisitor.treeToThrift(
-                            NullLiteral.create(literalExpr.getType())).getNodes().get(0));
-                } else {
-                    listValues.add(
-                            ExprToThriftVisitor.treeToThrift(literalExpr).getNodes().get(0));
-                }
-            }
-            for (Integer slotId : slotIds) {
-                TPartitionBoundary boundary = new TPartitionBoundary();
-                boundary.setPartitionId(partitionId);
-                boundary.setSlotId(slotId);
-                boundary.setListValues(listValues);
-                boundaries.add(boundary);
+        List<TExprNode> listValues = new ArrayList<>(partitionKeys.size());
+        for (PartitionKey pk : partitionKeys) {
+            LiteralExpr literalExpr = pk.getKeys().get(partitionColumnIndex);
+            if (literalExpr.isNullLiteral()) {
+                listValues.add(ExprToThriftVisitor.treeToThrift(
+                        NullLiteral.create(literalExpr.getType())).getNodes().get(0));
+            } else {
+                listValues.add(
+                        ExprToThriftVisitor.treeToThrift(literalExpr).getNodes().get(0));
             }
         }
+        TPartitionBoundary boundary = new TPartitionBoundary();
+        boundary.setPartitionId(partitionId);
+        boundary.setSlotId(slotId);
+        boundary.setListValues(listValues);
+        boundaries.add(boundary);
     }
 
     @Override
