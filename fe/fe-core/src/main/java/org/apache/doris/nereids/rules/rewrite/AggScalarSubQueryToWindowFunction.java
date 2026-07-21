@@ -470,6 +470,19 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                             .equals(outerScan.getSelectedTabletIds())) {
                         return false;
                     }
+                } else {
+                    // TODO: Support non-OLAP scan types (e.g. LogicalFileScan,
+                    // LogicalHudiScan, etc.).  These scans can share the same
+                    // table object and ID while differing in selected partitions,
+                    // snapshot, sample, scan parameters, or incremental relation
+                    // state (e.g. an outer Hudi @incr reference paired with an
+                    // inner base Hudi reference).  A full row-domain equivalence
+                    // proof is needed for each scan type, including partition,
+                    // snapshot, sample, scan-params, and incremental-state
+                    // comparisons analogous to the LogicalOlapScan branch above.
+                    // Until then, conservatively reject the rewrite for all
+                    // non-OLAP shared-table pairs.
+                    return false;
                 }
             }
         }
