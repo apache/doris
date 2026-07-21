@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TTableStatus;
 
-import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
@@ -92,8 +91,7 @@ public class FlightSqlSchemaHelper {
      * Ref: `convert_to_arrow_type` in be/src/util/arrow/row_batch.cpp.
      * which is consistent with the type of Arrow data returned by Doris Arrow Flight Sql query.
      */
-    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale,
-            String timeZone) {
+    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
         switch (primitiveType) {
             case BOOLEAN:
                 return new ArrowType.Bool();
@@ -124,11 +122,11 @@ public class FlightSqlSchemaHelper {
                 return new ArrowType.Date(DateUnit.MILLISECOND);
             case DATETIMEV2:
                 if (scale > 3) {
-                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, timeZone);
+                    return new ArrowType.Timestamp(TimeUnit.MICROSECOND, null);
                 } else if (scale > 0) {
-                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, timeZone);
+                    return new ArrowType.Timestamp(TimeUnit.MILLISECOND, null);
                 } else {
-                    return new ArrowType.Timestamp(TimeUnit.SECOND, timeZone);
+                    return new ArrowType.Timestamp(TimeUnit.SECOND, null);
                 }
             case TIMESTAMPTZ:
                 if (scale > 3) {
@@ -165,9 +163,7 @@ public class FlightSqlSchemaHelper {
         PrimitiveType primitiveType = PrimitiveType.fromThrift(desc.getColumnType());
         Integer precision = desc.isSetColumnPrecision() ? desc.getColumnPrecision() : null;
         Integer scale = desc.isSetColumnScale() ? desc.getColumnScale() : null;
-        // TODO there is no timezone in TColumnDesc, so use current timezone.
-        String timeZone = JdbcToArrowUtils.getUtcCalendar().getTimeZone().getID();
-        return getArrowType(primitiveType, precision, scale, timeZone);
+        return getArrowType(primitiveType, precision, scale);
     }
 
     private static Map<String, String> createFlightSqlColumnMetadata(final String dbName, final String tableName,
