@@ -209,10 +209,16 @@ inline TTabletSchema create_row_binlog_tablet_schema(const TTabletSchema& base_s
     row_binlog_schema.schema_hash = row_binlog_schema_hash;
     row_binlog_schema.keys_type = TKeysType::DUP_KEYS;
 
-    for (auto& col : row_binlog_schema.columns) {
+    row_binlog_schema.columns.clear();
+    for (const auto& base_col : base_schema.columns) {
+        if (base_col.__isset.visible && !base_col.visible && !base_col.is_key) {
+            continue;
+        }
+        auto col = base_col;
         if (!col.is_key) {
             col.__set_aggregation_type(TAggregationType::NONE);
         }
+        row_binlog_schema.columns.push_back(col);
     }
 
     row_binlog_schema.columns.push_back(create_tablet_column(
