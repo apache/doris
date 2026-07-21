@@ -2,3 +2,6 @@
 -- !mow_min_delta_delete_before --
 1	10	DELETE
 
+-- !mow_min_delta_del_ins_del --
+2	20	DELETE
+
