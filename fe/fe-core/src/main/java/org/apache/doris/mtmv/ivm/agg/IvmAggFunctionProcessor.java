@@ -17,8 +17,9 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmUtil;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -127,7 +128,8 @@ public abstract class IvmAggFunctionProcessor {
         String columnName = ctx.deltaColumnName(target, slotKind);
         Slot slot = outputByName.get(columnName);
         if (slot == null) {
-            throw new AnalysisException("IVM agg delta rewrite failed to resolve delta output slot: "
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite failed to resolve delta output slot: "
                     + columnName + " for target " + target);
         }
         return slot;

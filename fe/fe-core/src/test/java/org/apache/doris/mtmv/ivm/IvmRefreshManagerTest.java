@@ -78,17 +78,13 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsFallbackOnExecutorFailure() {
+    public void testManagerPropagatesUnknownExecutorFailure() {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
         manager.throwOnExecute = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
-
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED,
-                result.getFailureReason());
+        Assertions.assertThrows(RuntimeException.class, () -> manager.doRefresh(mtmv));
         Assertions.assertTrue(manager.executeCalled);
     }
 
@@ -96,6 +92,8 @@ public class IvmRefreshManagerTest {
     public void testManagerReturnsFallbackWithKnownExecutionFailureReason() {
         assertKnownExecutionFailureFallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT,
                 IvmFailureClassifier.MIN_MAX_BOUNDARY_MSG_PREFIX + ": deleted row may be current MIN value");
+        assertKnownExecutionFailureFallback(IvmFailureReason.BITMAP_AGG_DELETE,
+                IvmFailureClassifier.BITMAP_AGG_DELETE_MSG_PREFIX);
         assertKnownExecutionFailureFallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
                 IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX);
     }
@@ -138,6 +136,20 @@ public class IvmRefreshManagerTest {
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFailureReason());
+        Assertions.assertFalse(manager.executeCalled);
+    }
+
+    @Test
+    public void testManagerPreservesIvmExceptionReasonWhenBuildContextFails() {
+        MTMV mtmv = mockMtmv();
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(null, Collections.emptyList());
+        manager.throwIvmExceptionOnBuild = true;
+
+        IvmRefreshResult result = manager.doRefresh(mtmv);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, result.getFailureReason());
+        Assertions.assertTrue(result.getDetailMessage().contains("build context unsupported"));
         Assertions.assertFalse(manager.executeCalled);
     }
 
@@ -191,6 +203,7 @@ public class IvmRefreshManagerTest {
         private boolean throwOnExecute;
         private String failureMessage;
         private boolean throwOnBuild;
+        private boolean throwIvmExceptionOnBuild;
         private boolean throwIvmExceptionOnAnalyze;
         private boolean throwBinlogNotEnabledOnAnalyze;
         private IvmPlanSignature planSignatureMismatch;
@@ -202,6 +215,10 @@ public class IvmRefreshManagerTest {
 
         @Override
         IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
+            if (throwIvmExceptionOnBuild) {
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                        "build context unsupported");
+            }
             if (throwOnBuild) {
                 throw new AnalysisException("build context failed");
             }
@@ -224,15 +241,10 @@ public class IvmRefreshManagerTest {
             if (commands == null || commands.isEmpty()) {
                 return;
             }
-            try {
-                executeCalled = true;
-                if (throwOnExecute || failureMessage != null) {
-                    String message = failureMessage != null ? failureMessage : "executor failed";
-                    throw new RuntimeException(message);
-                }
-            } catch (RuntimeException e) {
-                throw new IvmException(IvmFailureClassifier.classifyExecutionFailure(e.getMessage())
-                        .orElse(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED), e.getMessage());
+            executeCalled = true;
+            if (throwOnExecute || failureMessage != null) {
+                String message = failureMessage != null ? failureMessage : "executor failed";
+                throw new RuntimeException(message);
             }
         }
     }

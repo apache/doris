@@ -18,8 +18,9 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmUtil;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -89,7 +90,8 @@ public class IvmAggExpressionBuilder {
                 return slot;
             }
         }
-        throw new AnalysisException("IVM failed to find slot: " + slotName);
+        throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                "IVM failed to find slot: " + slotName);
     }
 
     /** Builds a zero literal cast to the requested data type. */

@@ -148,7 +148,7 @@ public class IvmUtil {
 
     /**
      * Finds the IVM row_id slot in the given output list.
-     * Throws AnalysisException if not found or if multiple row_id slots are present.
+     * Throws IvmException if not found or if multiple row_id slots are present.
      *
      * @param output the plan's output slots
      * @param context description of where this lookup happens (e.g. "left child of join")
@@ -156,7 +156,8 @@ public class IvmUtil {
     public static Slot findRowIdSlot(List<Slot> output, String context) {
         Slot found = findRowIdSlotOrNull(output);
         if (found == null) {
-            throw new AnalysisException("IVM: no row_id slot found in " + context);
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM: no row_id slot found in " + context);
         }
         return found;
     }
@@ -192,14 +193,14 @@ public class IvmUtil {
 
     /**
      * Finds the IVM row_id slot in the given output list, or returns null if not found.
-     * Throws AnalysisException if multiple row_id slots are present.
+     * Throws IvmException if multiple row_id slots are present.
      */
     public static Slot findRowIdSlotOrNull(List<Slot> output) {
         Slot found = null;
         for (Slot slot : output) {
             if (Column.IVM_ROW_ID_COL.equals(slot.getName())) {
                 if (found != null) {
-                    throw new AnalysisException(
+                    throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                             "IVM: multiple row_id slots found in plan output");
                 }
                 found = slot;

@@ -19,7 +19,6 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -528,7 +527,8 @@ class IvmJoinDeltaHandler {
             } else if (deltaContext.isDeltaSideSlot(slot)) {
                 projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
             } else {
-                throw new AnalysisException("IVM outer join rewrite found unknown output slot: " + slot);
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM outer join rewrite found unknown output slot: " + slot);
             }
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
@@ -686,7 +686,8 @@ class IvmJoinDeltaHandler {
                 }
             }
             if (expr == null) {
-                throw new AnalysisException("IVM outer join event rewrite lost output slot: " + target);
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM outer join event rewrite lost output slot: " + target);
             }
             projects.add(new Alias(target.getExprId(), expr, target.getName()));
         }
@@ -704,7 +705,8 @@ class IvmJoinDeltaHandler {
             expr = retainedSourceSlots.get(slot);
         }
         if (expr == null) {
-            throw new AnalysisException("IVM outer join rewrite lost retained output slot: " + slot);
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM outer join rewrite lost retained output slot: " + slot);
         }
         return expr;
     }

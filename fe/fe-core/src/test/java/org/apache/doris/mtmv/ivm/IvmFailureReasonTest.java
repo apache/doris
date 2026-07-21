@@ -17,26 +17,17 @@
 
 package org.apache.doris.mtmv.ivm;
 
-/** Reasons IVM analysis or execution can fail. */
-public enum IvmFailureReason {
-    BINLOG_BROKEN,
-    BINLOG_NOT_ENABLED,
-    STREAM_UNSUPPORTED,
-    SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-    PLAN_PATTERN_UNSUPPORTED,
-    PLAN_REWRITE_FAILED,
-    NON_DETERMINISTIC_ROW_ID,
-    OUTER_JOIN_RETRACTION_UNSUPPORTED,
-    INCREMENTAL_EXECUTION_FAILED,
-    AGG_UNSUPPORTED,
-    MIN_MAX_BOUNDARY_HIT,
-    BITMAP_AGG_DELETE,
-    PLAN_SIGNATURE_MISMATCH;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-    public boolean requiresCompleteRefresh() {
-        return this == BINLOG_BROKEN
-                || this == MIN_MAX_BOUNDARY_HIT
-                || this == BITMAP_AGG_DELETE
-                || this == PLAN_SIGNATURE_MISMATCH;
+public class IvmFailureReasonTest {
+
+    @Test
+    public void testRequiresCompleteRefresh() {
+        Assertions.assertTrue(IvmFailureReason.BINLOG_BROKEN.requiresCompleteRefresh());
+        Assertions.assertTrue(IvmFailureReason.MIN_MAX_BOUNDARY_HIT.requiresCompleteRefresh());
+        Assertions.assertTrue(IvmFailureReason.BITMAP_AGG_DELETE.requiresCompleteRefresh());
+        Assertions.assertTrue(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.requiresCompleteRefresh());
+        Assertions.assertFalse(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED.requiresCompleteRefresh());
     }
 }

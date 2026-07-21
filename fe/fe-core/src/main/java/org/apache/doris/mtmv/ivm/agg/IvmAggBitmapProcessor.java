@@ -17,7 +17,9 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -53,7 +55,7 @@ import java.util.Map;
  */
 abstract class IvmAggBitmapProcessor extends IvmAggFunctionProcessor {
     private static final String DELETE_SLOT_NAME = "BITMAP_DELETE_UNION";
-    private static final String FALLBACK_MESSAGE = "IVM: deleted row affects BITMAP aggregate, requires COMPLETE";
+    private static final String FALLBACK_MESSAGE = IvmFailureClassifier.BITMAP_AGG_DELETE_MSG_PREFIX;
 
     @Override
     public void appendDeltaAggregateOutputs(IvmAggTarget target, Slot dmlFactorSlot,
@@ -77,7 +79,8 @@ abstract class IvmAggBitmapProcessor extends IvmAggFunctionProcessor {
         String columnName = deleteDeltaColumnName(target, ctx);
         Slot slot = outputByName.get(columnName);
         if (slot == null) {
-            throw new AnalysisException("IVM agg delta rewrite failed to resolve delta output slot: "
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM agg delta rewrite failed to resolve delta output slot: "
                     + columnName + " for target " + target);
         }
         applyDeltaSlots.put(deleteSlotRef(target), slot);

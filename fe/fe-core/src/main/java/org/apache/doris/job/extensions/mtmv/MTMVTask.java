@@ -61,7 +61,6 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
@@ -539,14 +538,6 @@ public class MTMVTask extends AbstractTask {
         IvmRefreshResult ivmResult;
         try {
             ivmResult = ivmRefreshManager.doRefresh(mtmv);
-        } catch (IvmException e) {
-            // IVM execution failures are hard failures. Delta commands run one
-            // by one and may already have written partial data, so this task must
-            // not continue to PARTITIONS/COMPLETE fallback.
-            ivmFallbackReason = e.getFailureReason().name();
-            throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
-                    + ", reason=" + e.getFailureReason()
-                    + ", detail=" + e.getMessage(), e);
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", detail=" + Util.getRootCauseMessage(e), e);
@@ -579,7 +570,7 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getName(), getTaskId());
             return AttemptResultType.FALLBACK_TO_COMPLETE;
         }
-        if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
+        if (ivmResult.getFailureReason().requiresCompleteRefresh()) {
             LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
                     + "Continuing with COMPLETE refresh.",
                     mtmv.getName(), ivmResult.getFailureReason(),

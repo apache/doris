@@ -68,6 +68,10 @@ public class IvmRefreshManager {
         final IvmRefreshContext context;
         try {
             context = buildRefreshContext(mtmv);
+        } catch (IvmException e) {
+            IvmRefreshResult result = IvmRefreshResult.fallback(e.getFailureReason(), e.getMessage());
+            LOG.warn("IVM context build fell back for mv={}, result={}", mtmv.getName(), result, e);
+            return result;
         } catch (Exception e) {
             IvmRefreshResult result = IvmRefreshResult.fallback(
                     IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
@@ -97,18 +101,26 @@ public class IvmRefreshManager {
         try {
             executeInternalRefresh(context);
         } catch (IvmException e) {
-            // Analysis has not written MV data yet, so unsupported IVM patterns
-            // can be represented as a fallback result for the task planner. Preserve
-            // the typed failure reason so MTMVTask can decide whether ordinary partition
-            // fallback is enough or a full layout-baseline rebuild is required.
-            IvmRefreshResult result = IvmRefreshResult.fallback(
-                    e.getFailureReason(), e.getMessage(), context.getRewriteResult().getPlanSignature());
-            LOG.warn("IVM plan analysis failed for mv={}, result={}", mtmv.getName(), result, e);
+            IvmRefreshResult result = fallbackResult(context, e.getFailureReason(), e.getMessage());
+            LOG.warn("IVM refresh fell back for mv={}, result={}", mtmv.getName(), result, e);
             return result;
+        } catch (Exception e) {
+            String detail = Util.getRootCauseMessage(e);
+            Optional<IvmFailureReason> failureReason = IvmFailureClassifier.classifyExecutionFailure(detail);
+            if (failureReason.isPresent()) {
+                IvmRefreshResult result = fallbackResult(context, failureReason.get(), detail);
+                LOG.warn("IVM execution guard fell back for mv={}, result={}", mtmv.getName(), result, e);
+                return result;
+            }
+            throw e;
         }
-        // TODO: Split analysis/rewrite failures from execution failures so non-IVM exceptions
-        // can be classified precisely instead of relying on a single catch boundary here.
         return IvmRefreshResult.success();
+    }
+
+    private IvmRefreshResult fallbackResult(IvmRefreshContext context,
+            IvmFailureReason failureReason, String detail) {
+        return IvmRefreshResult.fallback(
+                failureReason, detail, context.getRewriteResult().getPlanSignature());
     }
 
     @VisibleForTesting

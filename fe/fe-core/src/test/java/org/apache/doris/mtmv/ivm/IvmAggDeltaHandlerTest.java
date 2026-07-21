@@ -22,7 +22,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -451,8 +450,9 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
             }
         };
 
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+        IvmException ex = Assertions.assertThrows(IvmException.class,
                 () -> new IvmAggDeltaHandler().rewriteAggregate(agg, visitor, ctx));
+        Assertions.assertEquals(IvmFailureReason.PLAN_REWRITE_FAILED, ex.getFailureReason());
         Assertions.assertTrue(ex.getMessage().contains("normalize result"));
     }
 
