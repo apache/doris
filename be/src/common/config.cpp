@@ -1302,6 +1302,9 @@ DEFINE_Int32(ann_index_result_cache_stale_sweep_time_sec, "1800");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// Cap the CLucene buffered postings for analyzed inverted indexes when RAM directory is disabled.
+// Values <= 0 keep inverted_index_ram_buffer_size unchanged.
+DEFINE_mDouble(inverted_index_ram_buffer_size_when_ram_dir_disabled, "64");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
