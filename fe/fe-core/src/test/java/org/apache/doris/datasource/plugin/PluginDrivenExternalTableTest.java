@@ -384,6 +384,28 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void getSyntheticWriteColumnsReturnsConvertedColumnsUngated() {
+        // The accessor is NOT gated on show-hidden / in-flight DML (unlike getFullSchema): it always asks the
+        // connector and converts the declared ConnectorColumn to an engine Column. Row-level DML uses it to
+        // source the row-id column identity from the connector when the gated getFullSchema append is off, so it
+        // must resolve regardless of needInternalHiddenColumns() (deliberately left unstubbed here).
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, true);
+
+        List<Column> cols = table.getSyntheticWriteColumns();
+
+        Assertions.assertEquals(1, cols.size());
+        Assertions.assertEquals("__syn_write_col__", cols.get(0).getName());
+        Assertions.assertFalse(cols.get(0).isVisible(), "the invisible marker survives the SPI conversion");
+    }
+
+    @Test
+    public void getSyntheticWriteColumnsEmptyWhenWriteProviderAbsent() {
+        // Degrades to empty (never throws) on a read-only connector — mirrors fetchSyntheticWriteColumns.
+        Assertions.assertTrue(pluginTable(Collections.singletonList(SYNTHETIC), false, true)
+                .getSyntheticWriteColumns().isEmpty());
+    }
+
+    @Test
     public void getFullSchemaDegradesWhenWriteProviderAbsent() {
         // MUTATION: dropping the null-write-provider guard throws NPE here — a read-only connector
         // (getWritePlanProvider()==null) must degrade to the base schema, never fail schema resolution.

@@ -725,6 +725,17 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
     }
 
+    /**
+     * The connector-declared synthetic write columns (e.g. the row-level DML row-id STRUCT), converted to
+     * engine {@link Column}s. Unlike {@link #getFullSchema()}, this is NOT gated on show-hidden / in-flight
+     * DML — it always asks the connector. Row-level DML uses it to source the row-id column identity from the
+     * connector instead of reconstructing the STRUCT in fe-core. Empty on any miss (mirrors
+     * {@link #fetchSyntheticWriteColumns()}).
+     */
+    public List<Column> getSyntheticWriteColumns() {
+        return ConnectorColumnConverter.convertColumns(fetchSyntheticWriteColumns());
+    }
+
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
     private Map<String, String> rawTableProperties() {
         makeSureInitialized();

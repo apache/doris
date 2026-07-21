@@ -359,7 +359,8 @@ public class IcebergMergeCommand {
             }
         }
 
-        DataType rowIdType = DataType.fromCatalogType(IcebergRowId.getRowIdType());
+        DataType rowIdType = DataType.fromCatalogType(
+                RowLevelDmlRowIdUtils.getRowIdColumn(icebergTable).getType());
         for (MergeNotMatchedClause clause : notMatchedClauses) {
             finalProjections.add(buildInsertProjection(clause, columns, ctx, rowIdType));
         }

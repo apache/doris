@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.StructType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -50,12 +49,8 @@ public class IcebergDeleteCommandTest {
         // LogicalPlan plan = command.completeQueryPlan(ctx, logicalQuery, table);
         // Assertions.assertTrue(plan.getOutput().stream()
         //     .anyMatch(expr -> expr.getName().equals(Column.ICEBERG_ROWID_COL)));
-    }
 
-    @Test
-    public void testRowIdStructFields() {
-        // Verify that hidden row-id STRUCT has the correct 4 fields
-        StructType structType = (StructType) IcebergRowId.getRowIdType();
-        Assertions.assertEquals(4, structType.getFields().size());
+        // The hidden row-id STRUCT shape is owned by the connector; its 4-field shape is pinned by
+        // ConnectorColumnConverterTest.convertColumnReconstructsIcebergRowIdHiddenColumn.
     }
 }

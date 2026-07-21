@@ -107,15 +107,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     private static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
 
     // Connector-local literal copy of fe-core's Column.ICEBERG_ROWID_COL (connectors must not import
-    // fe-core). The fe-core ConnectorColumnConverterTest contract pin asserts that converting this exact
-    // declared shape yields the legacy IcebergRowId.createHiddenColumn() (name / STRUCT / invisible /
-    // not-null), so a drift on either side turns one of the two tests red.
+    // fe-core). The connector is the sole source of this row-id column identity; the fe-core
+    // ConnectorColumnConverterTest contract pin asserts that converting this exact declared shape yields the
+    // Doris hidden row-id column fe-core's getFullSchema appends (name / STRUCT / invisible / not-null), so a
+    // drift on either side turns one of the two tests red.
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
 
     // The single request-scoped synthetic write column iceberg declares: the row-id STRUCT carrying the
     // per-row write metadata (file_path / row_position / partition_spec_id / partition_data). Same for
-    // every iceberg table regardless of format/partitioning (mirrors legacy IcebergRowId), so it is a
-    // shared immutable instance.
+    // every iceberg table regardless of format/partitioning, so it is a shared immutable instance.
     private static final List<ConnectorColumn> SYNTHETIC_WRITE_COLUMNS =
             Collections.singletonList(buildRowIdColumn());
 
@@ -310,10 +310,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     public List<ConnectorColumn> getSyntheticWriteColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
         // The iceberg row-id hidden column is the same for every iceberg table regardless of
-        // format/partitioning — it mirrors legacy IcebergExternalTable.getFullSchema appending
-        // IcebergRowId.createHiddenColumn() whenever a DML (or show-hidden) is in flight. fe-core gates the
-        // actual injection request-side (show-hidden / synthetic-write-column ctx flag); here we only
-        // declare it, so neither the session nor the table handle is consulted.
+        // format/partitioning. It is the sole source of the row-id column identity: fe-core's getFullSchema
+        // appends the converted column whenever a DML (or show-hidden) is in flight, and gates the actual
+        // injection request-side (show-hidden / synthetic-write-column ctx flag); here we only declare it, so
+        // neither the session nor the table handle is consulted.
         return SYNTHETIC_WRITE_COLUMNS;
     }
 

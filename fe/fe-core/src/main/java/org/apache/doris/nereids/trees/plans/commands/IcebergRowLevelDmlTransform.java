@@ -44,6 +44,8 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -62,13 +64,22 @@ import java.util.function.Predicate;
 public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     /**
+     * Position-delete metadata column names ({@code $file_path}/{@code $row_position}/{@code $partition_spec_id}/
+     * {@code $partition_data}): the connector-declared row-id STRUCT field names, {@code $}-prefixed. Kept as
+     * FE-side synthetic-column name constants (the same category as {@link Column#ICEBERG_ROWID_COL}); matched
+     * case-sensitively ({@code equals}), unlike the rowid ({@code equalsIgnoreCase}).
+     */
+    private static final Set<String> ICEBERG_METADATA_COLUMN_NAMES = ImmutableSet.of(
+            "$file_path", "$row_position", "$partition_spec_id", "$partition_data");
+
+    /**
      * Slots excluded from the O5-2 target-only write constraint: the synthetic {@code $row_id} column and
      * iceberg metadata columns. Mirrors legacy {@code IcebergConflictDetectionFilterUtils.isTargetOnlyPredicate}
      * exactly — keep the {@code equalsIgnoreCase} (rowid) vs {@code equals} (metadata) asymmetry.
      */
     private static final Predicate<SlotReference> ICEBERG_EXCLUSION =
             slot -> Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getName())
-                    || IcebergMetadataColumn.isMetadataColumn(slot.getName());
+                    || ICEBERG_METADATA_COLUMN_NAMES.contains(slot.getName());
 
     @Override
     public boolean handles(TableIf table) {

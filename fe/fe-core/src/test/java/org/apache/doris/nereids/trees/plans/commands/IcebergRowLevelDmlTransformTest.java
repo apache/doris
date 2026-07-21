@@ -285,7 +285,7 @@ public class IcebergRowLevelDmlTransformTest {
     public void extractWriteConstraintExcludesMetadataColumn() {
         TableIf target = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(target.getId()).thenReturn(TARGET_ID);
-        // "$partition_spec_id" is an IcebergMetadataColumn -> excluded.
+        // "$partition_spec_id" is a position-delete metadata column -> excluded.
         Plan plan = filterOver(target, "$partition_spec_id");
         Assertions.assertFalse(transform.extractWriteConstraint(plan, target).isPresent());
     }
