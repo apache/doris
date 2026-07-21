@@ -349,4 +349,9 @@ suite("set_preagg") {
             select count(*) from (select * from numbers("number"="10")) t;
         """)
     }
+
+    explain {
+        sql("""select count(distinct k6, v7) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
 }
