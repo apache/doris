@@ -56,8 +56,8 @@ suite("test_non_catalog_kerberos", "p0,external") {
         """
 
     sql """ switch ${hms_catalog_name} """
-    sql """ create database if not exists test_krb_hive_db """
-    sql """ use test_krb_hive_db """
+    sql """ create database if not exists test_non_catalog_krb_hive_db """
+    sql """ use test_non_catalog_krb_hive_db """
     sql """ drop table  if exists ${test_tbl_name}"""
     sql """
         CREATE TABLE `${test_tbl_name}` (
@@ -147,7 +147,7 @@ suite("test_non_catalog_kerberos", "p0,external") {
     Awaitility.await("queery-export-task-result-test").atMost(60, SECONDS).pollInterval(5, SECONDS).until(
             {
                 sql """ switch ${hms_catalog_name} """
-                sql """ use test_krb_hive_db """
+                sql """ use test_non_catalog_krb_hive_db """
                 def res = sql """ show export where label = "${export_task_label}" """
                 if (res[0][2] == "FINISHED") {
                     return true
