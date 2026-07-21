@@ -15,20 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
+
+#include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <cstring>
+#include <deque>
+#include <functional>
 #include <limits>
+#include <ranges>
 #include <string>
 #include <utility>
 
 #include "common/exception.h"
-#include "core/value/variant/variant_encoded_block.h"
-#include "core/value/variant/variant_encoding.h"
-#include "core/value/variant/variant_scalar_encoding.h"
-#include "core/value/variant/variant_tracked_storage.h"
+#include "core/custom_allocator.h"
+#include "core/pod_array.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -139,7 +144,594 @@ void require_import_utf8(StringRef value, const char* description) {
     }
 }
 
+constexpr unsigned __int128 DECIMAL4_MAX = 999'999'999;
+constexpr unsigned __int128 DECIMAL8_MAX = 999'999'999'999'999'999;
+
+constexpr uint8_t primitive_header(VariantPrimitiveId id) noexcept {
+    return static_cast<uint8_t>(static_cast<uint8_t>(id) << VARIANT_VALUE_HEADER_SHIFT);
+}
+
+constexpr VariantPrimitiveId boolean_primitive_id(bool value) noexcept {
+    return value ? VariantPrimitiveId::TRUE_VALUE : VariantPrimitiveId::FALSE_VALUE;
+}
+
+struct IntegerEncoding {
+    VariantPrimitiveId id;
+    uint8_t width;
+};
+
+IntegerEncoding resolve_integer_encoding(int64_t value, uint8_t requested_width) {
+    uint8_t width = requested_width;
+    if (width == 0) {
+        if (value >= std::numeric_limits<int8_t>::min() &&
+            value <= std::numeric_limits<int8_t>::max()) {
+            width = 1;
+        } else if (value >= std::numeric_limits<int16_t>::min() &&
+                   value <= std::numeric_limits<int16_t>::max()) {
+            width = 2;
+        } else if (value >= std::numeric_limits<int32_t>::min() &&
+                   value <= std::numeric_limits<int32_t>::max()) {
+            width = 4;
+        } else {
+            width = 8;
+        }
+    }
+
+    VariantPrimitiveId id = VariantPrimitiveId::INT64;
+    bool fits = true;
+    if (width == 1) {
+        id = VariantPrimitiveId::INT8;
+        fits = value >= std::numeric_limits<int8_t>::min() &&
+               value <= std::numeric_limits<int8_t>::max();
+    } else if (width == 2) {
+        id = VariantPrimitiveId::INT16;
+        fits = value >= std::numeric_limits<int16_t>::min() &&
+               value <= std::numeric_limits<int16_t>::max();
+    } else if (width == 4) {
+        id = VariantPrimitiveId::INT32;
+        fits = value >= std::numeric_limits<int32_t>::min() &&
+               value <= std::numeric_limits<int32_t>::max();
+    } else if (width != 8) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant integer width {} must be one of 1, 2, 4, or 8", width);
+    }
+    if (!fits) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant integer value does not fit requested width {}", width);
+    }
+    return {.id = id, .width = width};
+}
+
+void write_scalar_unsigned(char*& output, uint64_t value, uint8_t width) noexcept {
+    for (uint8_t byte = 0; byte < width; ++byte) {
+        *output++ = static_cast<char>(value >> (byte * 8));
+    }
+}
+
+void write_signed128(char*& output, __int128 value, uint8_t width) noexcept {
+    const auto unsigned_value = static_cast<unsigned __int128>(value);
+    for (uint8_t byte = 0; byte < width; ++byte) {
+        *output++ = static_cast<char>(unsigned_value >> (byte * 8));
+    }
+}
+
+void validate_utf8_string_ref(StringRef value, const char* description) {
+    validate_string_ref(value, description);
+    if (value.size != 0 && !validate_utf8(value.data, value.size)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant {} is not valid UTF-8", description);
+    }
+}
+
+template <typename String>
+void append_unsigned(String& output, uint64_t value, uint8_t width) {
+    for (uint8_t byte = 0; byte < width; ++byte) {
+        output.push_back(static_cast<char>(value >> (byte * 8)));
+    }
+}
+
+template <typename Container>
+void release_batch_container(Container& container) noexcept {
+    Container().swap(container);
+}
+
 } // namespace
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::null_value() noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = primitive_header(VariantPrimitiveId::NULL_VALUE);
+    plan._encoded_size = 1;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::boolean(bool value) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = primitive_header(boolean_primitive_id(value));
+    plan._encoded_size = 1;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::integer(int64_t value, uint8_t width) {
+    const IntegerEncoding encoding = resolve_integer_encoding(value, width);
+
+    VariantScalarEncodingPlan plan;
+    plan._header = primitive_header(encoding.id);
+    plan._unsigned_value = std::bit_cast<uint64_t>(value);
+    plan._payload_width = encoding.width;
+    plan._encoded_size = static_cast<size_t>(encoding.width) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::float32(float value) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(VariantPrimitiveId::FLOAT) << VARIANT_VALUE_HEADER_SHIFT;
+    plan._unsigned_value = std::bit_cast<uint32_t>(value);
+    plan._payload_width = sizeof(float);
+    plan._encoded_size = sizeof(float) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::float64(double value) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(VariantPrimitiveId::DOUBLE) << VARIANT_VALUE_HEADER_SHIFT;
+    plan._unsigned_value = std::bit_cast<uint64_t>(value);
+    plan._payload_width = sizeof(double);
+    plan._encoded_size = sizeof(double) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::decimal(__int128 unscaled, uint8_t scale,
+                                                             uint8_t width) {
+    if (scale > 38) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant decimal scale {} is outside [0, 38]",
+                        scale);
+    }
+    const unsigned __int128 absolute = magnitude(unscaled);
+    if (absolute > MAX_DECIMAL38) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant decimal unscaled value exceeds precision 38");
+    }
+    if (width == 0) {
+        if (absolute <= DECIMAL4_MAX) {
+            width = 4;
+        } else if (absolute <= DECIMAL8_MAX) {
+            width = 8;
+        } else {
+            width = 16;
+        }
+    }
+
+    VariantPrimitiveId id = VariantPrimitiveId::DECIMAL16;
+    unsigned __int128 width_max = MAX_DECIMAL38;
+    if (width == 4) {
+        id = VariantPrimitiveId::DECIMAL4;
+        width_max = DECIMAL4_MAX;
+    } else if (width == 8) {
+        id = VariantPrimitiveId::DECIMAL8;
+        width_max = DECIMAL8_MAX;
+    } else if (width != 16) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant decimal width {} must be one of 4, 8, or 16", width);
+    }
+    if (absolute > width_max) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant decimal unscaled value exceeds precision for width {}", width);
+    }
+
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(static_cast<uint8_t>(id) << VARIANT_VALUE_HEADER_SHIFT);
+    plan._signed_value = unscaled;
+    plan._payload_width = width;
+    plan._scale = scale;
+    plan._encoded_size = static_cast<size_t>(width) + 2;
+    plan._kind = PayloadKind::SIGNED;
+    plan._has_scale = true;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::date(int32_t days_since_epoch) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(VariantPrimitiveId::DATE) << VARIANT_VALUE_HEADER_SHIFT;
+    plan._unsigned_value = std::bit_cast<uint32_t>(days_since_epoch);
+    plan._payload_width = sizeof(int32_t);
+    plan._encoded_size = sizeof(int32_t) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::timestamp_micros(int64_t value,
+                                                                      bool utc_adjusted) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(
+            static_cast<uint8_t>(utc_adjusted ? VariantPrimitiveId::TIMESTAMP_MICROS
+                                              : VariantPrimitiveId::TIMESTAMP_NTZ_MICROS)
+            << VARIANT_VALUE_HEADER_SHIFT);
+    plan._unsigned_value = std::bit_cast<uint64_t>(value);
+    plan._payload_width = sizeof(int64_t);
+    plan._encoded_size = sizeof(int64_t) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::timestamp_nanos(int64_t value,
+                                                                     bool utc_adjusted) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(
+            static_cast<uint8_t>(utc_adjusted ? VariantPrimitiveId::TIMESTAMP_NANOS
+                                              : VariantPrimitiveId::TIMESTAMP_NTZ_NANOS)
+            << VARIANT_VALUE_HEADER_SHIFT);
+    plan._unsigned_value = std::bit_cast<uint64_t>(value);
+    plan._payload_width = sizeof(int64_t);
+    plan._encoded_size = sizeof(int64_t) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::time_ntz_micros(int64_t value) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(VariantPrimitiveId::TIME_NTZ_MICROS)
+                   << VARIANT_VALUE_HEADER_SHIFT;
+    plan._unsigned_value = std::bit_cast<uint64_t>(value);
+    plan._payload_width = sizeof(int64_t);
+    plan._encoded_size = sizeof(int64_t) + 1;
+    plan._kind = PayloadKind::UNSIGNED;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::binary(StringRef value) {
+    validate_string_ref(value, "binary");
+    if (value.size > std::numeric_limits<uint32_t>::max()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant binary exceeds the uint32 byte limit");
+    }
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(VariantPrimitiveId::BINARY) << VARIANT_VALUE_HEADER_SHIFT;
+    plan._borrowed = value;
+    plan._encoded_size = value.size + sizeof(uint32_t) + 1;
+    plan._kind = PayloadKind::BORROWED_BYTES;
+    plan._has_length = true;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::string(StringRef value) {
+    validate_utf8_string_ref(value, "string");
+    if (value.size > std::numeric_limits<uint32_t>::max()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant string exceeds the uint32 byte limit");
+    }
+    VariantScalarEncodingPlan plan;
+    plan._borrowed = value;
+    plan._kind = PayloadKind::BORROWED_BYTES;
+    if (value.size <= VARIANT_MAX_SHORT_STRING_SIZE) {
+        plan._header = static_cast<uint8_t>((value.size << VARIANT_VALUE_HEADER_SHIFT) |
+                                            static_cast<uint8_t>(VariantBasicType::SHORT_STRING));
+        plan._encoded_size = value.size + 1;
+    } else {
+        plan._header = static_cast<uint8_t>(VariantPrimitiveId::STRING)
+                       << VARIANT_VALUE_HEADER_SHIFT;
+        plan._encoded_size = value.size + sizeof(uint32_t) + 1;
+        plan._has_length = true;
+    }
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::uuid(
+        const std::array<uint8_t, 16>& value) noexcept {
+    VariantScalarEncodingPlan plan;
+    plan._header = static_cast<uint8_t>(VariantPrimitiveId::UUID) << VARIANT_VALUE_HEADER_SHIFT;
+    plan._uuid = value;
+    plan._encoded_size = value.size() + 1;
+    plan._kind = PayloadKind::UUID;
+    return plan;
+}
+
+VariantScalarEncodingPlan VariantScalarEncodingPlan::largeint(__int128 value) noexcept {
+    if (magnitude(value) <= MAX_DECIMAL38) {
+        VariantScalarEncodingPlan plan;
+        plan._header = static_cast<uint8_t>(VariantPrimitiveId::DECIMAL16)
+                       << VARIANT_VALUE_HEADER_SHIFT;
+        plan._signed_value = value;
+        plan._payload_width = 16;
+        plan._encoded_size = 18;
+        plan._kind = PayloadKind::SIGNED;
+        plan._has_scale = true;
+        return plan;
+    }
+
+    VariantScalarEncodingPlan plan;
+    char reversed[39];
+    size_t digit_count = 0;
+    unsigned __int128 remaining = magnitude(value);
+    do {
+        reversed[digit_count++] = static_cast<char>('0' + remaining % 10);
+        remaining /= 10;
+    } while (remaining != 0);
+    if (value < 0) {
+        plan._inline_string[plan._inline_size++] = '-';
+    }
+    while (digit_count != 0) {
+        plan._inline_string[plan._inline_size++] = reversed[--digit_count];
+    }
+    plan._header = static_cast<uint8_t>(
+            (static_cast<size_t>(plan._inline_size) << VARIANT_VALUE_HEADER_SHIFT) |
+            static_cast<uint8_t>(VariantBasicType::SHORT_STRING));
+    plan._encoded_size = static_cast<size_t>(plan._inline_size) + 1;
+    plan._kind = PayloadKind::INLINE_STRING;
+    plan._used_string_fallback = true;
+    return plan;
+}
+
+void VariantScalarEncodingPlan::write(char* destination, size_t capacity) const {
+    if (destination == nullptr) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant scalar destination must not be null");
+    }
+    if (capacity < _encoded_size) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar destination capacity {} is smaller than required {}",
+                        capacity, _encoded_size);
+    }
+    char* output = destination;
+    *output++ = static_cast<char>(_header);
+    if (_has_scale) {
+        *output++ = static_cast<char>(_scale);
+    }
+    if (_has_length) {
+        write_scalar_unsigned(output, _borrowed.size, sizeof(uint32_t));
+    }
+    switch (_kind) {
+    case PayloadKind::HEADER_ONLY:
+        break;
+    case PayloadKind::UNSIGNED:
+        write_scalar_unsigned(output, _unsigned_value, _payload_width);
+        break;
+    case PayloadKind::SIGNED:
+        write_signed128(output, _signed_value, _payload_width);
+        break;
+    case PayloadKind::BORROWED_BYTES:
+        if (_borrowed.size != 0) {
+            std::memcpy(output, _borrowed.data, _borrowed.size);
+            output += _borrowed.size;
+        }
+        break;
+    case PayloadKind::UUID:
+        std::memcpy(output, _uuid.data(), _uuid.size());
+        output += _uuid.size();
+        break;
+    case PayloadKind::INLINE_STRING:
+        std::memcpy(output, _inline_string.data(), _inline_size);
+        output += _inline_size;
+        break;
+    }
+    DCHECK_EQ(output, destination + _encoded_size);
+}
+
+struct VariantMetadataBuilder::Impl {
+    using KeyMapValue = std::pair<const StringRef, uint32_t>;
+    using KeyMap = phmap::flat_hash_map<StringRef, uint32_t, StringRefHash, std::equal_to<>,
+                                        CustomStdAllocator<KeyMapValue>>;
+    using Keys = std::deque<PaddedPODArray<char>, CustomStdAllocator<PaddedPODArray<char>>>;
+
+    Keys keys;
+    KeyMap key_to_temporary_id;
+    DorisVector<uint64_t> key_use_counts;
+    DorisVector<uint32_t> temporary_to_final_id;
+    PaddedPODArray<char> encoded;
+    uint64_t active_collectors = 0;
+    size_t key_capacity_growths = 0;
+    uint32_t sealed_key_count = 0;
+    bool sealed = false;
+};
+
+VariantMetadataBuilder::VariantMetadataBuilder() : _impl(std::make_unique<Impl>()) {}
+
+VariantMetadataBuilder::~VariantMetadataBuilder() = default;
+
+uint32_t VariantMetadataBuilder::register_key(StringRef key) {
+    if (_impl->sealed) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot register a Variant metadata key after seal");
+    }
+    validate_utf8_string_ref(key, "metadata key");
+    const auto existing = _impl->key_to_temporary_id.find(key);
+    if (existing != _impl->key_to_temporary_id.end()) {
+        return existing->second;
+    }
+    if (_impl->keys.size() == std::numeric_limits<uint32_t>::max()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant metadata dictionary exceeds the uint32 key limit");
+    }
+
+    const auto temporary_id = static_cast<uint32_t>(_impl->keys.size());
+    _impl->keys.emplace_back();
+    if (key.size != 0) {
+        _impl->keys.back().insert(key.data, key.data + key.size);
+    }
+    const size_t old_capacity = _impl->key_use_counts.capacity();
+    _impl->key_use_counts.push_back(0);
+    if (_impl->key_use_counts.capacity() != old_capacity) {
+        ++_impl->key_capacity_growths;
+    }
+    const StringRef owned_key {_impl->keys.back().data(), _impl->keys.back().size()};
+    const auto [unused, inserted] = _impl->key_to_temporary_id.emplace(owned_key, temporary_id);
+    static_cast<void>(unused);
+    DCHECK(inserted);
+    return temporary_id;
+}
+
+void VariantMetadataBuilder::_begin_row() {
+    if (_impl->sealed) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot create a Variant row builder after metadata seal");
+    }
+    ++_impl->active_collectors;
+}
+
+void VariantMetadataBuilder::_retain_key(uint32_t temporary_id) noexcept {
+    DCHECK_LT(temporary_id, _impl->key_use_counts.size());
+    DCHECK(!_impl->sealed);
+    DCHECK_LT(_impl->key_use_counts[temporary_id], std::numeric_limits<uint64_t>::max());
+    ++_impl->key_use_counts[temporary_id];
+}
+
+void VariantMetadataBuilder::_complete_row() noexcept {
+    DCHECK(!_impl->sealed);
+    DCHECK_GT(_impl->active_collectors, 0);
+    --_impl->active_collectors;
+}
+
+void VariantMetadataBuilder::_abort_row(const uint32_t* temporary_ids, size_t count,
+                                        bool was_collecting) noexcept {
+    DCHECK(!_impl->sealed);
+    for (size_t index = 0; index < count; ++index) {
+        DCHECK_LT(temporary_ids[index], _impl->key_use_counts.size());
+        DCHECK_GT(_impl->key_use_counts[temporary_ids[index]], 0);
+        --_impl->key_use_counts[temporary_ids[index]];
+    }
+    if (was_collecting) {
+        DCHECK_GT(_impl->active_collectors, 0);
+        --_impl->active_collectors;
+    }
+}
+
+void VariantMetadataBuilder::_reserve_keys(size_t count) {
+    if (_impl->sealed) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot reserve Variant metadata keys after seal");
+    }
+    _impl->key_use_counts.reserve(count);
+    _impl->key_to_temporary_id.reserve(count);
+}
+
+StringRef VariantMetadataBuilder::_temporary_key(uint32_t temporary_id) const noexcept {
+    DCHECK_LT(temporary_id, _impl->keys.size());
+    return {_impl->keys[temporary_id].data(), _impl->keys[temporary_id].size()};
+}
+
+size_t VariantMetadataBuilder::_key_capacity() const noexcept {
+    return _impl->key_use_counts.capacity();
+}
+
+size_t VariantMetadataBuilder::_key_capacity_growths() const noexcept {
+    return _impl->key_capacity_growths;
+}
+
+void VariantMetadataBuilder::seal() {
+    if (_impl->sealed) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant metadata is already sealed");
+    }
+    if (_impl->active_collectors != 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot seal Variant metadata while {} row builders are incomplete",
+                        _impl->active_collectors);
+    }
+
+    DorisVector<uint32_t> sorted_temporary_ids;
+    sorted_temporary_ids.reserve(_impl->keys.size());
+    for (uint32_t temporary_id = 0; temporary_id < _impl->keys.size(); ++temporary_id) {
+        if (_impl->key_use_counts[temporary_id] != 0) {
+            sorted_temporary_ids.push_back(temporary_id);
+        }
+    }
+    std::ranges::sort(sorted_temporary_ids, [this](uint32_t left, uint32_t right) {
+        const StringRef left_key {_impl->keys[left].data(), _impl->keys[left].size()};
+        const StringRef right_key {_impl->keys[right].data(), _impl->keys[right].size()};
+        return left_key.compare(right_key) < 0;
+    });
+
+    uint64_t strings_size = 0;
+    for (uint32_t temporary_id : sorted_temporary_ids) {
+        strings_size += _impl->keys[temporary_id].size();
+        if (strings_size > std::numeric_limits<uint32_t>::max()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Variant metadata dictionary strings exceed the uint32 byte limit");
+        }
+    }
+
+    const auto count = static_cast<uint32_t>(sorted_temporary_ids.size());
+    _impl->temporary_to_final_id.assign(_impl->keys.size(), INVALID_INDEX);
+    for (uint32_t final_id = 0; final_id < count; ++final_id) {
+        _impl->temporary_to_final_id[sorted_temporary_ids[final_id]] = final_id;
+    }
+
+    const uint8_t offset_width = minimum_unsigned_width(std::max<uint64_t>(count, strings_size));
+    const uint64_t encoded_size =
+            1 + offset_width + (static_cast<uint64_t>(count) + 1) * offset_width + strings_size;
+    if (encoded_size > std::numeric_limits<size_t>::max()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant metadata exceeds the addressable output size");
+    }
+    _impl->encoded.reserve(static_cast<size_t>(encoded_size));
+    const uint8_t header =
+            VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK |
+            static_cast<uint8_t>((offset_width - 1) << VARIANT_METADATA_OFFSET_SIZE_SHIFT);
+    _impl->encoded.push_back(static_cast<char>(header));
+    append_unsigned(_impl->encoded, count, offset_width);
+
+    uint32_t offset = 0;
+    append_unsigned(_impl->encoded, offset, offset_width);
+    for (uint32_t temporary_id : sorted_temporary_ids) {
+        offset += static_cast<uint32_t>(_impl->keys[temporary_id].size());
+        append_unsigned(_impl->encoded, offset, offset_width);
+    }
+    for (uint32_t temporary_id : sorted_temporary_ids) {
+        const auto& key = _impl->keys[temporary_id];
+        _impl->encoded.insert(key.data(), key.data() + key.size());
+    }
+    DCHECK_EQ(_impl->encoded.size(), encoded_size);
+    _impl->sealed_key_count = count;
+    _impl->sealed = true;
+}
+
+bool VariantMetadataBuilder::is_sealed() const noexcept {
+    return _impl->sealed;
+}
+
+size_t VariantMetadataBuilder::num_keys() const noexcept {
+    return _impl->sealed ? _impl->sealed_key_count : _impl->keys.size();
+}
+
+uint32_t VariantMetadataBuilder::final_id(uint32_t temporary_id) const {
+    if (!_impl->sealed) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot resolve a Variant metadata id before seal");
+    }
+    if (temporary_id >= _impl->temporary_to_final_id.size()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant temporary metadata id {} is out of range [0, {})", temporary_id,
+                        _impl->temporary_to_final_id.size());
+    }
+    if (_impl->temporary_to_final_id[temporary_id] == INVALID_INDEX) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant temporary metadata id {} is not referenced by this encoding unit",
+                        temporary_id);
+    }
+    return _impl->temporary_to_final_id[temporary_id];
+}
+
+StringRef VariantMetadataBuilder::encoded_metadata() const {
+    if (!_impl->sealed) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot access Variant metadata bytes before seal");
+    }
+    return {_impl->encoded.data(), _impl->encoded.size()};
+}
+
+PaddedPODArray<char> VariantMetadataBuilder::_take_encoded_metadata() noexcept {
+    DCHECK(_impl->sealed);
+    PaddedPODArray<char> encoded = std::move(_impl->encoded);
+    release_batch_container(_impl->keys);
+    release_batch_container(_impl->key_to_temporary_id);
+    release_batch_container(_impl->key_use_counts);
+    release_batch_container(_impl->temporary_to_final_id);
+    return encoded;
+}
+
+VariantMetadataRef VariantMetadataBuilder::metadata_ref() const {
+    const StringRef bytes = encoded_metadata();
+    return {.data = bytes.data, .size = bytes.size};
+}
 
 class VariantCollectionCore {
 public:
@@ -1051,15 +1643,15 @@ public:
     }
 
     void release_scratch() noexcept {
-        release_variant_tracked_container(scalar_bytes);
-        release_variant_tracked_container(nodes);
-        release_variant_tracked_container(containers);
-        release_variant_tracked_container(children);
-        release_variant_tracked_container(scope_stack);
-        release_variant_tracked_container(object_id_scratch);
-        release_variant_tracked_container(key_references);
-        release_variant_tracked_container(container_plans);
-        release_variant_tracked_container(planned_object_children);
+        release_batch_container(scalar_bytes);
+        release_batch_container(nodes);
+        release_batch_container(containers);
+        release_batch_container(children);
+        release_batch_container(scope_stack);
+        release_batch_container(object_id_scratch);
+        release_batch_container(key_references);
+        release_batch_container(container_plans);
+        release_batch_container(planned_object_children);
         previous_object_tokens = nullptr;
         pending_object_tokens = nullptr;
         active_container = INVALID_INDEX;
@@ -1090,7 +1682,7 @@ public:
     State state = State::COLLECTING;
 };
 
-struct VariantBlockBuilder::Impl {
+struct VariantBatchBuilder::Impl {
     Impl() = default;
 
     void reserve(const ReserveHint& hint) {
@@ -1179,9 +1771,9 @@ struct VariantBlockBuilder::Impl {
 #endif
 };
 
-VariantBlockBuilder::VariantBlockBuilder() : VariantBlockBuilder(ReserveHint {}) {}
+VariantBatchBuilder::VariantBatchBuilder() : VariantBatchBuilder(ReserveHint {}) {}
 
-VariantBlockBuilder::VariantBlockBuilder(ReserveHint hint) : _impl(std::make_unique<Impl>()) {
+VariantBatchBuilder::VariantBatchBuilder(ReserveHint hint) : _impl(std::make_unique<Impl>()) {
     _impl->metadata._reserve_keys(hint.metadata_keys);
     _impl->reserve(hint);
 #ifdef BE_TEST
@@ -1190,55 +1782,94 @@ VariantBlockBuilder::VariantBlockBuilder(ReserveHint hint) : _impl(std::make_uni
 #endif
 }
 
-VariantBlockBuilder::~VariantBlockBuilder() {
+VariantBatchBuilder::~VariantBatchBuilder() {
     if (_impl != nullptr && _impl->row_active) {
         _abort_row_noexcept(_impl->active_generation);
     }
 }
 
-void VariantBlockBuilder::_add_scalar(uint64_t generation, const VariantScalarEncodingPlan& plan) {
+VariantBatchBuilder::VariantBatchBuilder(PaddedPODArray<char> metadata, PaddedPODArray<char> values,
+                                         PaddedPODArray<uint32_t> offsets) noexcept
+        : _metadata(std::move(metadata)),
+          _values(std::move(values)),
+          _offsets(std::move(offsets)) {}
+
+VariantBatchBuilder::VariantBatchBuilder(VariantBatchBuilder&& other) noexcept {
+    DORIS_CHECK(other._impl == nullptr) << "An active VariantBatchBuilder cannot be moved";
+    _metadata = std::move(other._metadata);
+    _values = std::move(other._values);
+    _offsets = std::move(other._offsets);
+}
+
+VariantBatchBuilder& VariantBatchBuilder::operator=(VariantBatchBuilder&& other) noexcept {
+    if (this == &other) {
+        return *this;
+    }
+    DORIS_CHECK(_impl == nullptr) << "An active VariantBatchBuilder cannot receive moved data";
+    DORIS_CHECK(other._impl == nullptr) << "An active VariantBatchBuilder cannot be moved";
+    _metadata = std::move(other._metadata);
+    _values = std::move(other._values);
+    _offsets = std::move(other._offsets);
+    return *this;
+}
+
+size_t VariantBatchBuilder::num_rows() const noexcept {
+    return _offsets.empty() ? 0 : _offsets.size() - 1;
+}
+
+VariantRef VariantBatchBuilder::value_at(size_t row) const {
+    if (row >= num_rows()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant encoded batch row {} is outside [0, {})", row, num_rows());
+    }
+    const uint32_t begin = _offsets[row];
+    const uint32_t end = _offsets[row + 1];
+    return {.metadata = metadata_ref(), .value = {_values.data() + begin, end - begin}};
+}
+
+void VariantBatchBuilder::_add_scalar(uint64_t generation, const VariantScalarEncodingPlan& plan) {
     _impl->ensure_active(generation);
     _impl->collection.add_scalar(plan);
 }
 
-void VariantBlockBuilder::_add_null(uint64_t generation) {
+void VariantBatchBuilder::_add_null(uint64_t generation) {
     _impl->ensure_active(generation);
     _impl->collection.add_null();
 }
 
-void VariantBlockBuilder::_add_bool(uint64_t generation, bool value) {
+void VariantBatchBuilder::_add_bool(uint64_t generation, bool value) {
     _impl->ensure_active(generation);
     _impl->collection.add_bool(value);
 }
 
-void VariantBlockBuilder::_add_int(uint64_t generation, int64_t value) {
+void VariantBatchBuilder::_add_int(uint64_t generation, int64_t value) {
     _impl->ensure_active(generation);
     _impl->collection.add_int(value);
 }
 
-void VariantBlockBuilder::_add_value(uint64_t generation, VariantRef value) {
+void VariantBatchBuilder::_add_value(uint64_t generation, VariantRef value) {
     _impl->ensure_active(generation);
     _impl->collection.add_value(value);
 }
 
-uint32_t VariantBlockBuilder::_start_container(uint64_t generation, bool object) {
+uint32_t VariantBatchBuilder::_start_container(uint64_t generation, bool object) {
     _impl->ensure_active(generation);
     return _impl->collection.start_container(object ? VariantCollectionCore::NodeKind::OBJECT
                                                     : VariantCollectionCore::NodeKind::ARRAY);
 }
 
-void VariantBlockBuilder::_add_key(uint64_t generation, uint32_t token, StringRef key) {
+void VariantBatchBuilder::_add_key(uint64_t generation, uint32_t token, StringRef key) {
     _impl->ensure_active(generation);
     _impl->collection.add_key(token, key);
 }
 
-void VariantBlockBuilder::_finish_container(uint64_t generation, uint32_t token, bool object) {
+void VariantBatchBuilder::_finish_container(uint64_t generation, uint32_t token, bool object) {
     _impl->ensure_active(generation);
     _impl->collection.finish_container(token, object ? VariantCollectionCore::NodeKind::OBJECT
                                                      : VariantCollectionCore::NodeKind::ARRAY);
 }
 
-void VariantBlockBuilder::_finish_row(uint64_t generation) {
+void VariantBatchBuilder::_finish_row(uint64_t generation) {
     _impl->ensure_active(generation);
     if (_impl->collection.state == VariantCollectionCore::State::COLLECTING) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Cannot finish an incomplete Variant row");
@@ -1261,7 +1892,7 @@ void VariantBlockBuilder::_finish_row(uint64_t generation) {
     _impl->row_active = false;
 }
 
-void VariantBlockBuilder::_abort_row_noexcept(uint64_t generation) noexcept {
+void VariantBatchBuilder::_abort_row_noexcept(uint64_t generation) noexcept {
     if (!_impl->row_active || generation != _impl->active_generation) {
         return;
     }
@@ -1275,20 +1906,24 @@ void VariantBlockBuilder::_abort_row_noexcept(uint64_t generation) noexcept {
     _impl->row_active = false;
 }
 
-void VariantBlockBuilder::_abort_row(uint64_t generation) {
+void VariantBatchBuilder::_abort_row(uint64_t generation) {
     _impl->ensure_active(generation);
     _abort_row_noexcept(generation);
 }
 
-VariantBlockBuilder::Row VariantBlockBuilder::begin_row() {
+VariantBatchBuilder::Row VariantBatchBuilder::begin_row() {
+    if (_impl == nullptr) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot append rows to a finished Variant batch");
+    }
     _impl->ensure_open();
     if (_impl->row_active) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant block builder already has an active row");
+                        "Variant batch builder already has an active row");
     }
     if (_impl->current_generation >= ABORTED_ROW_GENERATION - 1) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant block row generation exceeds the uint64 limit");
+                        "Variant batch row generation exceeds the uint64 limit");
     }
     ++_impl->current_generation;
     DCHECK(_impl->pending_object_tokens.empty());
@@ -1304,11 +1939,14 @@ VariantBlockBuilder::Row VariantBlockBuilder::begin_row() {
     return {this, _impl->active_generation};
 }
 
-VariantEncodedBlock VariantBlockBuilder::finish_block() {
+VariantBatchBuilder VariantBatchBuilder::finish_batch() {
+    if (_impl == nullptr) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant batch is already materialized");
+    }
     _impl->ensure_open();
     if (_impl->row_active) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Cannot finish a Variant block while a row is active");
+                        "Cannot finish a Variant batch while a row is active");
     }
     _impl->terminal = true;
     _impl->metadata.seal();
@@ -1317,10 +1955,11 @@ VariantEncodedBlock VariantBlockBuilder::finish_block() {
 #endif
     _impl->collection.reset_plan();
 
-    DorisVector<uint32_t> offsets;
-    if (_impl->roots.size() == offsets.max_size()) {
+    PaddedPODArray<uint32_t> offsets;
+    constexpr size_t MAX_OFFSET_COUNT = std::numeric_limits<size_t>::max() / sizeof(uint32_t);
+    if (_impl->roots.size() >= MAX_OFFSET_COUNT) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant block row offsets exceed the addressable size");
+                        "Variant batch row offsets exceed the addressable size");
     }
     offsets.reserve(_impl->roots.size() + 1);
     offsets.push_back(0);
@@ -1329,7 +1968,7 @@ VariantEncodedBlock VariantBlockBuilder::finish_block() {
         const size_t row_size = _impl->collection.prepare_plan(root);
         if (row_size > std::numeric_limits<uint32_t>::max() - total_size) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Variant block values exceed the ColumnString uint32 byte limit");
+                            "Variant batch values exceed the ColumnString uint32 byte limit");
         }
         total_size += static_cast<uint32_t>(row_size);
         offsets.push_back(total_size);
@@ -1337,7 +1976,7 @@ VariantEncodedBlock VariantBlockBuilder::finish_block() {
 #ifdef BE_TEST
     _impl->observe_collection_growth(before);
 #endif
-    VariantTrackedString values;
+    PaddedPODArray<char> values;
     values.resize(total_size);
     char* output = values.data();
     for (uint32_t root : _impl->roots) {
@@ -1350,16 +1989,16 @@ VariantEncodedBlock VariantBlockBuilder::finish_block() {
                             _impl->metadata._key_capacity_growths(), _impl->metadata.num_keys());
     _impl->counters_finalized = true;
 #endif
-    VariantTrackedString metadata = _impl->metadata._take_encoded_metadata();
+    PaddedPODArray<char> metadata = _impl->metadata._take_encoded_metadata();
     _impl->collection.release_scratch();
-    release_variant_tracked_container(_impl->roots);
-    release_variant_tracked_container(_impl->previous_object_tokens);
-    release_variant_tracked_container(_impl->pending_object_tokens);
-    return VariantEncodedBlock(std::move(metadata), std::move(values), std::move(offsets));
+    release_batch_container(_impl->roots);
+    release_batch_container(_impl->previous_object_tokens);
+    release_batch_container(_impl->pending_object_tokens);
+    return {std::move(metadata), std::move(values), std::move(offsets)};
 }
 
 #ifdef BE_TEST
-const VariantBlockBuilder::TestCounters& VariantBlockBuilder::test_counters() const noexcept {
+const VariantBatchBuilder::TestCounters& VariantBatchBuilder::test_counters() const noexcept {
     if (!_impl->counters_finalized) {
         _impl->refresh_counters(_impl->metadata._key_capacity(),
                                 _impl->metadata._key_capacity_growths(),
@@ -1369,31 +2008,31 @@ const VariantBlockBuilder::TestCounters& VariantBlockBuilder::test_counters() co
 }
 #endif
 
-VariantBlockBuilder::Row::ObjectScope::ObjectScope(VariantBlockBuilder* builder,
+VariantBatchBuilder::Row::ObjectScope::ObjectScope(VariantBatchBuilder* builder,
                                                    uint64_t generation, uint32_t token) noexcept
         : _builder(builder), _generation(generation), _token(token) {}
 
-VariantBlockBuilder::Row::ObjectScope::ObjectScope(ObjectScope&& other) noexcept
+VariantBatchBuilder::Row::ObjectScope::ObjectScope(ObjectScope&& other) noexcept
         : _builder(std::exchange(other._builder, nullptr)),
           _generation(other._generation),
           _token(other._token) {}
 
-VariantBlockBuilder::Row::ArrayScope::ArrayScope(VariantBlockBuilder* builder, uint64_t generation,
+VariantBatchBuilder::Row::ArrayScope::ArrayScope(VariantBatchBuilder* builder, uint64_t generation,
                                                  uint32_t token) noexcept
         : _builder(builder), _generation(generation), _token(token) {}
 
-VariantBlockBuilder::Row::ArrayScope::ArrayScope(ArrayScope&& other) noexcept
+VariantBatchBuilder::Row::ArrayScope::ArrayScope(ArrayScope&& other) noexcept
         : _builder(std::exchange(other._builder, nullptr)),
           _generation(other._generation),
           _token(other._token) {}
 
-VariantBlockBuilder::Row::Row(VariantBlockBuilder* builder, uint64_t generation) noexcept
+VariantBatchBuilder::Row::Row(VariantBatchBuilder* builder, uint64_t generation) noexcept
         : _builder(builder), _generation(generation) {}
 
-VariantBlockBuilder::Row::Row(Row&& other) noexcept
+VariantBatchBuilder::Row::Row(Row&& other) noexcept
         : _builder(std::exchange(other._builder, nullptr)), _generation(other._generation) {}
 
-void VariantBlockBuilder::Row::ObjectScope::add_key(StringRef key) {
+void VariantBatchBuilder::Row::ObjectScope::add_key(StringRef key) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant block object scope is already finished");
@@ -1401,7 +2040,7 @@ void VariantBlockBuilder::Row::ObjectScope::add_key(StringRef key) {
     _builder->_add_key(_generation, _token, key);
 }
 
-void VariantBlockBuilder::Row::ObjectScope::finish() {
+void VariantBatchBuilder::Row::ObjectScope::finish() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant block object scope is already finished");
@@ -1410,7 +2049,7 @@ void VariantBlockBuilder::Row::ObjectScope::finish() {
     _builder = nullptr;
 }
 
-void VariantBlockBuilder::Row::ArrayScope::finish() {
+void VariantBatchBuilder::Row::ArrayScope::finish() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant block array scope is already finished");
@@ -1419,99 +2058,99 @@ void VariantBlockBuilder::Row::ArrayScope::finish() {
     _builder = nullptr;
 }
 
-VariantBlockBuilder::Row::~Row() {
+VariantBatchBuilder::Row::~Row() {
     if (_builder != nullptr) {
         _builder->_abort_row_noexcept(_generation);
     }
 }
 
-void VariantBlockBuilder::Row::add_null() {
+void VariantBatchBuilder::Row::add_null() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
     _builder->_add_null(_generation);
 }
 
-void VariantBlockBuilder::Row::add_bool(bool value) {
+void VariantBatchBuilder::Row::add_bool(bool value) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
     _builder->_add_bool(_generation, value);
 }
 
-void VariantBlockBuilder::Row::add_int(int64_t value) {
+void VariantBatchBuilder::Row::add_int(int64_t value) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
     _builder->_add_int(_generation, value);
 }
 
-void VariantBlockBuilder::Row::add_float(float value) {
+void VariantBatchBuilder::Row::add_float(float value) {
     _add_scalar(VariantScalarEncodingPlan::float32(value));
 }
 
-void VariantBlockBuilder::Row::add_double(double value) {
+void VariantBatchBuilder::Row::add_double(double value) {
     _add_scalar(VariantScalarEncodingPlan::float64(value));
 }
 
-void VariantBlockBuilder::Row::add_decimal(__int128 unscaled, uint8_t scale) {
+void VariantBatchBuilder::Row::add_decimal(__int128 unscaled, uint8_t scale) {
     _add_scalar(VariantScalarEncodingPlan::decimal(unscaled, scale));
 }
 
-void VariantBlockBuilder::Row::add_decimal(__int128 unscaled, uint8_t scale, uint8_t width) {
+void VariantBatchBuilder::Row::add_decimal(__int128 unscaled, uint8_t scale, uint8_t width) {
     _add_scalar(VariantScalarEncodingPlan::decimal(unscaled, scale, width));
 }
 
-void VariantBlockBuilder::Row::add_date(int32_t days_since_epoch) {
+void VariantBatchBuilder::Row::add_date(int32_t days_since_epoch) {
     _add_scalar(VariantScalarEncodingPlan::date(days_since_epoch));
 }
 
-void VariantBlockBuilder::Row::add_timestamp_micros(int64_t value, bool utc_adjusted) {
+void VariantBatchBuilder::Row::add_timestamp_micros(int64_t value, bool utc_adjusted) {
     _add_scalar(VariantScalarEncodingPlan::timestamp_micros(value, utc_adjusted));
 }
 
-void VariantBlockBuilder::Row::add_timestamp_nanos(int64_t value, bool utc_adjusted) {
+void VariantBatchBuilder::Row::add_timestamp_nanos(int64_t value, bool utc_adjusted) {
     _add_scalar(VariantScalarEncodingPlan::timestamp_nanos(value, utc_adjusted));
 }
 
-void VariantBlockBuilder::Row::add_time_ntz_micros(int64_t value) {
+void VariantBatchBuilder::Row::add_time_ntz_micros(int64_t value) {
     _add_scalar(VariantScalarEncodingPlan::time_ntz_micros(value));
 }
 
-void VariantBlockBuilder::Row::add_binary(StringRef value) {
+void VariantBatchBuilder::Row::add_binary(StringRef value) {
     _add_scalar(VariantScalarEncodingPlan::binary(value));
 }
 
-void VariantBlockBuilder::Row::add_string(StringRef value) {
+void VariantBatchBuilder::Row::add_string(StringRef value) {
     _add_scalar(VariantScalarEncodingPlan::string(value));
 }
 
-void VariantBlockBuilder::Row::add_uuid(const std::array<uint8_t, 16>& value) {
+void VariantBatchBuilder::Row::add_uuid(const std::array<uint8_t, 16>& value) {
     _add_scalar(VariantScalarEncodingPlan::uuid(value));
 }
 
-void VariantBlockBuilder::Row::add_largeint(__int128 value) {
+void VariantBatchBuilder::Row::add_largeint(__int128 value) {
     _add_scalar(VariantScalarEncodingPlan::largeint(value));
 }
 
-void VariantBlockBuilder::Row::add_value(VariantRef value) {
+void VariantBatchBuilder::Row::add_value(VariantRef value) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
     _builder->_add_value(_generation, value);
 }
 
-VariantBlockBuilder::Row::ObjectScope VariantBlockBuilder::Row::start_object() {
+VariantBatchBuilder::Row::ObjectScope VariantBatchBuilder::Row::start_object() {
     const uint32_t token = _start_object();
     return {_builder, _generation, token};
 }
 
-VariantBlockBuilder::Row::ArrayScope VariantBlockBuilder::Row::start_array() {
+VariantBatchBuilder::Row::ArrayScope VariantBatchBuilder::Row::start_array() {
     const uint32_t token = _start_array();
     return {_builder, _generation, token};
 }
 
-void VariantBlockBuilder::Row::finish() {
+void VariantBatchBuilder::Row::finish() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
@@ -1519,7 +2158,7 @@ void VariantBlockBuilder::Row::finish() {
     _generation = FINISHED_ROW_GENERATION;
 }
 
-void VariantBlockBuilder::Row::abort() {
+void VariantBatchBuilder::Row::abort() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
@@ -1527,25 +2166,25 @@ void VariantBlockBuilder::Row::abort() {
     _generation = ABORTED_ROW_GENERATION;
 }
 
-bool VariantBlockBuilder::Row::is_finished() const noexcept {
+bool VariantBatchBuilder::Row::is_finished() const noexcept {
     return _builder != nullptr && _generation == FINISHED_ROW_GENERATION;
 }
 
-void VariantBlockBuilder::Row::_add_scalar(const VariantScalarEncodingPlan& plan) {
+void VariantBatchBuilder::Row::_add_scalar(const VariantScalarEncodingPlan& plan) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
     _builder->_add_scalar(_generation, plan);
 }
 
-uint32_t VariantBlockBuilder::Row::_start_object() {
+uint32_t VariantBatchBuilder::Row::_start_object() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }
     return _builder->_start_container(_generation, true);
 }
 
-uint32_t VariantBlockBuilder::Row::_start_array() {
+uint32_t VariantBatchBuilder::Row::_start_array() {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");
     }

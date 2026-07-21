@@ -22,6 +22,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_array.h"
 #include "exprs/function/cast/cast_to_jsonb.h"
@@ -224,6 +225,7 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
 /// 'from_type' and 'to_type' are nested types in case of Nullable.
 /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
+// NOLINTNEXTLINE(readability-function-size)
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
                          const DataTypePtr& origin_to_type) {
     auto to_type = get_serialized_type(origin_to_type);
@@ -232,26 +234,30 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_identity_wrapper(from_type);
     }
 
-    const auto* from_variant =
+    const auto* from_variant_v1 =
             dynamic_cast<const DataTypeVariant*>(remove_nullable(from_type).get());
-    const auto* to_variant = dynamic_cast<const DataTypeVariant*>(remove_nullable(to_type).get());
-    if (from_variant != nullptr && to_variant != nullptr &&
-        from_variant->is_variant_v2() != to_variant->is_variant_v2()) {
+    const auto* to_variant_v1 =
+            dynamic_cast<const DataTypeVariant*>(remove_nullable(to_type).get());
+    const auto* from_variant_v2 =
+            dynamic_cast<const DataTypeVariantV2*>(remove_nullable(from_type).get());
+    const auto* to_variant_v2 =
+            dynamic_cast<const DataTypeVariantV2*>(remove_nullable(to_type).get());
+    if ((from_variant_v1 != nullptr && to_variant_v2 != nullptr) ||
+        (from_variant_v2 != nullptr && to_variant_v1 != nullptr)) {
         return CastWrapper::create_unsupport_wrapper(
                 "Cast between legacy Variant and compute-only Variant V2 is not supported");
     }
 
     // variant needs to be judged first
     if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        DORIS_CHECK(to_variant != nullptr);
-        if (to_variant->is_variant_v2()) {
+        if (to_variant_v2 != nullptr) {
             return create_cast_to_variant_v2_wrapper(from_type);
         }
-        return create_cast_to_variant_wrapper(from_type, *to_variant);
+        DORIS_CHECK(to_variant_v1 != nullptr);
+        return create_cast_to_variant_wrapper(from_type, *to_variant_v1);
     }
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        DORIS_CHECK(from_variant != nullptr);
-        if (from_variant->is_variant_v2()) {
+        if (from_variant_v2 != nullptr) {
             auto wrapper = create_cast_from_variant_v2_wrapper(to_type);
             return [wrapper = std::move(wrapper)](
                            FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -267,7 +273,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
                 return Status::OK();
             };
         }
-        return create_cast_from_variant_wrapper(*from_variant, to_type);
+        DORIS_CHECK(from_variant_v1 != nullptr);
+        return create_cast_from_variant_wrapper(*from_variant_v1, to_type);
     }
 
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {

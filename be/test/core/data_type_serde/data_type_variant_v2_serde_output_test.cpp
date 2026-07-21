@@ -41,8 +41,8 @@
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
-#include "core/value/variant/variant_encoding.h"
-#include "exprs/function/parse/variant_json.h"
+#include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
@@ -93,15 +93,15 @@ ColumnPtr encoded_copy(const ColumnVariantV2& typed) {
 }
 
 ColumnVariantV2::MutablePtr encoded_json(std::initializer_list<std::string_view> rows) {
-    JsonToVariantEncoder encoder({.max_json_key_length = 1024,
-                                  .throw_on_invalid_json = true,
-                                  .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
     for (std::string_view row : rows) {
         encoder.add_json({row.data(), row.size()});
     }
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block);
+    result->insert_encoded_batch(block);
     return result;
 }
 
@@ -242,21 +242,6 @@ ColumnVariantV2::MutablePtr invalid_date_column() {
                                          std::make_shared<DataTypeDateV2>());
 }
 
-ColumnVariantV2::MutablePtr trailing_value_column() {
-    constexpr std::array<char, 3> metadata {static_cast<char>(0x11), 0, 0};
-    constexpr std::array<uint32_t, 2> metadata_offsets {0, 3};
-    constexpr std::array<uint32_t, 2> ids {0, 0};
-    constexpr std::array<char, 3> values {0, 0, 0};
-    constexpr std::array<uint32_t, 3> value_offsets {0, 1, 3};
-    auto result = ColumnVariantV2::create();
-    result->insert_encoded_rows({.metadata_bytes = {metadata.data(), metadata.size()},
-                                 .metadata_offsets = metadata_offsets,
-                                 .meta_ids = ids,
-                                 .value_bytes = {values.data(), values.size()},
-                                 .value_offsets = value_offsets});
-    return result;
-}
-
 } // namespace
 
 TEST(DataTypeVariantV2SerdeOutputTest, DormantDirectClassExists) {
@@ -392,26 +377,6 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(reversed_builder.length(), 0);
     EXPECT_TRUE(invalid_dates->is_typed());
-}
-
-TEST(DataTypeVariantV2SerdeOutputTest, BadEncodedRowsDoNotPublishPartialOutput) {
-    DataTypeVariantV2SerDe serde;
-    auto bad = trailing_value_column();
-    auto output = ColumnString::create();
-    output->insert_data("sentinel", 8);
-    const size_t chars_before = output->get_chars().size();
-    BufferWritable writer(*output);
-    DataTypeSerDe::FormatOptions options;
-    const Status status = serde.serialize_column_to_json(*bad, 0, 2, writer, options);
-    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-    EXPECT_EQ(output->size(), 1);
-    EXPECT_EQ(output->get_chars().size(), chars_before);
-
-    arrow::StringBuilder builder;
-    EXPECT_EQ(serde.write_column_to_arrow(*bad, nullptr, &builder, 0, 2, cctz::utc_time_zone())
-                      .code(),
-              ErrorCode::INVALID_ARGUMENT);
-    EXPECT_EQ(builder.length(), 0);
 }
 
 } // namespace doris

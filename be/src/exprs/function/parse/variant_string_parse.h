@@ -25,7 +25,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "core/value/variant/variant_encoded_block.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_value.h"
 
 namespace cctz {
@@ -48,23 +48,23 @@ struct JsonToVariantOptions {
     static JsonToVariantOptions current_config();
 };
 
-// Reuses one JSON parser and one block builder. Each add_json() collects into a stack-only row;
-// finish_block() performs pass 2. A failed add_json() is terminal, as is a successful
-// finish_block(). try_add_json() rolls back invalid input rows and keeps collecting.
-class JsonToVariantEncoder {
+// Reuses one JSON parser and one batch builder. Each add_json() collects into a stack-only row;
+// finish_batch() performs pass 2. A failed add_json() is terminal, as is a successful
+// finish_batch(). try_add_json() rolls back invalid input rows and keeps collecting.
+class JsonStringToVariantEncoder {
 public:
-    JsonToVariantEncoder();
-    explicit JsonToVariantEncoder(JsonToVariantOptions options);
-    ~JsonToVariantEncoder();
+    JsonStringToVariantEncoder();
+    explicit JsonStringToVariantEncoder(JsonToVariantOptions options);
+    ~JsonStringToVariantEncoder();
 
-    JsonToVariantEncoder(const JsonToVariantEncoder&) = delete;
-    JsonToVariantEncoder& operator=(const JsonToVariantEncoder&) = delete;
-    JsonToVariantEncoder(JsonToVariantEncoder&&) noexcept;
-    JsonToVariantEncoder& operator=(JsonToVariantEncoder&&) noexcept;
+    JsonStringToVariantEncoder(const JsonStringToVariantEncoder&) = delete;
+    JsonStringToVariantEncoder& operator=(const JsonStringToVariantEncoder&) = delete;
+    JsonStringToVariantEncoder(JsonStringToVariantEncoder&&) noexcept;
+    JsonStringToVariantEncoder& operator=(JsonStringToVariantEncoder&&) noexcept;
 
     void add_json(StringRef json);
     Status try_add_json(StringRef json);
-    VariantEncodedBlock finish_block();
+    VariantBatchBuilder finish_batch();
 
 private:
     struct Impl;

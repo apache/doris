@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
@@ -73,7 +73,7 @@ void append_collected_value(CollectedArrayNode* node, VariantRef value, bool for
 }
 
 ColumnPtr encoded_refs(std::span<const VariantRef> values, ForcedNulls nulls) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = values.size()});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = values.size()});
     for (size_t row_index = 0; row_index < values.size(); ++row_index) {
         auto row = builder.begin_row();
         if (!nulls.empty() && nulls[row_index] != 0) {
@@ -83,9 +83,9 @@ ColumnPtr encoded_refs(std::span<const VariantRef> values, ForcedNulls nulls) {
         }
         row.finish();
     }
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     auto result = ColumnVariantV2::create();
-    result->insert_encoded_block(block);
+    result->insert_encoded_batch(block);
     return result;
 }
 

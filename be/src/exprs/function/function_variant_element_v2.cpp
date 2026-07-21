@@ -26,9 +26,9 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
-#include "core/value/variant/variant_block_builder.h"
-#include "core/value/variant/variant_encoding.h"
-#include "core/value/variant/variant_tracked_storage.h"
+#include "core/pod_array.h"
+#include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 
 namespace doris {
 
@@ -36,7 +36,7 @@ namespace {
 
 struct OwnedPathSegment {
     VariantElementV2PathSegment::Kind kind;
-    VariantTrackedString key;
+    PaddedPODArray<char> key;
     int64_t index = 0;
 };
 
@@ -187,7 +187,7 @@ Status resolve_variant_element_v2_path(
                 return Status::InvalidArgument("Variant V2 object path key has a null pointer");
             }
             if (segment.key().size != 0) {
-                owned.key.assign(segment.key().data, segment.key().size);
+                owned.key.assign(segment.key().data, segment.key().data + segment.key().size);
             }
         }
         impl->segments.push_back(std::move(owned));
@@ -246,10 +246,10 @@ namespace {
 constexpr uint32_t UNMAPPED_METADATA = std::numeric_limits<uint32_t>::max();
 
 struct ExtractedRows {
-    VariantTrackedString metadata_bytes;
+    PaddedPODArray<char> metadata_bytes;
     DorisVector<uint32_t> metadata_offsets {0};
     DorisVector<uint32_t> metadata_ids;
-    VariantTrackedString value_bytes;
+    PaddedPODArray<char> value_bytes;
     DorisVector<uint32_t> value_offsets {0};
 
     ColumnVariantV2::EncodedDataView view() const {
@@ -261,7 +261,7 @@ struct ExtractedRows {
     }
 };
 
-uint32_t append_bytes(VariantTrackedString& destination, StringRef source,
+uint32_t append_bytes(PaddedPODArray<char>& destination, StringRef source,
                       std::string_view description) {
     if (source.size > std::numeric_limits<uint32_t>::max() - destination.size()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -269,7 +269,7 @@ uint32_t append_bytes(VariantTrackedString& destination, StringRef source,
                         description);
     }
     if (source.size != 0) {
-        destination.append(source.data, source.size);
+        destination.insert(source.data, source.data + source.size);
     }
     return static_cast<uint32_t>(destination.size());
 }
@@ -301,11 +301,11 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
     const size_t metadata_count = reader.metadata_count();
     DorisVector<uint32_t> output_metadata_ids(metadata_count, UNMAPPED_METADATA);
 
-    VariantBlockBuilder null_builder(VariantBlockBuilder::ReserveHint {.rows = 1});
+    VariantBatchBuilder null_builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto null_row = null_builder.begin_row();
     null_row.add_null();
     null_row.finish();
-    VariantEncodedBlock null_block = null_builder.finish_block();
+    VariantBatchBuilder null_block = null_builder.finish_batch();
     const VariantRef null_value = null_block.value_at(0);
 
     ExtractedRows rows;
@@ -351,15 +351,15 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
 }
 
 Status make_all_null_variant_element_result(size_t rows, ColumnPtr* const output) {
-    VariantBlockBuilder builder(VariantBlockBuilder::ReserveHint {.rows = rows});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
     for (size_t row_index = 0; row_index < rows; ++row_index) {
         auto row = builder.begin_row();
         row.add_null();
         row.finish();
     }
-    VariantEncodedBlock block = builder.finish_block();
+    VariantBatchBuilder block = builder.finish_batch();
     auto values = ColumnVariantV2::create();
-    values->insert_encoded_block(block);
+    values->insert_encoded_batch(block);
     ColumnPtr candidate = ColumnNullable::create(std::move(values), ColumnUInt8::create(rows, 1));
     output->swap(candidate);
     return Status::OK();

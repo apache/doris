@@ -20,7 +20,7 @@
 #include <cstdint>
 
 #include "common/exception.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 
 namespace doris {
 namespace {

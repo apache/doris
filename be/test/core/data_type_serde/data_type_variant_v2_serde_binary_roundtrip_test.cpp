@@ -50,13 +50,12 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
-#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/value/decimalv2_value.h"
-#include "core/value/variant/variant_block_builder.h"
+#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
-#include "core/value/variant/variant_encoding.h"
-#include "exprs/function/parse/variant_json.h"
-#include "exprs/function/parse/variant_jsonb.h"
+#include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "gen_cpp/data.pb.h"
 #include "util/variant/variant_test_utils.h"
 
@@ -64,11 +63,11 @@ namespace doris {
 namespace {
 
 VariantField encode_json(std::string_view json) {
-    JsonToVariantEncoder encoder({.max_json_key_length = 255,
-                                  .throw_on_invalid_json = true,
-                                  .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::encode(block.value_at(0));
 }
 
@@ -114,46 +113,43 @@ VariantField noncanonical_object() {
     return VariantField::decode({field.data(), field.size()});
 }
 
-uint64_t read_u64(const std::vector<uint8_t>& bytes, size_t offset) {
-    uint64_t value = 0;
-    for (uint8_t index = 0; index < sizeof(value); ++index) {
-        value |= static_cast<uint64_t>(bytes[offset + index]) << (index * 8);
-    }
-    return value;
-}
-
-std::vector<uint8_t> serialize(const IColumn& source) {
-    const Result<size_t> size = DataTypeVariantV2SerDe::serialized_size(source);
-    EXPECT_TRUE(size.has_value()) << size.error();
-    if (!size.has_value()) {
-        return {};
-    }
-    std::vector<uint8_t> frame(*size);
-    EXPECT_TRUE(DataTypeVariantV2SerDe::serialize_binary(source, frame).ok());
-    return frame;
+std::vector<char> serialize(const IColumn& source) {
+    const DataTypeVariantV2 type;
+    const int64_t max_size = type.get_uncompressed_serialized_bytes(source, 10);
+    EXPECT_GT(max_size, 0);
+    std::vector<char> bytes(max_size);
+    char* end = type.serialize(source, bytes.data(), 10);
+    bytes.resize(end - bytes.data());
+    return bytes;
 }
 
 struct DecodedVariant {
     MutableColumnPtr column;
 
-    ColumnVariantV2* operator->() { return &assert_cast<ColumnVariantV2&>(*column); }
+    bool is_constant() const { return check_and_get_column<ColumnConst>(column.get()) != nullptr; }
+
+    ColumnVariantV2* operator->() {
+        IColumn* physical = column.get();
+        if (auto* constant = check_and_get_column<ColumnConst>(physical)) {
+            physical = const_cast<IColumn*>(&constant->get_data_column());
+        }
+        return &assert_cast<ColumnVariantV2&>(*physical);
+    }
     const ColumnVariantV2* operator->() const {
-        return &assert_cast<const ColumnVariantV2&>(*column);
+        const IColumn* physical = column.get();
+        if (const auto* constant = check_and_get_column<ColumnConst>(physical)) {
+            physical = &constant->get_data_column();
+        }
+        return &assert_cast<const ColumnVariantV2&>(*physical);
     }
-    const ColumnVariantV2& operator*() const {
-        return assert_cast<const ColumnVariantV2&>(*column);
-    }
+    const ColumnVariantV2& operator*() const { return *operator->(); }
 };
 
 DecodedVariant round_trip(const IColumn& source) {
-    const std::vector<uint8_t> frame = serialize(source);
-    MutableColumnPtr destination;
-    EXPECT_TRUE(DataTypeVariantV2SerDe::deserialize_binary(frame, &destination).ok());
-    EXPECT_NE(destination.get(), nullptr);
-    if (destination.get() == nullptr) {
-        destination = ColumnVariantV2::create();
-    }
-    EXPECT_NE(dynamic_cast<ColumnVariantV2*>(destination.get()), nullptr);
+    const DataTypeVariantV2 type;
+    const std::vector<char> bytes = serialize(source);
+    MutableColumnPtr destination = type.create_column();
+    EXPECT_EQ(type.deserialize(bytes.data(), &destination, 10), bytes.data() + bytes.size());
     return {.column = std::move(destination)};
 }
 
@@ -235,23 +231,12 @@ void expect_typed_round_trip(const ColumnVariantV2& source) {
 
 } // namespace
 
-TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ComputeVariantTypeUsesV2Frame) {
-    DataTypeVariantV2 type;
+TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ComputeVariantTypeRoundTripsEncodedColumn) {
     auto source = encoded(R"({"adapter":[1,true,null]})");
-
-    const int64_t serialized_size = type.get_uncompressed_serialized_bytes(*source, 10);
-    ASSERT_GT(serialized_size, 0);
-    std::vector<char> frame(serialized_size);
-    EXPECT_EQ(type.serialize(*source, frame.data(), 10), frame.data() + frame.size());
-    EXPECT_EQ(std::string_view(frame.data(), 4), "DV2X");
-
-    MutableColumnPtr destination = type.create_column();
-    EXPECT_EQ(type.deserialize(frame.data(), &destination, 10), frame.data() + frame.size());
-    const auto* decoded = dynamic_cast<const ColumnVariantV2*>(destination.get());
-    ASSERT_NE(decoded, nullptr);
-    ASSERT_EQ(decoded->size(), source->size());
-    EXPECT_TRUE(
-            canonical_equals(source->read_view().value_at(0), decoded->read_view().value_at(0)));
+    const auto destination = round_trip(*source);
+    ASSERT_EQ(destination->size(), source->size());
+    EXPECT_TRUE(canonical_equals(source->read_view().value_at(0),
+                                 destination->read_view().value_at(0)));
 }
 
 TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ExecutionTypeSelectsPhysicalColumn) {
@@ -279,9 +264,8 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ExecutionMarkerRoundTripsThrough
     compute_v2.to_pb_column_meta(&column_meta);
     DataTypePtr from_protobuf = DataTypeFactory::instance().create_data_type(column_meta);
     ASSERT_NE(from_protobuf, nullptr);
-    const auto* protobuf_variant = dynamic_cast<const DataTypeVariant*>(from_protobuf.get());
+    const auto* protobuf_variant = dynamic_cast<const DataTypeVariantV2*>(from_protobuf.get());
     ASSERT_NE(protobuf_variant, nullptr);
-    EXPECT_TRUE(protobuf_variant->is_variant_v2());
     EXPECT_NE(dynamic_cast<ColumnVariantV2*>(from_protobuf->create_column().get()), nullptr);
 
     TScalarType scalar_type;
@@ -296,9 +280,8 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ExecutionMarkerRoundTripsThrough
     type_desc.types.push_back(type_node);
     DataTypePtr from_thrift = DataTypeFactory::instance().create_data_type(type_desc);
     ASSERT_NE(from_thrift, nullptr);
-    const auto* thrift_variant = dynamic_cast<const DataTypeVariant*>(from_thrift.get());
+    const auto* thrift_variant = dynamic_cast<const DataTypeVariantV2*>(from_thrift.get());
     ASSERT_NE(thrift_variant, nullptr);
-    EXPECT_TRUE(thrift_variant->is_variant_v2());
     EXPECT_NE(dynamic_cast<ColumnVariantV2*>(from_thrift->create_column().get()), nullptr);
 }
 
@@ -309,12 +292,6 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedRowsPreserveStateOrderAnd
     insert_encoded_field(*source, encode_json(R"({"z":1,"a":[true,null]})"));
     insert_encoded_field(*source, encode_json(R"("text")"));
     insert_encoded_field(*source, encode_json(R"({"z":2,"a":[]})"));
-
-    const std::vector<uint8_t> frame = serialize(*source);
-    ASSERT_GE(frame.size(), 24);
-    EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(frame.data()), 4), "DV2X");
-    EXPECT_EQ(frame[5], 0);
-    EXPECT_EQ(read_u64(frame, 16), source->size());
 
     const auto destination = round_trip(*source);
     ASSERT_FALSE(destination->is_typed());
@@ -328,7 +305,7 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedRowsPreserveStateOrderAnd
     }
 }
 
-TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedWireDropsUnreferencedDictionaryEntries) {
+TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedColumnsPreserveDictionaryEntries) {
     auto source = ColumnVariantV2::create();
     insert_encoded_field(*source, encode_json(R"({"a":1})"));
     insert_encoded_field(*source, encode_json(R"({"b":2})"));
@@ -344,17 +321,9 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedWireDropsUnreferencedDict
     ASSERT_EQ(selected.size(), 1);
     ASSERT_EQ(selected.read_view().metadata_count(), source_metadata_count);
 
-    const std::vector<uint8_t> first = serialize(selected);
-    const std::vector<uint8_t> second = serialize(selected);
-    ASSERT_EQ(first, second);
-    ASSERT_EQ(read_u64(first, 8), first.size());
-    ASSERT_EQ(first.size(), *DataTypeVariantV2SerDe::serialized_size(selected));
-    ASSERT_EQ(first[5], 0);
-    ASSERT_EQ(first[24], 8);
-
     const auto decoded = round_trip(selected);
     ASSERT_FALSE(decoded->is_typed());
-    EXPECT_EQ(decoded->read_view().metadata_count(), 1);
+    EXPECT_EQ(decoded->read_view().metadata_count(), source_metadata_count);
     EXPECT_EQ(source->read_view().metadata_count(), source_metadata_count);
     EXPECT_FALSE(source->is_typed());
     EXPECT_EQ(selected.read_view().metadata_count(), source_metadata_count);
@@ -503,12 +472,12 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EmptyAndConstColumnsPreserveWhol
     const auto& one_encoded_ref = assert_cast<const ColumnVariantV2&>(*one_encoded_ptr);
     ColumnPtr encoded_const = ColumnConst::create(one_encoded_ptr, 4);
     const auto decoded_encoded_const = round_trip(*encoded_const);
+    ASSERT_TRUE(decoded_encoded_const.is_constant());
+    ASSERT_EQ(decoded_encoded_const.column->size(), 4);
     ASSERT_FALSE(decoded_encoded_const->is_typed());
-    ASSERT_EQ(decoded_encoded_const->size(), 4);
-    for (size_t row = 0; row < 4; ++row) {
-        EXPECT_EQ(VariantField::encode(decoded_encoded_const->read_view().value_at(row)).bytes(),
-                  VariantField::encode(one_encoded_ref.read_view().value_at(0)).bytes());
-    }
+    ASSERT_EQ(decoded_encoded_const->size(), 1);
+    EXPECT_EQ(VariantField::encode(decoded_encoded_const->read_view().value_at(0)).bytes(),
+              VariantField::encode(one_encoded_ref.read_view().value_at(0)).bytes());
 
     constexpr std::array<uint8_t, 1> NOT_NULL {0};
     auto one_typed = typed(fixed_column<ColumnInt32, Int32>({0x12345678}),
@@ -517,24 +486,27 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EmptyAndConstColumnsPreserveWhol
     const auto& one_typed_ref = assert_cast<const ColumnVariantV2&>(*one_typed_ptr);
     ColumnPtr typed_const = ColumnConst::create(one_typed_ptr, 5);
     const auto decoded_typed_const = round_trip(*typed_const);
+    ASSERT_TRUE(decoded_typed_const.is_constant());
+    ASSERT_EQ(decoded_typed_const.column->size(), 5);
     ASSERT_TRUE(decoded_typed_const->is_typed());
-    ASSERT_EQ(decoded_typed_const->size(), 5);
+    ASSERT_EQ(decoded_typed_const->size(), 1);
     const auto& decoded_nullable =
             assert_cast<const ColumnNullable&>(decoded_typed_const->typed_column());
-    for (size_t row = 0; row < 5; ++row) {
-        EXPECT_EQ(assert_cast<const ColumnInt32&>(decoded_nullable.get_nested_column())
-                          .get_data()[row],
-                  0x12345678);
-    }
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(decoded_nullable.get_nested_column()).get_data()[0],
+              0x12345678);
 
     ColumnPtr encoded_const_zero = ColumnConst::create(one_encoded_ptr, 0);
     const auto decoded_encoded_const_zero = round_trip(*encoded_const_zero);
+    EXPECT_TRUE(decoded_encoded_const_zero.is_constant());
+    EXPECT_EQ(decoded_encoded_const_zero.column->size(), 0);
     EXPECT_FALSE(decoded_encoded_const_zero->is_typed());
-    EXPECT_EQ(decoded_encoded_const_zero->size(), 0);
+    EXPECT_EQ(decoded_encoded_const_zero->size(), 1);
     ColumnPtr typed_const_zero = ColumnConst::create(one_typed_ptr, 0);
     const auto decoded_typed_const_zero = round_trip(*typed_const_zero);
+    EXPECT_TRUE(decoded_typed_const_zero.is_constant());
+    EXPECT_EQ(decoded_typed_const_zero.column->size(), 0);
     EXPECT_TRUE(decoded_typed_const_zero->is_typed());
-    EXPECT_EQ(decoded_typed_const_zero->size(), 0);
+    EXPECT_EQ(decoded_typed_const_zero->size(), 1);
     expect_type_identity(one_typed_ref.typed_type(), decoded_typed_const_zero->typed_type());
 }
 
@@ -549,42 +521,6 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedAndTypedDecodeToCanonical
     ASSERT_FALSE(decoded_typed->is_typed());
     EXPECT_TRUE(canonical_equals(decoded_encoded->read_view().value_at(0),
                                  decoded_typed->read_view().value_at(0)));
-}
-
-TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, ExactLittleEndianWireGolden) {
-    constexpr std::array<Int32, 1> VALUE {0x12345678};
-    constexpr std::array<uint8_t, 1> NOT_NULL {0};
-    auto source = typed(fixed_column<ColumnInt32, Int32>({VALUE[0]}),
-                        std::make_shared<DataTypeInt32>(), NOT_NULL);
-    const std::vector<uint8_t> frame = serialize(*source);
-    ASSERT_EQ(frame.size(), 65);
-    EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(frame.data()), 4), "DV2X");
-    EXPECT_EQ(frame[4], 1);
-    EXPECT_EQ(frame[5], 1);
-    EXPECT_EQ(frame[6], 0);
-    EXPECT_EQ(frame[7], 0);
-    EXPECT_EQ(read_u64(frame, 8), 65);
-    EXPECT_EQ(read_u64(frame, 16), 1);
-    const std::array<uint8_t, 20> descriptor {16, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-                                              0,  0, 0, 0, 0, 0, 4, 0, 0, 0};
-    EXPECT_TRUE(std::ranges::equal(std::span(frame).subspan(24, descriptor.size()), descriptor));
-    const std::array<uint8_t, 16> type_meta {4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    EXPECT_TRUE(std::ranges::equal(std::span(frame).subspan(44, type_meta.size()), type_meta));
-    EXPECT_EQ(frame[60], 0);
-    const std::array<uint8_t, 4> payload {0x78, 0x56, 0x34, 0x12};
-    EXPECT_TRUE(std::ranges::equal(std::span(frame).subspan(61), payload));
-    EXPECT_EQ(frame, serialize(*source));
-
-    const std::vector<uint8_t> empty_encoded = serialize(*ColumnVariantV2::create());
-    ASSERT_EQ(empty_encoded.size(), 56);
-    EXPECT_EQ(read_u64(empty_encoded, 8), 56);
-    EXPECT_EQ(empty_encoded[5], 0);
-    const std::array<uint8_t, 24> encoded_descriptor {4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                                      4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    EXPECT_TRUE(std::ranges::equal(std::span(empty_encoded).subspan(24, encoded_descriptor.size()),
-                                   encoded_descriptor));
-    EXPECT_TRUE(std::ranges::all_of(std::span(empty_encoded).subspan(48),
-                                    [](uint8_t byte) { return byte == 0; }));
 }
 
 } // namespace doris

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <span>
-
 #include "core/data_type_serde/data_type_serde.h"
 
 namespace doris {
@@ -28,12 +26,9 @@ class DataTypeVariantV2SerDe final : public DataTypeSerDe {
 public:
     explicit DataTypeVariantV2SerDe(int nesting_level = 1);
 
-    // Binary block serialization for ColumnVariantV2. The V2 frame is intentionally selected by
-    // the BE config rather than an FE/BE compatibility version.
-    static Result<size_t> serialized_size(const IColumn& source);
-    static Status serialize_binary(const IColumn& source, std::span<uint8_t> exact_frame);
-    static Status deserialize_binary(std::span<const uint8_t> exact_frame,
-                                     MutableColumnPtr* destination);
+    static int64_t get_uncompressed_serialized_bytes(const IColumn& column, int be_exec_version);
+    static char* serialize(const IColumn& column, char* buf, int be_exec_version);
+    static const char* deserialize(const char* buf, MutableColumnPtr* column, int be_exec_version);
 
     std::string get_name() const override;
 
@@ -86,8 +81,8 @@ public:
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/custom_allocator.h"
-#include "core/value/variant/variant_encoding.h"
-#include "exprs/function/parse/variant_json.h"
+#include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/parse/variant_string_parse.h"
 
 namespace doris::data_type_variant_v2_serde_internal {
 
@@ -227,7 +222,7 @@ void for_each_value(const ReadInput& input, size_t start, size_t end, const Null
                     }
                     column_variant_v2_internal::with_typed_scalar<Type>(
                             nested, physical_row, static_cast<uint8_t>(scale),
-                            [&](auto&& physical_factory, auto&&, auto) {
+                            [&](auto&& physical_factory, auto&&) {
                                 on_value(row, scratch.value(physical_factory()));
                             });
                 }

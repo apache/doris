@@ -29,9 +29,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_variant.h"
-#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -42,10 +40,6 @@
 
 namespace doris {
 namespace {
-
-bool is_variant_v2(const IColumn& column) {
-    return check_and_get_column_with_const<ColumnVariantV2>(column) != nullptr;
-}
 
 template <typename BuilderType>
 Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVariant& var,
@@ -75,10 +69,6 @@ Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                           MysqlRowBinaryBuffer& row_buffer,
                                                           int64_t row_idx, bool col_const,
                                                           const FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .write_column_to_mysql_binary(column, row_buffer, row_idx, col_const, options);
-    }
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     // Serialize hierarchy types to json format
     std::string buffer;
@@ -90,21 +80,12 @@ Status DataTypeVariantSerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeVariantSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                       int64_t end_idx, BufferWritable& bw,
                                                       FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .serialize_column_to_json(column, start_idx, end_idx, bw, options);
-    }
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                    Arena& mem_pool, int32_t col_id, int64_t row_num,
                                                    const FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        DataTypeVariantV2SerDe(_nesting_level)
-                .write_one_cell_to_jsonb(column, result, mem_pool, col_id, row_num, options);
-        return;
-    }
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
@@ -126,10 +107,6 @@ void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbW
 }
 
 void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    if (is_variant_v2(column)) {
-        DataTypeVariantV2SerDe(_nesting_level).read_one_cell_from_jsonb(column, arg);
-        return;
-    }
     auto& variant = assert_cast<ColumnVariant&>(column);
     Field field;
     if (arg->isBinary()) {
@@ -151,10 +128,6 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
 Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .serialize_one_cell_to_json(column, row_num, bw, options);
-    }
     const auto* var = assert_cast<const ColumnVariant*>(&column);
     var->serialize_one_row_to_string(row_num, bw, options);
     return Status::OK();
@@ -162,10 +135,6 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
 
 Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                             const FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .deserialize_one_cell_from_json(column, slice, options);
-    }
     ParseConfig parse_config;
     parse_config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     StringRef json_ref(slice.data, slice.size);
@@ -177,10 +146,6 @@ Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Sli
 Status DataTypeVariantSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .deserialize_column_from_json_vector(column, slices, num_deserialized, options);
-    }
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
@@ -189,10 +154,6 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    arrow::ArrayBuilder* array_builder,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
-    }
     const auto* var = assert_cast<const ColumnVariant*>(&column);
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
@@ -208,10 +169,6 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
 
 void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                      const FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        DataTypeVariantV2SerDe(_nesting_level).to_string(column, row_num, bw, options);
-        return;
-    }
     const auto& var = assert_cast<const ColumnVariant&>(column);
     var.serialize_one_row_to_string(row_num, bw, options);
 }
@@ -221,13 +178,8 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .write_column_to_orc(timezone, column, null_map, orc_col_batch, start, end, arena,
-                                     options);
-    }
     const auto* var = assert_cast<const ColumnVariant*>(&column);
-    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
     std::vector<std::string> serialized_values;
     std::vector<size_t> valid_row_indices;
@@ -267,33 +219,6 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
     }
     cur_batch->numElements = end - start;
     return Status::OK();
-}
-
-Status DataTypeVariantSerDe::write_column_to_pb(const IColumn& column, PValues& result,
-                                                int64_t start, int64_t end) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .write_column_to_pb(column, result, start, end);
-    }
-    return Status::NotSupported("write_column_to_pb with type " + column.get_name());
-}
-
-Status DataTypeVariantSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level).read_column_from_pb(column, arg);
-    }
-    return Status::NotSupported("read_column_from_pb with type " + column.get_name());
-}
-
-Status DataTypeVariantSerDe::read_column_from_arrow(IColumn& column,
-                                                    const arrow::Array* arrow_array, int64_t start,
-                                                    int64_t end, const cctz::time_zone& ctz) const {
-    if (is_variant_v2(column)) {
-        return DataTypeVariantV2SerDe(_nesting_level)
-                .read_column_from_arrow(column, arrow_array, start, end, ctz);
-    }
-    return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                         "read_column_from_arrow with type " + column.get_name());
 }
 
 } // namespace doris

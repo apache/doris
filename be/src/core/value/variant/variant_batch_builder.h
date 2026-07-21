@@ -21,20 +21,78 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 
+#include "core/pod_array.h"
 #include "core/string_ref.h"
-#include "core/value/variant/variant_encoded_block.h"
 #include "core/value/variant/variant_metadata.h"
-#include "core/value/variant/variant_tracked_storage.h"
 #include "core/value/variant/variant_value.h"
 
 namespace doris {
 
-class VariantScalarEncodingPlan;
+// A validated, stack-only plan for one physical Variant scalar. The plan either owns a small
+// inline textual fallback or borrows a StringRef until write() returns; it never allocates.
+// Callers can therefore preflight a complete batch, reserve its final buffer once, and write
+// directly into that buffer without constructing a temporary value tree per row.
+class VariantScalarEncodingPlan {
+public:
+    static VariantScalarEncodingPlan null_value() noexcept;
+    static VariantScalarEncodingPlan boolean(bool value) noexcept;
+    // width == 0 selects the narrowest signed integer encoding. Otherwise width must be one of
+    // 1, 2, 4, or 8 and value must fit that signed width.
+    static VariantScalarEncodingPlan integer(int64_t value, uint8_t width = 0);
+    static VariantScalarEncodingPlan float32(float value) noexcept;
+    static VariantScalarEncodingPlan float64(double value) noexcept;
+    // width == 0 selects the narrowest decimal width. Otherwise width must be 4, 8, or 16.
+    static VariantScalarEncodingPlan decimal(__int128 unscaled, uint8_t scale, uint8_t width = 0);
+    static VariantScalarEncodingPlan date(int32_t days_since_epoch) noexcept;
+    static VariantScalarEncodingPlan timestamp_micros(int64_t value, bool utc_adjusted) noexcept;
+    static VariantScalarEncodingPlan timestamp_nanos(int64_t value, bool utc_adjusted) noexcept;
+    static VariantScalarEncodingPlan time_ntz_micros(int64_t value) noexcept;
+    static VariantScalarEncodingPlan binary(StringRef value);
+    static VariantScalarEncodingPlan string(StringRef value);
+    static VariantScalarEncodingPlan uuid(const std::array<uint8_t, 16>& value) noexcept;
+    // Values outside decimal38 are encoded as their canonical decimal string representation.
+    static VariantScalarEncodingPlan largeint(__int128 value) noexcept;
+
+    size_t size() const noexcept { return _encoded_size; }
+    bool used_string_fallback() const noexcept { return _used_string_fallback; }
+
+    // Writes exactly size() bytes. Invalid destination/capacity fails before modifying memory.
+    void write(char* destination, size_t capacity) const;
+
+private:
+    VariantScalarEncodingPlan() = default;
+
+    enum class PayloadKind : uint8_t {
+        HEADER_ONLY,
+        UNSIGNED,
+        SIGNED,
+        BORROWED_BYTES,
+        UUID,
+        INLINE_STRING,
+    };
+
+    uint64_t _unsigned_value = 0;
+    __int128 _signed_value = 0;
+    StringRef _borrowed;
+    std::array<uint8_t, 16> _uuid {};
+    std::array<char, 40> _inline_string {};
+    size_t _encoded_size = 0;
+    uint8_t _header = 0;
+    uint8_t _payload_width = 0;
+    uint8_t _scale = 0;
+    uint8_t _inline_size = 0;
+    PayloadKind _kind = PayloadKind::HEADER_ONLY;
+    bool _has_scale = false;
+    bool _has_length = false;
+    bool _used_string_fallback = false;
+};
+
 class VariantCollectionCore;
 
-// Internal dictionary owner for one VariantBlockBuilder encoding unit. Rows collect temporary key
-// ids first; seal() fixes the sorted dictionary and id remap for the completed block.
+// Internal dictionary owner for one VariantBatchBuilder encoding unit. Rows collect temporary key
+// ids first; seal() fixes the sorted dictionary and id remap for the completed batch.
 class VariantMetadataBuilder {
 public:
     VariantMetadataBuilder();
@@ -55,7 +113,7 @@ public:
     VariantMetadataRef metadata_ref() const;
 
 private:
-    friend class VariantBlockBuilder;
+    friend class VariantBatchBuilder;
     friend class VariantCollectionCore;
 
     void _begin_row();
@@ -63,7 +121,7 @@ private:
     void _complete_row() noexcept;
     void _abort_row(const uint32_t* temporary_ids, size_t count, bool was_collecting) noexcept;
     void _reserve_keys(size_t count);
-    VariantTrackedString _take_encoded_metadata() noexcept;
+    PaddedPODArray<char> _take_encoded_metadata() noexcept;
     StringRef _temporary_key(uint32_t temporary_id) const noexcept;
     size_t _key_capacity() const noexcept;
     size_t _key_capacity_growths() const noexcept;
@@ -72,12 +130,12 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-// Collects a block through one stack-only active Row at a time. The implementation owns one
-// metadata dictionary and one set of block-level scalar/node/container/child/row-root arenas.
+// Collects a batch through one stack-only active Row at a time. The implementation owns one
+// metadata dictionary and one set of batch-level scalar/node/container/child/row-root arenas.
 // The shared scalar/node/container/child scratch for the complete encoding unit stays within its
 // uint32 index/offset domain. Row and its scopes never own per-row heap containers and must not
 // outlive this builder.
-class VariantBlockBuilder {
+class VariantBatchBuilder {
 public:
     struct ReserveHint {
         size_t rows = 0;
@@ -147,9 +205,9 @@ public:
 
         private:
             friend class Row;
-            ObjectScope(VariantBlockBuilder* builder, uint64_t generation, uint32_t token) noexcept;
+            ObjectScope(VariantBatchBuilder* builder, uint64_t generation, uint32_t token) noexcept;
 
-            VariantBlockBuilder* _builder;
+            VariantBatchBuilder* _builder;
             uint64_t _generation;
             uint32_t _token;
         };
@@ -166,9 +224,9 @@ public:
 
         private:
             friend class Row;
-            ArrayScope(VariantBlockBuilder* builder, uint64_t generation, uint32_t token) noexcept;
+            ArrayScope(VariantBatchBuilder* builder, uint64_t generation, uint32_t token) noexcept;
 
-            VariantBlockBuilder* _builder;
+            VariantBatchBuilder* _builder;
             uint64_t _generation;
             uint32_t _token;
         };
@@ -204,28 +262,38 @@ public:
         bool is_finished() const noexcept;
 
     private:
-        friend class VariantBlockBuilder;
-        Row(VariantBlockBuilder* builder, uint64_t generation) noexcept;
+        friend class VariantBatchBuilder;
+        Row(VariantBatchBuilder* builder, uint64_t generation) noexcept;
 
         void _add_scalar(const VariantScalarEncodingPlan& plan);
         uint32_t _start_object();
         uint32_t _start_array();
 
-        VariantBlockBuilder* _builder;
+        VariantBatchBuilder* _builder;
         uint64_t _generation;
     };
 
-    VariantBlockBuilder();
-    explicit VariantBlockBuilder(ReserveHint hint);
-    ~VariantBlockBuilder();
+    VariantBatchBuilder();
+    explicit VariantBatchBuilder(ReserveHint hint);
+    ~VariantBatchBuilder();
 
-    VariantBlockBuilder(const VariantBlockBuilder&) = delete;
-    VariantBlockBuilder& operator=(const VariantBlockBuilder&) = delete;
-    VariantBlockBuilder(VariantBlockBuilder&&) = delete;
-    VariantBlockBuilder& operator=(VariantBlockBuilder&&) = delete;
+    VariantBatchBuilder(const VariantBatchBuilder&) = delete;
+    VariantBatchBuilder& operator=(const VariantBatchBuilder&) = delete;
+    VariantBatchBuilder(VariantBatchBuilder&&) noexcept;
+    VariantBatchBuilder& operator=(VariantBatchBuilder&&) noexcept;
 
     Row begin_row();
-    VariantEncodedBlock finish_block();
+    VariantBatchBuilder finish_batch();
+
+    size_t num_rows() const noexcept;
+    VariantMetadataRef metadata_ref() const noexcept {
+        return {.data = _metadata.data(), .size = _metadata.size()};
+    }
+    VariantRef value_at(size_t row) const;
+    StringRef value_bytes() const noexcept { return {_values.data(), _values.size()}; }
+    std::span<const uint32_t> value_offsets() const noexcept {
+        return {_offsets.data(), _offsets.size()};
+    }
 
 #ifdef BE_TEST
     const TestCounters& test_counters() const noexcept;
@@ -233,6 +301,9 @@ public:
 
 private:
     struct Impl;
+
+    VariantBatchBuilder(PaddedPODArray<char> metadata, PaddedPODArray<char> values,
+                        PaddedPODArray<uint32_t> offsets) noexcept;
 
     void _add_scalar(uint64_t generation, const VariantScalarEncodingPlan& plan);
     void _add_null(uint64_t generation);
@@ -247,6 +318,9 @@ private:
     void _abort_row_noexcept(uint64_t generation) noexcept;
 
     std::unique_ptr<Impl> _impl;
+    PaddedPODArray<char> _metadata;
+    PaddedPODArray<char> _values;
+    PaddedPODArray<uint32_t> _offsets;
 };
 
 } // namespace doris

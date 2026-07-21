@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 
 #include <cctz/time_zone.h>
 #include <fmt/compile.h>
@@ -32,8 +32,8 @@
 
 #include "common/config.h"
 #include "common/exception.h"
-#include "core/value/variant/variant_block_builder.h"
-#include "core/value/variant/variant_encoding.h"
+#include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "util/json/simd_json_parser.h"
 #include "util/utf8_check.h"
 
@@ -141,7 +141,7 @@ void require_json_key_length(std::string_view key, uint32_t maximum) {
 
 class JsonTreeCollector {
 public:
-    JsonTreeCollector(VariantBlockBuilder::Row& builder, const JsonToVariantOptions& options)
+    JsonTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
             : _builder(builder), _options(options) {}
 
     void collect(SimdJSONParser::Element element, uint32_t depth) {
@@ -214,7 +214,7 @@ private:
         }
     }
 
-    VariantBlockBuilder::Row& _builder;
+    VariantBatchBuilder::Row& _builder;
     const JsonToVariantOptions& _options;
 };
 
@@ -395,7 +395,7 @@ JsonToVariantOptions JsonToVariantOptions::current_config() {
             .check_duplicate_json_path = config::variant_enable_duplicate_json_path_check};
 }
 
-struct JsonToVariantEncoder::Impl {
+struct JsonStringToVariantEncoder::Impl {
     enum class State : uint8_t { COLLECTING, FINISHED, FAILED };
 
     explicit Impl(JsonToVariantOptions options_) : options(options_) {
@@ -443,22 +443,24 @@ struct JsonToVariantEncoder::Impl {
     }
 
     JsonToVariantOptions options;
-    VariantBlockBuilder builder;
+    VariantBatchBuilder builder;
     SimdJSONParser parser;
     State state = State::COLLECTING;
 };
 
-JsonToVariantEncoder::JsonToVariantEncoder()
-        : JsonToVariantEncoder(JsonToVariantOptions::current_config()) {}
+JsonStringToVariantEncoder::JsonStringToVariantEncoder()
+        : JsonStringToVariantEncoder(JsonToVariantOptions::current_config()) {}
 
-JsonToVariantEncoder::JsonToVariantEncoder(JsonToVariantOptions options)
+JsonStringToVariantEncoder::JsonStringToVariantEncoder(JsonToVariantOptions options)
         : _impl(std::make_unique<Impl>(options)) {}
 
-JsonToVariantEncoder::~JsonToVariantEncoder() = default;
-JsonToVariantEncoder::JsonToVariantEncoder(JsonToVariantEncoder&&) noexcept = default;
-JsonToVariantEncoder& JsonToVariantEncoder::operator=(JsonToVariantEncoder&&) noexcept = default;
+JsonStringToVariantEncoder::~JsonStringToVariantEncoder() = default;
+JsonStringToVariantEncoder::JsonStringToVariantEncoder(JsonStringToVariantEncoder&&) noexcept =
+        default;
+JsonStringToVariantEncoder& JsonStringToVariantEncoder::operator=(
+        JsonStringToVariantEncoder&&) noexcept = default;
 
-void JsonToVariantEncoder::add_json(StringRef json) {
+void JsonStringToVariantEncoder::add_json(StringRef json) {
     _impl->require_collecting();
     try {
         _impl->add_json_row(json);
@@ -468,7 +470,7 @@ void JsonToVariantEncoder::add_json(StringRef json) {
     }
 }
 
-Status JsonToVariantEncoder::try_add_json(StringRef json) {
+Status JsonStringToVariantEncoder::try_add_json(StringRef json) {
     _impl->require_collecting();
     try {
         _impl->add_json_row(json);
@@ -485,10 +487,10 @@ Status JsonToVariantEncoder::try_add_json(StringRef json) {
     }
 }
 
-VariantEncodedBlock JsonToVariantEncoder::finish_block() {
+VariantBatchBuilder JsonStringToVariantEncoder::finish_batch() {
     _impl->require_collecting();
     try {
-        VariantEncodedBlock block = _impl->builder.finish_block();
+        VariantBatchBuilder block = _impl->builder.finish_batch();
         _impl->state = Impl::State::FINISHED;
         return block;
     } catch (...) {

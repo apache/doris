@@ -16,19 +16,17 @@
 // under the License.
 
 #include <array>
-#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
-#include "core/value/variant/variant_encoding.h"
 #include "core/value/variant/variant_field.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_variant_element_v2.h"
-#include "exprs/function/parse/variant_json.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/variant/variant_test_utils.h"
 
 namespace doris {
@@ -37,11 +35,11 @@ namespace {
 using Segment = VariantElementV2PathSegment;
 
 VariantField encode_json(std::string_view json) {
-    JsonToVariantEncoder encoder({.max_json_key_length = 1024,
-                                  .throw_on_invalid_json = true,
-                                  .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
-    VariantEncodedBlock block = encoder.finish_block();
+    VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::encode(block.value_at(0));
 }
 
@@ -111,18 +109,6 @@ VariantField legal_noncanonical_object() {
     field.append(metadata);
     field.append(value);
     return VariantField::decode({field.data(), field.size()});
-}
-
-ColumnVariantV2::MutablePtr raw_column(StringRef metadata, StringRef value) {
-    const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(metadata.size)};
-    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(value.size)};
-    auto result = ColumnVariantV2::create();
-    result->insert_encoded_rows({.metadata_bytes = metadata,
-                                 .metadata_offsets = metadata_offsets,
-                                 .meta_ids = {},
-                                 .value_bytes = value,
-                                 .value_offsets = value_offsets});
-    return result;
 }
 
 } // namespace
@@ -233,39 +219,6 @@ TEST(VariantElementV2EncodedTest, LegalNoncanonicalMetadataIsCopiedWithoutCanoni
     const VariantRef value = variant_result(result).get_value_ref(0);
     EXPECT_TRUE(value.get_bool());
     EXPECT_EQ(bytes(value.metadata), bytes(source->get_value_ref(0).metadata));
-}
-
-TEST(VariantElementV2EncodedTest, BadMetadataAndValueAreErrorsAndResultIsAtomic) {
-    auto path = resolve({Segment::object_key(StringRef("a"))});
-    auto sentinel = ColumnString::create();
-    sentinel->insert_data("sentinel", 8);
-    ColumnPtr result = sentinel->get_ptr();
-    const IColumn* sentinel_identity = result.get();
-
-    const std::string bad_metadata(1, static_cast<char>(0x11));
-    const std::string null_value(1, 0);
-    auto bad_metadata_column = raw_column({bad_metadata.data(), bad_metadata.size()},
-                                          {null_value.data(), null_value.size()});
-    Status status = extract_variant_element_v2(*bad_metadata_column, *path, {}, &result);
-    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-    EXPECT_EQ(result.get(), sentinel_identity);
-
-    const VariantField valid = encode_json(R"({"a":1})");
-    const std::string truncated_object(1, static_cast<char>(VariantBasicType::OBJECT));
-    auto bad_value_column = raw_column({valid.ref().metadata.data, valid.ref().metadata.size},
-                                       {truncated_object.data(), truncated_object.size()});
-    status = extract_variant_element_v2(*bad_value_column, *path, {}, &result);
-    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-    EXPECT_EQ(result.get(), sentinel_identity);
-
-    const VariantRef valid_ref = valid.ref();
-    std::string trailing_value(valid_ref.value.data, valid_ref.value.size);
-    trailing_value.push_back('\0');
-    auto trailing_value_column = raw_column({valid_ref.metadata.data, valid_ref.metadata.size},
-                                            {trailing_value.data(), trailing_value.size()});
-    status = extract_variant_element_v2(*trailing_value_column, *path, {}, &result);
-    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-    EXPECT_EQ(result.get(), sentinel_identity);
 }
 
 TEST(VariantElementV2EncodedTest, SourceCowBytesRemainUnchanged) {
