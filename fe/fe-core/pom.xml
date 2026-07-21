@@ -593,7 +593,7 @@ under the License.
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
 
-        <!-- for hudi catalog -->
+        <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->
         <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>

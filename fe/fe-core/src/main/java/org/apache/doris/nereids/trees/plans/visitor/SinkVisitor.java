@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -66,10 +65,6 @@ public interface SinkVisitor<R, C> {
     // *******************************
 
     default R visitUnboundTableSink(UnboundTableSink<? extends Plan> unboundTableSink, C context) {
-        return visitLogicalSink(unboundTableSink, context);
-    }
-
-    default R visitUnboundIcebergTableSink(UnboundIcebergTableSink<? extends Plan> unboundTableSink, C context) {
         return visitLogicalSink(unboundTableSink, context);
     }
 
