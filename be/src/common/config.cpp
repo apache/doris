@@ -467,6 +467,10 @@ DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 
+// Enable PDEP-based bit unpacking. Disable it on CPUs where PDEP is microcoded and slower than
+// the scalar implementation, such as AMD Zen+ and Zen 2.
+DEFINE_Bool(enable_bmi2_optimizations, "true");
+
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
 
