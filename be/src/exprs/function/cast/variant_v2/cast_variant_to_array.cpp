@@ -72,7 +72,7 @@ void append_collected_value(CollectedArrayNode* node, VariantRef value, bool for
     node->offsets.push_back(node->child->size());
 }
 
-ColumnPtr encoded_refs(std::span<const VariantRef> values, ForcedNulls nulls) {
+ColumnPtr variant_column_from_refs(std::span<const VariantRef> values, ForcedNulls nulls) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = values.size()});
     for (size_t row_index = 0; row_index < values.size(); ++row_index) {
         auto row = builder.begin_row();
@@ -107,17 +107,15 @@ Status finalize_collected_node(FunctionContext* context, const CollectedArrayNod
 
     const PrimitiveType primitive = node.type->get_primitive_type();
     if (primitive == TYPE_VARIANT) {
-        ColumnPtr encoded = encoded_refs(node.values, nulls);
+        ColumnPtr encoded = variant_column_from_refs(node.values, nulls);
         return apply_forced_nulls(std::move(encoded), nulls, output);
     }
     if (primitive == TYPE_STRING || primitive == TYPE_CHAR || primitive == TYPE_VARCHAR ||
         primitive == TYPE_JSONB) {
-        ColumnPtr encoded = encoded_refs(node.values, nulls);
-        const auto& variant = assert_cast<const ColumnVariantV2&>(*encoded);
         if (primitive == TYPE_JSONB) {
-            return cast_variant_to_jsonb(context, variant, node.values.size(), nulls, output);
+            return cast_variant_refs_to_jsonb(context, node.values, nulls, output);
         }
-        return cast_variant_to_string(context, variant, node.values.size(), nulls, output);
+        return cast_variant_refs_to_string(context, node.values, nulls, output);
     }
     if (is_supported_scalar_target(node.type)) {
         return cast_variant_refs_to_scalar(context, node.values, node.type, nulls, output);

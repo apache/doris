@@ -107,7 +107,7 @@ TEST(CastVariantV2ToTest, Decimal256ReturnsAnErrorInsteadOfStringifying) {
     EXPECT_EQ(cast.column.get(), cast.initial_result.get());
 }
 
-TEST(CastVariantV2ToTest, ScalarCreatesTypedStateAndCopiesOuterNullMap) {
+TEST(CastVariantV2ToTest, ScalarCreatesTypedStateAndSharesSourceColumn) {
     auto source = ColumnInt32::create();
     source->insert_value(7);
     source->insert_value(99);
@@ -123,7 +123,14 @@ TEST(CastVariantV2ToTest, ScalarCreatesTypedStateAndCopiesOuterNullMap) {
     const auto& nullable = assert_cast<const ColumnNullable&>(variant.typed_column());
     EXPECT_EQ(nullable.get_null_map_data()[0], 0);
     EXPECT_EQ(nullable.get_null_map_data()[1], 1);
-    EXPECT_NE(&nullable.get_nested_column(), source_identity);
+    EXPECT_EQ(&nullable.get_nested_column(), source_identity);
+    EXPECT_EQ(source->get_data()[0], 7);
+    EXPECT_EQ(source->get_data()[1], 99);
+
+    MutableColumnPtr mutable_variant = IColumn::mutate(std::move(cast.column));
+    assert_cast<ColumnVariantV2&>(*mutable_variant).pop_back(1);
+    EXPECT_EQ(mutable_variant->size(), 1);
+    EXPECT_EQ(source->size(), 2);
     EXPECT_EQ(source->get_data()[0], 7);
     EXPECT_EQ(source->get_data()[1], 99);
 }

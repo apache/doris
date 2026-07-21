@@ -71,67 +71,21 @@ public:
 };
 
 } // namespace doris
-#include <array>
 #include <cstring>
 #include <limits>
 
 #include "common/exception.h"
-#include "core/assert_cast.h"
-#include "core/column/column_const.h"
 #include "core/column/variant_v2/column_variant_v2.h"
-#include "core/column/variant_v2/column_variant_v2_typed_column.h"
-#include "core/custom_allocator.h"
-#include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
 
 namespace doris::data_type_variant_v2_serde_internal {
 
-class ReadInput {
-public:
-    explicit ReadInput(const IColumn& source) : ReadInput(resolve(source)) {}
+using column_variant_v2_internal::ForcedNulls;
+using column_variant_v2_internal::visit_variant_values;
 
-    size_t physical_row(size_t logical_row) const noexcept { return _constant ? 0 : logical_row; }
-    const ColumnVariantV2::ReadView& view() const noexcept { return _view; }
-
-    void validate_range(size_t start, size_t end) const {
-        if (start > end || end > _logical_size) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Variant SerDe row range [{}, {}) exceeds column size {}", start, end,
-                            _logical_size);
-        }
-    }
-
-private:
-    struct Resolved {
-        const ColumnVariantV2* column;
-        size_t logical_size;
-        bool constant;
-    };
-
-    static Resolved resolve(const IColumn& source) {
-        const IColumn* physical = &source;
-        bool constant = false;
-        if (const auto* const_column = check_and_get_column<ColumnConst>(source)) {
-            physical = &const_column->get_data_column();
-            constant = true;
-        }
-        const auto* variant = check_and_get_column<ColumnVariantV2>(*physical);
-        if (variant == nullptr) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Variant V2 SerDe requires ColumnVariantV2, got {}", source.get_name());
-        }
-        return {.column = variant, .logical_size = source.size(), .constant = constant};
-    }
-
-    explicit ReadInput(Resolved resolved)
-            : _logical_size(resolved.logical_size),
-              _constant(resolved.constant),
-              _view(resolved.column->read_view()) {}
-
-    size_t _logical_size;
-    bool _constant;
-    ColumnVariantV2::ReadView _view;
-};
+inline ForcedNulls forced_nulls(const NullMap* null_map) {
+    return null_map == nullptr ? ForcedNulls {} : ForcedNulls {null_map->data(), null_map->size()};
+}
 
 inline size_t checked_row(int64_t row) {
     if (row < 0) {
@@ -139,22 +93,6 @@ inline size_t checked_row(int64_t row) {
     }
     return static_cast<size_t>(row);
 }
-
-class ScalarScratch {
-public:
-    VariantRef value(VariantScalarEncodingPlan plan) {
-        _bytes.resize(plan.size());
-        plan.write(_bytes.data(), _bytes.size());
-        return {.metadata = {.data = EMPTY_METADATA.data(), .size = EMPTY_METADATA.size()},
-                .value = {_bytes.data(), _bytes.size()}};
-    }
-
-private:
-    static constexpr std::array<char, 3> EMPTY_METADATA {
-            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK), 0,
-            0};
-    DorisVector<char> _bytes;
-};
 
 struct CountingWriter {
     void write(const char*, size_t size) {
@@ -177,57 +115,6 @@ struct FixedWriter {
     size_t capacity;
     size_t written = 0;
 };
-
-template <typename OuterNullCallback, typename ValueCallback>
-// Any VariantRef passed to on_value borrows either the source column or the reusable scalar
-// scratch and is valid only until that callback returns. Callbacks must not retain it.
-void for_each_value(const ReadInput& input, size_t start, size_t end, const NullMap* outer_nulls,
-                    OuterNullCallback&& on_outer_null, ValueCallback&& on_value) {
-    input.validate_range(start, end);
-    if (outer_nulls != nullptr && outer_nulls->size() < end) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant SerDe null map size {} is smaller than row end {}",
-                        outer_nulls->size(), end);
-    }
-
-    const auto& view = input.view();
-    if (!view.is_typed()) {
-        for (size_t row = start; row < end; ++row) {
-            if (outer_nulls != nullptr && (*outer_nulls)[row] != 0) {
-                on_outer_null(row);
-                continue;
-            }
-            on_value(row, view.value_at(input.physical_row(row)));
-        }
-        return;
-    }
-
-    const auto& nullable = assert_cast<const ColumnNullable&>(view.typed_column());
-    const PrimitiveType type = view.typed_type()->get_primitive_type();
-    const uint32_t scale = view.typed_type()->get_scale();
-    DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
-    const auto& inner_nulls = nullable.get_null_map_data();
-    ScalarScratch scratch;
-    column_variant_v2_internal::dispatch_typed_column(
-            nullable, type, [&]<PrimitiveType Type>(const auto& nested) {
-                for (size_t row = start; row < end; ++row) {
-                    if (outer_nulls != nullptr && (*outer_nulls)[row] != 0) {
-                        on_outer_null(row);
-                        continue;
-                    }
-                    const size_t physical_row = input.physical_row(row);
-                    if (inner_nulls[physical_row] != 0) {
-                        on_value(row, scratch.value(VariantScalarEncodingPlan::null_value()));
-                        continue;
-                    }
-                    column_variant_v2_internal::with_typed_scalar<Type>(
-                            nested, physical_row, static_cast<uint8_t>(scale),
-                            [&](auto&& physical_factory, auto&&) {
-                                on_value(row, scratch.value(physical_factory()));
-                            });
-                }
-            });
-}
 
 template <typename Writer>
 void write_json_value(VariantRef value, Writer& writer,

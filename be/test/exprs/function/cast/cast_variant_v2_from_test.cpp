@@ -235,6 +235,65 @@ TEST(CastVariantV2FromTest, TypedInnerNullStringifiesAsLiteralNull) {
     EXPECT_FALSE(nullable.has_null());
 }
 
+TEST(CastVariantV2FromTest, TypedStringUsesCanonicalTimestampScale) {
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2024, 1, 2, 3, 4, 5, 123000);
+    auto values = ColumnDateTimeV2::create();
+    values->insert_value(value);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 0)),
+            std::make_shared<DataTypeDateTimeV2>(3));
+    MutableColumnPtr encoded = typed->clone();
+    assert_cast<ColumnVariantV2&>(*encoded).ensure_encoded();
+
+    CastResult typed_cast =
+            execute_from_variant(typed->get_ptr(), std::make_shared<DataTypeString>());
+    CastResult encoded_cast =
+            execute_from_variant(encoded->get_ptr(), std::make_shared<DataTypeString>());
+    ASSERT_TRUE(typed_cast.status.ok()) << typed_cast.status;
+    ASSERT_TRUE(encoded_cast.status.ok()) << encoded_cast.status;
+    const auto& typed_strings = assert_cast<const ColumnString&>(
+            nullable_result(typed_cast.column).get_nested_column());
+    const auto& encoded_strings = assert_cast<const ColumnString&>(
+            nullable_result(encoded_cast.column).get_nested_column());
+    EXPECT_EQ(typed_strings.get_data_at(0), StringRef("2024-01-02 03:04:05.123000"));
+    EXPECT_EQ(typed_strings.get_data_at(0), encoded_strings.get_data_at(0));
+}
+
+TEST(CastVariantV2FromTest, TypedStringValidatesOnlyVisibleDateRows) {
+    DateV2Value<DateV2ValueType> invalid;
+    ASSERT_FALSE(invalid.is_valid_date());
+    DateV2Value<DateV2ValueType> valid;
+    valid.unchecked_set_time(2024, 1, 2, 0, 0, 0);
+    ASSERT_TRUE(valid.is_valid_date());
+    auto values = ColumnDateV2::create();
+    values->insert_value(invalid);
+    values->insert_value(invalid);
+    values->insert_value(valid);
+    auto inner_nulls = ColumnUInt8::create();
+    inner_nulls->insert_value(0);
+    inner_nulls->insert_value(1);
+    inner_nulls->insert_value(0);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(inner_nulls)),
+            std::make_shared<DataTypeDateV2>());
+
+    CastResult unmasked =
+            execute_from_variant(typed->get_ptr(), std::make_shared<DataTypeString>());
+    EXPECT_TRUE(unmasked.status.is<ErrorCode::INVALID_ARGUMENT>()) << unmasked.status;
+    EXPECT_EQ(unmasked.column.get(), unmasked.initial_result.get());
+
+    constexpr std::array<NullMap::value_type, 3> NULLS {1, 0, 0};
+    CastResult masked = execute_from_variant(typed->get_ptr(), std::make_shared<DataTypeString>(),
+                                             NULLS.data());
+    ASSERT_TRUE(masked.status.ok()) << masked.status;
+    EXPECT_EQ(nullable_result(masked.column).get_null_map_data()[0], 1);
+    const auto& strings =
+            assert_cast<const ColumnString&>(nullable_result(masked.column).get_nested_column());
+    EXPECT_EQ(strings.get_data_at(1), StringRef("null"));
+    EXPECT_EQ(strings.get_data_at(2), StringRef("2024-01-02"));
+}
+
 TEST(CastVariantV2FromTest, EOnlyScalarStringRulesStayJsonQuoted) {
     const std::array<char, 2> binary {0, 1};
     std::array<uint8_t, 16> uuid {};

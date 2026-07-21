@@ -52,9 +52,8 @@ namespace {
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 using data_type_variant_v2_serde_internal::CountingWriter;
-using data_type_variant_v2_serde_internal::ReadInput;
 using data_type_variant_v2_serde_internal::checked_row;
-using data_type_variant_v2_serde_internal::for_each_value;
+using data_type_variant_v2_serde_internal::visit_variant_values;
 using data_type_variant_v2_serde_internal::write_json_value;
 
 constexpr size_t VARIANT_V2_TYPE_META_BYTES = sizeof(int32_t) * 4;
@@ -127,10 +126,10 @@ const char* deserialize_meta_ids(const char* buf, MutableColumnPtr* column) {
     return buf + bytes;
 }
 
-void preflight_json(const ReadInput& input, size_t start, size_t end,
+void preflight_json(const IColumn& column, size_t start, size_t end,
                     const DataTypeSerDe::FormatOptions& options) {
-    for_each_value(
-            input, start, end, nullptr, [](size_t) {},
+    visit_variant_values(
+            column, start, end, {}, [](size_t) {},
             [&](size_t, VariantRef value) {
                 CountingWriter writer;
                 write_json_value(value, writer, options);
@@ -235,11 +234,10 @@ Status DataTypeVariantV2SerDe::serialize_one_cell_to_json(const IColumn& column,
                                                           BufferWritable& bw,
                                                           FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
-        const ReadInput input(column);
         const size_t row = checked_row(row_num);
-        preflight_json(input, row, row + 1, options);
-        for_each_value(
-                input, row, row + 1, nullptr, [](size_t) {},
+        preflight_json(column, row, row + 1, options);
+        visit_variant_values(
+                column, row, row + 1, {}, [](size_t) {},
                 [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
     });
     return Status::OK();
@@ -249,12 +247,11 @@ Status DataTypeVariantV2SerDe::serialize_column_to_json(const IColumn& column, i
                                                         int64_t end_idx, BufferWritable& bw,
                                                         FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
-        const ReadInput input(column);
         const size_t start = checked_row(start_idx);
         const size_t end = checked_row(end_idx);
-        preflight_json(input, start, end, options);
-        for_each_value(
-                input, start, end, nullptr, [](size_t) {},
+        preflight_json(column, start, end, options);
+        visit_variant_values(
+                column, start, end, {}, [](size_t) {},
                 [&](size_t row, VariantRef value) {
                     if (row != start) {
                         bw.write(options.field_delim.data(), options.field_delim.size());
@@ -360,11 +357,10 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
 void DataTypeVariantV2SerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                      Arena&, int32_t col_id, int64_t row_num,
                                                      const FormatOptions& options) const {
-    const data_type_variant_v2_serde_internal::ReadInput input(column);
     const size_t row = data_type_variant_v2_serde_internal::checked_row(row_num);
     JsonbWriter document;
-    data_type_variant_v2_serde_internal::for_each_value(
-            input, row, row + 1, nullptr, [](size_t) {},
+    data_type_variant_v2_serde_internal::visit_variant_values(
+            column, row, row + 1, {}, [](size_t) {},
             [&](size_t, VariantRef value) {
                 variant_to_jsonb(value, document, {.timezone = options.timezone});
             });
@@ -396,18 +392,22 @@ namespace {
 
 using data_type_variant_v2_serde_internal::CountingWriter;
 using data_type_variant_v2_serde_internal::FixedWriter;
-using data_type_variant_v2_serde_internal::ReadInput;
 using data_type_variant_v2_serde_internal::checked_row;
-using data_type_variant_v2_serde_internal::for_each_value;
+using data_type_variant_v2_serde_internal::forced_nulls;
+using data_type_variant_v2_serde_internal::visit_variant_values;
 using data_type_variant_v2_serde_internal::write_json_value;
 
-DorisVector<size_t> json_lengths(const ReadInput& input, size_t start, size_t end,
+DorisVector<size_t> json_lengths(const IColumn& column, size_t start, size_t end,
                                  const NullMap* null_map,
                                  const DataTypeSerDe::FormatOptions& options) {
-    input.validate_range(start, end);
+    if (start > end || end > column.size()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant row range [{}, {}) exceeds column size {}", start, end,
+                        column.size());
+    }
     DorisVector<size_t> lengths(end - start, 0);
-    for_each_value(
-            input, start, end, null_map, [](size_t) {},
+    visit_variant_values(
+            column, start, end, forced_nulls(null_map), [](size_t) {},
             [&](size_t row, VariantRef value) {
                 CountingWriter writer;
                 write_json_value(value, writer, options);
@@ -417,18 +417,17 @@ DorisVector<size_t> json_lengths(const ReadInput& input, size_t start, size_t en
 }
 
 template <typename Builder>
-Status write_arrow(const IColumn& column, const ReadInput& input, const NullMap* null_map,
-                   Builder& builder, size_t start, size_t end,
-                   const DataTypeSerDe::FormatOptions& options) {
-    const DorisVector<size_t> lengths = json_lengths(input, start, end, null_map, options);
+Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& builder, size_t start,
+                   size_t end, const DataTypeSerDe::FormatOptions& options) {
+    const DorisVector<size_t> lengths = json_lengths(column, start, end, null_map, options);
     const size_t maximum = lengths.empty() ? 0 : *std::ranges::max_element(lengths);
     if (maximum > static_cast<size_t>(std::numeric_limits<typename Builder::offset_type>::max())) {
         return Status::InvalidArgument("Variant JSON value exceeds Arrow offset range");
     }
     DorisVector<char> rendered(maximum);
     Status status = Status::OK();
-    for_each_value(
-            input, start, end, null_map,
+    visit_variant_values(
+            column, start, end, forced_nulls(null_map),
             [&](size_t) {
                 if (status.ok()) {
                     status = checkArrowStatus(builder.AppendNull(), column, builder);
@@ -454,11 +453,11 @@ Status write_arrow(const IColumn& column, const ReadInput& input, const NullMap*
 
 void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
-    const ReadInput input(column);
-    const DorisVector<size_t> lengths = json_lengths(input, row_num, row_num + 1, nullptr, options);
+    const DorisVector<size_t> lengths =
+            json_lengths(column, row_num, row_num + 1, nullptr, options);
     DCHECK_EQ(lengths.size(), 1);
-    for_each_value(
-            input, row_num, row_num + 1, nullptr, [](size_t) {},
+    visit_variant_values(
+            column, row_num, row_num + 1, {}, [](size_t) {},
             [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
 }
 
@@ -467,12 +466,11 @@ Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& colum
                                                             int64_t row_idx, bool col_const,
                                                             const FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
-        const ReadInput input(column);
         const size_t row = col_const ? 0 : checked_row(row_idx);
-        const DorisVector<size_t> lengths = json_lengths(input, row, row + 1, nullptr, options);
+        const DorisVector<size_t> lengths = json_lengths(column, row, row + 1, nullptr, options);
         DorisVector<char> rendered(lengths[0]);
-        for_each_value(
-                input, row, row + 1, nullptr, [](size_t) {},
+        visit_variant_values(
+                column, row, row + 1, {}, [](size_t) {},
                 [&](size_t, VariantRef value) {
                     FixedWriter writer {.destination = rendered.data(),
                                         .capacity = rendered.size()};
@@ -494,18 +492,16 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
         return Status::InvalidArgument("Variant Arrow builder is null");
     }
     RETURN_IF_CATCH_EXCEPTION({
-        const ReadInput input(column);
         FormatOptions options;
         options.timezone = &ctz;
         const size_t first = checked_row(start);
         const size_t last = checked_row(end);
         if (array_builder->type()->id() == arrow::Type::STRING) {
-            return write_arrow(column, input, null_map,
-                               assert_cast<arrow::StringBuilder&>(*array_builder), first, last,
-                               options);
+            return write_arrow(column, null_map, assert_cast<arrow::StringBuilder&>(*array_builder),
+                               first, last, options);
         }
         if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
-            return write_arrow(column, input, null_map,
+            return write_arrow(column, null_map,
                                assert_cast<arrow::LargeStringBuilder&>(*array_builder), first, last,
                                options);
         }
@@ -525,10 +521,9 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
         return Status::InvalidArgument("Variant ORC output requires StringVectorBatch");
     }
     RETURN_IF_CATCH_EXCEPTION({
-        const ReadInput input(column);
         const size_t first = checked_row(start);
         const size_t last = checked_row(end);
-        const DorisVector<size_t> lengths = json_lengths(input, first, last, null_map, options);
+        const DorisVector<size_t> lengths = json_lengths(column, first, last, null_map, options);
         size_t total_size = 0;
         for (size_t length : lengths) {
             if (length > std::numeric_limits<size_t>::max() - total_size) {
@@ -539,8 +534,8 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
         char* output = total_size == 0 ? nullptr : arena.alloc(total_size);
         size_t offset = 0;
         batch->hasNulls = null_map != nullptr;
-        for_each_value(
-                input, first, last, null_map,
+        visit_variant_values(
+                column, first, last, forced_nulls(null_map),
                 [&](size_t row) {
                     batch->notNull[row] = 0;
                     batch->data[row] = nullptr;

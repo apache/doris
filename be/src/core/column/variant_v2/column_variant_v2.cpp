@@ -217,7 +217,7 @@ TypedEncodingResult encode_typed_column(const ColumnNullable& nullable, const Co
 }
 
 struct ValidatedTypedInput {
-    MutableColumnPtr column;
+    ColumnPtr column;
     DataTypePtr type;
 };
 
@@ -246,7 +246,7 @@ ValidatedTypedInput validate_typed_input(ColumnPtr column, DataTypePtr scalar_ty
             << scalar_type->get_name();
     validate_typed_decimal_scale(nested, type, scalar_type->get_scale());
 
-    return {.column = IColumn::mutate(std::move(column)), .type = std::move(scalar_type)};
+    return {.column = std::move(column), .type = std::move(scalar_type)};
 }
 
 [[noreturn]] void throw_deferred(std::string_view method, std::string_view task) {
@@ -453,7 +453,7 @@ void ColumnVariantV2::mutate_subcolumns() {
 
 void ColumnVariantV2::clear() {
     if (_typed) {
-        require_exclusive(_typed, "typed column");
+        mutate_subcolumn(_typed);
         _typed->clear();
     } else {
         auto& metadata_ptr = static_cast<IColumn::Ptr&>(_metadatas);
@@ -651,7 +651,7 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
     }
 
     if (_typed && source._typed && exact_typed_identity(_typed_type, source._typed_type)) {
-        require_exclusive(_typed, "typed column");
+        mutate_subcolumn(_typed);
         _typed->insert_range_from(*source._typed, start, length);
         _check_invariants();
         return;
@@ -735,7 +735,7 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
     }
 
     if (_typed && source._typed && exact_typed_identity(_typed_type, source._typed_type)) {
-        require_exclusive(_typed, "typed column");
+        mutate_subcolumn(_typed);
         _typed->insert_indices_from(*source._typed, indices_begin, indices_end);
         _check_invariants();
         return;
@@ -812,7 +812,7 @@ void ColumnVariantV2::pop_back(size_t length) {
         return;
     }
     if (_typed) {
-        require_exclusive(_typed, "typed column");
+        mutate_subcolumn(_typed);
         _typed->pop_back(length);
         _check_invariants();
         return;
@@ -1163,7 +1163,6 @@ ColumnPtr ColumnVariantV2::filter(const Filter& filter, ssize_t result_size_hint
 size_t ColumnVariantV2::filter(const Filter& filter) {
     column_match_filter_size(size(), filter.size());
     if (_typed) {
-        require_exclusive(_typed, "typed column");
         ColumnPtr filtered = static_cast<const IColumn::Ptr&>(_typed)->filter(filter, -1);
         const size_t filtered_size = filtered->size();
         static_cast<IColumn::Ptr&>(_typed) = std::move(filtered);
@@ -1262,7 +1261,7 @@ void ColumnVariantV2::resize(size_t new_size) {
             return;
         }
         if (new_size < old_size) {
-            require_exclusive(_typed, "typed column");
+            mutate_subcolumn(_typed);
             _typed->pop_back(old_size - new_size);
             _check_invariants();
             return;
