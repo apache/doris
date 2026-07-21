@@ -157,7 +157,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                     struct_column.get_column(j).pop_back(1);
                 }
                 return Status::InvalidArgument(
-                        "Actual struct field number is more than schema field number {}.",
+                        "Actual struct field number {} is more than schema field number {}.",
                         field_pos, elem_size);
             }
             if (elem_names[field_pos] != next) {
@@ -187,7 +187,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                     struct_column.get_column(j).pop_back(1);
                 }
                 return Status::InvalidArgument(
-                        "Actual struct field number is more than schema field number {}.",
+                        "Actual struct field number {} is more than schema field number {}.",
                         field_pos, elem_size);
             }
             if (Status st = elem_serdes_ptrs[field_pos]->deserialize_one_cell_from_json(
@@ -218,7 +218,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                 struct_column.get_column(j).pop_back(1);
             }
             return Status::InvalidArgument(
-                    "Actual struct field number is more than schema field number {}.", field_pos,
+                    "Actual struct field number {} is more than schema field number {}.", field_pos,
                     elem_size);
         }
         if (Status st = elem_serdes_ptrs[field_pos]->deserialize_one_cell_from_json(

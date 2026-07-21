@@ -156,4 +156,16 @@ TEST_F(StatusTest /*unused*/, Format /*unused*/) {
     EXPECT_TRUE(fmt::format("{}", st_error).compare(fmt::format("{}", st_error.to_string())) == 0);
 }
 
+TEST_F(StatusTest, RuntimeFormatMismatch) {
+    EXPECT_THROW(static_cast<void>(Status::InternalError("left={}, right={}", 1)),
+                 fmt::format_error);
+
+    EXPECT_THROW(static_cast<void>(Status::InvalidArgument("value={}, allowed={'APPEND', 'ERROR'}",
+                                                           "UNKNOWN")),
+                 fmt::format_error);
+
+    Status status = Status::InternalError("value={}", 1, 2);
+    EXPECT_EQ(status.msg(), "value=1");
+}
+
 } // namespace doris

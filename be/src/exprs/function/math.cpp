@@ -449,7 +449,7 @@ private:
                 check_and_get_column<ColumnInt64>(block.get_by_position(arguments[0]).column.get());
         if (!data_col) {
             return Status::InternalError(
-                    "Unexpected column '%s' for argument of function %s",
+                    "Unexpected column '{}' for argument of function {}",
                     block.get_by_position(arguments[0]).column->get_name().c_str(), get_name());
         }
 

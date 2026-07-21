@@ -749,7 +749,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
         LOG(WARNING) << "no accessors for instance=" << instance_id_;
         return -2;
     }
-    LOG_INFO("finish init instance recycler number_accessors={} instance=", accessor_map_.size(),
+    LOG_INFO("finish init instance recycler number_accessors={} instance={}", accessor_map_.size(),
              instance_id_);
 
     return 0;

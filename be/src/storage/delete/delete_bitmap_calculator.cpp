@@ -91,7 +91,7 @@ Status MergeIndexDeleteBitmapCalculatorContext::_next_batch(uint32_t row_id) {
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(_iter->next_batch(&num_read, _index_column));
     DCHECK(num_to_read == num_read) << fmt::format(
-            "num_to_read: {} should be equal to num_to_read: {}", num_to_read, num_read);
+            "num_to_read: {} should be equal to num_read: {}", num_to_read, num_read);
     _block_size = num_read;
     _cur_pos = 0;
     _cur_row_id = row_id;

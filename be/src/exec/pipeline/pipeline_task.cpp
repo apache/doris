@@ -951,7 +951,7 @@ std::string PipelineTask::debug_string() {
 
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
-                   "{}, _wake_up_early = {}, _wake_up_by = {}, time elapsed since last state "
+                   "{}, _wake_up_early = {}, _wake_by = {}, time elapsed since last state "
                    "changing = {}s, spilling = {}, is running = {}]",
                    _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
                    _wake_by, _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling,

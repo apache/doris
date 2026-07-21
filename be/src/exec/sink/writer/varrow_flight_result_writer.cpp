@@ -90,10 +90,11 @@ Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* 
     }
 
     if (_is_close) {
-        return Status::RuntimeError(fmt::format("Closed ()", print_id(_fragment_id)));
+        return Status::RuntimeError(fmt::format("Closed (fragment_id={})", print_id(_fragment_id)));
     }
-    return Status::InternalError(fmt::format("Get Arrow Schema Abnormal Ending (), ()",
-                                             print_id(_fragment_id), _status));
+    return Status::InternalError(
+            fmt::format("Get Arrow Schema Abnormal Ending (fragment_id={}), status=({})",
+                        print_id(_fragment_id), _status));
 }
 
 Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result) {
@@ -138,7 +139,8 @@ Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* res
         return Status::OK();
     }
     return Status::InternalError(
-            fmt::format("Get Arrow Batch Abnormal Ending (), ()", print_id(_fragment_id), _status));
+            fmt::format("Get Arrow Batch Abnormal Ending (fragment_id={}), status=({})",
+                        print_id(_fragment_id), _status));
 }
 
 VArrowFlightResultWriter::VArrowFlightResultWriter(std::shared_ptr<ResultBlockBufferBase> sinker,

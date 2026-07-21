@@ -151,7 +151,7 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileReader::read_at_impl",
                                       Status::IOError("inject io error"));
     if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
+        return Status::InternalError("read closed file: {}", _path.native());
     }
 
     if (offset > _file_size) {
@@ -203,7 +203,7 @@ Status LocalFileReader::read_at_iobuf_impl(size_t offset, size_t bytes_req, buti
         return Status::InvalidArgument("read_at_iobuf requires non-null out and bytes_read");
     }
     if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
+        return Status::InternalError("read closed file: {}", _path.native());
     }
 
     if (offset > _file_size) {
