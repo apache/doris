@@ -26,6 +26,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -33,6 +34,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -43,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Parity oracle for the connector-resident {@link IcebergWriterHelper} — the self-contained port of legacy
@@ -65,6 +68,10 @@ public class IcebergWriterHelperTest {
     private final FileFormat format = FileFormat.PARQUET;
 
     private Table tableWith(String... props) {
+        return tableWith(schema, props);
+    }
+
+    private Table tableWith(Schema tableSchema, String... props) {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
@@ -72,7 +79,20 @@ public class IcebergWriterHelperTest {
         for (int i = 0; i + 1 < props.length; i += 2) {
             properties.put(props[i], props[i + 1]);
         }
-        return catalog.createTable(TableIdentifier.of("db1", "t"), schema, unpartitionedSpec, properties);
+        return catalog.createTable(TableIdentifier.of("db1", "t"), tableSchema, unpartitionedSpec, properties);
+    }
+
+    // Builds one DATA-content commit fragment and returns the single converted data file. Row count / file size
+    // are immaterial to the metrics assertions, so they are fixed; the column metrics come from {@code stats}.
+    private DataFile writeSingle(Table table, TIcebergColumnStats stats, String path) {
+        TIcebergCommitData d = new TIcebergCommitData();
+        d.setFilePath(path);
+        d.setRowCount(10L);
+        d.setFileSize(1024L);
+        d.setFileContent(TFileContent.DATA);
+        d.setColumnStats(stats);
+        return IcebergWriterHelper.convertToWriterResult(
+                table, Collections.singletonList(d), ZoneOffset.UTC).dataFiles()[0];
     }
 
     // ─────────────────── convertToDeleteFiles: ported from fe-core IcebergWriterHelperTest ───────────────────
@@ -216,6 +236,150 @@ public class IcebergWriterHelperTest {
         Assertions.assertEquals(Long.valueOf(100L), df.columnSizes().get(1));
         Assertions.assertEquals(Long.valueOf(10L), df.valueCounts().get(1));
         Assertions.assertEquals(Long.valueOf(2L), df.nullValueCounts().get(1));
+    }
+
+    // ──────────── convertToWriterResult: #65782 honor iceberg metrics policy (ported from fe-core) ────────────
+
+    @Test
+    public void convertToWriterResultRespectsNoneMetricsMode() {
+        Table table = tableWith("write.format.default", "parquet", "write.metadata.metrics.default", "none");
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setColumnSizes(Map.of(2, 128L));
+        stats.setValueCounts(Map.of(2, 10L));
+        stats.setNullValueCounts(Map.of(2, 0L));
+        stats.setLowerBounds(Map.of(2, ByteBuffer.wrap(new byte[] {0x01})));
+        stats.setUpperBounds(Map.of(2, ByteBuffer.wrap(new byte[] {0x02})));
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertTrue(df.columnSizes() == null || df.columnSizes().isEmpty());
+        Assertions.assertTrue(df.valueCounts() == null || df.valueCounts().isEmpty());
+        Assertions.assertTrue(df.nullValueCounts() == null || df.nullValueCounts().isEmpty());
+        Assertions.assertTrue(df.lowerBounds() == null || df.lowerBounds().isEmpty());
+        Assertions.assertTrue(df.upperBounds() == null || df.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void convertToWriterResultCountsModeOmitsBounds() {
+        Table table = tableWith("write.format.default", "parquet", "write.metadata.metrics.default", "counts");
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setColumnSizes(Map.of(2, 128L));
+        stats.setValueCounts(Map.of(2, 10L));
+        stats.setNullValueCounts(Map.of(2, 0L));
+        stats.setLowerBounds(Map.of(2, Conversions.toByteBuffer(Types.StringType.get(), "abcdefgh")));
+        stats.setUpperBounds(Map.of(2, Conversions.toByteBuffer(Types.StringType.get(), "ijklmnop")));
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertEquals(Long.valueOf(128L), df.columnSizes().get(2));
+        Assertions.assertEquals(Long.valueOf(10L), df.valueCounts().get(2));
+        Assertions.assertEquals(Long.valueOf(0L), df.nullValueCounts().get(2));
+        Assertions.assertTrue(df.lowerBounds() == null || df.lowerBounds().isEmpty());
+        Assertions.assertTrue(df.upperBounds() == null || df.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void convertToWriterResultTruncatesStringAndBinaryBounds() {
+        Schema boundsSchema = new Schema(
+                Types.NestedField.optional(1, "text", Types.StringType.get()),
+                Types.NestedField.optional(2, "payload", Types.BinaryType.get()));
+        Table table = tableWith(boundsSchema, "write.format.default", "parquet",
+                "write.metadata.metrics.default", "truncate(3)");
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setLowerBounds(Map.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), "abcdef"),
+                2, ByteBuffer.wrap(new byte[] {1, 2, 3, 4})));
+        stats.setUpperBounds(Map.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), "uvwxyz"),
+                2, ByteBuffer.wrap(new byte[] {1, 2, 3, 4})));
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertEquals("abc",
+                Conversions.fromByteBuffer(Types.StringType.get(), df.lowerBounds().get(1)).toString());
+        Assertions.assertEquals("uvx",
+                Conversions.fromByteBuffer(Types.StringType.get(), df.upperBounds().get(1)).toString());
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {1, 2, 3}), df.lowerBounds().get(2));
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {1, 2, 4}), df.upperBounds().get(2));
+    }
+
+    @Test
+    public void convertToWriterResultPreservesOrcUpperBoundWithoutTruncatedSuccessor() {
+        Schema boundsSchema = new Schema(Types.NestedField.optional(1, "text", Types.StringType.get()));
+        Table table = tableWith(boundsSchema, "write.format.default", "orc",
+                "write.metadata.metrics.default", "truncate(1)");
+        String maxWithoutSuccessor = new String(Character.toChars(Character.MAX_CODE_POINT)) + "tail";
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setUpperBounds(Map.of(1, Conversions.toByteBuffer(Types.StringType.get(), maxWithoutSuccessor)));
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.orc");
+
+        Assertions.assertNotNull(df.upperBounds());
+        Assertions.assertEquals(maxWithoutSuccessor,
+                Conversions.fromByteBuffer(Types.StringType.get(), df.upperBounds().get(1)).toString());
+    }
+
+    @Test
+    public void convertToWriterResultHandlesV3TransactionTableLineageMetrics() {
+        // A commit runs against transaction.table(), which is a HasTableOperations but NOT a BaseTable.
+        // getFormatVersion must read the real v3 through operations (the reserved format-version property is
+        // stripped at creation), else the row-lineage columns are not appended and their metric field ids fail
+        // schema resolution — this test is the regression guard for the BaseTable -> HasTableOperations change.
+        Table base = tableWith("format-version", "3", "write.format.default", "parquet",
+                "write.metadata.metrics.default", "truncate(16)");
+        Table transactionTable = base.newTransaction().table();
+
+        int rowId = MetadataColumns.ROW_ID.fieldId();
+        int seqId = MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.fieldId();
+        ByteBuffer rowIdBound = Conversions.toByteBuffer(MetadataColumns.ROW_ID.type(), 7L);
+        ByteBuffer seqBound = Conversions.toByteBuffer(MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.type(), 3L);
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setLowerBounds(Map.of(rowId, rowIdBound, seqId, seqBound));
+        stats.setUpperBounds(Map.of(rowId, rowIdBound, seqId, seqBound));
+
+        DataFile df = writeSingle(transactionTable, stats, "s3://b/db1/t/v3.parquet");
+
+        Assertions.assertEquals(rowIdBound, df.lowerBounds().get(rowId));
+        Assertions.assertEquals(rowIdBound, df.upperBounds().get(rowId));
+        Assertions.assertEquals(seqBound, df.lowerBounds().get(seqId));
+        Assertions.assertEquals(seqBound, df.upperBounds().get(seqId));
+    }
+
+    @Test
+    public void convertToWriterResultSuppressesLogicalMetricsBelowRepeatedFields() {
+        Schema repeatedSchema = new Schema(
+                Types.NestedField.optional(1, "items", Types.ListType.ofOptional(2, Types.IntegerType.get())),
+                Types.NestedField.optional(3, "attributes",
+                        Types.MapType.ofOptional(4, 5, Types.StringType.get(), Types.StringType.get())),
+                Types.NestedField.optional(6, "top_level", Types.IntegerType.get()));
+        Table table = tableWith(repeatedSchema, "write.format.default", "parquet",
+                "write.metadata.metrics.default", "full");
+        // InMemoryCatalog.createTable reassigns fresh field ids, so resolve the real ids from the stored schema
+        // (the input ids 2/4/5/6 no longer map to the same fields). The BE keys its stats by these same ids.
+        Schema stored = table.schema();
+        int elementId = ((Types.ListType) stored.findField("items").type()).elementId();
+        int keyId = ((Types.MapType) stored.findField("attributes").type()).keyId();
+        int valueId = ((Types.MapType) stored.findField("attributes").type()).valueId();
+        int topId = stored.findField("top_level").fieldId();
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.setColumnSizes(Map.of(elementId, 20L, keyId, 40L, valueId, 50L, topId, 60L));
+        stats.setValueCounts(Map.of(elementId, 2L, keyId, 4L, valueId, 5L, topId, 6L));
+        stats.setNullValueCounts(Map.of(elementId, 0L, keyId, 0L, valueId, 0L, topId, 0L));
+        stats.setLowerBounds(Map.of(
+                elementId, Conversions.toByteBuffer(Types.IntegerType.get(), 2),
+                keyId, Conversions.toByteBuffer(Types.StringType.get(), "key"),
+                valueId, Conversions.toByteBuffer(Types.StringType.get(), "value"),
+                topId, Conversions.toByteBuffer(Types.IntegerType.get(), 6)));
+        stats.setUpperBounds(stats.getLowerBounds());
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/repeated.parquet");
+
+        // columnSizes ignore the repeated-field rule; only the logical count/bound metrics below list/map drop.
+        Assertions.assertEquals(Map.of(elementId, 20L, keyId, 40L, valueId, 50L, topId, 60L), df.columnSizes());
+        Assertions.assertEquals(Map.of(topId, 6L), df.valueCounts());
+        Assertions.assertEquals(Map.of(topId, 0L), df.nullValueCounts());
+        Assertions.assertEquals(Map.of(topId, stats.getLowerBounds().get(topId)), df.lowerBounds());
+        Assertions.assertEquals(Map.of(topId, stats.getUpperBounds().get(topId)), df.upperBounds());
     }
 
     // ─────────────────── getFileFormat: 3-tier resolution (T04) ───────────────────
