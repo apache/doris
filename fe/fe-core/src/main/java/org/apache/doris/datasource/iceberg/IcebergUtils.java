@@ -77,14 +77,17 @@ import com.google.common.collect.Sets;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.MetricsModes;
+import org.apache.iceberg.MetricsUtil;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -1882,10 +1885,25 @@ public class IcebergUtils {
                 MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER));
     }
 
+    public static boolean shouldCollectColumnStats(Table table, Schema writerSchema) {
+        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
+        if (getFileFormat(table) == FileFormat.ORC) {
+            // Match the footer collectors: ORC reports top-level collection counts, while Parquet reports leaf fields.
+            return writerSchema.columns().stream()
+                    .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
+                            != MetricsModes.None.get());
+        }
+        return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
+                .filter(field -> field.type().isPrimitiveType())
+                .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
+                        != MetricsModes.None.get());
+    }
+
     public static int getFormatVersion(Table table) {
         int formatVersion = 2; // default format version : 2
-        if (table instanceof BaseTable) {
-            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        if (table instanceof HasTableOperations) {
+            // TransactionTable exposes the real format version through operations, not table properties.
+            formatVersion = ((HasTableOperations) table).operations().current().formatVersion();
         } else if (table != null && table.properties() != null) {
             String version = table.properties().get(TableProperties.FORMAT_VERSION);
             if (version != null) {

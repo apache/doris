@@ -39,6 +39,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
+import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -49,6 +50,8 @@ import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.thrift.TIcebergColumnStats;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
@@ -56,10 +59,20 @@ import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -70,6 +83,63 @@ import java.util.List;
 import java.util.Map;
 
 class StatisticsUtilTest {
+    @Test
+    void testGetIcebergColumnStatsReturnsEmptyForDisabledMetrics() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
+        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(Map.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(Map.of(1, 128L));
+        columnStats.setValueCounts(Map.of(1, 10L));
+        columnStats.setNullValueCounts(Map.of(1, 0L));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
+
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(table.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
+        Mockito.when(tableScan.planFiles())
+                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
+        Mockito.when(fileScanTask.spec()).thenReturn(spec);
+        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
+
+        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+    }
+
+    @Test
+    void testGetIcebergColumnStatsReturnsEmptyWhenCloseFails() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
+        org.apache.iceberg.Table table = Mockito.mock(org.apache.iceberg.Table.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(table.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
+        Mockito.when(tableScan.planFiles()).thenReturn(CloseableIterable.combine(
+                List.of(fileScanTask), () -> {
+                    throw new IOException("close failed");
+                }));
+        Mockito.when(fileScanTask.spec()).thenReturn(spec);
+        Mockito.when(fileScanTask.file()).thenReturn(dataFile);
+        Mockito.when(dataFile.columnSizes()).thenReturn(Map.of());
+        Mockito.when(dataFile.nullValueCounts()).thenReturn(Map.of());
+
+        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+    }
+
     @Test
     void testConvertToDouble() {
         try {
