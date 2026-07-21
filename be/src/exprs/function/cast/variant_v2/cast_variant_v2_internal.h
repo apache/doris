@@ -49,15 +49,24 @@ Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVarian
 Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const VariantRef> values,
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output);
+Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+                                      const DataTypePtr& target_type, size_t rows,
+                                      ForcedNulls forced_nulls, ColumnPtr* output);
+Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+                                     const DataTypePtr& target_type, size_t rows,
+                                     ForcedNulls forced_nulls, ColumnPtr* output);
 Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& source,
                              const DataTypePtr& target_type, size_t rows, ForcedNulls forced_nulls,
                              ColumnPtr* output);
 Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
                               ForcedNulls forced_nulls, ColumnPtr* output);
+Status cast_variant_refs_to_string(FunctionContext* context, std::span<const VariantRef> values,
+                                   ForcedNulls forced_nulls, ColumnPtr* output);
 Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
                              ForcedNulls forced_nulls, ColumnPtr* output);
+Status cast_variant_refs_to_jsonb(FunctionContext* context, std::span<const VariantRef> values,
+                                  ForcedNulls forced_nulls, ColumnPtr* output);
 
-Status clone_as_encoded(const ColumnVariantV2& source, ColumnPtr* output);
 ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows);
 Status apply_forced_nulls(ColumnPtr column, ForcedNulls forced_nulls, ColumnPtr* output);
 

@@ -70,10 +70,11 @@ struct ScalarGroup {
 
 using ScalarGroups = std::array<ScalarGroup, GROUP_COUNT>;
 
-ScalarGroup& initialize_group(ScalarGroups& groups, size_t index, DataTypePtr type) {
+template <typename TypeFactory>
+ScalarGroup& initialize_group(ScalarGroups& groups, size_t index, TypeFactory&& make_type) {
     ScalarGroup& group = groups[index];
     if (!group.values) {
-        group.type = std::move(type);
+        group.type = std::forward<TypeFactory>(make_type)();
         group.values = group.type->create_column();
     }
     return group;
@@ -115,25 +116,29 @@ bool epoch_micros_to_civil(int64_t micros, cctz::civil_second* civil, uint32_t* 
 }
 
 void append_bool(ScalarGroups& groups, size_t row, bool value) {
-    auto& group = initialize_group(groups, BOOL_GROUP, std::make_shared<DataTypeBool>());
+    auto& group =
+            initialize_group(groups, BOOL_GROUP, [] { return std::make_shared<DataTypeBool>(); });
     assert_cast<ColumnUInt8&>(*group.values).insert_value(value);
     group.source_rows.push_back(row);
 }
 
 void append_int(ScalarGroups& groups, size_t row, int64_t value) {
-    auto& group = initialize_group(groups, INT_GROUP, std::make_shared<DataTypeInt64>());
+    auto& group =
+            initialize_group(groups, INT_GROUP, [] { return std::make_shared<DataTypeInt64>(); });
     assert_cast<ColumnInt64&>(*group.values).insert_value(value);
     group.source_rows.push_back(row);
 }
 
 void append_float(ScalarGroups& groups, size_t row, float value) {
-    auto& group = initialize_group(groups, FLOAT_GROUP, std::make_shared<DataTypeFloat32>());
+    auto& group = initialize_group(groups, FLOAT_GROUP,
+                                   [] { return std::make_shared<DataTypeFloat32>(); });
     assert_cast<ColumnFloat32&>(*group.values).insert_value(value);
     group.source_rows.push_back(row);
 }
 
 void append_double(ScalarGroups& groups, size_t row, double value) {
-    auto& group = initialize_group(groups, DOUBLE_GROUP, std::make_shared<DataTypeFloat64>());
+    auto& group = initialize_group(groups, DOUBLE_GROUP,
+                                   [] { return std::make_shared<DataTypeFloat64>(); });
     assert_cast<ColumnFloat64&>(*group.values).insert_value(value);
     group.source_rows.push_back(row);
 }
@@ -144,8 +149,9 @@ void append_decimal(ScalarGroups& groups, size_t row, VariantDecimal value) {
         return;
     }
     const size_t index = DECIMAL_GROUP_BEGIN + value.scale;
-    auto& group =
-            initialize_group(groups, index, std::make_shared<DataTypeDecimal128>(38, value.scale));
+    auto& group = initialize_group(groups, index, [scale = value.scale] {
+        return std::make_shared<DataTypeDecimal128>(38, scale);
+    });
     assert_cast<ColumnDecimal128V3&>(*group.values).insert_value(Decimal128V3 {value.unscaled});
     group.source_rows.push_back(row);
 }
@@ -160,7 +166,8 @@ void append_date(ScalarGroups& groups, size_t row, int32_t days_since_epoch) {
     value.unchecked_set_time(static_cast<uint16_t>(civil.year()),
                              static_cast<uint8_t>(civil.month()), static_cast<uint8_t>(civil.day()),
                              0, 0, 0);
-    auto& group = initialize_group(groups, DATE_GROUP, std::make_shared<DataTypeDateV2>());
+    auto& group =
+            initialize_group(groups, DATE_GROUP, [] { return std::make_shared<DataTypeDateV2>(); });
     assert_cast<ColumnDateV2&>(*group.values).insert_value(value);
     group.source_rows.push_back(row);
 }
@@ -180,7 +187,7 @@ void append_timestamp(ScalarGroups& groups, size_t row, int64_t micros, bool utc
                 static_cast<uint8_t>(civil.minute()), static_cast<uint8_t>(civil.second()),
                 fraction);
         auto& group = initialize_group(groups, TIMESTAMP_TZ_GROUP,
-                                       std::make_shared<DataTypeTimeStampTz>(6));
+                                       [] { return std::make_shared<DataTypeTimeStampTz>(6); });
         assert_cast<ColumnTimeStampTz&>(*group.values).insert_value(value);
         group.source_rows.push_back(row);
         return;
@@ -190,14 +197,15 @@ void append_timestamp(ScalarGroups& groups, size_t row, int64_t micros, bool utc
             static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
             static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
             static_cast<uint8_t>(civil.minute()), static_cast<uint8_t>(civil.second()), fraction);
-    auto& group =
-            initialize_group(groups, TIMESTAMP_NTZ_GROUP, std::make_shared<DataTypeDateTimeV2>(6));
+    auto& group = initialize_group(groups, TIMESTAMP_NTZ_GROUP,
+                                   [] { return std::make_shared<DataTypeDateTimeV2>(6); });
     assert_cast<ColumnDateTimeV2&>(*group.values).insert_value(value);
     group.source_rows.push_back(row);
 }
 
 void append_string(ScalarGroups& groups, size_t row, StringRef value) {
-    auto& group = initialize_group(groups, STRING_GROUP, std::make_shared<DataTypeString>());
+    auto& group = initialize_group(groups, STRING_GROUP,
+                                   [] { return std::make_shared<DataTypeString>(); });
     assert_cast<ColumnString&>(*group.values).insert_data(value.data, value.size);
     group.source_rows.push_back(row);
 }
@@ -305,6 +313,27 @@ Status execute_concrete_cast(FunctionContext* context, const ScalarGroup& group,
 
 Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
                        const DataTypePtr& target_type, size_t rows, ColumnPtr* output) {
+    const ScalarGroup* only_group = nullptr;
+    size_t only_group_index = 0;
+    for (size_t index = 0; index < groups.size(); ++index) {
+        if (groups[index].source_rows.empty()) {
+            continue;
+        }
+        if (only_group != nullptr) {
+            only_group = nullptr;
+            break;
+        }
+        only_group = &groups[index];
+        only_group_index = index;
+    }
+    if (only_group != nullptr && only_group->source_rows.size() == rows) {
+        if (only_group_index == INVALID_GROUP) {
+            *output = make_all_null_column(target_type, rows);
+            return Status::OK();
+        }
+        return execute_concrete_cast(context, *only_group, target_type, output);
+    }
+
     MutableColumnPtr nested = target_type->create_column();
     auto nulls = ColumnUInt8::create();
     nested->reserve(rows);
@@ -427,12 +456,12 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
         return Status::InvalidArgument("Invalid scalar input shape for Variant V2 CAST");
     }
-    MutableColumnPtr nested = IColumn::mutate(source);
     auto nulls = ColumnUInt8::create(rows, 0);
     if (!forced_nulls.empty()) {
         std::ranges::copy(forced_nulls, nulls->get_data().begin());
     }
-    ColumnPtr nullable = ColumnNullable::create(std::move(nested), std::move(nulls));
+    ColumnPtr null_map = std::move(nulls);
+    ColumnPtr nullable = ColumnNullable::create(source, null_map);
     *output = ColumnVariantV2::create_typed(std::move(nullable), source_type);
     return Status::OK();
 }
@@ -461,6 +490,34 @@ Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const Var
         classify_value(groups, row, values[row], !forced_nulls.empty() && forced_nulls[row] != 0);
     }
     return assemble_groups(context, groups, target_type, values.size(), output);
+}
+
+Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+                                      const DataTypePtr& target_type, size_t rows,
+                                      ForcedNulls forced_nulls, ColumnPtr* output) {
+    if (source.is_typed() || source.size() != rows ||
+        (!forced_nulls.empty() && forced_nulls.size() != rows)) {
+        return Status::InvalidArgument("Invalid encoded Variant V2 input for scalar CAST");
+    }
+    ScalarGroups groups;
+    for (size_t row = 0; row < rows; ++row) {
+        classify_value(groups, row, source.get_value_ref(row),
+                       !forced_nulls.empty() && forced_nulls[row] != 0);
+    }
+    return assemble_groups(context, groups, target_type, rows, output);
+}
+
+Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVariantV2& source,
+                                     const DataTypePtr& target_type, size_t rows,
+                                     ForcedNulls forced_nulls, ColumnPtr* output) {
+    if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
+        return Status::InvalidArgument("Invalid Variant V2 input for canonical scalar CAST");
+    }
+    ScalarGroups groups;
+    column_variant_v2_internal::visit_variant_values(
+            source, 0, rows, forced_nulls, [&](size_t row) { append_invalid(groups, row); },
+            [&](size_t row, VariantRef value) { classify_value(groups, row, value, false); });
+    return assemble_groups(context, groups, target_type, rows, output);
 }
 
 ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows) {
@@ -493,14 +550,6 @@ Status apply_forced_nulls(ColumnPtr column, ForcedNulls forced_nulls, ColumnPtr*
     }
     std::ranges::copy(forced_nulls, nulls->get_data().begin());
     *output = ColumnNullable::create(column, std::move(nulls));
-    return Status::OK();
-}
-
-Status clone_as_encoded(const ColumnVariantV2& source, ColumnPtr* output) {
-    MutableColumnPtr detached = source.clone_resized(source.size());
-    auto& variant = assert_cast<ColumnVariantV2&>(*detached);
-    variant.ensure_encoded();
-    *output = std::move(detached);
     return Status::OK();
 }
 

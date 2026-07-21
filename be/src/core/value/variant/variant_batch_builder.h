@@ -252,6 +252,7 @@ public:
         void add_string(StringRef value);
         void add_uuid(const std::array<uint8_t, 16>& value);
         void add_largeint(__int128 value);
+        void add_scalar(const VariantScalarEncodingPlan& plan);
         void add_value(VariantRef value);
 
         ObjectScope start_object();

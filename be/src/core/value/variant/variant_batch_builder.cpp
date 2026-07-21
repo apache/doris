@@ -2133,6 +2133,10 @@ void VariantBatchBuilder::Row::add_largeint(__int128 value) {
     _add_scalar(VariantScalarEncodingPlan::largeint(value));
 }
 
+void VariantBatchBuilder::Row::add_scalar(const VariantScalarEncodingPlan& plan) {
+    _add_scalar(plan);
+}
+
 void VariantBatchBuilder::Row::add_value(VariantRef value) {
     if (_builder == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant block row handle is moved-from");

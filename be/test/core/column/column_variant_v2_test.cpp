@@ -2228,11 +2228,73 @@ TEST(ColumnVariantV2Test, TypedRowTransformsCloneAndCow) {
     auto shared_owner = typed_int32(VALUES, NULLS);
     MutableColumnPtr shared_alias_base = shared_owner->clone();
     auto& shared_alias = assert_cast<ColumnVariantV2&>(*shared_alias_base);
-    EXPECT_DEATH(shared_owner->pop_back(1), "typed column must be COW-detached");
+    shared_owner->pop_back(1);
     EXPECT_TRUE(shared_owner->is_typed());
     EXPECT_TRUE(shared_alias.is_typed());
-    expect_int32_rows(*shared_owner, VALUES, NULLS);
+    expect_int32_rows(*shared_owner, DETACHED_VALUES, DETACHED_NULLS);
     expect_int32_rows(shared_alias, VALUES, NULLS);
+}
+
+TEST(ColumnVariantV2Test, TypedMutatorsDetachSharedNestedColumn) {
+    constexpr std::array<int32_t, 3> SOURCE_VALUES {1, 2, 3};
+    auto exercise = [&](auto&& operation, const auto& expected_values, const auto& expected_nulls) {
+        auto values = ColumnInt32::create();
+        for (int32_t value : SOURCE_VALUES) {
+            values->insert_value(value);
+        }
+        ColumnPtr shared_values = values->get_ptr();
+        auto variant = ColumnVariantV2::create_typed(
+                ColumnNullable::create(shared_values, ColumnUInt8::create(SOURCE_VALUES.size(), 0)),
+                std::make_shared<DataTypeInt32>());
+        const auto& before = assert_cast<const ColumnNullable&>(variant->typed_column());
+        ASSERT_EQ(&before.get_nested_column(), shared_values.get());
+
+        operation(*variant);
+
+        const auto& original = assert_cast<const ColumnInt32&>(*shared_values);
+        EXPECT_EQ(original.get_data()[0], 1);
+        EXPECT_EQ(original.get_data()[1], 2);
+        EXPECT_EQ(original.get_data()[2], 3);
+        const auto& after = assert_cast<const ColumnNullable&>(variant->typed_column());
+        EXPECT_NE(&after.get_nested_column(), shared_values.get());
+        expect_int32_rows(*variant, expected_values, expected_nulls);
+    };
+
+    constexpr std::array<int32_t, 0> EMPTY_VALUES {};
+    constexpr std::array<uint8_t, 0> EMPTY_NULLS {};
+    exercise([](ColumnVariantV2& column) { column.clear(); }, EMPTY_VALUES, EMPTY_NULLS);
+    constexpr std::array<int32_t, 2> FIRST_TWO {1, 2};
+    constexpr std::array<uint8_t, 2> FIRST_TWO_NULLS {};
+    exercise([](ColumnVariantV2& column) { column.pop_back(1); }, FIRST_TWO, FIRST_TWO_NULLS);
+    exercise([](ColumnVariantV2& column) { column.resize(2); }, FIRST_TWO, FIRST_TWO_NULLS);
+    constexpr std::array<int32_t, 2> FILTERED {1, 3};
+    constexpr std::array<uint8_t, 2> FILTERED_NULLS {};
+    exercise(
+            [](ColumnVariantV2& column) {
+                IColumn::Filter filter {1, 0, 1};
+                EXPECT_EQ(column.filter(filter), 2);
+            },
+            FILTERED, FILTERED_NULLS);
+    constexpr std::array<int32_t, 5> APPENDED {1, 2, 3, 8, 9};
+    constexpr std::array<uint8_t, 5> APPENDED_NULLS {};
+    exercise(
+            [](ColumnVariantV2& column) {
+                constexpr std::array<int32_t, 2> VALUES {8, 9};
+                constexpr std::array<uint8_t, 2> NULLS {};
+                auto source = typed_int32(VALUES, NULLS);
+                column.insert_range_from(*source, 0, source->size());
+            },
+            APPENDED, APPENDED_NULLS);
+    constexpr std::array<int32_t, 5> SELECTED {1, 2, 3, 9, 8};
+    exercise(
+            [](ColumnVariantV2& column) {
+                constexpr std::array<int32_t, 2> VALUES {8, 9};
+                constexpr std::array<uint8_t, 2> NULLS {};
+                constexpr std::array<uint32_t, 2> INDICES {1, 0};
+                auto source = typed_int32(VALUES, NULLS);
+                column.insert_indices_from(*source, INDICES.begin(), INDICES.end());
+            },
+            SELECTED, APPENDED_NULLS);
 }
 
 TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {

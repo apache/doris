@@ -213,11 +213,8 @@ void visit_typed_canonical_rows(const ColumnNullable& nullable, const Column& co
             });
 }
 
-// Dispatches once per batch; row callbacks remain statically bound and allocate no per-row object.
 template <typename Callback>
-void dispatch_typed_column(const ColumnNullable& nullable, PrimitiveType type,
-                           Callback&& callback) {
-    const IColumn& nested = nullable.get_nested_column();
+void dispatch_scalar_column(const IColumn& nested, PrimitiveType type, Callback&& callback) {
     switch (type) {
     case TYPE_BOOLEAN:
         callback.template operator()<TYPE_BOOLEAN>(assert_cast<const ColumnUInt8&>(nested));
@@ -291,6 +288,13 @@ void dispatch_typed_column(const ColumnNullable& nullable, PrimitiveType type,
     default:
         DORIS_CHECK(false) << "unsupported ColumnVariantV2 typed identity " << type;
     }
+}
+
+// Dispatches once per batch; row callbacks remain statically bound and allocate no per-row object.
+template <typename Callback>
+void dispatch_typed_column(const ColumnNullable& nullable, PrimitiveType type,
+                           Callback&& callback) {
+    dispatch_scalar_column(nullable.get_nested_column(), type, std::forward<Callback>(callback));
 }
 
 } // namespace doris::column_variant_v2_internal

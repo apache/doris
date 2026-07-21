@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
 #include <utility>
 
 #include "core/assert_cast.h"
@@ -73,24 +74,13 @@ bool uses_concrete_string_cast(VariantRef value) {
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
 
-const ColumnVariantV2& encoded_source(const ColumnVariantV2& source, ColumnPtr* owner) {
-    if (!source.is_typed()) {
-        return source;
-    }
-    Status status = clone_as_encoded(source, owner);
-    if (!status.ok()) {
-        throw Exception(status);
-    }
-    return assert_cast<const ColumnVariantV2&>(**owner);
-}
-
-Status append_fallback_string(VariantRef value, bool forced_null,
-                              const VariantJsonFormatOptions& options, VectorBufferWriter* writer,
-                              ColumnUInt8* nulls) {
+void append_fallback_string(VariantRef value, bool forced_null,
+                            const VariantJsonFormatOptions& options, VectorBufferWriter* writer,
+                            ColumnUInt8* nulls) {
     if (forced_null) {
         nulls->insert_value(1);
         writer->commit();
-        return Status::OK();
+        return;
     }
     nulls->insert_value(0);
     if (value.is_null()) {
@@ -99,55 +89,59 @@ Status append_fallback_string(VariantRef value, bool forced_null,
         to_json(value, *writer, options);
     }
     writer->commit();
+}
+
+Status assemble_mixed_strings(ColumnPtr concrete, std::span<const size_t> concrete_rows,
+                              ColumnString::MutablePtr fallback_strings,
+                              ColumnUInt8::MutablePtr fallback_nulls,
+                              std::span<const size_t> fallback_rows, size_t rows,
+                              ColumnPtr* output) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(*concrete);
+    auto strings = ColumnString::create();
+    auto nulls = ColumnUInt8::create();
+    strings->reserve(rows);
+    nulls->reserve(rows);
+    strings->insert_range_from(nullable.get_nested_column(), 0, concrete_rows.size());
+    nulls->insert_range_from(nullable.get_null_map_column(), 0, concrete_rows.size());
+    strings->insert_range_from(*fallback_strings, 0, fallback_rows.size());
+    nulls->insert_range_from(*fallback_nulls, 0, fallback_rows.size());
+
+    IColumn::Permutation permutation(rows);
+    size_t concatenated_row = 0;
+    for (size_t row : concrete_rows) {
+        permutation[row] = concatenated_row++;
+    }
+    for (size_t row : fallback_rows) {
+        permutation[row] = concatenated_row++;
+    }
+    if (concatenated_row != rows) {
+        return Status::InternalError("Variant V2 STRING CAST produced {} rows, expected {}",
+                                     concatenated_row, rows);
+    }
+    ColumnPtr concatenated = ColumnNullable::create(std::move(strings), std::move(nulls));
+    *output = concatenated->permute(permutation, rows);
     return Status::OK();
 }
 
-} // namespace
-
-Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
-                              ForcedNulls forced_nulls, ColumnPtr* output) {
-    if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for STRING CAST");
-    }
-    ColumnPtr encoded_owner;
-    const ColumnVariantV2& encoded = encoded_source(source, &encoded_owner);
-
-    DorisVector<VariantRef> concrete_values;
+template <typename ValueAt, typename CastAllConcrete>
+Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls forced_nulls,
+                             ValueAt&& value_at, CastAllConcrete&& cast_all_concrete,
+                             ColumnPtr* output) {
     DorisVector<size_t> concrete_rows;
     DorisVector<size_t> fallback_rows;
-    concrete_values.reserve(rows);
     concrete_rows.reserve(rows);
     fallback_rows.reserve(rows);
     for (size_t row = 0; row < rows; ++row) {
         const bool forced = !forced_nulls.empty() && forced_nulls[row] != 0;
-        VariantRef value = encoded.get_value_ref(row);
-        if (!forced && uses_concrete_string_cast(value)) {
-            concrete_values.push_back(value);
+        if (!forced && uses_concrete_string_cast(value_at(row))) {
             concrete_rows.push_back(row);
         } else {
             fallback_rows.push_back(row);
         }
     }
 
-    MutableColumnPtr concatenated_strings = ColumnString::create();
-    auto concatenated_nulls = ColumnUInt8::create();
-    concatenated_strings->reserve(rows);
-    concatenated_nulls->reserve(rows);
-    IColumn::Permutation permutation(rows);
-    size_t concatenated_row = 0;
-
-    if (!concrete_values.empty()) {
-        ColumnPtr concrete;
-        RETURN_IF_ERROR(cast_variant_refs_to_scalar(
-                context, concrete_values, std::make_shared<DataTypeString>(), {}, &concrete));
-        const auto& nullable = assert_cast<const ColumnNullable&>(*concrete);
-        concatenated_strings->insert_range_from(nullable.get_nested_column(), 0,
-                                                concrete_values.size());
-        concatenated_nulls->insert_range_from(nullable.get_null_map_column(), 0,
-                                              concrete_values.size());
-        for (size_t row : concrete_rows) {
-            permutation[row] = concatenated_row++;
-        }
+    if (concrete_rows.size() == rows) {
+        return cast_all_concrete(std::make_shared<DataTypeString>(), output);
     }
 
     auto fallback_strings = ColumnString::create();
@@ -155,22 +149,107 @@ Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& s
     VectorBufferWriter writer(*fallback_strings);
     const VariantJsonFormatOptions options = json_options(context);
     for (size_t row : fallback_rows) {
-        RETURN_IF_ERROR(append_fallback_string(encoded.get_value_ref(row),
-                                               !forced_nulls.empty() && forced_nulls[row] != 0,
-                                               options, &writer, fallback_nulls.get()));
-        permutation[row] = concatenated_row++;
+        const bool forced = !forced_nulls.empty() && forced_nulls[row] != 0;
+        append_fallback_string(forced ? VariantRef {} : value_at(row), forced, options, &writer,
+                               fallback_nulls.get());
     }
-    concatenated_strings->insert_range_from(*fallback_strings, 0, fallback_rows.size());
-    concatenated_nulls->insert_range_from(*fallback_nulls, 0, fallback_rows.size());
+    if (concrete_rows.empty()) {
+        *output = ColumnNullable::create(std::move(fallback_strings), std::move(fallback_nulls));
+        return Status::OK();
+    }
 
-    if (concatenated_row != rows) {
-        return Status::InternalError("Variant V2 STRING CAST produced {} rows, expected {}",
-                                     concatenated_row, rows);
+    DorisVector<VariantRef> concrete_values;
+    concrete_values.reserve(concrete_rows.size());
+    for (size_t row : concrete_rows) {
+        concrete_values.push_back(value_at(row));
     }
-    ColumnPtr concatenated =
-            ColumnNullable::create(std::move(concatenated_strings), std::move(concatenated_nulls));
-    *output = concatenated->permute(permutation, rows);
+    ColumnPtr concrete;
+    RETURN_IF_ERROR(cast_variant_refs_to_scalar(context, concrete_values,
+                                                std::make_shared<DataTypeString>(), {}, &concrete));
+    return assemble_mixed_strings(std::move(concrete), concrete_rows, std::move(fallback_strings),
+                                  std::move(fallback_nulls), fallback_rows, rows, output);
+}
+
+Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVariantV2& source,
+                                    size_t rows, ForcedNulls forced_nulls, ColumnPtr* output) {
+    const auto& typed = assert_cast<const ColumnNullable&>(source.typed_column());
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const NullMap& inner_nulls = typed.get_null_map_data();
+    size_t concrete_rows = 0;
+    for (size_t row = 0; row < rows; ++row) {
+        if (inner_nulls[row] == 0 && (forced_nulls.empty() || forced_nulls[row] == 0)) {
+            ++concrete_rows;
+        }
+    }
+    if (concrete_rows == rows) {
+        return cast_variant_values_to_scalar(context, source, string_type, rows, {}, output);
+    }
+
+    ColumnPtr concrete;
+    if (concrete_rows != 0) {
+        RETURN_IF_ERROR(cast_variant_values_to_scalar(context, source, string_type, rows,
+                                                      forced_nulls, &concrete));
+    }
+    const ColumnNullable* converted =
+            concrete ? &assert_cast<const ColumnNullable&>(*concrete) : nullptr;
+    const ColumnString* converted_strings =
+            converted == nullptr
+                    ? nullptr
+                    : &assert_cast<const ColumnString&>(converted->get_nested_column());
+    auto strings = ColumnString::create();
+    auto nulls = ColumnUInt8::create();
+    strings->reserve(rows);
+    nulls->reserve(rows);
+    for (size_t row = 0; row < rows; ++row) {
+        const bool forced = !forced_nulls.empty() && forced_nulls[row] != 0;
+        if (forced) {
+            strings->insert_default();
+            nulls->insert_value(1);
+        } else if (inner_nulls[row] != 0) {
+            strings->insert_data("null", 4);
+            nulls->insert_value(0);
+        } else {
+            DCHECK(converted != nullptr);
+            DCHECK_EQ(converted->get_null_map_data()[row], 0);
+            strings->insert_from(*converted_strings, row);
+            nulls->insert_value(0);
+        }
+    }
+    *output = ColumnNullable::create(std::move(strings), std::move(nulls));
     return Status::OK();
+}
+
+} // namespace
+
+Status cast_variant_refs_to_string(FunctionContext* context, std::span<const VariantRef> values,
+                                   ForcedNulls forced_nulls, ColumnPtr* output) {
+    if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
+        return Status::InvalidArgument("Variant V2 STRING CAST null map has {} rows, expected {}",
+                                       forced_nulls.size(), values.size());
+    }
+    return cast_values_to_string(
+            context, values.size(), forced_nulls, [&](size_t row) { return values[row]; },
+            [&](const DataTypePtr& string_type, ColumnPtr* result) {
+                return cast_variant_refs_to_scalar(context, values, string_type, {}, result);
+            },
+            output);
+}
+
+Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
+                              ForcedNulls forced_nulls, ColumnPtr* output) {
+    if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
+        return Status::InvalidArgument("Invalid Variant V2 input shape for STRING CAST");
+    }
+    if (source.is_typed()) {
+        return cast_typed_variant_to_string(context, source, rows, forced_nulls, output);
+    }
+    return cast_values_to_string(
+            context, rows, forced_nulls, [&](size_t row) { return source.get_value_ref(row); },
+            [&](const DataTypePtr& string_type, ColumnPtr* result) {
+                return cast_encoded_variant_to_scalar(context, source, string_type, rows, {},
+                                                      result);
+            },
+            output);
 }
 
 } // namespace doris::CastWrapper::variant_v2_internal

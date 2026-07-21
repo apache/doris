@@ -16,12 +16,15 @@
 // under the License.
 
 #include <algorithm>
+#include <limits>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_jsonb.h"
@@ -29,17 +32,25 @@
 #include "core/data_type/data_type_string.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
 
 struct ArrayEncodePlan {
+    using ScalarAppender = void (*)(const IColumn&, size_t, uint8_t, VariantBatchBuilder::Row*);
+
     DataTypePtr type;
     const ColumnArray* array = nullptr;
-    DorisVector<NullMap::value_type> effective_nulls;
+    ForcedNulls effective_nulls;
+    DorisVector<NullMap::value_type> owned_effective_nulls;
     std::unique_ptr<ArrayEncodePlan> child;
-    ColumnPtr encoded_owner;
     const ColumnVariantV2* encoded_leaf = nullptr;
+    const ColumnString* jsonb_leaf = nullptr;
+    const IColumn* scalar_leaf = nullptr;
+    const NullMap* scalar_nulls = nullptr;
+    ScalarAppender append_scalar = nullptr;
+    uint8_t scalar_scale = 0;
 };
 
 Status validate_local_nulls(const IColumn& source, const NullMap* nulls) {
@@ -50,20 +61,25 @@ Status validate_local_nulls(const IColumn& source, const NullMap* nulls) {
     return Status::OK();
 }
 
-Status mask_and_encode_typed_variant(const ColumnVariantV2& source, ForcedNulls effective_nulls,
-                                     ColumnPtr* output) {
-    const auto& typed = assert_cast<const ColumnNullable&>(source.typed_column());
-    auto combined_nulls = ColumnUInt8::create();
-    combined_nulls->get_data().resize(source.size());
-    for (size_t row = 0; row < source.size(); ++row) {
-        combined_nulls->get_data()[row] = typed.get_null_map_data()[row] |
-                                          (!effective_nulls.empty() && effective_nulls[row] != 0);
-    }
-    ColumnPtr masked =
-            ColumnNullable::create(typed.get_nested_column_ptr(), std::move(combined_nulls));
-    ColumnPtr masked_variant =
-            ColumnVariantV2::create_typed(std::move(masked), source.typed_type());
-    return clone_as_encoded(assert_cast<const ColumnVariantV2&>(*masked_variant), output);
+template <PrimitiveType Type, typename Column>
+void append_scalar_value(const IColumn& source, size_t row, uint8_t scale,
+                         VariantBatchBuilder::Row* output) {
+    const auto& column = assert_cast<const Column&>(source);
+    column_variant_v2_internal::with_typed_scalar<Type>(
+            column, row, scale,
+            [&](auto&& physical_factory, auto&&) { output->add_scalar(physical_factory()); });
+}
+
+void configure_scalar_leaf(const IColumn& source, const DataTypePtr& type, ArrayEncodePlan* plan) {
+    const uint32_t scale = type->get_scale();
+    DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
+    column_variant_v2_internal::dispatch_scalar_column(
+            source, type->get_primitive_type(), [&]<PrimitiveType Type>(const auto& column) {
+                using Column = std::remove_cvref_t<decltype(column)>;
+                plan->scalar_leaf = &column;
+                plan->append_scalar = &append_scalar_value<Type, Column>;
+                plan->scalar_scale = static_cast<uint8_t>(scale);
+            });
 }
 
 Status build_array_encode_plan(const ColumnPtr& source, const DataTypePtr& source_type,
@@ -77,15 +93,30 @@ Status populate_effective_nulls(const IColumn& source, const NullMap* local_null
         return Status::InvalidArgument("Array ancestor null map has {} rows, expected {}",
                                        inherited_nulls.size(), source.size());
     }
-    if (local_nulls == nullptr && inherited_nulls.empty()) {
+    const ForcedNulls local = local_nulls == nullptr
+                                      ? ForcedNulls {}
+                                      : ForcedNulls {local_nulls->data(), local_nulls->size()};
+    const bool has_local_null =
+            std::ranges::any_of(local, [](uint8_t value) { return value != 0; });
+    const bool has_inherited_null =
+            std::ranges::any_of(inherited_nulls, [](uint8_t value) { return value != 0; });
+    if (!has_local_null && !has_inherited_null) {
         return Status::OK();
     }
-    plan->effective_nulls.resize(source.size());
-    for (size_t row = 0; row < source.size(); ++row) {
-        const bool local_null = local_nulls != nullptr && (*local_nulls)[row] != 0;
-        const bool ancestor_null = !inherited_nulls.empty() && inherited_nulls[row] != 0;
-        plan->effective_nulls[row] = local_null || ancestor_null;
+    if (!has_inherited_null) {
+        plan->effective_nulls = local;
+        return Status::OK();
     }
+    if (!has_local_null) {
+        plan->effective_nulls = inherited_nulls;
+        return Status::OK();
+    }
+    plan->owned_effective_nulls.resize(source.size());
+    for (size_t row = 0; row < source.size(); ++row) {
+        plan->owned_effective_nulls[row] = local[row] | inherited_nulls[row];
+    }
+    plan->effective_nulls = {plan->owned_effective_nulls.data(),
+                             plan->owned_effective_nulls.size()};
     return Status::OK();
 }
 
@@ -99,54 +130,39 @@ Status build_array_node_plan(const ColumnPtr& source, const DataTypePtr& source_
     const auto& elements = assert_cast<const ColumnNullable&>(plan->array->get_data());
     const auto& array_type = assert_cast<const DataTypeArray&>(*source_type);
     plan->child = std::make_unique<ArrayEncodePlan>();
-    DorisVector<NullMap::value_type> child_ancestor_nulls;
-    if (!plan->effective_nulls.empty()) {
-        child_ancestor_nulls.resize(elements.size());
-        for (size_t row = 0; row < plan->array->size(); ++row) {
-            if (plan->effective_nulls[row] == 0) {
-                continue;
-            }
-            const size_t begin = plan->array->offset_at(row);
-            const size_t end = plan->array->get_offsets()[row];
-            std::fill(child_ancestor_nulls.begin() + begin, child_ancestor_nulls.begin() + end, 1);
-        }
-    }
-    return build_array_encode_plan(
-            elements.get_nested_column_ptr(), remove_nullable(array_type.get_nested_type()),
-            &elements.get_null_map_data(), child_ancestor_nulls, plan->child.get());
+    return build_array_encode_plan(elements.get_nested_column_ptr(),
+                                   remove_nullable(array_type.get_nested_type()),
+                                   &elements.get_null_map_data(), {}, plan->child.get());
 }
 
 Status build_array_leaf_plan(const ColumnPtr& source, PrimitiveType primitive,
                              ArrayEncodePlan* plan) {
-    ColumnPtr typed_or_encoded;
-    const ForcedNulls element_nulls {plan->effective_nulls.data(), plan->effective_nulls.size()};
     if (primitive == INVALID_TYPE && source->empty()) {
-        plan->encoded_owner = ColumnVariantV2::create();
+        return Status::OK();
     } else if (primitive == TYPE_VARIANT) {
         const auto* variant = check_and_get_column<ColumnVariantV2>(source.get());
         if (variant == nullptr) {
             return Status::InvalidArgument("Array Variant V2 CAST received a legacy Variant leaf");
         }
         if (variant->is_typed()) {
-            RETURN_IF_ERROR(
-                    mask_and_encode_typed_variant(*variant, element_nulls, &plan->encoded_owner));
+            const auto& typed = assert_cast<const ColumnNullable&>(variant->typed_column());
+            plan->scalar_nulls = &typed.get_null_map_data();
+            configure_scalar_leaf(typed.get_nested_column(), variant->typed_type(), plan);
         } else {
-            RETURN_IF_ERROR(clone_as_encoded(*variant, &plan->encoded_owner));
+            plan->encoded_leaf = variant;
         }
     } else if (primitive == TYPE_JSONB) {
-        RETURN_IF_ERROR(
-                cast_jsonb_to_variant(source, source->size(), element_nulls, &typed_or_encoded));
-        plan->encoded_owner = std::move(typed_or_encoded);
+        plan->jsonb_leaf = check_and_get_column<ColumnString>(source.get());
+        if (plan->jsonb_leaf == nullptr) {
+            return Status::InvalidArgument("Array JSONB leaf expected ColumnString, got {}",
+                                           source->get_name());
+        }
     } else if (is_supported_scalar_source(plan->type)) {
-        RETURN_IF_ERROR(cast_scalar_to_variant(source, plan->type, source->size(), element_nulls,
-                                               &typed_or_encoded));
-        const auto& typed = assert_cast<const ColumnVariantV2&>(*typed_or_encoded);
-        RETURN_IF_ERROR(clone_as_encoded(typed, &plan->encoded_owner));
+        configure_scalar_leaf(*source, plan->type, plan);
     } else {
         return Status::InvalidArgument("Array element type {} cannot be cast to Variant V2",
                                        plan->type->get_name());
     }
-    plan->encoded_leaf = assert_cast<const ColumnVariantV2*>(plan->encoded_owner.get());
     return Status::OK();
 }
 
@@ -171,7 +187,17 @@ void append_array_value(const ArrayEncodePlan& plan, size_t index, VariantBatchB
         return;
     }
     if (plan.array == nullptr) {
-        row->add_value(plan.encoded_leaf->get_value_ref(index));
+        if (plan.scalar_nulls != nullptr && (*plan.scalar_nulls)[index] != 0) {
+            row->add_null();
+        } else if (plan.append_scalar != nullptr) {
+            plan.append_scalar(*plan.scalar_leaf, index, plan.scalar_scale, row);
+        } else if (plan.encoded_leaf != nullptr) {
+            row->add_value(plan.encoded_leaf->get_value_ref(index));
+        } else if (plan.jsonb_leaf != nullptr) {
+            jsonb_to_variant(plan.jsonb_leaf->get_data_at(index), *row);
+        } else {
+            DORIS_CHECK(false) << "empty Array leaf unexpectedly contains a value";
+        }
         return;
     }
     auto array = row->start_array();
@@ -196,11 +222,7 @@ Status cast_array_to_variant(const ColumnPtr& source, const DataTypePtr& source_
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
     for (size_t row_index = 0; row_index < rows; ++row_index) {
         auto row = builder.begin_row();
-        if (!forced_nulls.empty() && forced_nulls[row_index] != 0) {
-            row.add_null();
-        } else {
-            append_array_value(plan, row_index, &row);
-        }
+        append_array_value(plan, row_index, &row);
         row.finish();
     }
     VariantBatchBuilder block = builder.finish_batch();

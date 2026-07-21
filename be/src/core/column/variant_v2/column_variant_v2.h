@@ -17,11 +17,19 @@
 
 #pragma once
 
+#include <array>
+#include <limits>
 #include <span>
 #include <string>
 
+#include "common/exception.h"
+#include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_const.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "core/value/variant/variant_value.h"
 
 namespace doris {
@@ -189,5 +197,86 @@ private:
     IColumn::WrappedPtr _typed;
     DataTypePtr _typed_type;
 };
+
+namespace column_variant_v2_internal {
+
+using ForcedNulls = std::span<const NullMap::value_type>;
+
+template <typename NullCallback, typename ValueCallback>
+// Any VariantRef passed to on_value borrows either the source column or the reusable local buffer
+// and is valid only until that callback returns. Callbacks must not retain it.
+void visit_variant_values(const IColumn& source, size_t start, size_t end, ForcedNulls outer_nulls,
+                          NullCallback&& on_null, ValueCallback&& on_value) {
+    const IColumn* physical = &source;
+    bool constant = false;
+    if (const auto* const_column = check_and_get_column<ColumnConst>(source)) {
+        physical = &const_column->get_data_column();
+        constant = true;
+    }
+    const auto* variant = check_and_get_column<ColumnVariantV2>(*physical);
+    if (variant == nullptr) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant reader requires ColumnVariantV2, got {}", source.get_name());
+    }
+    if (start > end || end > source.size()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant row range [{}, {}) exceeds column size {}", start, end,
+                        source.size());
+    }
+    if (!outer_nulls.empty() && outer_nulls.size() < end) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant null map size {} is smaller than row end {}", outer_nulls.size(),
+                        end);
+    }
+
+    const auto view = variant->read_view();
+    if (!view.is_typed()) {
+        for (size_t row = start; row < end; ++row) {
+            if (!outer_nulls.empty() && outer_nulls[row] != 0) {
+                on_null(row);
+            } else {
+                on_value(row, view.value_at(constant ? 0 : row));
+            }
+        }
+        return;
+    }
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(view.typed_column());
+    const uint32_t scale = view.typed_type()->get_scale();
+    DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
+    const auto& inner_nulls = nullable.get_null_map_data();
+    static constexpr std::array<char, 3> EMPTY_METADATA {
+            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK), 0,
+            0};
+    DorisVector<char> scratch;
+    auto emit = [&](size_t row, VariantScalarEncodingPlan plan) {
+        scratch.resize(plan.size());
+        plan.write(scratch.data(), scratch.size());
+        on_value(row, VariantRef {.metadata = {.data = EMPTY_METADATA.data(),
+                                               .size = EMPTY_METADATA.size()},
+                                  .value = {scratch.data(), scratch.size()}});
+    };
+    dispatch_typed_column(nullable, view.typed_type()->get_primitive_type(),
+                          [&]<PrimitiveType Type>(const auto& nested) {
+                              for (size_t row = start; row < end; ++row) {
+                                  if (!outer_nulls.empty() && outer_nulls[row] != 0) {
+                                      on_null(row);
+                                      continue;
+                                  }
+                                  const size_t physical_row = constant ? 0 : row;
+                                  if (inner_nulls[physical_row] != 0) {
+                                      emit(row, VariantScalarEncodingPlan::null_value());
+                                      continue;
+                                  }
+                                  with_typed_scalar<Type>(nested, physical_row,
+                                                          static_cast<uint8_t>(scale),
+                                                          [&](auto&& physical_factory, auto&&) {
+                                                              emit(row, physical_factory());
+                                                          });
+                              }
+                          });
+}
+
+} // namespace column_variant_v2_internal
 
 } // namespace doris

@@ -153,13 +153,8 @@ Status execute_from_variant(const DataTypePtr& captured_to_type, FunctionContext
                 RETURN_IF_ERROR(cast_typed_variant_to_scalar(
                         context, *source, to_type, rows, forced_nulls(null_map, rows), &output));
             } else {
-                DorisVector<VariantRef> values;
-                values.reserve(rows);
-                for (size_t row = 0; row < rows; ++row) {
-                    values.push_back(source->get_value_ref(row));
-                }
-                RETURN_IF_ERROR(cast_variant_refs_to_scalar(context, values, to_type,
-                                                            forced_nulls(null_map, rows), &output));
+                RETURN_IF_ERROR(cast_encoded_variant_to_scalar(
+                        context, *source, to_type, rows, forced_nulls(null_map, rows), &output));
             }
         } else {
             return Status::InvalidArgument("Conversion from Variant V2 to {} is not supported",
