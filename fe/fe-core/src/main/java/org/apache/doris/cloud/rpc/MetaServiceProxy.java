@@ -33,12 +33,14 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 public class MetaServiceProxy {
     private static final Logger LOG = LogManager.getLogger(MetaServiceProxy.class);
+    private static final long TABLE_STREAM_CAPABILITY_CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(30);
 
     // use exclusive lock to make sure only one thread can add or remove client from
     // serviceMap.
@@ -46,6 +48,9 @@ public class MetaServiceProxy {
     private ReentrantLock lock = new ReentrantLock();
     private final Map<String, MetaServiceClient> serviceMap;
     private Queue<Long> lastConnTimeMs = new LinkedList<>();
+    private final Object tableStreamCapabilityLock = new Object();
+    private volatile String tableStreamCapabilityEndpoint = "";
+    private volatile long tableStreamCapabilityValidUntilMs;
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
@@ -120,6 +125,41 @@ public class MetaServiceProxy {
                         .update(System.currentTimeMillis() - startTime);
             }
             throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Fail closed when FE is newer than MetaService. Old MetaService versions return no
+     * server_capabilities field from get_instance.
+     */
+    public void requireTableStreamControlPlaneCapability() throws RpcException {
+        long now = System.currentTimeMillis();
+        String endpoint = Config.meta_service_endpoint;
+        if (endpoint.equals(tableStreamCapabilityEndpoint) && now < tableStreamCapabilityValidUntilMs) {
+            return;
+        }
+        synchronized (tableStreamCapabilityLock) {
+            now = System.currentTimeMillis();
+            endpoint = Config.meta_service_endpoint;
+            if (endpoint.equals(tableStreamCapabilityEndpoint) && now < tableStreamCapabilityValidUntilMs) {
+                return;
+            }
+
+            Cloud.GetInstanceRequest request = Cloud.GetInstanceRequest.newBuilder()
+                    .setCloudUniqueId(Config.cloud_unique_id)
+                    .build();
+            Cloud.GetInstanceResponse response = getInstance(request);
+            if (!response.hasStatus() || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                throw new RpcException("", "Failed to check Cloud Table Stream capability: "
+                        + (response.hasStatus() ? response.getStatus().getMsg() : "missing MetaService status"));
+            }
+            if (!response.getServerCapabilitiesList().contains(
+                    Cloud.MetaServiceCapabilityPB.META_SERVICE_CAPABILITY_TABLE_STREAM_CONTROL_PLANE)) {
+                throw new RpcException("", "MetaService does not support the Cloud Table Stream control plane. "
+                        + "Upgrade all MetaService nodes before enabling Cloud Table Stream");
+            }
+            tableStreamCapabilityEndpoint = endpoint;
+            tableStreamCapabilityValidUntilMs = now + TABLE_STREAM_CAPABILITY_CACHE_TTL_MS;
         }
     }
 
@@ -363,6 +403,13 @@ public class MetaServiceProxy {
                 : "getPartitionVersion";
         return executeWithMetrics(methodName, (client) -> client.getVersion(request),
                 Cloud.GetVersionResponse::getStatus);
+    }
+
+    public Cloud.GetTableStreamReadStateResponse getTableStreamReadState(
+            Cloud.GetTableStreamReadStateRequest request) throws RpcException {
+        return executeWithMetrics("getTableStreamReadState",
+                client -> client.getTableStreamReadState(request),
+                Cloud.GetTableStreamReadStateResponse::getStatus);
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {

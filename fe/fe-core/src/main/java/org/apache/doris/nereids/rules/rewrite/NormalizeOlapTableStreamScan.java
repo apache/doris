@@ -60,6 +60,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -163,8 +164,11 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                                                BaseTableStream.StreamScanType streamScanType, List<Slot> originSlots,
                                                List<Slot> notVirtualSlots, boolean isIncremental) {
         // remap scan from binlog
+        Map<Long, Long> visibleVersions = scan.getTable().hasCloudReadStates()
+                ? scan.getTable().getCloudVisibleVersions(selectedPartitionIds)
+                : Collections.emptyMap();
         RowBinlogTableWrapper table =
-                new RowBinlogTableWrapper(baseTable, offsetMap);
+                new RowBinlogTableWrapper(baseTable, offsetMap, visibleVersions);
         Map<String, String> scanParams = new HashMap<>();
         scanParams.put(OlapScanNode.OLAP_INCREMENT_TYPE, streamScanType.toString());
         LogicalOlapScan newScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
@@ -255,8 +259,11 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             // dup key table can just rebuild from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
                     streamWrapper.getHistoryPartitionOffsets(selectedPartitionIds);
+            Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
+                    ? streamWrapper.getCloudVisibleVersions(selectedPartitionIds)
+                    : Collections.emptyMap();
             OlapTableWrapper table =
-                    new OlapTableWrapper(baseTable, partitionOffsetMap);
+                    new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions);
             return projectToOriginSlots(makeOlapScanOnBaseTable(scan, cascadesContext, table, selectedPartitionIds),
                     originSlots);
         }
@@ -278,8 +285,11 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             // for row commit tso <= consumption tso we scan from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
                     streamWrapper.getHistoryPartitionOffsets(rebuildPartitionIds);
+            Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
+                    ? streamWrapper.getCloudVisibleVersions(rebuildPartitionIds)
+                    : Collections.emptyMap();
             OlapTableWrapper table =
-                    new OlapTableWrapper(baseTable, partitionOffsetMap);
+                    new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions);
             Plan basePartPlan = makeOlapScanOnBaseTable(scan, cascadesContext, table, rebuildPartitionIds);
             // we rebuild by add back updated & deleted rows from binlog
             Plan binlogPartPlan = makeIncrementalScanFromBinlog(cascadesContext, scan, rebuildPartitionIds,
@@ -292,6 +302,10 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
 
     private Plan makeOlapScanOnBaseTable(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext,
                                          OlapTable baseTable, List<Long> partitionIds) {
+        if (scan.getTable().hasCloudReadStates() && !(baseTable instanceof OlapTableWrapper)) {
+            baseTable = new OlapTableWrapper(baseTable, Collections.emptyMap(),
+                    scan.getTable().getCloudVisibleVersions(partitionIds));
+        }
         LogicalOlapScan baseScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
                 baseTable, scan.qualified(), partitionIds, scan.getSelectedTabletIds(),
                 new ArrayList<>(), scan.getTableSample(), ImmutableList.of());

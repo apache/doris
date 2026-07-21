@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -295,16 +296,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 }
                 // put offset into executor
                 insertExecutor.setStreamUpdateInfos(infos);
-                insertExecutor.registerListener(new InsertExecutorListener() {
-                    @Override
-                    public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
-                                               long jobId) throws Exception {
-                        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                                .getTransactionState(insertExecutor.getDatabase().getId(),
-                                        insertExecutor.getTxnId());
-                        transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
-                    }
-                });
+                if (Config.isCloudMode()) {
+                    checkCloudTableStreamTarget(ctx, insertExecutor, targetTableIf);
+                    checkCloudTableStreamPartitionLimit(infos);
+                } else {
+                    insertExecutor.registerListener(new InsertExecutorListener() {
+                        @Override
+                        public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                                   long jobId) throws Exception {
+                            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                    .getTransactionState(insertExecutor.getDatabase().getId(),
+                                            insertExecutor.getTxnId());
+                            transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                        }
+                    });
+                }
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
@@ -391,6 +397,33 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
         } finally {
             targetTableIf.readUnlock();
+        }
+    }
+
+    static void checkCloudTableStreamPartitionLimit(List<TableStreamUpdateInfo> infos) {
+        int partitionCount = infos.stream()
+                .map(TableStreamUpdateInfo::getUpdate)
+                .filter(CloudOlapTableStreamUpdate.class::isInstance)
+                .map(CloudOlapTableStreamUpdate.class::cast)
+                .mapToInt(update -> update.getPartitionUpdates().size())
+                .sum();
+        if (partitionCount > Config.cloud_table_stream_max_partitions_per_insert) {
+            throw new AnalysisException("Cloud Table Stream consumes " + partitionCount
+                    + " partitions, exceeding cloud_table_stream_max_partitions_per_insert="
+                    + Config.cloud_table_stream_max_partitions_per_insert
+                    + ". Use stream PARTITION (...) and consume it in batches.");
+        }
+    }
+
+    static void checkCloudTableStreamTarget(ConnectContext ctx, AbstractInsertExecutor insertExecutor,
+            TableIf targetTable) {
+        if (!(targetTable instanceof OlapTable) || ctx.isTxnModel() || ctx.isGroupCommit()
+                || !(insertExecutor instanceof OlapInsertExecutor)
+                || insertExecutor instanceof OlapTxnInsertExecutor
+                || insertExecutor instanceof OlapGroupCommitInsertExecutor
+                || insertExecutor instanceof RemoteOlapInsertExecutor) {
+            throw new AnalysisException("Cloud Table Stream consumption only supports a normal INSERT "
+                    + "into a local OLAP table");
         }
     }
 

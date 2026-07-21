@@ -3021,6 +3021,16 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static int table_stream_partition_offset_cleanup_interval_second = 3600;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Maximum number of Cloud Table Stream partitions consumed by one INSERT statement."},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int cloud_table_stream_max_partitions_per_insert = 10000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Number of initial Cloud Table Stream partition offsets sent in one MetaService request."},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int cloud_table_stream_create_partition_batch_size = 1000;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

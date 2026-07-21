@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -654,6 +655,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
             OlapScanNode scanNode = (OlapScanNode) node;
             OlapTable table = scanNode.getOlapTable();
+            if (table instanceof OlapTableWrapper
+                    && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
+                continue;
+            }
             for (Long id : scanNode.getSelectedPartitionIds()) {
                 if (!partitionSet.contains(id)) {
                     partitionSet.add(id);
@@ -662,34 +667,34 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
         }
 
-        if (partitions.isEmpty()) {
-            return;
-        }
+        Map<Long, Long> visibleVersionMap = Maps.newHashMap();
+        if (!partitions.isEmpty()) {
+            List<Long> versions;
+            try {
+                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+            } catch (RpcException e) {
+                throw new UserException("get visible version for OlapScanNode failed", e);
+            }
 
-        List<Long> versions;
-        try {
-            versions = CloudPartition.getSnapshotVisibleVersion(partitions);
-        } catch (RpcException e) {
-            throw new UserException("get visible version for OlapScanNode failed", e);
-        }
-
-        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
-        if (versions.stream().anyMatch(x -> x <= 0)) {
-            int size = versions.size();
-            for (int i = 0; i < size; ++i) {
-                if (versions.get(i) <= 0) {
-                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
-                            partitions.get(i).getId(), versions.get(i));
-                    throw new UserException("partition " + partitions.get(i).getId()
-                        + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+            assert versions.size() == partitions.size()
+                    : "the got num versions is not equals to acquired num versions";
+            if (versions.stream().anyMatch(x -> x <= 0)) {
+                int size = versions.size();
+                for (int i = 0; i < size; ++i) {
+                    if (versions.get(i) <= 0) {
+                        LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
+                                partitions.get(i).getId(), versions.get(i));
+                        throw new UserException("partition " + partitions.get(i).getId()
+                            + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+                    }
                 }
             }
-        }
 
-        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
-        Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
-                .boxed()
-                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+            // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
+            visibleVersionMap = IntStream.range(0, versions.size())
+                    .boxed()
+                    .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+        }
 
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
@@ -697,7 +702,14 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
 
             OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.updateScanRangeVersions(visibleVersionMap);
+            OlapTable table = scanNode.getOlapTable();
+            if (table instanceof OlapTableWrapper
+                    && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
+                scanNode.updateScanRangeVersions(
+                        ((OlapTableWrapper) table).getPartitionVisibleVersionMap());
+            } else {
+                scanNode.updateScanRangeVersions(visibleVersionMap);
+            }
         }
     }
 

@@ -201,6 +201,14 @@ public abstract class BaseTableStream extends Table {
         return baseTableInfo.getFullQualifiers();
     }
 
+    public TableStreamBaseTableInfo getBaseTableInfo() {
+        return baseTableInfo;
+    }
+
+    public boolean isShowInitialRows() {
+        return showInitialRows;
+    }
+
     public abstract void unprotectedCheckStreamUpdate(AbstractTableStreamUpdate update)
             throws UserException;
 

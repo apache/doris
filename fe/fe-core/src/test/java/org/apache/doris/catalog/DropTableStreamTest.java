@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DropTableStreamTest extends TestWithFeService {
@@ -88,6 +89,19 @@ public class DropTableStreamTest extends TestWithFeService {
         // test not exist
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown table 's3' in test_stream",
                 () -> dropStream("drop stream test_stream.s3;"));
+    }
+
+    @Test
+    public void testCloudDropRequiresForce() {
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "cloud_table_stream_ut";
+        try {
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> dropStream("drop stream test_stream.not_reached;"));
+            Assertions.assertTrue(exception.getMessage().contains("only supports DROP STREAM ... FORCE"));
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+        }
     }
 
     @Override

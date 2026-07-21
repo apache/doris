@@ -21,10 +21,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
@@ -32,6 +36,8 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -44,8 +50,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -351,7 +360,11 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) {
+    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) throws UserException {
+        if (Config.isCloudMode()) {
+            fillCloudStreamConsumptionValuesMetadataResult(dataBatch);
+            return;
+        }
         for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
             Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
             if (db.isPresent()) {
@@ -373,6 +386,149 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private void fillCloudStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) throws UserException {
+        Map<Cloud.TableStreamIdentityPB, CloudStreamConsumptionSnapshot> snapshots = new LinkedHashMap<>();
+        for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
+            Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (!db.isPresent()) {
+                continue;
+            }
+            for (Long tableId : entry.getValue()) {
+                Optional<Table> table = db.get().getTable(tableId);
+                if (!table.isPresent()) {
+                    continue;
+                }
+                Preconditions.checkArgument(table.get() instanceof OlapTableStream);
+                OlapTableStream stream = (OlapTableStream) table.get();
+                if (!stream.readLockIfExist()) {
+                    continue;
+                }
+                try {
+                    OlapTable baseTable = stream.getBaseTableNullable();
+                    if (baseTable == null || !baseTable.readLockIfExist()) {
+                        continue;
+                    }
+                    try {
+                        Map<Long, String> partitionNames = new LinkedHashMap<>();
+                        baseTable.getPartitions().forEach(partition ->
+                                partitionNames.put(partition.getId(), partition.getName()));
+                        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                                .setBaseDbId(stream.getBaseTableInfo().getDbId())
+                                .setBaseTableId(stream.getBaseTableInfo().getTableId())
+                                .setStreamDbId(entry.getKey())
+                                .setStreamId(stream.getId())
+                                .build();
+                        CloudStreamConsumptionSnapshot previous = snapshots.put(identity,
+                                new CloudStreamConsumptionSnapshot(db.get().getFullName(), stream.getName(),
+                                        stream.getId(), partitionNames));
+                        Preconditions.checkState(previous == null,
+                                "Duplicate Cloud Table Stream identity %s", identity);
+                    } finally {
+                        baseTable.readUnlock();
+                    }
+                } finally {
+                    stream.readUnlock();
+                }
+            }
+        }
+        if (snapshots.isEmpty()) {
+            return;
+        }
+
+        Cloud.GetTableStreamReadStateRequest.Builder request = Cloud.GetTableStreamReadStateRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        snapshots.forEach((identity, snapshot) -> request.addBindings(
+                Cloud.TableStreamPartitionSetPB.newBuilder()
+                        .setIdentity(identity)
+                        .addAllPartitionIds(snapshot.partitionNames.keySet())));
+
+        Cloud.GetTableStreamReadStateResponse response;
+        MetaServiceProxy proxy = MetaServiceProxy.getInstance();
+        try {
+            proxy.requireTableStreamControlPlaneCapability();
+            response = proxy.getTableStreamReadState(request.build());
+        } catch (RpcException e) {
+            throw new UserException("Failed to get Cloud Table Stream consumption state: " + e.getMessage(), e);
+        }
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            throw new UserException("Failed to get Cloud Table Stream consumption state: "
+                    + response.getStatus().getMsg());
+        }
+
+        Set<Cloud.TableStreamIdentityPB> returnedIdentities = new LinkedHashSet<>();
+        for (Cloud.TableStreamReadBindingResultPB binding : response.getBindingsList()) {
+            if (!binding.hasIdentity()) {
+                throw new UserException("MetaService returned a Cloud Table Stream without identity");
+            }
+            CloudStreamConsumptionSnapshot snapshot = snapshots.get(binding.getIdentity());
+            if (snapshot == null || !returnedIdentities.add(binding.getIdentity())) {
+                throw new UserException("MetaService returned an unexpected or duplicate Cloud Table Stream");
+            }
+            Map<Long, Cloud.TableStreamPartitionReadStatePB> partitionStates = new LinkedHashMap<>();
+            for (Cloud.TableStreamPartitionReadStatePB state : binding.getPartitionStatesList()) {
+                if (!state.hasPartitionId() || partitionStates.put(state.getPartitionId(), state) != null) {
+                    throw new UserException("MetaService returned a duplicate or invalid partition state");
+                }
+            }
+            if (!partitionStates.keySet().equals(snapshot.partitionNames.keySet())) {
+                throw new UserException("MetaService returned incomplete Cloud Table Stream consumption state");
+            }
+            snapshot.fillRows(partitionStates, dataBatch);
+        }
+        if (!returnedIdentities.equals(snapshots.keySet())) {
+            throw new UserException("MetaService did not return all Cloud Table Stream consumption states");
+        }
+    }
+
+    private static class CloudStreamConsumptionSnapshot {
+        private final String dbName;
+        private final String streamName;
+        private final long streamId;
+        private final Map<Long, String> partitionNames;
+
+        private CloudStreamConsumptionSnapshot(String dbName, String streamName, long streamId,
+                Map<Long, String> partitionNames) {
+            this.dbName = dbName;
+            this.streamName = streamName;
+            this.streamId = streamId;
+            this.partitionNames = Collections.unmodifiableMap(partitionNames);
+        }
+
+        private void fillRows(Map<Long, Cloud.TableStreamPartitionReadStatePB> partitionStates,
+                List<TRow> dataBatch) throws UserException {
+            for (Map.Entry<Long, String> entry : partitionNames.entrySet()) {
+                Cloud.TableStreamPartitionReadStatePB state = partitionStates.get(entry.getKey());
+                if (!state.hasOffsetState() || !state.hasEndTso() || !state.hasVisibleVersion()) {
+                    throw new UserException("MetaService returned incomplete Cloud Table Stream partition state");
+                }
+                TRow row = new TRow();
+                row.addToColumnValue(new TCell().setStringVal(dbName));
+                row.addToColumnValue(new TCell().setStringVal(streamName));
+                row.addToColumnValue(new TCell().setLongVal(streamId));
+                row.addToColumnValue(new TCell().setStringVal(entry.getValue()));
+                if (state.getOffsetState()
+                        == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN) {
+                    row.addToColumnValue(new TCell().setStringVal("N/A"));
+                    row.addToColumnValue(new TCell().setStringVal(
+                            state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION
+                                    ? "N/A" : "0"));
+                    row.addToColumnValue(new TCell().setLongVal(-1));
+                } else {
+                    if (!state.hasOffsetTso()) {
+                        throw new UserException("MetaService returned a Cloud Table Stream state without Offset TSO");
+                    }
+                    row.addToColumnValue(new TCell().setStringVal(String.valueOf(state.getOffsetTso())));
+                    row.addToColumnValue(new TCell().setStringVal(
+                            String.valueOf(state.getEndTso() - state.getOffsetTso())));
+                    row.addToColumnValue(new TCell().setLongVal(
+                            state.hasLastConsumptionTimeMs() ? state.getLastConsumptionTimeMs() : -1));
+                }
+                dataBatch.add(row);
             }
         }
     }

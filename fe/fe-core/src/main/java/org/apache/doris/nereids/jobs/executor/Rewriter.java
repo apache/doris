@@ -156,6 +156,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.ResolveCloudTableStreamReadState;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
@@ -404,10 +405,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(new EliminateJoinByUnique())
                             ),
                             topic("Table/Physical optimization",
+                                    // This is a temporary plan used only for MV matching. Cloud Table Stream
+                                    // read state and lowering must happen once on the complete statement plan.
                                     topDown(
                                             new PruneOlapScanPartition(),
                                             new PruneEmptyPartition(),
-                                            new NormalizeOlapTableStreamScan(),
                                             new PruneFileScanPartition(),
                                             new PushDownFilterIntoSchemaScan()
                                     )
@@ -486,7 +488,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             )
     );
 
-    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN = notTraverseChildrenOf(
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_CLOUD_TABLE_STREAM_READ_STATE
+            = notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 // before `Subquery unnesting` topic, some correlate slots should have appeared at LogicalApply.left,
@@ -726,10 +729,23 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // otherwise PRUNE_EMPTY_PARTITION may replace LogicalOlapScan with LogicalEmptyRelation
                                 // and short-circuit flag can never be set.
                                 new LogicalResultSinkToShortCircuitPointQuery(),
-                                new PruneOlapScanPartition(),
+                                new PruneOlapScanPartition()
+                        )
+                )
+        )
+    );
+
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_AFTER_CLOUD_TABLE_STREAM_READ_STATE
+            = notTraverseChildrenOf(
+            ImmutableSet.of(LogicalCTEAnchor.class),
+            () -> jobs(
+                topic("Table/Physical optimization",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class),
+                        topDown(
                                 new PruneEmptyPartition(),
-                                // Stream lowering needs the pruned partitions and must finish before
-                                // OperativeColumnDerive treats stream virtual columns as scan slots.
+                                // Stream lowering needs the pruned partitions and its Cloud read state,
+                                // and must finish before OperativeColumnDerive treats stream virtual columns
+                                // as scan slots.
                                 new NormalizeOlapTableStreamScan(),
                                 new PruneFileScanPartition(),
                                 new PushDownFilterIntoSchemaScan(),
@@ -870,20 +886,22 @@ public class Rewriter extends AbstractBatchJobExecutor {
     public static Rewriter getWholeTreeRewriterWithCustomJobs(
             CascadesContext cascadesContext, List<RewriteJob> jobs) {
         List<RewriteJob> wholeTreeRewriteJobs = getWholeTreeRewriteJobs(
-                false, false, jobs, ImmutableList.of(), true, false);
+                false, false, jobs, ImmutableList.of(), ImmutableList.of(), true, false);
         return new Rewriter(cascadesContext, wholeTreeRewriteJobs, true);
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean runCboRules) {
         return getWholeTreeRewriteJobs(true, true,
-                CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN,
+                CTE_CHILDREN_REWRITE_JOBS_BEFORE_CLOUD_TABLE_STREAM_READ_STATE,
+                CTE_CHILDREN_REWRITE_JOBS_AFTER_CLOUD_TABLE_STREAM_READ_STATE,
                 CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN, runCboRules, true);
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(
             boolean needSubPathPushDown,
             boolean needOrExpansion,
-            List<RewriteJob> beforePushDownJobs,
+            List<RewriteJob> beforeCloudTableStreamReadStateJobs,
+            List<RewriteJob> afterCloudTableStreamReadStateJobs,
             List<RewriteJob> afterPushDownJobs,
             boolean runCboRules,
             boolean includeNormalizePlanJobs) {
@@ -906,11 +924,26 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("record query tmp plan for mv pre rewrite",
                                     custom(RuleType.RECORD_PLAN_FOR_MV_PRE_REWRITE, RecordPlanForMvPreRewrite::new)
                             ),
-                            topic("rewrite cte sub-tree before sub path push down",
+                            topic("rewrite cte sub-tree before Cloud Table Stream read state",
                                     custom(RuleType.REWRITE_CTE_CHILDREN,
-                                            () -> new RewriteCteChildren(beforePushDownJobs, runCboRules)
+                                            () -> new RewriteCteChildren(
+                                                    beforeCloudTableStreamReadStateJobs, runCboRules)
                                     )
                             )));
+                    if (!afterCloudTableStreamReadStateJobs.isEmpty()) {
+                        rewriteJobs.addAll(jobs(
+                                topic("resolve Cloud Table Stream read state",
+                                        custom(RuleType.RESOLVE_CLOUD_TABLE_STREAM_READ_STATE,
+                                                ResolveCloudTableStreamReadState::new)
+                                ),
+                                topic("rewrite cte sub-tree after Cloud Table Stream read state",
+                                        custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                                        custom(RuleType.REWRITE_CTE_CHILDREN,
+                                                () -> new RewriteCteChildren(
+                                                        afterCloudTableStreamReadStateJobs, runCboRules)
+                                        )
+                                )));
+                    }
                     rewriteJobs.addAll(jobs(topic("convert outer join to anti",
                             custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
                     rewriteJobs.addAll(jobs(topic("eliminate group by key by uniform",

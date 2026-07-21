@@ -143,6 +143,18 @@ public class MetaServiceClient {
                 .getVersion(request);
     }
 
+    public Cloud.GetTableStreamReadStateResponse getTableStreamReadState(
+            Cloud.GetTableStreamReadStateRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetTableStreamReadStateRequest.Builder builder =
+                    Cloud.GetTableStreamReadStateRequest.newBuilder().mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getTableStreamReadState(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTableStreamReadState(request);
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CreateTabletsRequest.Builder builder = Cloud.CreateTabletsRequest.newBuilder();

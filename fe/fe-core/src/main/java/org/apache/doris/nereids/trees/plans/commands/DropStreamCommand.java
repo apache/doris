@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -57,6 +58,9 @@ public class DropStreamCommand extends Command implements ForwardWithSync {
      * validate
      */
     public void validate(ConnectContext ctx) throws AnalysisException {
+        if (Config.isCloudMode() && !forceDrop) {
+            throw new AnalysisException("Cloud Table Stream only supports DROP STREAM ... FORCE");
+        }
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
