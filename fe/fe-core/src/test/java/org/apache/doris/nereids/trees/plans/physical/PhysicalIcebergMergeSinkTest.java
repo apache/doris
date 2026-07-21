@@ -23,6 +23,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
@@ -313,6 +314,9 @@ public class PhysicalIcebergMergeSinkTest {
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        // The sink resolves metadata through PluginDrivenMetadata.get, which memoizes on the session's
+        // per-statement scope; NONE runs the loader every call (byte-identical to a direct getMetadata).
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
         // Production selects the write provider per-handle; a plain mock does not run the interface default.
