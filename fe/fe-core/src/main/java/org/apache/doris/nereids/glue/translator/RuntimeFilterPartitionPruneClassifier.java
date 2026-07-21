@@ -86,10 +86,12 @@ final class RuntimeFilterPartitionPruneClassifier {
 
         if (targetExpr instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) targetExpr;
-            if (!isPartitionColumnSlot(slotRef, partitionInfo.getPartitionColumns())) {
+            int partitionColumnIndex = findPartitionColumnIndex(
+                    slotRef, partitionInfo.getPartitionColumns());
+            if (partitionColumnIndex < 0) {
                 return Classification.unsupported("target SlotRef is not a partition column");
             }
-            if (!hasSerializedBoundary(slotRef, partitionInfo, partType)) {
+            if (!hasSerializedBoundary(partitionColumnIndex, partType)) {
                 return Classification.unsupported("target SlotRef has no serialized partition boundary");
             }
             Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
@@ -97,14 +99,16 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (partitionMonotonicity.isEmpty()) {
                 return Classification.unsupported("target SlotRef has no prunable selected partitions");
             }
-            return Classification.supportedPartitions(slotRef, partitionMonotonicity);
+            return Classification.supportedPartitions(slotRef, partitionColumnIndex, partitionMonotonicity);
         }
 
         SlotRef leafSlot = findUniqueSlotRef(targetExpr);
-        if (leafSlot == null || !isPartitionColumnSlot(leafSlot, partitionInfo.getPartitionColumns())) {
+        int partitionColumnIndex = leafSlot == null ? -1
+                : findPartitionColumnIndex(leafSlot, partitionInfo.getPartitionColumns());
+        if (partitionColumnIndex < 0) {
             return Classification.unsupported("target expression is not rooted on one partition column");
         }
-        if (!hasSerializedBoundary(leafSlot, partitionInfo, partType)) {
+        if (!hasSerializedBoundary(partitionColumnIndex, partType)) {
             return Classification.unsupported("target expression has no serialized partition boundary");
         }
         if (partType == PartitionType.LIST) {
@@ -116,7 +120,7 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (partitionMonotonicity.isEmpty()) {
                 return Classification.unsupported("target expression has no prunable selected partitions");
             }
-            return Classification.supportedPartitions(leafSlot, partitionMonotonicity);
+            return Classification.supportedPartitions(leafSlot, partitionColumnIndex, partitionMonotonicity);
         }
 
         Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
@@ -124,7 +128,7 @@ final class RuntimeFilterPartitionPruneClassifier {
         if (partitionMonotonicity.isEmpty()) {
             return Classification.unsupported("target expression is not monotonic on selected partitions");
         }
-        return Classification.supportedPartitions(leafSlot, partitionMonotonicity);
+        return Classification.supportedPartitions(leafSlot, partitionColumnIndex, partitionMonotonicity);
     }
 
     private static boolean hasUnsupportedAutomaticPartitionExpression(PartitionInfo partitionInfo) {
@@ -151,45 +155,49 @@ final class RuntimeFilterPartitionPruneClassifier {
         return false;
     }
 
-    private static boolean hasSerializedBoundary(SlotRef slotRef, PartitionInfo partitionInfo, PartitionType partType) {
-        if (partType != PartitionType.RANGE) {
-            return true;
-        }
-        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-        return !partitionColumns.isEmpty() && sameColumn(slotRef.getColumn(), partitionColumns.get(0));
+    private static boolean hasSerializedBoundary(int partitionColumnIndex, PartitionType partType) {
+        return partType != PartitionType.RANGE || partitionColumnIndex == 0;
     }
 
-    private static boolean isPartitionColumnSlot(SlotRef slotRef, List<Column> partitionColumns) {
+    private static int findPartitionColumnIndex(SlotRef slotRef, List<Column> partitionColumns) {
         Column targetColumn = slotRef.getColumn();
         if (targetColumn == null) {
-            return false;
+            return -1;
         }
-        for (Column partitionColumn : partitionColumns) {
-            if (sameColumn(targetColumn, partitionColumn)) {
-                return true;
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            if (sameColumn(targetColumn, partitionColumns.get(i))) {
+                return i;
             }
         }
-        return false;
+        return -1;
     }
 
     private static boolean sameColumn(Column targetColumn, Column partitionColumn) {
+        targetColumn = getBaseColumn(targetColumn);
+        if (targetColumn == null) {
+            return false;
+        }
         if (targetColumn == partitionColumn) {
             return true;
-        }
-        // A synchronous MV column has its own physical name and index-local unique ID.
-        // Use the simple SlotRef definition to recover its base-column lineage instead
-        // of comparing those rollup-local attributes with the base partition column.
-        if (targetColumn.isMaterializedViewColumn()) {
-            return targetColumn.tryGetBaseColumnName().equalsIgnoreCase(partitionColumn.getName());
         }
         int targetUniqueId = targetColumn.getUniqueId();
         int partitionUniqueId = partitionColumn.getUniqueId();
         if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                && partitionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                && targetUniqueId == partitionUniqueId) {
-            return true;
+                && partitionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE) {
+            return targetUniqueId == partitionUniqueId;
         }
         return targetColumn.equals(partitionColumn);
+    }
+
+    private static Column getBaseColumn(Column targetColumn) {
+        if (!targetColumn.isMaterializedViewColumn()) {
+            return targetColumn;
+        }
+        Expr defineExpr = targetColumn.getDefineExpr();
+        if (defineExpr instanceof SlotRef && ((SlotRef) defineExpr).getColumn() != null) {
+            return ((SlotRef) defineExpr).getColumn();
+        }
+        return null;
     }
 
     private static SlotRef findUniqueSlotRef(Expr expr) {
@@ -225,7 +233,7 @@ final class RuntimeFilterPartitionPruneClassifier {
             return result;
         }
 
-        Column partitionColumn = leafSlot.getColumn();
+        Column partitionColumn = getBaseColumn(leafSlot.getColumn());
         for (Long partitionId : scanNode.getSelectedPartitionIds()) {
             PartitionItem item = partitionInfo.getItem(partitionId);
             if (!(item instanceof RangePartitionItem)) {
@@ -289,24 +297,26 @@ final class RuntimeFilterPartitionPruneClassifier {
     static final class Classification {
         private final boolean canPrunePartitions;
         private final SlotRef partitionSlot;
+        private final int partitionColumnIndex;
         private final Map<Long, TTargetExprMonotonicity> partitionMonotonicity;
         private final String unsupportedReason;
 
-        private Classification(boolean canPrunePartitions, SlotRef partitionSlot,
+        private Classification(boolean canPrunePartitions, SlotRef partitionSlot, int partitionColumnIndex,
                 Map<Long, TTargetExprMonotonicity> partitionMonotonicity, String unsupportedReason) {
             this.canPrunePartitions = canPrunePartitions;
             this.partitionSlot = partitionSlot;
+            this.partitionColumnIndex = partitionColumnIndex;
             this.partitionMonotonicity = partitionMonotonicity;
             this.unsupportedReason = unsupportedReason;
         }
 
-        static Classification supportedPartitions(SlotRef partitionSlot,
+        static Classification supportedPartitions(SlotRef partitionSlot, int partitionColumnIndex,
                 Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
-            return new Classification(true, partitionSlot, partitionMonotonicity, "");
+            return new Classification(true, partitionSlot, partitionColumnIndex, partitionMonotonicity, "");
         }
 
         static Classification unsupported(String reason) {
-            return new Classification(false, null, new HashMap<>(), reason);
+            return new Classification(false, null, -1, new HashMap<>(), reason);
         }
 
         boolean canPrunePartitions() {
@@ -315,6 +325,10 @@ final class RuntimeFilterPartitionPruneClassifier {
 
         SlotRef getPartitionSlot() {
             return partitionSlot;
+        }
+
+        int getPartitionColumnIndex() {
+            return partitionColumnIndex;
         }
 
         Map<Long, TTargetExprMonotonicity> getPartitionMonotonicity() {

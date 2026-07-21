@@ -133,6 +133,53 @@ class RuntimeFilterPartitionPruneClassifierTest {
     }
 
     @Test
+    void testSyncMvAliasMatchesBoundBaseColumnIdentityInsteadOfName() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column renamedBaseColumn = new Column("renamed_part_col", PrimitiveType.INT);
+        renamedBaseColumn.setUniqueId(1);
+        Column mvColumn = createSyncMvColumn("mv_part_col", 0, renamedBaseColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
+    void testSyncMvAliasRejectsSameNamedBaseColumnWithDifferentIdentity() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column differentBaseColumn = new Column("part_col", PrimitiveType.INT);
+        differentBaseColumn.setUniqueId(2);
+        Column mvColumn = createSyncMvColumn("mv_part_col", 0, differentBaseColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("not a partition column"));
+    }
+
+    @Test
+    void testSyncMvExpressionRejectsIndexLocalUniqueIdCollision() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column mvColumn = new Column("mv_expr", PrimitiveType.INT);
+        mvColumn.setUniqueId(1);
+        mvColumn.setDefineExpr(new IntLiteral(1));
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("not a partition column"));
+    }
+
+    @Test
     void testRejectNoneMovableListTargetExpression() {
         RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
                 TRuntimeFilterType.IN, PartitionType.LIST, ListPartitionItem.DUMMY_ITEM,
@@ -209,6 +256,8 @@ class RuntimeFilterPartitionPruneClassifierTest {
     private void assertSupportedIncreasingPartitions(
             RuntimeFilterPartitionPruneClassifier.Classification classification) {
         Assertions.assertTrue(classification.canPrunePartitions());
+        Assertions.assertEquals(0, classification.getPartitionColumnIndex());
+        Assertions.assertEquals(1, classification.getPartitionSlot().getSlotId().asInt());
         Map<Long, TTargetExprMonotonicity> monotonicity = classification.getPartitionMonotonicity();
         Assertions.assertEquals(2, monotonicity.size());
         Assertions.assertEquals(TTargetExprMonotonicity.MONOTONIC_INCREASING, monotonicity.get(1L));
