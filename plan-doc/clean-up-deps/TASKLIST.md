@@ -33,7 +33,7 @@
 - [x] **T2.1** 删 `StatisticsUtil.getIcebergColumnStats` + `getColId` + 5 个 iceberg import。**额外**：删死方法后 `ColumnStatisticBuilder` / `java.util.Optional` 变未用（checkstyle 报），一并删。斩断 fe-core 主源码对 iceberg 库最后一处编译引用。
 - [x] **T2.2** 删 iceberg 死写路径：`UnboundIcebergTableSink`（整类）、`InsertUtils` 两处 `instanceof` 分支、`InsertOverwriteTableCommand` overwrite 分支 + `setStaticPartitionToContext`、`IcebergInsertCommandContext`（整类）。**TASKLIST 漏项**：`SinkVisitor.visitUnboundIcebergTableSink`（第 4 个引用者，无 override）已一并删。删后 `grep UnboundIcebergTableSink fe/` = CLEAN。
 - [x] **T2.3** 删 `HiveInsertCommandContext`（整类）。删后仅连接器 javadoc 提及。
-- [~] **T2.4** 注释纠错：`kryo-shaded` "for hudi catalog" → 指向 `WorkloadSchedPolicy`（**已改**）。`avro`/`parquet-avro` "For Iceberg" 注释**推迟到 Batch 3**——那两个依赖 Batch 3 会删/换（avro 删显式声明、parquet-avro→parquet-hadoop），注释随之处理，避免立即被推翻的 churn。
+- [x] **T2.4** 注释纠错：`kryo-shaded` "for hudi catalog" → 指向 `WorkloadSchedPolicy`（commit `0102a022341`）。`avro`/`parquet-avro` "For Iceberg" 注释随 T3.3 依赖删/换一并处理（commit `d0f6d3878d3`），避免了立即被推翻的 churn。
 - [x] **T2.V** 验证：`test-compile -pl fe-core -am` BUILD SUCCESS；悬空引用 grep = CLEAN；对抗复核见 HANDOFF。
 - [x] **T2.C** commit `0102a022341` `[chore](fe-core) remove dead iceberg/hive insert-sink code; fix stale pom comment`。
 
@@ -44,10 +44,10 @@
 **前置**：Batch 2（T2.1 已删主源码 iceberg 引用）。**风险**：中（碰测试归属 + 依赖树 + parquet 换库）。整批一起验证。
 
 - [x] **T3.1** 迁 5 个 iceberg 测试类到 `fe-connector-iceberg`（用户拍板 **migrate**）。落在 `org.apache.doris.connector.iceberg.catalog`。**纠正原分析**：它们 0 个 Doris import、直连外部服务测 iceberg SDK，非 property 解析测试。连接器 test classpath 已备齐 iceberg-core/aws/s3-tables-catalog/junit5 + 传递 guava/hadoop → REST/Unity/Dlf/S3Tables 仅改 package；**AWSTest** 删非 iceberg 的 v1-SDK `testAWSS3` + 把唯一 v1 类字面量换成配置字符串（连接器只带 v2）。commit `24ddc8d615b`（双模块 test-compile 绿）。
-- [x] **T3.2**（部分）删依赖：`iceberg-core`、`iceberg-aws`、`glue`、`s3tables`、`s3-tables-catalog-for-iceberg` 已删；`grep iceberg/glue/s3tables fe/fe-core/src` = 空。commit `379e4b07066`（`-am` test-compile 绿，gates 过）。**`aws-json-protocol` 未删**（见 T3.3-defer）。
-- [~] **T3.3 / aws-json-protocol（deferred，须先验证）**：`aws-json-protocol` 摘除 + `avro` 显式声明删除 + `parquet-avro`→`parquet-hadoop` 替换 + 改 avro "For Iceberg" 注释。三者耦合、且 `dependency:tree -Dincludes` 因 nearest-wins 把 direct 声明提顶层、掩盖 kept 模块是否传递供给。做法：删声明后重跑 `-am dependency:tree`（或 `-Dverbose`）确认仍传递可得 + 运行期协议推理（json 仅 glue/s3tables/iceberg-aws；avro 由 hive-exec runtime 兜底）+ 全量 test-compile（ParquetReader 只用 `parquet.{io,column,hadoop,schema}`）。
-- [x] **T3.V**（已做部分）：迁移 + iceberg 簇删除后 fe-core 与连接器均 `-am` test-compile 绿；validate gates 过。deferred 三项另行验证。
-- [x] **T3.C**（已提交 2 个）：`24ddc8d615b`（迁测试）、`379e4b07066`（删 iceberg 簇）。deferred 三项待第 3 个 commit。
+- [x] **T3.2** 删依赖：`iceberg-core`、`iceberg-aws`、`glue`、`s3tables`、`s3-tables-catalog-for-iceberg`、**`aws-json-protocol`** 全删；`grep iceberg/glue/s3tables fe/fe-core/src` = 空。commit `379e4b07066`（iceberg 簇）+ `d0f6d3878d3`（aws-json-protocol）。
+- [x] **T3.3** parquet：`parquet-avro`→`parquet-hadoop`+`parquet-column`（均 dependencyManagement 管版本 1.17.0），删 `avro` 显式声明，改 "For Iceberg" 注释。commit `d0f6d3878d3`。**验证方式**（先删 direct 声明再看 resolved 树，绕过 nearest-wins 掩盖）：`aws-json-protocol` 删后整树 0 命中；`avro` 仍经 `hadoop-client→hadoop-common→avro:1.12.1:compile` 留在类路径；`parquet-avro` 本就以同 1.17.0 传递带 parquet-hadoop+column，装载类不变。
+- [x] **T3.V** `-am` test-compile 绿、validate gates 过；resolved dependency:tree 三项均验证运行期不缺类。
+- [x] **T3.C** 三个 commit：`24ddc8d615b`（迁测试）、`379e4b07066`（删 iceberg 簇）、`d0f6d3878d3`（aws-json/avro/parquet）。
 
 ---
 
@@ -87,6 +87,6 @@
 | 0 | 起步 | — | — | ✅ |
 | 1 | 零风险依赖删除 | 低 | — | ✅ `76e6d5fcf2d` |
 | 2 | 死代码 + 注释纠错 | 低 | — | ✅ `0102a022341`（avro 注释顺延 B3） |
-| 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | 🟡 大部完成（迁测试 `24ddc8d615b` + 删 iceberg 簇 `379e4b07066`）；尾巴 aws-json/avro/parquet 待验证 |
-| 4 | 待定依赖定性 | 低 | — | ⬜ |
+| 3 | iceberg-AWS 依赖簇移除 | 中 | B2 | ✅ 迁测试 `24ddc8d615b` + 删 iceberg 簇 `379e4b07066` + aws-json/avro/parquet `d0f6d3878d3` |
+| 4 | 待定依赖定性 | 低 | — | ⬜ **下一步** |
 | 5 | LIVE 源特有逻辑迁移 | 高 | B1–3 | ⬜ |
