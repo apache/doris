@@ -17,13 +17,23 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.resource.Tag;
+
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.util.Map;
 
 public class TablePropertyTest {
+    private static final String DEFAULT_REPLICATION_NUM =
+            "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+    private static final String DEFAULT_REPLICATION_ALLOCATION =
+            "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
+    private static final String REPLICATION_ALLOCATION =
+            "tag.location.group_0: 1, tag.location.group_1: 1, tag.location.group_2: 1";
 
     // A non-whitelisted dynamic_partition.* key is ignored (skipped via continue), so it is not
     // collected at all and the table is neither built as dynamic nor flagged as incomplete.
@@ -104,5 +114,62 @@ public class TablePropertyTest {
         Assert.assertFalse(tableProperty.hasInvalidDynamicPartition());
         Assert.assertEquals(3, tableProperty.getDynamicPartitionProperty().getEnd());
         Assert.assertEquals(1, tableProperty.getDynamicPartitionProperty().getBuckets());
+    }
+
+    @Test
+    public void testModifyDefaultReplicaAllocationRemovesLegacyReplicationNum() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_NUM, "3");
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildReplicaAllocation();
+
+        Map<String, String> modifiedProperties = Maps.newHashMap();
+        modifiedProperties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
+        tableProperty.modifyTableProperties(modifiedProperties);
+        tableProperty.buildReplicaAllocation();
+
+        assertReplicaAllocationWins(tableProperty);
+    }
+
+    @Test
+    public void testDeserializeConflictingDefaultReplicaPropertiesUsesAllocation() throws IOException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_NUM, "3");
+        properties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
+        TableProperty tableProperty = new TableProperty(properties);
+
+        tableProperty.gsonPostProcess();
+
+        assertReplicaAllocationWins(tableProperty);
+    }
+
+    @Test
+    public void testModifyDefaultReplicationNumRemovesExistingAllocation() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildReplicaAllocation();
+
+        Map<String, String> modifiedProperties = Maps.newHashMap();
+        modifiedProperties.put(DEFAULT_REPLICATION_NUM, "2");
+        tableProperty.modifyTableProperties(modifiedProperties);
+        tableProperty.buildReplicaAllocation();
+
+        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
+        Assert.assertEquals(Short.valueOf((short) 2),
+                tableProperty.getReplicaAllocation().getReplicaNumByTag(Tag.DEFAULT_BACKEND_TAG));
+    }
+
+    private void assertReplicaAllocationWins(TableProperty tableProperty) {
+        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assert.assertEquals(Short.valueOf((short) 1),
+                tableProperty.getReplicaAllocation()
+                        .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_0")));
+        Assert.assertEquals(Short.valueOf((short) 1),
+                tableProperty.getReplicaAllocation()
+                        .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_1")));
+        Assert.assertEquals(Short.valueOf((short) 1),
+                tableProperty.getReplicaAllocation()
+                        .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_2")));
     }
 }

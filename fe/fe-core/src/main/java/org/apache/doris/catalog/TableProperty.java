@@ -678,8 +678,20 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public void modifyTableProperties(Map<String, String> modifyProperties) {
+        removeConflictingReplicaProperty(modifyProperties,
+                "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION);
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
+    }
+
+    private void removeConflictingReplicaProperty(Map<String, String> modifyProperties,
+            String replicationNumKey, String replicationAllocationKey) {
+        if (modifyProperties.containsKey(replicationAllocationKey)) {
+            properties.remove(replicationNumKey);
+        } else if (modifyProperties.containsKey(replicationNumKey)) {
+            properties.remove(replicationAllocationKey);
+        }
     }
 
     public void modifyDataSortInfoProperties(DataSortInfo dataSortInfo) {
@@ -968,15 +980,18 @@ public class TableProperty implements GsonPostProcessable {
         buildColumnSeqMapping();
     }
 
-    // For some historical reason,
-    // both "dynamic_partition.replication_num" and "dynamic_partition.replication_allocation"
-    // may be exist in "properties". we need remove the "dynamic_partition.replication_num", or it will always replace
-    // the "dynamic_partition.replication_allocation",
-    // result in unable to set "dynamic_partition.replication_allocation".
+    // Both replication_num and replication_allocation may exist in properties loaded from old metadata.
+    // Prefer the canonical replication_allocation form because replication_num is checked first by the analyzer.
     private void removeDuplicateReplicaNumProperty() {
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+        }
+        String defaultReplicationNum = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+        String defaultReplicationAllocation = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
+        if (properties.containsKey(defaultReplicationNum)
+                && properties.containsKey(defaultReplicationAllocation)) {
+            properties.remove(defaultReplicationNum);
         }
     }
 
