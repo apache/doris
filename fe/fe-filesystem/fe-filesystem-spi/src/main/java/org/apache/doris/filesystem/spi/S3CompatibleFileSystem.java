@@ -868,20 +868,24 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
     }
 
-    protected String globListPrefix(String globPattern) {
-        return longestNonGlobPrefix(globPattern);
+    /** Plans the server-side prefixes and ordering assumptions for a glob listing. */
+    protected GlobListPlan globListPlan(String bucket, String globPattern) {
+        return new GlobListPlan(
+                longestNonGlobPrefix(globPattern), expandedGlobListPrefixes(globPattern), true);
     }
 
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
-        return expandedGlobListPrefixes(globPattern);
-    }
+    /** Provider-specific plan for one logical glob listing. */
+    protected static final class GlobListPlan {
+        private final String commonPrefix;
+        private final List<String> prefixes;
+        private final boolean serviceReturnsOrderedKeys;
 
-    protected String globListPrefix(String bucket, String globPattern) {
-        return globListPrefix(globPattern);
-    }
-
-    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix) {
-        return globListPrefixes(globPattern, listPrefix);
+        public GlobListPlan(String commonPrefix, List<String> prefixes,
+                boolean serviceReturnsOrderedKeys) {
+            this.commonPrefix = commonPrefix;
+            this.prefixes = prefixes;
+            this.serviceReturnsOrderedKeys = serviceReturnsOrderedKeys;
+        }
     }
 
     private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
@@ -1213,8 +1217,12 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        String listPrefix = globListPrefix(bucket, expandedKeyPattern);
-        List<String> listPrefixes = globListPrefixes(bucket, expandedKeyPattern, listPrefix);
+        GlobListPlan plan = globListPlan(bucket, expandedKeyPattern);
+        String listPrefix = plan.commonPrefix;
+        List<String> listPrefixes = plan.prefixes;
+        if (!plan.serviceReturnsOrderedKeys) {
+            return globListUnordered(uri, bucket, base, matcher, plan, startAfter, maxBytes, maxFiles);
+        }
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
@@ -1248,12 +1256,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
                             continue;
                         }
 
-                        files.add(new FileEntry(
-                                Location.of(base + obj.getKey()),
-                                obj.getSize(),
-                                false,
-                                obj.getModificationTime(),
-                                null));
+                        files.add(toFileEntry(base, obj));
                         totalSize += obj.getSize();
                         lastMatchedKey = obj.getKey();
 
@@ -1265,7 +1268,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
                     isTruncated = response.isTruncated();
                     if (isTruncated) {
-                        continuationToken = response.getContinuationToken();
+                        continuationToken = requireContinuationToken(response, listUri);
                     }
                     // Continue paginating after limit until we find the next matching key,
                     // so callers can use it as a pagination cursor.
@@ -1281,6 +1284,81 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // maxFile is the next matching key after the returned page (if found), or the last returned key.
         String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
         return new GlobListing(files, bucket, listPrefix, maxFile);
+    }
+
+    private GlobListing globListUnordered(String uri, String bucket, String base, Pattern matcher,
+            GlobListPlan plan, String startAfter, long maxBytes, long maxFiles) throws IOException {
+        // Directory-bucket continuation tokens only preserve the service's unspecified traversal
+        // order. Exhaust the listing before sorting so cursors and limits retain the FileSystem
+        // contract's global UTF-8 lexicographic order.
+        List<RemoteObject> matches = new ArrayList<>();
+        try {
+            for (String prefix : plan.prefixes) {
+                String continuationToken = null;
+                String listUri = base + prefix;
+                boolean truncated;
+                do {
+                    RemoteObjects response = objStorage.listObjectsWithOptions(listUri,
+                            ObjectListOptions.builder().continuationToken(continuationToken).build());
+                    for (RemoteObject object : response.getObjectList()) {
+                        boolean afterStart = startAfter == null || startAfter.isEmpty()
+                                || UTF8_BINARY_ORDER.compare(object.getKey(), startAfter) > 0;
+                        if (afterStart && matcher.matcher(object.getKey()).matches()) {
+                            matches.add(object);
+                        }
+                    }
+                    truncated = response.isTruncated();
+                    continuationToken = truncated
+                            ? requireContinuationToken(response, listUri) : null;
+                } while (truncated);
+            }
+        } catch (Exception e) {
+            throw new IOException("Failed to list object storage objects at " + uri + ": "
+                    + e.getMessage(), e);
+        }
+
+        matches.sort((left, right) -> UTF8_BINARY_ORDER.compare(left.getKey(), right.getKey()));
+
+        List<FileEntry> files = new ArrayList<>();
+        long totalSize = 0L;
+        boolean reachLimit = false;
+        String nextMatchAfterLimit = "";
+        String lastMatchedKey = "";
+        for (RemoteObject match : matches) {
+            String key = match.getKey();
+            if (reachLimit) {
+                nextMatchAfterLimit = key;
+                break;
+            }
+
+            files.add(toFileEntry(base, match));
+            totalSize += match.getSize();
+            lastMatchedKey = key;
+            reachLimit = (maxFiles > 0 && files.size() >= maxFiles)
+                    || (maxBytes > 0 && totalSize >= maxBytes);
+        }
+
+        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
+        return new GlobListing(files, bucket, plan.commonPrefix, maxFile);
+    }
+
+    private static FileEntry toFileEntry(String base, RemoteObject object) {
+        return new FileEntry(
+                Location.of(base + object.getKey()),
+                object.getSize(),
+                false,
+                object.getModificationTime(),
+                null);
+    }
+
+    private static String requireContinuationToken(RemoteObjects response, String listUri)
+            throws IOException {
+        String continuationToken = response.getContinuationToken();
+        if (continuationToken == null || continuationToken.isEmpty()) {
+            throw new IOException("Object storage returned a truncated listing without a "
+                    + "continuation token for " + listUri);
+        }
+        return continuationToken;
     }
 
     /**

@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.S3ExpressUtils;
+import org.apache.doris.filesystem.capability.Capability;
+import org.apache.doris.filesystem.capability.ReadAccessCheckCapability;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import java.util.List;
@@ -51,33 +54,22 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     @Override
-    protected String globListPrefix(String bucket, String globPattern) {
-        if (usesDirectoryBucketListing(bucket)) {
-            return slashTerminatedNonGlobPrefix(globPattern);
+    protected GlobListPlan globListPlan(String bucket, String globPattern) {
+        if (!s3ObjStorage.usesS3Express(bucket)) {
+            return super.globListPlan(bucket, globPattern);
         }
-        return super.globListPrefix(bucket, globPattern);
+        String directoryPrefix = S3ExpressUtils.directoryPrefix(longestNonGlobPrefix(globPattern));
+        return new GlobListPlan(directoryPrefix, List.of(directoryPrefix), false);
     }
 
     @Override
-    protected List<String> globListPrefixes(String bucket, String globPattern, String listPrefix) {
-        if (usesDirectoryBucketListing(bucket)) {
-            return List.of(listPrefix);
+    public <T extends Capability> Optional<T> capability(Class<T> capabilityType) {
+        if (capabilityType == ReadAccessCheckCapability.class) {
+            ReadAccessCheckCapability capability = location ->
+                    s3ObjStorage.checkReadAccess(location.uri());
+            return Optional.of(capabilityType.cast(capability));
         }
-        return super.globListPrefixes(bucket, globPattern, listPrefix);
-    }
-
-    private boolean usesDirectoryBucketListing(String bucket) {
-        return s3ObjStorage.usesS3Express(bucket)
-                || (properties != null && properties.isDirectoryBucketEndpoint());
-    }
-
-    private static String slashTerminatedNonGlobPrefix(String globPattern) {
-        String prefix = longestNonGlobPrefix(globPattern);
-        if (prefix.isEmpty() || prefix.endsWith("/")) {
-            return prefix;
-        }
-        int slash = prefix.lastIndexOf('/');
-        return slash < 0 ? "" : prefix.substring(0, slash + 1);
+        return super.capability(capabilityType);
     }
 
     protected static boolean isSingleLevelGlob(String pathStr) {

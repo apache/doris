@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.filesystem.S3ExpressUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -75,9 +76,6 @@ public class S3URI {
 
     private static final Set<String> OS_SCHEMES = ImmutableSet.of("s3", "s3a", "s3n",
             "bos", "oss", "cos", "cosn", "gs", "obs", "azure");
-
-    /** Suffix of S3Express storage bucket names. */
-    private static final String S3_DIRECTORY_BUCKET_SUFFIX = "--x-s3";
 
     private URI uri;
 
@@ -356,28 +354,7 @@ public class S3URI {
      * @return true if the bucket name indicates the bucket is a directory bucket
      */
     public static boolean isS3DirectoryBucket(final String bucketName) {
-        if (bucketName == null || !bucketName.endsWith(S3_DIRECTORY_BUCKET_SUFFIX)) {
-            return false;
-        }
-        // Check if the bucket name has the correct format: bucket-name--azid--x-s3
-        // The bucket name should have at least 3 segments separated by "--"
-        String[] segments = bucketName.split("--");
-        if (segments.length < 3) {
-            return false;
-        }
-        // The last segment should be "x-s3"
-        if (!"x-s3".equals(segments[segments.length - 1])) {
-            return false;
-        }
-        // The second-to-last segment should be the availability zone identifier
-        // It should have a format like "usw2-az1", "use1-az4", etc.
-        String azid = segments[segments.length - 2];
-        if (azid == null || azid.isEmpty()) {
-            return false;
-        }
-        // Basic validation: azid should contain at least one hyphen and not be empty
-        // More sophisticated validation could be added here if needed
-        return azid.contains("-") && azid.length() > 3;
+        return S3ExpressUtils.isDirectoryBucket(bucketName);
     }
 
     /**
@@ -391,13 +368,6 @@ public class S3URI {
      * @return The adjusted prefix ending with a "/" (e.g., "path/to/"), or an empty string if no "/" is present.
      */
     public static String getDirectoryPrefixForGlob(final String globPrefix) {
-        if (globPrefix == null || globPrefix.isEmpty() || globPrefix.endsWith("/")) {
-            return globPrefix;
-        }
-        int lastSlashIndex = globPrefix.lastIndexOf('/');
-        if (lastSlashIndex >= 0) {
-            return globPrefix.substring(0, lastSlashIndex + 1);
-        }
-        return "";
+        return S3ExpressUtils.directoryPrefix(globPrefix);
     }
 }

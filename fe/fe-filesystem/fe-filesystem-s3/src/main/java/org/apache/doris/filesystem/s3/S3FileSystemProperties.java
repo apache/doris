@@ -39,6 +39,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Provider-owned typed properties for AWS S3 and S3-compatible object storage.
@@ -181,6 +182,11 @@ public final class S3FileSystemProperties
             description = "The credentials provider type.")
     private String credentialsProviderType = DEFAULT_CREDENTIALS_PROVIDER_TYPE;
 
+    @Getter
+    @ConnectorProperty(names = {S3_PROVIDER, PROVIDER}, required = false,
+            description = "The S3 service provider.")
+    private String provider = "";
+
     private final Map<String, String> rawProperties;
     private final Map<String, String> matchedProperties;
 
@@ -188,6 +194,7 @@ public final class S3FileSystemProperties
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
         this.matchedProperties = Collections.unmodifiableMap(collectMatchedProperties(rawProperties));
         ConnectorPropertiesUtils.bindConnectorProperties(this, rawProperties);
+        this.provider = resolveProvider(rawProperties);
         normalizeForLegacyS3Compatibility();
     }
 
@@ -266,11 +273,7 @@ public final class S3FileSystemProperties
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put(USE_PATH_STYLE, usePathStyle);
         kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", getCredentialsProviderType().getMode());
-        rawProperties.entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(S3_PROVIDER)
-                        || entry.getKey().equalsIgnoreCase(PROVIDER))
-                .findFirst()
-                .ifPresent(entry -> kv.put(PROVIDER, entry.getValue()));
+        putIfNotBlank(kv, PROVIDER, provider);
         return Collections.unmodifiableMap(kv);
     }
 
@@ -340,27 +343,32 @@ public final class S3FileSystemProperties
         return StringUtils.isNotBlank(roleArn);
     }
 
-    public boolean isDirectoryBucketEndpoint() {
-        return StringUtils.containsIgnoreCase(endpoint, "s3express-control.")
-                || StringUtils.containsIgnoreCase(endpoint, "s3express-");
-    }
-
     boolean isAwsProvider() {
-        return isAwsProvider(rawProperties);
-    }
-
-    static boolean isAwsProvider(Map<String, String> properties) {
-        return properties.entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(S3_PROVIDER)
-                        || entry.getKey().equalsIgnoreCase(PROVIDER))
-                .map(Map.Entry::getValue)
-                .anyMatch(value -> "AWS".equalsIgnoreCase(value));
+        return "AWS".equalsIgnoreCase(provider);
     }
 
     private static void putIfNotBlank(Map<String, String> map, String key, String value) {
         if (StringUtils.isNotBlank(value)) {
             map.put(key, value);
         }
+    }
+
+    private static Optional<String> findPropertyIgnoreCase(
+            Map<String, String> properties, String propertyName) {
+        return properties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(propertyName))
+                .map(Map.Entry::getValue)
+                .findFirst();
+    }
+
+    private static String resolveProvider(Map<String, String> properties) {
+        return Stream.of(S3_PROVIDER, PROVIDER)
+                .map(name -> findPropertyIgnoreCase(properties, name))
+                .flatMap(Optional::stream)
+                .map(String::trim)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse("");
     }
 
     private boolean hasUnsupportedCredentialsProviderType() {

@@ -158,7 +158,7 @@ class S3ObjStorageMockTest {
     }
 
     @Test
-    void listObjects_directoryBucketUsesExpressClientAndDirectoryPrefix() throws IOException {
+    void listObjects_directoryBucketUsesExpressClientAndPreservesDirectoryPrefix() throws IOException {
         S3Client regularClient = Mockito.mock(S3Client.class);
         S3Client expressClient = Mockito.mock(S3Client.class);
         S3ObjStorage expressStorage = directoryBucketStorage(
@@ -167,7 +167,7 @@ class S3ObjStorageMockTest {
         Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
                 .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
 
-        expressStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/file-*.csv", null);
+        expressStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/", null);
 
         ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
         Mockito.verify(expressClient).listObjectsV2(captor.capture());
@@ -188,7 +188,7 @@ class S3ObjStorageMockTest {
         Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
                 .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
 
-        expressStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/file.csv", "opaque-token");
+        expressStorage.listObjects("s3://" + DIRECTORY_BUCKET + "/data/", "opaque-token");
 
         ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
         Mockito.verify(expressClient).listObjectsV2(captor.capture());
@@ -246,11 +246,47 @@ class S3ObjStorageMockTest {
 
         IOException exception = Assertions.assertThrows(IOException.class,
                 () -> expressStorage.listObjectsWithOptions(
-                        "s3://" + DIRECTORY_BUCKET + "/data/file.csv",
+                        "s3://" + DIRECTORY_BUCKET + "/data/",
                         ObjectListOptions.builder().startAfter("data/previous.csv").build()));
 
         Assertions.assertTrue(exception.getMessage().contains("StartAfter"));
         Mockito.verifyNoInteractions(regularClient, expressClient);
+    }
+
+    @Test
+    void listObjects_directoryBucketRejectsNonDirectoryPrefix() {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        S3ObjStorage expressStorage = directoryBucketStorage(
+                "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
+                regularClient, expressClient);
+
+        IOException exception = Assertions.assertThrows(IOException.class,
+                () -> expressStorage.listObjects(
+                        "s3://" + DIRECTORY_BUCKET + "/data/file.csv", null));
+
+        Assertions.assertTrue(exception.getMessage().contains("prefix must end with '/'"));
+        Mockito.verifyNoInteractions(regularClient, expressClient);
+    }
+
+    @Test
+    void checkReadAccess_directoryBucketUsesBoundedExpressList() throws IOException {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        S3ObjStorage expressStorage = directoryBucketStorage(
+                "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
+                regularClient, expressClient);
+        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
+
+        expressStorage.checkReadAccess("s3://" + DIRECTORY_BUCKET + "/data/file.csv");
+
+        ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
+        Mockito.verify(expressClient).listObjectsV2(captor.capture());
+        Assertions.assertEquals(DIRECTORY_BUCKET, captor.getValue().bucket());
+        Assertions.assertEquals(1, captor.getValue().maxKeys());
+        Assertions.assertNull(captor.getValue().prefix());
+        Mockito.verifyNoInteractions(regularClient);
     }
 
     @Test

@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.S3ExpressUtils;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
@@ -81,7 +82,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -92,9 +92,6 @@ import java.util.stream.Collectors;
 public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
-    private static final Pattern DIRECTORY_BUCKET_PATTERN =
-            Pattern.compile("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?--[a-z0-9-]+-az[0-9]+--x-s3$");
-
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
@@ -105,6 +102,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile S3Client client;
     private volatile S3Client expressClient;
+
+    private enum ClientMode {
+        STANDARD,
+        EXPRESS
+    }
 
     public S3ObjStorage(S3FileSystemProperties properties) {
         this.s3Properties = properties;
@@ -132,17 +134,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public S3Client getClient() throws IOException {
-        if (closed.get()) {
-            throw new IOException("S3ObjStorage is already closed");
-        }
-        if (client == null) {
-            synchronized (this) {
-                if (client == null) {
-                    client = buildClient();
-                }
-            }
-        }
-        return client;
+        return getOrCreateClient(ClientMode.STANDARD);
     }
 
     protected S3Client buildClient() throws IOException {
@@ -204,29 +196,54 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     boolean usesS3Express(String requestBucket) {
         return s3Properties.isAwsProvider()
-                && requestBucket != null
-                && DIRECTORY_BUCKET_PATTERN.matcher(requestBucket).matches();
+                && S3ExpressUtils.isDirectoryBucket(requestBucket);
     }
 
     private S3Client getExpressClient() throws IOException {
+        return getOrCreateClient(ClientMode.EXPRESS);
+    }
+
+    private S3Client getOrCreateClient(ClientMode mode) throws IOException {
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
-        if (expressClient == null) {
+        S3Client selected = mode == ClientMode.EXPRESS ? expressClient : client;
+        if (selected == null) {
             synchronized (this) {
                 if (closed.get()) {
                     throw new IOException("S3ObjStorage is already closed");
                 }
-                if (expressClient == null) {
-                    expressClient = buildExpressClient();
+                selected = mode == ClientMode.EXPRESS ? expressClient : client;
+                if (selected == null) {
+                    selected = mode == ClientMode.EXPRESS ? buildExpressClient() : buildClient();
+                    if (mode == ClientMode.EXPRESS) {
+                        expressClient = selected;
+                    } else {
+                        client = selected;
+                    }
                 }
             }
         }
-        return expressClient;
+        return selected;
     }
 
     private S3Client getClientForBucket(String requestBucket) throws IOException {
         return usesS3Express(requestBucket) ? getExpressClient() : getClient();
+    }
+
+    void checkReadAccess(String remotePath) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        boolean s3Express = usesS3Express(uri.bucket());
+        try {
+            getClientForBucket(uri.bucket()).listObjectsV2(ListObjectsV2Request.builder()
+                    .bucket(uri.bucket())
+                    .maxKeys(1)
+                    .build());
+        } catch (SdkException e) {
+            String requiredPermission = s3Express ? " (requires s3express:CreateSession)" : "";
+            throw new IOException("Failed to verify read access to S3 bucket " + uri.bucket()
+                    + requiredPermission + ": " + e.getMessage(), e);
+        }
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
@@ -251,7 +268,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         boolean s3Express = usesS3Express(uri.bucket());
-        String requestPrefix = s3Express ? slashTerminatedPrefix(uri.key()) : uri.key();
+        String requestPrefix = uri.key();
+        if (s3Express && !requestPrefix.isEmpty() && !requestPrefix.endsWith("/")) {
+            throw new IOException("AWS directory bucket ListObjectsV2 prefix must end with '/': "
+                    + requestPrefix);
+        }
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(uri.bucket());
         if (!s3Express || !requestPrefix.isEmpty()) {
@@ -270,6 +291,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 builder.maxKeys(options.maxKeys());
             }
             if (StringUtils.isNotBlank(options.delimiter())) {
+                if (s3Express && !"/".equals(options.delimiter())) {
+                    throw new IOException("AWS directory bucket ListObjectsV2 only supports '/' as delimiter");
+                }
                 builder.delimiter(options.delimiter());
             }
         }
@@ -701,14 +725,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             return key;
         }
         return key.substring(normalized.length());
-    }
-
-    private static String slashTerminatedPrefix(String key) {
-        if (key.isEmpty() || key.endsWith("/")) {
-            return key;
-        }
-        int slash = key.lastIndexOf('/');
-        return slash < 0 ? "" : key.substring(0, slash + 1);
     }
 
     @Override
