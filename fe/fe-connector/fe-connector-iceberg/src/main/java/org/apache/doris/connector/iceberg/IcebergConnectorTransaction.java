@@ -1050,7 +1050,13 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
                             || !ContentFileUtil.isFileScoped(deleteFile)) {
                         continue;
                     }
-                    String referenced = deleteFile.referencedDataFile();
+                    // Use the bounds-aware ContentFileUtil accessor, consistent with the isFileScoped() gate
+                    // above: a Spark-written file-scoped parquet/orc position delete carries its referenced
+                    // data file in the file_path column bounds, NOT in the manifest referenced_data_file field
+                    // (id 143) — only a v3 puffin DV sets that field. The raw DeleteFile.referencedDataFile()
+                    // therefore returns null for such deletes, so they would pass isFileScoped() yet be dropped
+                    // here, leaving the superseded parquet delete live after a v3 DELETE.
+                    String referenced = ContentFileUtil.referencedDataFileLocation(deleteFile);
                     if (referenced == null || !touchedDataFilePaths.contains(referenced)) {
                         continue;
                     }
