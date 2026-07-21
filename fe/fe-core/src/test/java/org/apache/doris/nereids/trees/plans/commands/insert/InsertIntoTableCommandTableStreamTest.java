@@ -40,6 +40,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.ResolveCloudTableStreamReadState;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -489,11 +490,27 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
     @Test
     public void testCloudCteAndOuterStreamScansUseSingleReadStateRpc() throws Exception {
+        createTable("create table if not exists test_stream.tbl_cloud_mv_empty (\n"
+                + "  k1 int,\n"
+                + "  k2 int\n"
+                + ")\n"
+                + "unique key(k1)\n"
+                + "partition by range(k1)\n"
+                + "(partition p1 values less than (\"100\"),\n"
+                + " partition p2 values less than (\"200\"))\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\","
+                + "\"enable_unique_key_merge_on_write\"=\"true\","
+                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
+                + "\"binlog.need_historical_value\"=\"true\")");
+        createTable("create stream if not exists test_stream.s_cloud_mv_empty "
+                + "on table test_stream.tbl_cloud_mv_empty\n"
+                + "properties('show_initial_rows' = 'false')");
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
-        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_cloud_mv_empty");
         long p1 = baseTable.getPartition("p1").getId();
         long p2 = baseTable.getPartition("p2").getId();
-        String sql = "with cte as (select k1, k2 from test_stream.s1) "
+        String sql = "with cte as (select k1, k2 from test_stream.s_cloud_mv_empty) "
                 + "select k1, k2 from cte where k1 < 100 union all "
                 + "select k1, k2 from cte where k1 >= 100 and k1 < 200";
 
@@ -534,7 +551,21 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 UUID uuid = UUID.randomUUID();
                 connectContext.setQueryId(
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
-                PlanChecker.from(connectContext).analyze(sql).rewrite();
+                PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+                checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
+                checker.rewrite();
+
+                List<Plan> tmpPlans = checker.getCascadesContext().getStatementContext()
+                        .getTmpPlanForMvRewrite();
+                Assertions.assertFalse(tmpPlans.isEmpty());
+                Assertions.assertTrue(tmpPlans.stream().anyMatch(tmpPlan -> !tmpPlan
+                        .collectToList(LogicalOlapTableStreamScan.class::isInstance).isEmpty()));
+                Assertions.assertTrue(checker.getCascadesContext().getRewritePlan()
+                        .collectToList(LogicalOlapTableStreamScan.class::isInstance).isEmpty());
+
+                checker.getCascadesContext().getStatementContext().setNeedPreMvRewrite(true);
+                checker.preMvRewrite();
+                Assertions.assertTrue(checker.getCascadesContext().getStatementContext().isPreMvRewritten());
 
                 ArgumentCaptor<Cloud.GetTableStreamReadStateRequest> requestCaptor =
                         ArgumentCaptor.forClass(Cloud.GetTableStreamReadStateRequest.class);

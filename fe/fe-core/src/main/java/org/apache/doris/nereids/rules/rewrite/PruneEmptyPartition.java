@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -48,6 +50,11 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
             }
             LogicalOlapScan scan = ctx.root;
             OlapTable table = scan.getTable();
+            if (Config.isCloudMode() && table instanceof OlapTableStreamWrapper
+                    && !((OlapTableStreamWrapper) table).hasCloudReadStates()) {
+                // Cloud Stream emptiness is defined by the statement read snapshot, not FE-local offsets.
+                return null;
+            }
             List<Long> partitionIdsToPrune = scan.getSelectedPartitionIds();
             List<Long> ids = table.selectNonEmptyPartitionIds(partitionIdsToPrune, scan.getStreamReadMode());
             if (ctx.connectContext != null && ctx.connectContext.isTxnModel()) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.executor;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
@@ -413,6 +414,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new PruneFileScanPartition(),
                                             new PushDownFilterIntoSchemaScan()
                                     )
+                            ),
+                            topic("Normalize non-Cloud Table Stream for MV matching",
+                                    cascadesContext -> Config.isNotCloudMode(),
+                                    topDown(new NormalizeOlapTableStreamScan())
                             ),
                             topic("necessary rules before record mv",
                                     topDown(new LimitSortToTopN()),

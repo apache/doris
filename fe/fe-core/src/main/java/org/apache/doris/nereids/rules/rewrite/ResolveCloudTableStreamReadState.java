@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
@@ -54,6 +55,21 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
             scans.add(scan);
         });
         if (scans.isEmpty()) {
+            return plan;
+        }
+
+        boolean readStatesInstalled = scans.get(0).getTable().hasCloudReadStates();
+        for (LogicalOlapTableStreamScan scan : scans) {
+            OlapTableStreamWrapper wrapper = scan.getTable();
+            Preconditions.checkState(wrapper.hasCloudReadStates() == readStatesInstalled,
+                    "Cloud Table Stream read state must be installed once for all scans in one statement");
+            if (readStatesInstalled) {
+                Preconditions.checkState(wrapper.getCloudReadStates().keySet()
+                                .containsAll(scan.getSelectedPartitionIds()),
+                        "Installed Cloud Table Stream read state does not cover every selected partition");
+            }
+        }
+        if (readStatesInstalled) {
             return plan;
         }
 

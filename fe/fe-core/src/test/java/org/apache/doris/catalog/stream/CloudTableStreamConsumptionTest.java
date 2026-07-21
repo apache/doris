@@ -34,7 +34,9 @@ import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class CloudTableStreamConsumptionTest extends TestWithFeService {
 
@@ -74,7 +76,8 @@ public class CloudTableStreamConsumptionTest extends TestWithFeService {
             Mockito.when(proxy.getTableStreamReadState(Mockito.any())).thenAnswer(invocation -> {
                 Cloud.GetTableStreamReadStateRequest request = invocation.getArgument(0);
                 Assertions.assertEquals(1, request.getBindingsCount());
-                Assertions.assertEquals(List.of(p1, p2), request.getBindings(0).getPartitionIdsList());
+                Assertions.assertEquals(Set.of(p1, p2),
+                        new HashSet<>(request.getBindings(0).getPartitionIdsList()));
                 return Cloud.GetTableStreamReadStateResponse.newBuilder()
                         .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                                 .setCode(Cloud.MetaServiceCode.OK))
