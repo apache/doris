@@ -76,11 +76,11 @@ static Status validate_native_schema_structure(
     }
 
     const auto& root = schemas[0];
-    if (root.__isset.type || !root.__isset.num_children || root.num_children <= 0 ||
+    if (root.__isset.type || !root.__isset.num_children || root.num_children < 0 ||
         (root.__isset.repetition_type &&
          root.repetition_type != tparquet::FieldRepetitionType::REQUIRED)) {
-        // Writers may encode the root's implicit REQUIRED repetition explicitly, but an optional
-        // or repeated root would make every descendant's definition/repetition levels ambiguous.
+        // Writers may encode the root's implicit REQUIRED repetition explicitly, and a zero-child
+        // root is a valid metadata-only schema. Optional or repeated roots remain ambiguous.
         return Status::InvalidArgument("Wrong parquet root schema element");
     }
 

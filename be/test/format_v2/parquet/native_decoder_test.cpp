@@ -25,6 +25,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vliteral.h"
@@ -45,8 +47,10 @@
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/delta_bit_pack_decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
+#include "format_v2/parquet/reader/native/level_reader.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -353,6 +357,37 @@ public:
 
 private:
     std::vector<uint8_t> _data;
+};
+
+class NativeDecoderMemoryFileReader final : public io::FileReader {
+public:
+    explicit NativeDecoderMemoryFileReader(std::vector<uint8_t> data)
+            : _data(std::move(data)), _path("native-decoder-memory.parquet") {}
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _data.size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 1; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        if (offset > _data.size() || result.size > _data.size() - offset) {
+            return Status::IOError("native decoder memory read exceeds file");
+        }
+        memcpy(result.data, _data.data() + offset, result.size);
+        *bytes_read = result.size;
+        return Status::OK();
+    }
+
+private:
+    std::vector<uint8_t> _data;
+    io::Path _path;
+    bool _closed = false;
 };
 
 std::shared_ptr<::parquet::ColumnDescriptor> descriptor(::parquet::Type::type physical_type) {
@@ -691,13 +726,15 @@ Status materialize_selected_plain_int64(const std::vector<int64_t>& physical_val
                                             statistics, false, &context);
 }
 
-template <typename DataType>
-Status materialize_selected_dictionary_int32(
-        const std::vector<int32_t>& dictionary, const std::vector<uint32_t>& physical_ids,
+template <typename PhysicalType, typename DataType>
+Status materialize_selected_dictionary_fixed(
+        const std::vector<PhysicalType>& dictionary, const std::vector<uint32_t>& physical_ids,
         size_t logical_values, const std::vector<uint16_t>& run_length_null_map,
         const std::vector<uint8_t>& filter_values, const DataType& type, MutableColumnPtr* column,
-        NullMap* null_map, ColumnChunkReaderStatistics* statistics) {
-    std::vector<uint8_t> dictionary_payload(dictionary.size() * sizeof(int32_t));
+        NullMap* null_map, ColumnChunkReaderStatistics* statistics,
+        tparquet::Type::type parquet_physical_type, ParquetPhysicalType decode_physical_type,
+        const ParquetDecodeContext* context_override = nullptr) {
+    std::vector<uint8_t> dictionary_payload(dictionary.size() * sizeof(PhysicalType));
     memcpy(dictionary_payload.data(), dictionary.data(), dictionary_payload.size());
     tparquet::PageHeader dictionary_header;
     dictionary_header.type = tparquet::PageType::DICTIONARY_PAGE;
@@ -742,14 +779,14 @@ Status materialize_selected_dictionary_int32(
 
     MemoryBufferedReader reader(bytes);
     tparquet::ColumnChunk chunk;
-    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_type(parquet_physical_type);
     chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
     chunk.meta_data.__set_num_values(static_cast<int64_t>(logical_values));
     chunk.meta_data.__set_total_compressed_size(bytes.size() - 1);
     chunk.meta_data.__set_dictionary_page_offset(1);
     chunk.meta_data.__set_data_page_offset(static_cast<int64_t>(data_page_offset));
     NativeFieldSchema field;
-    field.physical_type = tparquet::Type::INT32;
+    field.physical_type = parquet_physical_type;
     ParquetPageReadContext page_context(false, "");
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, logical_values,
                                                  nullptr, page_context);
@@ -757,7 +794,10 @@ Status materialize_selected_dictionary_int32(
     RETURN_IF_ERROR(chunk_reader.load_page_data());
 
     ParquetDecodeContext decode_context;
-    decode_context.physical_type = ParquetPhysicalType::INT32;
+    decode_context.physical_type = decode_physical_type;
+    if (context_override != nullptr) {
+        decode_context = *context_override;
+    }
     ParquetMaterializationState state;
     state.conversion_failure_null_map = null_map;
     FilterMap filter;
@@ -768,6 +808,30 @@ Status materialize_selected_dictionary_int32(
                                                     state, select_vector));
     *statistics = chunk_reader.statistics();
     return Status::OK();
+}
+
+template <typename DataType>
+Status materialize_selected_dictionary_int32(
+        const std::vector<int32_t>& dictionary, const std::vector<uint32_t>& physical_ids,
+        size_t logical_values, const std::vector<uint16_t>& run_length_null_map,
+        const std::vector<uint8_t>& filter_values, const DataType& type, MutableColumnPtr* column,
+        NullMap* null_map, ColumnChunkReaderStatistics* statistics) {
+    return materialize_selected_dictionary_fixed(
+            dictionary, physical_ids, logical_values, run_length_null_map, filter_values, type,
+            column, null_map, statistics, tparquet::Type::INT32, ParquetPhysicalType::INT32);
+}
+
+template <typename DataType>
+Status materialize_selected_dictionary_int64(
+        const std::vector<int64_t>& dictionary, const std::vector<uint32_t>& physical_ids,
+        size_t logical_values, const std::vector<uint16_t>& run_length_null_map,
+        const std::vector<uint8_t>& filter_values, const DataType& type, MutableColumnPtr* column,
+        NullMap* null_map, ColumnChunkReaderStatistics* statistics,
+        const ParquetDecodeContext& context) {
+    return materialize_selected_dictionary_fixed(dictionary, physical_ids, logical_values,
+                                                 run_length_null_map, filter_values, type, column,
+                                                 null_map, statistics, tparquet::Type::INT64,
+                                                 ParquetPhysicalType::INT64, &context);
 }
 
 Status materialize_selected_dictionary_strings(const std::vector<std::string>& dictionary,
@@ -1018,6 +1082,66 @@ TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDateTimeSelectionBatchesPhys
     EXPECT_EQ(statistics.hybrid_selection_batches, 1);
     EXPECT_EQ(statistics.hybrid_selection_ranges, 2);
     EXPECT_EQ(statistics.hybrid_selection_null_fallback_batches, 0);
+}
+
+TEST(ParquetV2NativeDecoderTest, NegativeNanosFloorAcrossPlainAndDictionaryTimestamps) {
+    const std::vector<int64_t> nanos {-1, -999, -1000, -1001, 0, 1001};
+    const std::vector<uint32_t> dictionary_ids {0, 1, 2, 3, 4, 5};
+    const std::vector<uint16_t> no_nulls {static_cast<uint16_t>(nanos.size()), 0};
+    const std::vector<uint8_t> select_all(nanos.size(), 1);
+    const std::vector<std::string> expected {
+            "1969-12-31 23:59:59.999999", "1969-12-31 23:59:59.999999",
+            "1969-12-31 23:59:59.999999", "1969-12-31 23:59:59.999998",
+            "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000001"};
+    const ParquetDecodeContext local_context {.physical_type = ParquetPhysicalType::INT64,
+                                              .logical_type = ParquetLogicalType::TIMESTAMP,
+                                              .time_unit = ParquetTimeUnit::NANOS};
+    const ParquetDecodeContext utc_context {.physical_type = ParquetPhysicalType::INT64,
+                                            .logical_type = ParquetLogicalType::TIMESTAMP,
+                                            .time_unit = ParquetTimeUnit::NANOS,
+                                            .timestamp_is_adjusted_to_utc = true};
+
+    for (const bool dictionary : {false, true}) {
+        SCOPED_TRACE(dictionary ? "dictionary" : "plain");
+        DataTypeDateTimeV2 datetime_type(6);
+        auto datetime_column = datetime_type.create_column();
+        NullMap datetime_nulls;
+        ColumnChunkReaderStatistics datetime_statistics;
+        const auto datetime_status =
+                dictionary ? materialize_selected_dictionary_int64(
+                                     nanos, dictionary_ids, nanos.size(), no_nulls, select_all,
+                                     datetime_type, &datetime_column, &datetime_nulls,
+                                     &datetime_statistics, local_context)
+                           : materialize_selected_plain_int64(nanos, nanos.size(), no_nulls,
+                                                              select_all, datetime_type,
+                                                              &datetime_column, &datetime_nulls,
+                                                              &datetime_statistics, local_context);
+        ASSERT_TRUE(datetime_status.ok()) << datetime_status;
+        ASSERT_EQ(datetime_column->size(), expected.size());
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_EQ(datetime_type.to_string(*datetime_column, row), expected[row]);
+        }
+
+        DataTypeTimeStampTz timestamptz_type(6);
+        auto timestamptz_column = timestamptz_type.create_column();
+        NullMap timestamptz_nulls;
+        ColumnChunkReaderStatistics timestamptz_statistics;
+        const auto timestamptz_status =
+                dictionary ? materialize_selected_dictionary_int64(
+                                     nanos, dictionary_ids, nanos.size(), no_nulls, select_all,
+                                     timestamptz_type, &timestamptz_column, &timestamptz_nulls,
+                                     &timestamptz_statistics, utc_context)
+                           : materialize_selected_plain_int64(
+                                     nanos, nanos.size(), no_nulls, select_all, timestamptz_type,
+                                     &timestamptz_column, &timestamptz_nulls,
+                                     &timestamptz_statistics, utc_context);
+        ASSERT_TRUE(timestamptz_status.ok()) << timestamptz_status;
+        const auto& tz_column = assert_cast<const ColumnTimeStampTz&>(*timestamptz_column);
+        const auto utc = cctz::utc_time_zone();
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_EQ(tz_column.get_element(row).to_string(utc, 6), expected[row] + "+00:00");
+        }
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, NullableSparseDictionarySelectionBatchesPhysicalPayload) {
@@ -2609,6 +2733,77 @@ TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption
     EXPECT_TRUE(parse_header(competing_layouts).is<ErrorCode::CORRUPTION>());
 }
 
+TEST(ParquetV2NativeDecoderTest, ShiftedOffsetIndexFallsBackToSequentialPages) {
+    auto data_page = [](int32_t value) {
+        tparquet::PageHeader header;
+        header.type = tparquet::PageType::DATA_PAGE;
+        header.__set_compressed_page_size(sizeof(value));
+        header.__set_uncompressed_page_size(sizeof(value));
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(1);
+        header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+        std::vector<uint8_t> payload(sizeof(value));
+        memcpy(payload.data(), &value, sizeof(value));
+        return serialize_page(header, payload);
+    };
+    auto verify_fallback = [&](bool cache_hit) {
+        const auto first_page = data_page(10);
+        const auto second_page = data_page(20);
+        std::vector<uint8_t> bytes = first_page;
+        bytes.insert(bytes.end(), second_page.begin(), second_page.end());
+        bytes.push_back(0);
+
+        tparquet::OffsetIndex offset_index;
+        tparquet::PageLocation first_location;
+        first_location.__set_offset(0);
+        first_location.__set_compressed_page_size(cast_set<int32_t>(first_page.size() + 1));
+        first_location.__set_first_row_index(0);
+        tparquet::PageLocation second_location;
+        second_location.__set_offset(cast_set<int64_t>(first_page.size() + 1));
+        second_location.__set_compressed_page_size(cast_set<int32_t>(second_page.size()));
+        second_location.__set_first_row_index(1);
+        offset_index.__set_page_locations({first_location, second_location});
+        EXPECT_TRUE(
+                validate_offset_index(offset_index, {.offset = 0, .length = bytes.size()}, 0, 2));
+
+        const std::string cache_key = cache_hit ? "shifted-index-cache-hit" : "";
+        if (cache_hit) {
+            auto* page = new DataPage(first_page.size(), true, segment_v2::DATA_PAGE);
+            memcpy(page->data(), first_page.data(), first_page.size());
+            page->reset_size(first_page.size());
+            PageCacheHandle handle;
+            StoragePageCache::instance()->insert(
+                    StoragePageCache::CacheKey(cache_key, bytes.size(), 0), page, &handle,
+                    segment_v2::DATA_PAGE);
+        }
+
+        tparquet::ColumnMetaData metadata;
+        metadata.__set_type(tparquet::Type::INT32);
+        metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        metadata.__set_num_values(2);
+        metadata.__set_total_compressed_size(bytes.size());
+        metadata.__set_data_page_offset(0);
+        MemoryBufferedReader stream(std::move(bytes));
+        PageReader<false, true> reader(&stream, nullptr, 0, metadata.total_compressed_size, 2,
+                                       metadata, ParquetPageReadContext(cache_hit, cache_key),
+                                       &offset_index);
+
+        ASSERT_TRUE(reader.parse_page_header().ok());
+        reader.skip_page_data();
+        ASSERT_TRUE(reader.next_page().ok());
+        // The rectangles above are non-overlapping but shifted one byte from the serialized pages.
+        // Discarding the optional index must continue from the first page's real payload end.
+        ASSERT_TRUE(reader.parse_page_header().ok());
+        const tparquet::PageHeader* parsed = nullptr;
+        ASSERT_TRUE(reader.get_page_header(&parsed).ok());
+        EXPECT_EQ(parsed->data_page_header.num_values, 1);
+    };
+    verify_fallback(false);
+    verify_fallback(true);
+}
+
 TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMismatch) {
     auto init_chunk = [](tparquet::PageHeader header, bool with_offset_index) {
         std::vector<uint8_t> payload(static_cast<size_t>(header.compressed_page_size), 0);
@@ -2702,6 +2897,113 @@ TEST(ParquetV2NativeDecoderTest, LevelOnlyPagesRejectDefinitionLevelsThatRequire
                     << "v2=" << data_page_v2 << ", encoding=" << tparquet::to_string(encoding)
                     << ": " << status;
         }
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, LevelOnlyReaderSkipsLeadingZeroValuePages) {
+    auto page = [](bool v2, std::optional<int32_t> value) {
+        std::vector<uint8_t> payload;
+        if (value.has_value()) {
+            const std::vector<uint8_t> definition_levels {2, 1};
+            if (v2) {
+                payload = definition_levels;
+            } else {
+                payload.resize(sizeof(uint32_t));
+                encode_fixed32_le(payload.data(), definition_levels.size());
+                payload.insert(payload.end(), definition_levels.begin(), definition_levels.end());
+            }
+            const auto* value_bytes = reinterpret_cast<const uint8_t*>(&*value);
+            payload.insert(payload.end(), value_bytes, value_bytes + sizeof(*value));
+        } else if (!v2) {
+            // V1 prefixes its RLE definition-level stream even when that stream has no values.
+            payload.resize(sizeof(uint32_t));
+            encode_fixed32_le(payload.data(), 0);
+        }
+        tparquet::PageHeader header;
+        header.type = v2 ? tparquet::PageType::DATA_PAGE_V2 : tparquet::PageType::DATA_PAGE;
+        header.__set_compressed_page_size(payload.size());
+        header.__set_uncompressed_page_size(payload.size());
+        if (v2) {
+            header.__isset.data_page_header_v2 = true;
+            header.data_page_header_v2.__set_num_values(value.has_value() ? 1 : 0);
+            header.data_page_header_v2.__set_num_rows(value.has_value() ? 1 : 0);
+            header.data_page_header_v2.__set_num_nulls(0);
+            header.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+            header.data_page_header_v2.__set_definition_levels_byte_length(value.has_value() ? 2
+                                                                                             : 0);
+            header.data_page_header_v2.__set_repetition_levels_byte_length(0);
+            header.data_page_header_v2.__set_is_compressed(false);
+        } else {
+            header.__isset.data_page_header = true;
+            header.data_page_header.__set_num_values(value.has_value() ? 1 : 0);
+            header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+            header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+            header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+        }
+        return serialize_page(header, payload);
+    };
+
+    static const auto utc = cctz::utc_time_zone();
+    for (const bool v2 : {false, true}) {
+        SCOPED_TRACE(v2 ? "v2" : "v1");
+        auto bytes = page(v2, std::nullopt);
+        const auto nonempty_page = page(v2, 7);
+        bytes.insert(bytes.end(), nonempty_page.begin(), nonempty_page.end());
+        auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
+        tparquet::ColumnChunk chunk;
+        chunk.meta_data.__set_type(tparquet::Type::INT32);
+        chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        chunk.meta_data.__set_num_values(1);
+        chunk.meta_data.__set_total_compressed_size(bytes.size());
+        chunk.meta_data.__set_data_page_offset(0);
+        NativeFieldSchema field;
+        field.physical_type = tparquet::Type::INT32;
+        field.data_type = make_nullable(std::make_shared<DataTypeInt32>());
+        field.definition_level = 1;
+        field.parquet_schema.__set_type(tparquet::Type::INT32);
+        field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+        auto row_ranges = ::doris::RowRanges::create_single(1);
+        ScalarColumnReader<false, false> scalar_reader(row_ranges, 1, chunk, nullptr, &utc,
+                                                       nullptr);
+        ASSERT_TRUE(
+                scalar_reader
+                        .init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+                        .ok());
+        FilterMap filter;
+        ASSERT_TRUE(filter.init(nullptr, 1, false).ok());
+        ColumnPtr scalar_column = field.data_type->create_column();
+        size_t scalar_rows = 0;
+        bool scalar_eof = false;
+        while (scalar_rows == 0 && !scalar_eof) {
+            size_t read_now = 0;
+            ASSERT_TRUE(scalar_reader
+                                .read_column_data(scalar_column, field.data_type, nullptr, filter,
+                                                  1, &read_now, &scalar_eof, false)
+                                .ok());
+            scalar_rows += read_now;
+        }
+        ASSERT_EQ(scalar_rows, 1);
+        const auto& scalar_nullable = assert_cast<const ColumnNullable&>(*scalar_column);
+        EXPECT_FALSE(scalar_nullable.is_null_at(0));
+        EXPECT_EQ(
+                assert_cast<const ColumnInt32&>(scalar_nullable.get_nested_column()).get_element(0),
+                7);
+
+        std::unique_ptr<LevelReader> reader;
+        ASSERT_TRUE(LevelReader::create(file, chunk, &field, 1, bytes.size(), nullptr, false, "",
+                                        ParquetReaderCompat {}, &reader)
+                            .ok());
+
+        std::vector<level_t> repetition_levels;
+        std::vector<level_t> definition_levels;
+        size_t rows_read = 0;
+        const auto status =
+                reader->read_rows(1, &repetition_levels, &definition_levels, &rows_read);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(rows_read, 1);
+        EXPECT_EQ(repetition_levels, (std::vector<level_t> {0}));
+        EXPECT_EQ(definition_levels, (std::vector<level_t> {1}));
     }
 }
 

@@ -529,8 +529,12 @@ bool VectorizedFnCall::is_deterministic() const {
 }
 
 bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
-    static const std::set<std::string> ERROR_PRESERVING_FUNCTIONS = {"assert_true"};
-    return !ERROR_PRESERVING_FUNCTIONS.contains(_function_name) &&
+    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {
+            "eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "is_null_pred", "is_not_null_pred"};
+    // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
+    // predicate. Keep function calls unsafe by default and opt in only operations that are total
+    // for their input domain; child checks then reject expressions such as gt(mod(x, -1), 0).
+    return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
            VExpr::is_safe_to_execute_on_selected_rows();
 }
 

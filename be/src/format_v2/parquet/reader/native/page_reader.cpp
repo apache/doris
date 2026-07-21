@@ -141,6 +141,47 @@ PageReader<IN_COLLECTION, OFFSET_INDEX>::PageReader(io::BufferedStreamReader* re
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void PageReader<IN_COLLECTION, OFFSET_INDEX>::_reconcile_offset_index_location(
+        uint64_t header_offset, uint32_t header_size) {
+    if constexpr (!OFFSET_INDEX) {
+        return;
+    }
+    if (_offset_index == nullptr || _page_index >= _offset_index->page_locations.size()) {
+        return;
+    }
+    const auto& location = _offset_index->page_locations[_page_index];
+    const bool data_page = _cur_page_header.type == tparquet::PageType::DATA_PAGE ||
+                           _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2;
+    const uint64_t serialized_size = static_cast<uint64_t>(header_size) +
+                                     static_cast<uint64_t>(_cur_page_header.compressed_page_size);
+    const bool matches = data_page && location.offset >= 0 && location.compressed_page_size > 0 &&
+                         header_offset == static_cast<uint64_t>(location.offset) &&
+                         serialized_size == static_cast<uint64_t>(location.compressed_page_size);
+    if (!matches && (data_page || (location.offset >= 0 &&
+                                   header_offset >= static_cast<uint64_t>(location.offset)))) {
+        // OffsetIndex is optional. Once its data-page rectangle disagrees with the serialized
+        // page, continue sequentially so a shifted location cannot redirect the next seek.
+        _offset_index = nullptr;
+    }
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void PageReader<IN_COLLECTION, OFFSET_INDEX>::_update_sequential_row_range() {
+    if constexpr (OFFSET_INDEX) {
+        if (_offset_index != nullptr) {
+            return;
+        }
+    }
+    if (_cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {
+        _end_row = _start_row + _cur_page_header.data_page_header_v2.num_rows;
+    } else if constexpr (!IN_COLLECTION) {
+        if (_cur_page_header.type == tparquet::PageType::DATA_PAGE) {
+            _end_row = _start_row + _cur_page_header.data_page_header.num_values;
+        }
+    }
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED) {
         return Status::OK();
@@ -184,6 +225,8 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
                                              &real_header_size, true, &_cur_page_header);
             if (!st.ok()) return st;
             RETURN_IF_ERROR(_validate_page_header(real_header_size));
+            _reconcile_offset_index_location(_offset, real_header_size);
+            _update_sequential_row_range();
             if (_cur_page_header.type == tparquet::PageType::DATA_PAGE ||
                 _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {
                 ++_page_statistics.data_page_read_counter;
@@ -201,14 +244,6 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
             }
 
             _is_cache_payload_decompressed = is_cache_payload_decompressed;
-
-            if constexpr (OFFSET_INDEX == false) {
-                if (is_header_v2()) {
-                    _end_row = _start_row + _cur_page_header.data_page_header_v2.num_rows;
-                } else if constexpr (!IN_COLLECTION) {
-                    _end_row = _start_row + _cur_page_header.data_page_header.num_values;
-                }
-            }
 
             // Save header bytes for later use (e.g., to insert updated cache entries)
             _header_buf.assign(s.data, s.data + real_header_size);
@@ -255,18 +290,9 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         header_size <<= 2;
     }
 
-    if constexpr (OFFSET_INDEX == false) {
-        RETURN_IF_ERROR(_validate_page_header(real_header_size));
-        if (is_header_v2()) {
-            _end_row = _start_row + _cur_page_header.data_page_header_v2.num_rows;
-        } else if constexpr (!IN_COLLECTION) {
-            _end_row = _start_row + _cur_page_header.data_page_header.num_values;
-        }
-    }
-
-    if constexpr (OFFSET_INDEX == true) {
-        RETURN_IF_ERROR(_validate_page_header(real_header_size));
-    }
+    RETURN_IF_ERROR(_validate_page_header(real_header_size));
+    _reconcile_offset_index_location(_offset, real_header_size);
+    _update_sequential_row_range();
 
     if (_cur_page_header.type == tparquet::PageType::DATA_PAGE ||
         _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {

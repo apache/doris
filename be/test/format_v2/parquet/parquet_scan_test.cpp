@@ -420,6 +420,50 @@ VExprContextSPtr create_int32_function_conjunct(int column_id, const std::string
     return context;
 }
 
+VExprContextSPtr create_int32_mod_greater_than_conjunct(int column_id) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto nullable_bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    auto function_node = [](const std::string& name, TExprNodeType::type node_type,
+                            TExprOpcode::type opcode, const DataTypePtr& return_type,
+                            const std::vector<DataTypePtr>& argument_types) {
+        TFunctionName function_name;
+        function_name.__set_function_name(name);
+        TFunction function;
+        function.__set_name(function_name);
+        function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> thrift_argument_types;
+        for (const auto& argument_type : argument_types) {
+            thrift_argument_types.push_back(argument_type->to_thrift());
+        }
+        function.__set_arg_types(thrift_argument_types);
+        function.__set_ret_type(return_type->to_thrift());
+        function.__set_has_var_args(false);
+        TExprNode node;
+        node.__set_node_type(node_type);
+        node.__set_opcode(opcode);
+        node.__set_type(return_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(static_cast<int16_t>(argument_types.size()));
+        node.__set_is_nullable(return_type->is_nullable());
+        return node;
+    };
+
+    auto modulo = VectorizedFnCall::create_shared(
+            function_node("mod", TExprNodeType::ARITHMETIC_EXPR, TExprOpcode::MOD,
+                          nullable_int_type, {nullable_int_type, int_type}));
+    modulo->add_child(
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_int_type, "plain_id"));
+    modulo->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(-1)));
+
+    auto greater_than = VectorizedFnCall::create_shared(
+            function_node("gt", TExprNodeType::BINARY_PRED, TExprOpcode::GT, nullable_bool_type,
+                          {nullable_int_type, int_type}));
+    greater_than->add_child(std::move(modulo));
+    greater_than->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(0)));
+    return VExprContext::create_shared(std::move(greater_than));
+}
+
 VExprContextSPtr create_int32_pair_sum_conjunct(int left_column_id, int right_column_id,
                                                 int32_t upper_bound) {
     return VExprContext::create_shared(
@@ -882,6 +926,26 @@ TEST(ParquetScanAdaptivePredicateTest, SamplesWarmupThenAtLowFrequency) {
     EXPECT_TRUE(should_sample_adaptive_predicate(8, 16));
     EXPECT_FALSE(should_sample_adaptive_predicate(9, 17));
     EXPECT_TRUE(should_sample_adaptive_predicate(9, 32));
+}
+
+TEST(ParquetScanAdaptivePredicateTest, ThrowingNestedFunctionDisablesSelectedRowReordering) {
+    using format::parquet::detail::AdaptivePredicateStats;
+    std::unordered_map<size_t, AdaptivePredicateStats> first_batch_stats;
+    first_batch_stats.emplace(
+            0, AdaptivePredicateStats {
+                       .cost_per_input_row_ns = 20, .survival_ratio = 0.99, .samples = 1});
+    first_batch_stats.emplace(
+            1, AdaptivePredicateStats {
+                       .cost_per_input_row_ns = 1, .survival_ratio = 0.1, .samples = 1});
+    EXPECT_EQ(format::parquet::detail::order_adaptive_predicates({0, 1}, first_batch_stats),
+              (std::vector<size_t> {1, 0}));
+
+    const auto total_comparison = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0);
+    const auto throwing_comparison = create_int32_mod_greater_than_conjunct(0);
+    EXPECT_TRUE(total_comparison->root()->is_safe_to_execute_on_selected_rows());
+    // The second-batch order above can reject MIN_INT before mod(MIN_INT, -1) runs. The nested
+    // partial function must therefore keep the request on full-batch, error-preserving execution.
+    EXPECT_FALSE(throwing_comparison->root()->is_safe_to_execute_on_selected_rows());
 }
 
 TEST(ParquetScanSmallFileTest, StagesOnlyBoundedHttpObjects) {
@@ -1664,6 +1728,54 @@ TEST_F(ParquetScanTest, LongFilteredPrefixSkipsMultipleLazyColumnsInBoundedChunk
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_element(0), ROWS + 9);
     EXPECT_EQ(int32_data_column(*block.get_by_position(2).column).get_element(0), ROWS + 19);
     EXPECT_LT(counter_value(profile, "TotalBatches"), 32);
+}
+
+TEST_F(ParquetScanTest, EmptyPrefixNeverWidensReturnedBatchPastCallerCap) {
+    constexpr size_t ROWS = 300;
+    write_long_prefix_parquet_file(_file_path, ROWS);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(32);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(2)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 32));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    int32_t expected_id = 32;
+    size_t total_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        // The first 32-row probe is empty. Its feedback may accelerate later predicate work, but
+        // each pending-output slice must preserve the caller's memory-derived row cap.
+        ASSERT_LE(rows, 32);
+        const auto& ids = int32_data_column(*block.get_by_position(0).column);
+        const auto& first_lazy = int32_data_column(*block.get_by_position(1).column);
+        const auto& second_lazy = int32_data_column(*block.get_by_position(2).column);
+        ASSERT_EQ(first_lazy.size(), rows);
+        ASSERT_EQ(second_lazy.size(), rows);
+        for (size_t row = 0; row < rows; ++row, ++expected_id) {
+            EXPECT_EQ(ids.get_element(row), expected_id);
+            EXPECT_EQ(first_lazy.get_element(row), expected_id + 10);
+            EXPECT_EQ(second_lazy.get_element(row), expected_id + 20);
+        }
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, ROWS - 32);
+    EXPECT_EQ(expected_id, ROWS);
 }
 
 // Scenario: a nested lazy column stays behind while id=1 is rejected. Flushing skip(1) must consume

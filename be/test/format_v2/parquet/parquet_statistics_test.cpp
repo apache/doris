@@ -462,5 +462,53 @@ TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) 
     EXPECT_TRUE(selected_ranges.empty());
 }
 
+TEST(NativeParquetStatisticsTest, ContradictoryAllNullPageCountsDisablePruning) {
+    auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    column_schema->local_id = 0;
+    column_schema->leaf_column_id = 0;
+    column_schema->type = std::make_shared<DataTypeInt32>();
+    column_schema->type_descriptor.doris_type = column_schema->type;
+    column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    schema.push_back(std::move(column_schema));
+
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order});
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<MetadataInt32GreaterThanExpr>(0))};
+
+    for (const int64_t contradictory_null_count : {5, 11}) {
+        SCOPED_TRACE(contradictory_null_count);
+        format::parquet::NativeParquetPageIndex page_index;
+        page_index.column_index.__set_null_pages({true});
+        page_index.column_index.__set_null_counts({contradictory_null_count});
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(10);
+        location.__set_first_row_index(0);
+        page_index.offset_index.__set_page_locations({location});
+        std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+        page_indexes.emplace(0, std::move(page_index));
+        std::vector<format::parquet::RowRange> selected_ranges;
+        std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+
+        ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, page_indexes, schema, request, 10, &selected_ranges,
+                            &skip_plans, nullptr)
+                            .ok());
+        // ColumnIndex is optional. An impossible all-null claim must fall back to reading the
+        // ten-row data page instead of proving that no value can satisfy the predicate.
+        ASSERT_EQ(selected_ranges.size(), 1);
+        EXPECT_EQ(selected_ranges[0].start, 0);
+        EXPECT_EQ(selected_ranges[0].length, 10);
+    }
+}
+
 } // namespace
 } // namespace doris

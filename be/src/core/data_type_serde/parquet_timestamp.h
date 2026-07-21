@@ -57,6 +57,11 @@ inline Status parquet_timestamp_micros(ParquetTimeUnit unit, int64_t value, int6
         *result = value * 1000;
     } else if (unit == ParquetTimeUnit::NANOS) {
         *result = value / 1000;
+        // Epoch-relative negative timestamps must round toward the preceding representable
+        // microsecond; C++ division truncates toward zero and would move pre-epoch values forward.
+        if (value < 0 && value % 1000 != 0) {
+            --*result;
+        }
     } else {
         *result = value;
     }

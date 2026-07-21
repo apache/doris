@@ -123,7 +123,7 @@ namespace {
 
 bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
                                   const ParquetColumnSchema& column_schema, size_t page_idx,
-                                  ParquetColumnStatistics* page_statistics,
+                                  int64_t page_rows, ParquetColumnStatistics* page_statistics,
                                   const cctz::time_zone* timezone);
 
 enum class ParquetRowGroupPruneReason {
@@ -563,7 +563,8 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     }
     // Footer statistics and page indexes share the same little-endian physical encoding. Reusing
     // one decoder keeps native row-group and page pruning identical for logical types and NaNs.
-    if (!build_native_page_statistics(index, column_schema, 0, &result, timezone)) {
+    if (!build_native_page_statistics(index, column_schema, 0, column_value_count, &result,
+                                      timezone)) {
         return {};
     }
     if (!has_null_count) {
@@ -1083,7 +1084,7 @@ bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
 
 bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
                                   const ParquetColumnSchema& column_schema, size_t page_idx,
-                                  ParquetColumnStatistics* page_statistics,
+                                  int64_t page_rows, ParquetColumnStatistics* page_statistics,
                                   const cctz::time_zone* timezone) {
     DORIS_CHECK(page_statistics != nullptr);
     *page_statistics = {};
@@ -1092,14 +1093,16 @@ bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
         return false;
     }
     const int64_t null_count = column_index.null_counts[page_idx];
-    if (null_count < 0 || (column_index.null_pages[page_idx] && null_count == 0)) {
-        // Contradictory optional index metadata must disable pruning; treating it as an empty
-        // null set can make IS NULL/IS NOT NULL discard rows without reading the data page.
+    const bool all_null = column_index.null_pages[page_idx];
+    if (page_rows < 0 || null_count < 0 || null_count > page_rows ||
+        all_null != (null_count == page_rows)) {
+        // The caller supplies the exact flat page or row-group span. Contradictory optional null
+        // metadata must disable pruning instead of turning a partial span into an all-null proof.
         return false;
     }
     page_statistics->has_null_count = true;
     page_statistics->has_null = null_count > 0;
-    page_statistics->has_not_null = !column_index.null_pages[page_idx];
+    page_statistics->has_not_null = !all_null;
     if (!page_statistics->has_not_null) {
         return true;
     }
@@ -1222,9 +1225,11 @@ Status select_row_group_ranges_by_native_page_index(
         bool usable = true;
         for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
              ++page_idx) {
+            const auto page_range =
+                    native_page_row_range(indexes.offset_index, page_idx, row_group_rows);
             ParquetColumnStatistics statistics;
             if (!build_native_page_statistics(indexes.column_index, *column_schema, page_idx,
-                                              &statistics, timezone)) {
+                                              page_range.length, &statistics, timezone)) {
                 usable = false;
                 break;
             }
@@ -1233,9 +1238,7 @@ Status select_row_group_ranges_by_native_page_index(
                              ParquetStatisticsUtils::MakeZoneMap(statistics));
             if (VExprContext::evaluate_zonemap_filter(conjuncts, ctx) !=
                 ZoneMapFilterResult::kNoMatch) {
-                append_row_range(
-                        native_page_row_range(indexes.offset_index, page_idx, row_group_rows),
-                        &filter_ranges);
+                append_row_range(page_range, &filter_ranges);
             }
             if (pruning_stats != nullptr) {
                 pruning_stats->expr_zonemap_unusable_evals += ctx.stats.unusable_zonemap_eval_count;

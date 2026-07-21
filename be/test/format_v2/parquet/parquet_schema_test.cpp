@@ -33,6 +33,27 @@
 #include "format_v2/parquet/parquet_file_context.h"
 
 namespace doris::format::parquet {
+TEST(ParquetSchemaTest, NativeMetadataAcceptsRequiredRootWithoutColumns) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(0);
+    root.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root}).ok());
+    EXPECT_EQ(descriptor.size(), 0);
+
+    tparquet::FileMetaData thrift_metadata;
+    thrift_metadata.__set_version(1);
+    thrift_metadata.__set_schema({root});
+    thrift_metadata.__set_num_rows(0);
+    NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    // An empty physical tree remains useful for metadata-only COUNT(*); rejecting it here changes
+    // the compatibility contract before request planning can select that path.
+    EXPECT_TRUE(metadata.init_schema(false, false).ok());
+    EXPECT_EQ(metadata.schema().size(), 0);
+}
+
 TEST(ParquetSchemaTest, NativeMetadataTreePreservesNestedFieldNamesAndIds) {
     tparquet::SchemaElement root;
     root.__set_name("schema");

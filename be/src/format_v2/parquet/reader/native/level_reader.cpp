@@ -114,6 +114,12 @@ private:
             const size_t read_now = std::min(
                     rows - *rows_read, static_cast<size_t>(_chunk_reader->remaining_num_values()));
             if (read_now == 0) {
+                // Zero-value data pages are legal and do not contribute to the chunk cardinality.
+                // Advance them before applying the no-progress guard used for truncated chunks.
+                if (_chunk_reader->remaining_num_values() == 0 && _chunk_reader->has_next_page()) {
+                    RETURN_IF_ERROR(_chunk_reader->next_page());
+                    continue;
+                }
                 return Status::Corruption("Parquet flat level reader made no progress");
             }
             RETURN_IF_ERROR(

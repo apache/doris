@@ -237,6 +237,9 @@ private:
             int64_t batch_rows, const format::FileScanRequest& request,
             int64_t batch_first_file_row, Block* file_block, size_t* rows);
 
+    Status materialize_pending_predicate_batch(const format::FileScanRequest& request,
+                                               Block* file_block, size_t* rows);
+
     void mark_condition_cache_granules(const SelectionVector& selection, uint16_t selected_rows,
                                        int64_t batch_first_file_row);
 
@@ -268,6 +271,15 @@ private:
     // readers can lag behind across fully filtered batches and range gaps; the lag is flushed once
     // before the next surviving batch is materialized, or discarded with the row group.
     int64_t _pending_non_predicate_skip_rows = 0;
+    // Empty predicate batches may widen their physical probe. If the first non-empty probe finds
+    // more rows than the caller's cap, keep its narrow predicate result here and materialize lazy
+    // columns in capped physical slices on subsequent calls.
+    int64_t _pending_predicate_batch_rows = 0;
+    int64_t _pending_predicate_batch_rows_consumed = 0;
+    size_t _pending_predicate_selected_offset = 0;
+    std::vector<SelectionVector::Index> _pending_predicate_selection;
+    std::map<size_t, ColumnPtr> _pending_predicate_columns;
+    SelectionVector _pending_output_selection;
 
     bool _current_predicate_prefetched = false;
     bool _current_non_predicate_prefetched = false;

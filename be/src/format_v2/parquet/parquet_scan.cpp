@@ -889,6 +889,12 @@ void ParquetScanScheduler::reset_current_row_group() {
     // to 10,000 while lazy readers stay at 0; clearing both readers here is sufficient because the
     // next row group constructs a new set starting at its own row 0.
     _pending_non_predicate_skip_rows = 0;
+    _pending_predicate_batch_rows = 0;
+    _pending_predicate_batch_rows_consumed = 0;
+    _pending_predicate_selected_offset = 0;
+    _pending_predicate_selection.clear();
+    _pending_predicate_columns.clear();
+    _pending_output_selection.clear();
     _current_predicate_prefetched = false;
     _current_non_predicate_prefetched = false;
     _current_merge_range_active = false;
@@ -1991,6 +1997,27 @@ Status ParquetScanScheduler::read_current_row_group_batch(
                                                            &_current_non_predicate_prefetched));
     }
 
+    if (selected_rows > _batch_size) {
+        DORIS_CHECK(_pending_predicate_selection.empty());
+        _pending_predicate_batch_rows = batch_rows;
+        _pending_predicate_batch_rows_consumed = 0;
+        _pending_predicate_selected_offset = 0;
+        _pending_predicate_selection.resize(selected_rows);
+        for (uint16_t idx = 0; idx < selected_rows; ++idx) {
+            _pending_predicate_selection[idx] =
+                    static_cast<SelectionVector::Index>(selection.get_index(idx));
+        }
+        for (const auto& col : request.predicate_columns) {
+            const auto position_it = request.local_positions.find(col.column_id());
+            DORIS_CHECK(position_it != request.local_positions.end());
+            const size_t block_position = position_it->second.value();
+            const auto& column = file_block->get_by_position(block_position).column;
+            DORIS_CHECK_EQ(column->size(), selected_rows);
+            _pending_predicate_columns.emplace(block_position, column);
+        }
+        return materialize_pending_predicate_batch(request, file_block, rows);
+    }
+
     {
         SCOPED_TIMER(_scan_profile.column_read_time);
         // Bring lazy readers to the first row of the current physical batch before interpreting its
@@ -2033,6 +2060,72 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     return Status::OK();
 }
 
+Status ParquetScanScheduler::materialize_pending_predicate_batch(
+        const format::FileScanRequest& request, Block* file_block, size_t* rows) {
+    DORIS_CHECK(!_pending_predicate_selection.empty());
+    DORIS_CHECK(_pending_predicate_selected_offset < _pending_predicate_selection.size());
+    const size_t remaining_selected =
+            _pending_predicate_selection.size() - _pending_predicate_selected_offset;
+    const size_t output_rows =
+            std::min<size_t>(static_cast<size_t>(_batch_size), remaining_selected);
+    const size_t output_end = _pending_predicate_selected_offset + output_rows;
+    const int64_t physical_end =
+            output_end == _pending_predicate_selection.size()
+                    ? _pending_predicate_batch_rows
+                    : static_cast<int64_t>(_pending_predicate_selection[output_end - 1]) + 1;
+    DORIS_CHECK(physical_end > _pending_predicate_batch_rows_consumed);
+    const int64_t physical_rows = physical_end - _pending_predicate_batch_rows_consumed;
+
+    _pending_output_selection.resize(output_rows);
+    for (size_t idx = 0; idx < output_rows; ++idx) {
+        const int64_t physical_row =
+                _pending_predicate_selection[_pending_predicate_selected_offset + idx];
+        DORIS_CHECK(physical_row >= _pending_predicate_batch_rows_consumed);
+        _pending_output_selection.set_index(
+                idx, static_cast<SelectionVector::Index>(physical_row -
+                                                         _pending_predicate_batch_rows_consumed));
+    }
+
+    for (const auto& [block_position, column] : _pending_predicate_columns) {
+        file_block->replace_by_position(
+                block_position, column->cut(_pending_predicate_selected_offset, output_rows));
+    }
+    {
+        SCOPED_TIMER(_scan_profile.column_read_time);
+        RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
+        for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
+            auto position_it = request.local_positions.find(fid);
+            DORIS_CHECK(position_it != request.local_positions.end());
+            const auto block_position = position_it->second.value();
+            auto column = file_block->get_by_position(block_position).column->assert_mutable();
+            [[maybe_unused]] const auto old_size = column->size();
+            RETURN_IF_ERROR(column_reader->select(_pending_output_selection,
+                                                  static_cast<uint16_t>(output_rows), physical_rows,
+                                                  column));
+            if (column->size() != old_size + output_rows) {
+                return Status::Corruption(
+                        "Parquet pending output column {} returned {} rows, expected {} rows",
+                        column_reader->name(), column->size(), old_size + output_rows);
+            }
+            file_block->replace_by_position(block_position, std::move(column));
+        }
+    }
+    materialize_count_star_placeholders(request, output_rows, file_block);
+    *rows = output_rows;
+    _pending_predicate_batch_rows_consumed = physical_end;
+    _pending_predicate_selected_offset = output_end;
+    if (_pending_predicate_selected_offset == _pending_predicate_selection.size()) {
+        DORIS_CHECK_EQ(_pending_predicate_batch_rows_consumed, _pending_predicate_batch_rows);
+        _pending_predicate_batch_rows = 0;
+        _pending_predicate_batch_rows_consumed = 0;
+        _pending_predicate_selected_offset = 0;
+        _pending_predicate_selection.clear();
+        _pending_predicate_columns.clear();
+        _pending_output_selection.clear();
+    }
+    return Status::OK();
+}
+
 void ParquetScanScheduler::mark_condition_cache_granules(const SelectionVector& selection,
                                                          uint16_t selected_rows,
                                                          int64_t batch_first_file_row) {
@@ -2056,6 +2149,11 @@ Status ParquetScanScheduler::read_next_batch(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, Block* file_block, size_t* rows, bool* eof) {
     *rows = 0;
+    if (!_pending_predicate_selection.empty()) {
+        RETURN_IF_ERROR(materialize_pending_predicate_batch(request, file_block, rows));
+        *eof = false;
+        return Status::OK();
+    }
     int64_t predicate_batch_rows = _batch_size;
     const int64_t max_predicate_batch_rows = std::min<int64_t>(
             std::numeric_limits<uint16_t>::max(),
@@ -2120,9 +2218,9 @@ Status ParquetScanScheduler::read_next_batch(
             _current_range_rows_read = 0;
         }
         if (*rows == 0) {
-            // Output-width feedback has no sample for a fully rejected batch. Grow only the
-            // predicate-side physical read so a 32-row probe cannot pin a long filtered prefix;
-            // any eventual output still stays below RuntimeState's row cap.
+            // Fully rejected probes carry no output-width sample. Widen predicate work to cross
+            // long empty prefixes cheaply; a later non-empty probe is sliced before lazy columns
+            // are materialized, so this internal width cannot escape the caller's row cap.
             predicate_batch_rows = grow_empty_predicate_batch(predicate_batch_rows);
             continue;
         }

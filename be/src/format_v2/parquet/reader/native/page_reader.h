@@ -122,18 +122,11 @@ public:
 
     bool has_next_page() const {
         if constexpr (OFFSET_INDEX) {
-            return _offset_index != nullptr &&
-                   _page_index + 1 < _offset_index->page_locations.size();
-        } else {
-            // Deprecated
-            // Parquet file may not be standardized,
-            // _end_offset may exceed the actual data area.
-            // ColumnChunkReader::has_next_page() use the number of parsed values for judgment
-            // ref:https://github.com/duckdb/duckdb/issues/10829
-            // [[deprecated]]
-            LOG(FATAL) << "has_next_page should not be called when no offset index";
-            return _offset < _end_offset;
+            if (_offset_index != nullptr) {
+                return _page_index + 1 < _offset_index->page_locations.size();
+            }
         }
+        return _offset < _end_offset;
     }
 
     Status parse_page_header();
@@ -141,35 +134,35 @@ public:
     Status next_page() {
         _page_statistics.skip_page_header_num += _state == INITIALIZED;
         if constexpr (OFFSET_INDEX) {
-            if (UNLIKELY(_offset_index == nullptr ||
-                         _page_index + 1 >= _offset_index->page_locations.size())) {
-                return Status::Corruption("Parquet OffsetIndex has no next page location");
+            if (_offset_index != nullptr) {
+                if (UNLIKELY(_page_index + 1 >= _offset_index->page_locations.size())) {
+                    return Status::Corruption("Parquet OffsetIndex has no next page location");
+                }
+                _page_index++;
+                _start_row = _offset_index->page_locations[_page_index].first_row_index;
+                if (_page_index + 1 < _offset_index->page_locations.size()) {
+                    _end_row = _offset_index->page_locations[_page_index + 1].first_row_index;
+                } else {
+                    _end_row = _total_rows;
+                }
+                int64_t next_page_offset = _offset_index->page_locations[_page_index].offset;
+                _offset = next_page_offset;
+                _next_header_offset = next_page_offset;
+                _state = INITIALIZED;
+                return Status::OK();
             }
-            _page_index++;
-            _start_row = _offset_index->page_locations[_page_index].first_row_index;
-            if (_page_index + 1 < _offset_index->page_locations.size()) {
-                _end_row = _offset_index->page_locations[_page_index + 1].first_row_index;
-            } else {
-                _end_row = _total_rows;
-            }
-            int64_t next_page_offset = _offset_index->page_locations[_page_index].offset;
-            _offset = next_page_offset;
-            _next_header_offset = next_page_offset;
-            _state = INITIALIZED;
-        } else {
-            if (UNLIKELY(_offset == _start_offset)) {
-                return Status::Corruption("should parse first page.");
-            }
-
-            if (is_header_v2()) {
-                _start_row += _cur_page_header.data_page_header_v2.num_rows;
-            } else if constexpr (!IN_COLLECTION) {
-                _start_row += _cur_page_header.data_page_header.num_values;
-            }
-
-            _offset = _next_header_offset;
-            _state = INITIALIZED;
         }
+
+        if (UNLIKELY(_offset == _start_offset)) {
+            return Status::Corruption("should parse first page.");
+        }
+        if (is_header_v2()) {
+            _start_row += _cur_page_header.data_page_header_v2.num_rows;
+        } else if constexpr (!IN_COLLECTION) {
+            _start_row += _cur_page_header.data_page_header.num_values;
+        }
+        _offset = _next_header_offset;
+        _state = INITIALIZED;
 
         return Status::OK();
     }
@@ -245,6 +238,8 @@ public:
 
 private:
     Status _validate_page_header(uint32_t header_size) const;
+    void _reconcile_offset_index_location(uint64_t header_offset, uint32_t header_size);
+    void _update_sequential_row_range();
 
     enum PageReaderState { INITIALIZED, HEADER_PARSED, DATA_LOADED };
     PageReaderState _state = INITIALIZED;
