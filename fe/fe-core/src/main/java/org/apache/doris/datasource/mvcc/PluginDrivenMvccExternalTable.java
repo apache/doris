@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.api.Connector;
@@ -54,6 +55,8 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -64,6 +67,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -87,7 +91,7 @@ import java.util.stream.Collectors;
  * degrades MTMV to conservative over-refresh (the partition never matches its prior snapshot).</p>
  */
 public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
-        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
+        implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable, SupportBinarySearchFilteringPartitions {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenMvccExternalTable.class);
 
@@ -617,6 +621,58 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) {
         return getPartitionColumns(snapshot).stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+    }
+
+    // ── SupportBinarySearchFilteringPartitions: lets NereidsSortedPartitionsCacheManager cache the
+    //    pre-built SortedPartitionRanges across queries, keyed by the pinned connector snapshot. ──
+    @Override
+    public Map<?, PartitionItem> getOriginPartitions(CatalogRelation scan) {
+        // The SAME frozen map the pin exposes — no re-list, so ranges stay consistent with
+        // nameToPartitionItem (no #65659 TOCTOU).
+        return getNameToPartitionItems(pinnedSnapshot(scan));
+    }
+
+    @Override
+    public Object getPartitionMetaVersion(CatalogRelation scan) {
+        // The version token MUST equal the EXACT partition content the ranges are built from
+        // (getOriginPartitions reads the SAME pin), so Cache B can never disagree with the pin's own
+        // nameToPartitionItem regardless of how/when a connector's listPartitions cache (Cache A)
+        // refreshes: the cache rebuilds precisely when the partition set changes, never on a stale set.
+        // A compact copy of just the name strings (NOT the live keySet view), so the cross-query cache
+        // entry does not retain the whole pin's partition-item map.
+        //
+        // The former "<snapshotId>@<schemaId>" O(1) token was REMOVED: it is only sound where a
+        // connector's listPartitions content is a pure function of the snapshot id, which is NOT true for
+        // iceberg NON-RANGE tables (identity / bucket / truncate / multi-field partitioning). There the
+        // pin's nameToPartitionItem is served by listPartitions (Cache A, keyed (-1,-1), enumerated at
+        // currentSnapshot with its own TTL, ignoring the pin) while the snapshot-id token comes from a
+        // DIFFERENT cache (IcebergLatestSnapshotCache) with its own TTL; the two expire independently, so
+        // a snapshot-id token could serve SortedPartitionRanges STALER than the pin's own partitions ->
+        // within-query disagreement -> silent under-inclusive pruning. Deriving the version from the
+        // frozen name set makes it uniform across ALL engines -- the same rigorous scheme snapshot-less
+        // hive already relied on -- at the cost of an O(partitions) set copy per lookup.
+        return new HashSet<>(getOriginPartitions(scan).keySet());
+    }
+
+    @Override
+    public long getPartitionMetaLoadTimeMillis(CatalogRelation scan) {
+        // No insert-frequency signal for external tables; 0 = always allow sorting (the manager's
+        // "skip sort if loaded within cacheSortedPartitionIntervalSecond" heuristic never trips).
+        return 0L;
+    }
+
+    // getSortedPartitionRanges is now a pure pass-through to ExternalTable's cache-manager delegation
+    // (5c17b748880's snapshotId==-1 short-circuit was removed: getPartitionMetaVersion above derives a
+    // content-comparable version from the frozen partition name set for ALL engines, so Cache B is
+    // correct uniformly -- snapshot-less hive and real-snapshot iceberg/paimon alike) -- no override
+    // needed here.
+
+    private Optional<MvccSnapshot> pinnedSnapshot(CatalogRelation scan) {
+        if (scan instanceof LogicalFileScan) {
+            LogicalFileScan fileScan = (LogicalFileScan) scan;
+            return MvccUtil.getSnapshotFromContext(this, fileScan.getTableSnapshot(), fileScan.getScanParams());
+        }
+        return MvccUtil.getSnapshotFromContext(this);
     }
 
     // ──────────────────── MTMV snapshots ────────────────────
