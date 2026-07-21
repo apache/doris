@@ -2081,11 +2081,27 @@ Status FileScanner::close(RuntimeState* state) {
 
     _finalize_reader_condition_cache();
 
-    if (_cur_reader) {
-        RETURN_IF_ERROR(_cur_reader->close());
-    }
-    if (_cached_paimon_jni_reader) {
-        RETURN_IF_ERROR(_cached_paimon_jni_reader->close());
+    Status close_status = Status::OK();
+    auto close_retained_reader = [&close_status](std::unique_ptr<GenericReader>& reader) {
+        if (reader == nullptr) {
+            return;
+        }
+
+        auto status = reader->close();
+        if (status.ok()) {
+            reader.reset();
+        } else if (close_status.ok()) {
+            // Continue closing the other retained reader, but report the first failure.
+            close_status = std::move(status);
+        }
+    };
+    close_retained_reader(_cur_reader);
+    close_retained_reader(_cached_paimon_jni_reader);
+    if (!close_status.ok()) {
+        // _try_close() reserves the close attempt before reader cleanup. Restore the state so a
+        // later close can retry any retained reader whose cleanup failed.
+        _is_closed.store(false);
+        return close_status;
     }
 
     RETURN_IF_ERROR(Scanner::close(state));

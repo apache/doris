@@ -143,6 +143,45 @@ private:
     std::shared_ptr<RetryableCloseState> _state;
 };
 
+struct RetainedReaderCloseState {
+    int close_calls = 0;
+    std::vector<Status> close_results;
+};
+
+class RetainedReader final : public GenericReader {
+public:
+    explicit RetainedReader(std::shared_ptr<RetainedReaderCloseState> state)
+            : _state(std::move(state)) {}
+
+    Status close() override {
+        ++_state->close_calls;
+        if (static_cast<size_t>(_state->close_calls) <= _state->close_results.size()) {
+            return _state->close_results[_state->close_calls - 1];
+        }
+        return Status::OK();
+    }
+
+protected:
+    Status _do_get_next_block(Block* /*block*/, size_t* /*read_rows*/, bool* /*eof*/) override {
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<RetainedReaderCloseState> _state;
+};
+
+class RetainedReaderCloseFileScanner final : public FileScanner {
+public:
+    RetainedReaderCloseFileScanner(RuntimeState* state, RuntimeProfile* profile)
+            : FileScanner(state, profile, nullptr, nullptr, nullptr) {}
+
+    void set_retained_readers(std::unique_ptr<GenericReader> current,
+                              std::unique_ptr<GenericReader> cached) {
+        _cur_reader = std::move(current);
+        _cached_paimon_jni_reader = std::move(cached);
+    }
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -898,6 +937,50 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
+}
+
+TEST(FileScannerTest, CloseRetainedReadersAfterCurrentReaderFailure) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner");
+    RetainedReaderCloseFileScanner scanner(&state, &profile);
+
+    auto current_state = std::make_shared<RetainedReaderCloseState>();
+    current_state->close_results = {Status::InternalError("current close failure"), Status::OK()};
+    auto cached_state = std::make_shared<RetainedReaderCloseState>();
+    scanner.set_retained_readers(std::make_unique<RetainedReader>(current_state),
+                                 std::make_unique<RetainedReader>(cached_state));
+
+    const auto first_close = scanner.close(&state);
+    EXPECT_FALSE(first_close.ok());
+    EXPECT_NE(first_close.to_string().find("current close failure"), std::string::npos);
+    EXPECT_EQ(current_state->close_calls, 1);
+    EXPECT_EQ(cached_state->close_calls, 1);
+
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(current_state->close_calls, 2);
+    EXPECT_EQ(cached_state->close_calls, 1);
+}
+
+TEST(FileScannerTest, CloseRetainedReadersAfterCachedReaderFailure) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner");
+    RetainedReaderCloseFileScanner scanner(&state, &profile);
+
+    auto current_state = std::make_shared<RetainedReaderCloseState>();
+    auto cached_state = std::make_shared<RetainedReaderCloseState>();
+    cached_state->close_results = {Status::InternalError("cached close failure"), Status::OK()};
+    scanner.set_retained_readers(std::make_unique<RetainedReader>(current_state),
+                                 std::make_unique<RetainedReader>(cached_state));
+
+    const auto first_close = scanner.close(&state);
+    EXPECT_FALSE(first_close.ok());
+    EXPECT_NE(first_close.to_string().find("cached close failure"), std::string::npos);
+    EXPECT_EQ(current_state->close_calls, 1);
+    EXPECT_EQ(cached_state->close_calls, 1);
+
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(current_state->close_calls, 1);
+    EXPECT_EQ(cached_state->close_calls, 2);
 }
 
 } // namespace doris

@@ -205,6 +205,13 @@ TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
     EXPECT_EQ(params["hadoop.source"], "scan");
 }
 
+TEST(PaimonJniReaderTest, DefaultIoManagerTmpDirsUseEveryStoreRoot) {
+    EXPECT_EQ(PaimonJniReader::TEST_build_default_io_manager_tmp_dirs(
+                      {StorePath("/data1/doris", -1), StorePath("/data2/doris", -1)}),
+              "/data1/doris/paimon_jni_scanner_io_tmp:"
+              "/data2/doris/paimon_jni_scanner_io_tmp");
+}
+
 TEST(PaimonJniReaderTest, KeepsInitialPhysicalBatchSizeAfterOpen) {
     PaimonJniReader reader;
     reader.set_batch_size(32);

@@ -60,6 +60,12 @@ public:
     Status finish_split();
     bool can_reuse_for(const TFileRangeDesc& range) const;
 
+#ifdef BE_TEST
+    const std::map<std::string, std::string>& TEST_scanner_params_signature() const {
+        return _scanner_params_signature;
+    }
+#endif
+
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
