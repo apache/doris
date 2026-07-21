@@ -441,6 +441,7 @@ import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
+import org.apache.doris.nereids.DorisParser.ShowTsoStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
@@ -890,6 +891,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTsoStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTypeCastCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
@@ -7674,6 +7676,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowStatus(ShowStatusContext ctx) {
         String scope = visitStatementScope(ctx.statementScope()).name();
         return new ShowStatusCommand(scope);
+    }
+
+    @Override
+    public LogicalPlan visitShowTsoStatus(ShowTsoStatusContext ctx) {
+        return new ShowTsoStatusCommand();
     }
 
     @Override

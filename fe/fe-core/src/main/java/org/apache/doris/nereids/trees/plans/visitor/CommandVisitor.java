@@ -273,6 +273,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTsoStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTypeCastCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
@@ -679,6 +680,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowStatusCommand(ShowStatusCommand showStatusCommand, C context) {
         return visitCommand(showStatusCommand, context);
+    }
+
+    default R visitShowTsoStatusCommand(ShowTsoStatusCommand showTsoStatusCommand, C context) {
+        return visitCommand(showTsoStatusCommand, context);
     }
 
     default R visitShowPartitionIdCommand(ShowPartitionIdCommand showPartitionIdCommand, C context) {
