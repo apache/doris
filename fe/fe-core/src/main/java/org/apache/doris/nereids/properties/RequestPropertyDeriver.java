@@ -43,12 +43,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -154,23 +154,23 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
-    public Void visitPhysicalIcebergDeleteSink(
-            PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, PlanContext context) {
+    public Void visitPhysicalExternalRowLevelDeleteSink(
+            PhysicalExternalRowLevelDeleteSink<? extends Plan> deleteSink, PlanContext context) {
         if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
-            addRequestPropertyToChildren(icebergDeleteSink.getRequirePhysicalProperties());
+            addRequestPropertyToChildren(deleteSink.getRequirePhysicalProperties());
         }
         return null;
     }
 
     @Override
-    public Void visitPhysicalIcebergMergeSink(
-            PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, PlanContext context) {
+    public Void visitPhysicalExternalRowLevelMergeSink(
+            PhysicalExternalRowLevelMergeSink<? extends Plan> mergeSink, PlanContext context) {
         if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
-            addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
+            addRequestPropertyToChildren(mergeSink.getRequirePhysicalProperties());
         }
         return null;
     }

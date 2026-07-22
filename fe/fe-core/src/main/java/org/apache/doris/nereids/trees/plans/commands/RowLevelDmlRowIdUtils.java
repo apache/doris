@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -95,7 +96,11 @@ public class RowLevelDmlRowIdUtils {
         return false;
     }
 
-    /** Resolve the row-id Column definition from the table's full schema. */
+    /**
+     * Resolve the row-id Column definition. The identity is owned by the connector, which declares it as a
+     * synthetic write column; prefer the copy already appended to the table's full schema, and fall back to
+     * asking the connector directly when the gated append has not run — never reconstruct the STRUCT in fe-core.
+     */
     public static Column getRowIdColumn(ExternalTable table) {
         List<Column> fullSchema = table.getFullSchema();
         if (fullSchema != null) {
@@ -105,7 +110,15 @@ public class RowLevelDmlRowIdUtils {
                 }
             }
         }
-        return IcebergRowId.createHiddenColumn();
+        if (table instanceof PluginDrivenExternalTable) {
+            for (Column column : ((PluginDrivenExternalTable) table).getSyntheticWriteColumns()) {
+                if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(column.getName())) {
+                    return column;
+                }
+            }
+        }
+        throw new AnalysisException("Row-id column " + Column.ICEBERG_ROWID_COL
+                + " is not declared by the connector for table " + table.getName());
     }
 
     /**

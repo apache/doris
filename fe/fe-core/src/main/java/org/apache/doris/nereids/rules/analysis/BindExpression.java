@@ -78,11 +78,11 @@ import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
@@ -236,11 +236,11 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
                 logicalSubQueryAlias().thenApply(this::bindSubqueryAlias)
             ),
-            RuleType.BINDING_ICEBERG_DELETE_SINK_OUTPUT.build(
-                logicalIcebergDeleteSink().thenApply(this::bindIcebergDeleteSink)
+            RuleType.BINDING_EXTERNAL_ROW_LEVEL_DELETE_SINK_OUTPUT.build(
+                logicalExternalRowLevelDeleteSink().thenApply(this::bindIcebergDeleteSink)
             ),
-            RuleType.BINDING_ICEBERG_MERGE_SINK_OUTPUT.build(
-                logicalIcebergMergeSink().thenApply(this::bindIcebergMergeSink)
+            RuleType.BINDING_EXTERNAL_ROW_LEVEL_MERGE_SINK_OUTPUT.build(
+                logicalExternalRowLevelMergeSink().thenApply(this::bindIcebergMergeSink)
             ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().thenApply(this::bindResultSink)
@@ -272,9 +272,9 @@ public class BindExpression implements AnalysisRuleFactory {
         return ctx.root;
     }
 
-    private LogicalIcebergDeleteSink<Plan> bindIcebergDeleteSink(
-            MatchingContext<LogicalIcebergDeleteSink<Plan>> ctx) {
-        LogicalIcebergDeleteSink<Plan> sink = ctx.root;
+    private LogicalExternalRowLevelDeleteSink<Plan> bindIcebergDeleteSink(
+            MatchingContext<LogicalExternalRowLevelDeleteSink<Plan>> ctx) {
+        LogicalExternalRowLevelDeleteSink<Plan> sink = ctx.root;
         if (hasUnboundPlan(sink.child())) {
             return sink;
         }
@@ -287,9 +287,9 @@ public class BindExpression implements AnalysisRuleFactory {
         return sink.withOutputExprs(outputExprs);
     }
 
-    private LogicalIcebergMergeSink<Plan> bindIcebergMergeSink(
-            MatchingContext<LogicalIcebergMergeSink<Plan>> ctx) {
-        LogicalIcebergMergeSink<Plan> sink = ctx.root;
+    private LogicalExternalRowLevelMergeSink<Plan> bindIcebergMergeSink(
+            MatchingContext<LogicalExternalRowLevelMergeSink<Plan>> ctx) {
+        LogicalExternalRowLevelMergeSink<Plan> sink = ctx.root;
         if (hasUnboundPlan(sink.child())) {
             return sink;
         }
@@ -352,7 +352,7 @@ public class BindExpression implements AnalysisRuleFactory {
             return sink.withOutputExprs(outputExprs);
         }
         LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
-        return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+        return (LogicalExternalRowLevelMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
     }
 
     private boolean isIcebergMergeMetaColumn(String name, List<String> reservedPassthroughNames) {

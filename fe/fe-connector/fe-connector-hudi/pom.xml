@@ -85,12 +85,77 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <!-- rocksdbjni (54MB, ~1/4 of the plugin) is only used by Hudi's OPT-IN
+                     RocksDbBasedFileSystemView and RocksDbDiskMap. This connector builds an in-memory
+                     file-system view (HudiScanPlanProvider ->
+                     FileSystemViewManager.createInMemoryFileSystemView) and never selects the RocksDB
+                     view; the metadata-table external spillable map defaults to BITCASK (pure-Java), not
+                     ROCKSDB. The createInMemory path has no static reference to the RocksDB classes, so
+                     there is no class-init hazard — the jar is dead weight on the FE metadata read path. -->
+                <exclusion>
+                    <groupId>org.rocksdb</groupId>
+                    <artifactId>rocksdbjni</artifactId>
+                </exclusion>
+                <!-- hudi-common pulls hbase-server for the HFile-format metadata-table reader, which
+                     transitively drags the HBase RegionServer web-UI stack (hbase-http ->
+                     hbase-shaded-jetty/jersey, ~5.7MB) and the Hadoop YARN + MapReduce + HDFS-daemon job
+                     stack (hadoop-mapreduce-client-core -> yarn-api/common/client + jline; hadoop-hdfs the
+                     NameNode/DataNode server jar -> leveldbjni; hadoop-distcp), ~26MB total. The FE metadata
+                     read path (timeline + HFile MDT via createInMemoryFileSystemView) never submits a
+                     YARN/MR job, starts a RegionServer, or serves the HBase info UI, so strip the
+                     job/server/UI infra while KEEPING the HFile reader core (hbase-server + hbase-common +
+                     hbase-client + hbase-protocol*). hadoop-hdfs-CLIENT (needed for hdfs:// warehouses)
+                     previously arrived under the excluded mapreduce subtree, so it is re-declared directly
+                     below. Mirrors the same trims fe-connector-hms-hive-shade already applies to hive. -->
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-mapreduce-client-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-distcp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hbase</groupId>
+                    <artifactId>hbase-http</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- HadoopStorageConfiguration for building MetaClient -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-hadoop-mr</artifactId>
+        </dependency>
+
+        <!-- hadoop-hdfs-client supplies org.apache.hadoop.hdfs.DistributedFileSystem + its
+             META-INF/services/org.apache.hadoop.fs.FileSystem 'hdfs' registration, needed whenever the
+             connector opens an hdfs:// table base path to read the .hoodie timeline
+             (HudiScanPlanProvider.buildMetaClient -> HoodieTableMetaClient.getStorage -> FileSystem.get).
+             It previously arrived transitively via hudi-common -> hbase-server ->
+             hadoop-mapreduce-client-core, which is excluded above to drop the YARN/MR job stack, so
+             re-declare it directly. Same self-contained child-first reasoning as hadoop-aws below and as
+             fe-connector-iceberg/paimon: runtime scope (DistributedFileSystem is loaded reflectively via
+             the Hadoop FileSystem SPI, not referenced at compile time), version pinned to ${hadoop.version}
+             (NOT in fe/pom.xml dependencyManagement), and hadoop-common excluded so the plugin keeps the
+             SINGLE hadoop-common copy that fe-connector-hms already contributes (no cross-loader
+             FileSystem/Configuration split). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- parquet-hadoop supplies org.apache.parquet.hadoop.ParquetFileReader and parquet-avro supplies
