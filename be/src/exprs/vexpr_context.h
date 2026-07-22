@@ -32,17 +32,20 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+class ZoneMapEvalContext;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -292,6 +295,13 @@ public:
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
+
+    [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
+            const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
+    [[nodiscard]] static ZoneMapFilterResult evaluate_dictionary_filter(
+            const VExprContextSPtrs& conjuncts, const DictionaryEvalContext& ctx);
+    [[nodiscard]] static ZoneMapFilterResult evaluate_bloom_filter(
+            const VExprContextSPtrs& conjuncts, const BloomFilterEvalContext& ctx);
 
     bool all_expr_inverted_index_evaluated();
 

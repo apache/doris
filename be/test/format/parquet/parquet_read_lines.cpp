@@ -168,7 +168,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
 
     auto data_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
-    block->insert(ColumnWithTypeAndName(data_type->create_column()->assume_mutable(), data_type,
+    block->insert(ColumnWithTypeAndName(data_type->create_column()->assert_mutable(), data_type,
                                         "row_id"));
 
     bool eof = false;

@@ -123,7 +123,7 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'timestamp' is not supported"
+                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
             }
 
 
@@ -272,7 +272,7 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'timestamp' is not supported"
+                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
             }
 
 

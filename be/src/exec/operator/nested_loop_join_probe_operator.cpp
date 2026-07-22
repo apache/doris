@@ -79,10 +79,12 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 void NestedLoopJoinProbeLocalState::_update_additional_flags(Block* block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     if (p._is_mark_join) {
-        auto mark_column = block->get_by_position(block->columns() - 1).column->assume_mutable();
+        auto mark_column =
+                IColumn::mutate(std::move(block->get_by_position(block->columns() - 1).column));
         if (mark_column->size() < block->rows()) {
             ColumnFilterHelper(*mark_column).resize_fill(block->rows(), 1);
         }
+        block->replace_by_position(block->columns() - 1, std::move(mark_column));
     }
 }
 
@@ -185,7 +187,8 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 template <bool BuildSide, bool IsSemi>
 void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t batch_size) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     DCHECK_GT(dst_columns.size(), 0);
     auto column_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
@@ -294,12 +297,12 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
             }
         }
     }
-    block.set_columns(std::move(dst_columns));
 }
 
 void NestedLoopJoinProbeLocalState::_append_left_data_with_null(Block& block) const {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     DCHECK(p._is_mark_join);
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
@@ -325,14 +328,14 @@ void NestedLoopJoinProbeLocalState::_append_left_data_with_null(Block& block) co
     }
     auto& mark_column = *dst_columns[dst_columns.size() - 1];
     ColumnFilterHelper(mark_column).resize_fill(mark_column.size() + _left_side_process_count, 0);
-    block.set_columns(std::move(dst_columns));
 }
 
 void NestedLoopJoinProbeLocalState::_process_left_child_block(
         Block& block, const Block& now_process_build_block) const {
     SCOPED_TIMER(_output_temp_blocks_timer);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     const size_t max_added_rows = now_process_build_block.rows();
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
@@ -371,18 +374,13 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
                                                                           0, max_added_rows);
         }
     }
-    block.set_columns(std::move(dst_columns));
 }
 
 NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                            int operator_id,
                                                            const DescriptorTbl& descs)
         : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, operator_id, descs),
-          _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
-                                    tnode.nested_loop_join_node.is_output_left_side_only),
-          _old_version_flag(!tnode.__isset.nested_loop_join_node) {
-    _keep_origin = _is_output_left_side_only;
-}
+          _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
 
 Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::init(tnode, state));
@@ -431,7 +429,40 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
     local_state._need_more_input_data = false;
     local_state._shared_state->left_side_eos = eos;
 
-    if (!_is_output_left_side_only) {
+    auto func = [&](auto&& join_op_variants, auto set_build_side_flag, auto set_probe_side_flag) {
+        return local_state.generate_join_block_data<std::decay_t<decltype(join_op_variants)>,
+                                                    set_build_side_flag, set_probe_side_flag>(
+                state, join_op_variants);
+    };
+    SCOPED_TIMER(local_state._loop_join_timer);
+    RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
+                               make_bool_variant(_match_all_build || _is_right_semi_anti),
+                               make_bool_variant(_match_all_probe || _is_left_semi_anti)));
+    return Status::OK();
+}
+
+Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, bool* eos) const {
+    auto& local_state = get_local_state(state);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+    *eos = ((_match_all_build || _is_right_semi_anti)
+                    ? local_state._output_null_idx_build_side ==
+                                      local_state._shared_state->build_blocks.size() &&
+                              local_state._matched_rows_done
+                    : local_state._matched_rows_done);
+
+    size_t join_block_column_size = local_state._join_block.columns();
+    {
+        {
+            SCOPED_TIMER(local_state._join_filter_timer);
+
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts,
+                                                     &local_state._join_block,
+                                                     local_state._join_block.columns()));
+        }
+        RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
+    }
+    local_state._join_block.clear_column_data(join_block_column_size);
+    if (!(*eos) and !local_state._need_more_input_data) {
         auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
                         auto set_probe_side_flag) {
             return local_state.generate_join_block_data<std::decay_t<decltype(join_op_variants)>,
@@ -439,54 +470,10 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
                     state, join_op_variants);
         };
         SCOPED_TIMER(local_state._loop_join_timer);
+        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
         RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
                                    make_bool_variant(_match_all_build || _is_right_semi_anti),
                                    make_bool_variant(_match_all_probe || _is_left_semi_anti)));
-    }
-    return Status::OK();
-}
-
-Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, bool* eos) const {
-    auto& local_state = get_local_state(state);
-    if (_is_output_left_side_only) {
-        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-        RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
-        *eos = local_state._shared_state->left_side_eos;
-        local_state._need_more_input_data = !local_state._shared_state->left_side_eos;
-    } else {
-        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-        *eos = ((_match_all_build || _is_right_semi_anti)
-                        ? local_state._output_null_idx_build_side ==
-                                          local_state._shared_state->build_blocks.size() &&
-                                  local_state._matched_rows_done
-                        : local_state._matched_rows_done);
-
-        size_t join_block_column_size = local_state._join_block.columns();
-        {
-            {
-                SCOPED_TIMER(local_state._join_filter_timer);
-
-                RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts,
-                                                         &local_state._join_block,
-                                                         local_state._join_block.columns()));
-            }
-            RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
-        }
-        local_state._join_block.clear_column_data(join_block_column_size);
-        if (!(*eos) and !local_state._need_more_input_data) {
-            auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
-                            auto set_probe_side_flag) {
-                return local_state
-                        .generate_join_block_data<std::decay_t<decltype(join_op_variants)>,
-                                                  set_build_side_flag, set_probe_side_flag>(
-                                state, join_op_variants);
-            };
-            SCOPED_TIMER(local_state._loop_join_timer);
-            SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-            RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
-                                       make_bool_variant(_match_all_build || _is_right_semi_anti),
-                                       make_bool_variant(_match_all_probe || _is_left_semi_anti)));
-        }
     }
 
     local_state.reached_limit(block, eos);

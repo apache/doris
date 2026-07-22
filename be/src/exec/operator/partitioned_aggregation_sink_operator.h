@@ -115,7 +115,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
                          bool require_bucket_distribution) override {

@@ -496,11 +496,16 @@ struct TQueryOptions {
   219: optional i64 ann_index_candidate_rows_threshold = 0
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
   220: optional double ann_index_candidate_rows_percent_threshold = 0.3
+  // To control whether BE scan readers may apply expression-based ZoneMap pruning.
+  224: optional bool enable_expr_zonemap_filter = true
+
+  225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+  1002: optional bool enable_file_scanner_v2 = false
 }
 
 

@@ -97,6 +97,30 @@ void sleep_for_packed_file_retry() {
     std::this_thread::sleep_for(std::chrono::milliseconds(packed_file_retry_sleep_ms()));
 }
 
+bool filter_out_instance(const std::string& instance_id) {
+    if (config::recycle_whitelist.empty()) {
+        return std::ranges::find(config::recycle_blacklist, instance_id) !=
+               config::recycle_blacklist.end();
+    }
+    return std::ranges::find(config::recycle_whitelist, instance_id) ==
+           config::recycle_whitelist.end();
+}
+
+bool is_packed_slice_path(const doris::RowsetMetaCloudPB& rowset, const std::string& path) {
+    const auto& locations = rowset.packed_slice_locations();
+    auto it = locations.find(path);
+    return it != locations.end() && it->second.has_packed_file_path() &&
+           !it->second.packed_file_path().empty();
+}
+
+void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
+                                      const std::string& path,
+                                      std::vector<std::string>* file_paths) {
+    if (!is_packed_slice_path(rowset, path)) {
+        file_paths->push_back(path);
+    }
+}
+
 } // namespace
 
 // return 0 for success get a key, 1 for key not found, negative for error
@@ -262,7 +286,7 @@ void Recycler::instance_scanner_callback() {
                 // enqueue instances
                 std::lock_guard lock(mtx_);
                 for (auto& instance : instances) {
-                    if (instance_filter_.filter_out(instance.instance_id())) continue;
+                    if (filter_out_instance(instance.instance_id())) continue;
                     auto [_, success] = pending_instance_set_.insert(instance.instance_id());
                     // skip instance already in pending queue
                     if (success) {
@@ -415,7 +439,6 @@ void Recycler::check_recycle_tasks() {
 }
 
 int Recycler::start(brpc::Server* server) {
-    instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
     S3Environment::getInstance();
 
@@ -3142,14 +3165,19 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     for (int64_t i = 0; i < num_segments; ++i) {
-        file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, i),
+                                         &file_paths);
         if (index_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& index_id : index_ids) {
-                file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
-                                                            index_id.second));
+                add_file_to_delete_if_not_packed(
+                        rs_meta_pb,
+                        inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                               index_id.second),
+                        &file_paths);
             }
         } else if (!index_ids.empty()) {
-            file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(
+                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
         }
     }
 
@@ -3893,11 +3921,15 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {
-            file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, i),
+                                             &file_paths);
             if (index_format == InvertedIndexStorageFormatPB::V1) {
                 for (const auto& index_id : index_ids) {
-                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
-                                                                index_id.first, index_id.second));
+                    add_file_to_delete_if_not_packed(
+                            rs,
+                            inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                                   index_id.second),
+                            &file_paths);
                 }
             } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
                 // try to recycle inverted index v2 when get_ret == 1
@@ -3909,7 +3941,8 @@ int InstanceRecycler::delete_rowset_data(
                             .tag("inverted index v2 path",
                                  inverted_index_path_v2(tablet_id, rowset_id, i));
                 }
-                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+                add_file_to_delete_if_not_packed(
+                        rs, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
             }
         }
     }
@@ -4300,24 +4333,24 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
-        // The rowset has no resource id and segments when it was generated by compaction
-        // with multiple hole rowsets or it's version is [0-1], so we can skip it.
-        if (!rs_meta.has_resource_id() && rs_meta.num_segments() == 0) {
-            LOG_INFO("rowset meta does not have a resource id and no segments, skip this rowset")
+        // Empty rowsets have no segment objects to delete, so they do not need a resource id.
+        if (rs_meta.num_segments() <= 0) {
+            LOG_INFO("rowset meta has no segments, skip this rowset")
                     .tag("rs_meta", rs_meta.ShortDebugString())
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id);
             recycle_rowsets_number += 1;
             continue;
         }
-        if (!rs_meta.has_resource_id()) {
-            LOG_WARNING("rowset meta does not have a resource id, impossible!")
+        if (!rs_meta.has_resource_id() || rs_meta.resource_id().empty()) {
+            LOG_WARNING("rowset meta has a missing or empty resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString())
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id);
             return -1;
         }
-        DCHECK(rs_meta.has_resource_id()) << "rs_meta" << rs_meta.ShortDebugString();
+        DCHECK(rs_meta.has_resource_id() && !rs_meta.resource_id().empty())
+                << "rs_meta" << rs_meta.ShortDebugString();
         auto it = accessor_map_.find(rs_meta.resource_id());
         // possible if the accessor is not initilized correctly
         if (it == accessor_map_.end()) [[unlikely]] {

@@ -33,6 +33,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -116,13 +117,15 @@ public:
 
     uint32_t row_count() const { return _row_count; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                    SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     uint32_t get_segment_id() const { return _segment_id; }
 
     Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);
-    Status finalize_footer(uint64_t* segment_file_size);
+    Status finalize_footer(uint64_t* segment_file_size,
+                           SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                           const ColumnWriterOptions& opts);
@@ -182,7 +185,7 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const Block& block);
+    void _serialize_block_to_row_column(Block& block);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
@@ -205,6 +208,7 @@ private:
     IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
+    SegmentIndexFileCacheInfo _index_file_cache_info;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;

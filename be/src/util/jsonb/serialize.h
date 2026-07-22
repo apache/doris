@@ -54,6 +54,12 @@ public:
                                  const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                  Block& dst, const std::vector<std::string>& default_values,
                                  const std::unordered_set<int>& include_cids);
+    // append single row into mutable columns
+    static Status jsonb_to_columns(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
+                                   const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
+                                   MutableColumns& dst_columns,
+                                   const std::vector<std::string>& default_values,
+                                   const std::unordered_set<int>& include_cids);
     // single row
     static Status jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
                                  const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,

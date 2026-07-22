@@ -75,6 +75,12 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    enum class FileCacheReadType {
+        DATA,
+        INVERTED_INDEX,
+        SEGMENT_FOOTER_INDEX,
+    };
+
     void _insert_file_reader(FileBlockSPtr file_block);
 
     // Execute remote read (S3 or peer).
@@ -83,7 +89,7 @@ private:
                                 ReadStatistics& stats, const IOContext* io_ctx);
 
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
-                       bool is_inverted_index) const;
+                       FileCacheReadType read_type) const;
 
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;

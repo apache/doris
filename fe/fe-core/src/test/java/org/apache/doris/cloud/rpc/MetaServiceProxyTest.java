@@ -31,6 +31,7 @@ import org.mockito.Mockito;
 
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MetaServiceProxyTest {
     private String originEndpoint;
@@ -71,8 +72,13 @@ public class MetaServiceProxyTest {
         lastConnTimeMs.add(0L);
 
         MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
-        String response = wrapper.executeRequest("ignored", (ignored) -> "ok");
-        Assert.assertEquals("ok", response);
+        Cloud.GetVersionResponse okResponse = Cloud.GetVersionResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK))
+                .build();
+        Cloud.GetVersionResponse response = wrapper.executeRequest("ignored", (ignored) -> okResponse,
+                Cloud.GetVersionResponse::getStatus);
+        Assert.assertEquals(Cloud.MetaServiceCode.OK, response.getStatus().getCode());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -95,7 +101,7 @@ public class MetaServiceProxyTest {
         try {
             wrapper.executeRequest("ignored", (ignored) -> {
                 throw new RuntimeException("rpc failed");
-            });
+            }, Cloud.GetVersionResponse::getStatus);
             Assert.fail("should throw RpcException");
         } catch (RpcException ignored) {
             // expected
@@ -123,5 +129,103 @@ public class MetaServiceProxyTest {
         future.setException(new RuntimeException("async failed"));
 
         Mockito.verify(client).shutdown(true);
+    }
+
+    @Test
+    public void testExecuteRequestNoShutdownOnTooBusyFailure() throws RpcException {
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+
+        Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
+        serviceMap.put(Config.meta_service_endpoint, client);
+        Queue<Long> lastConnTimeMs = Deencapsulation.getField(proxy, "lastConnTimeMs");
+        lastConnTimeMs.clear();
+        lastConnTimeMs.add(0L);
+        lastConnTimeMs.add(0L);
+        lastConnTimeMs.add(0L);
+
+        MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
+        Cloud.MetaServiceResponseStatus status = Cloud.MetaServiceResponseStatus.newBuilder()
+                .setCode(Cloud.MetaServiceCode.MS_TOO_BUSY)
+                .setMsg("server is overloaded")
+                .build();
+        Cloud.GetVersionResponse response = Cloud.GetVersionResponse.newBuilder()
+                .setStatus(status)
+                .build();
+
+        try {
+            wrapper.executeRequest("ignored", (ignored) -> response, Cloud.GetVersionResponse::getStatus);
+            Assert.fail("should throw RpcException");
+        } catch (RpcException e) {
+            Assert.assertEquals("server is overloaded", e.getMessage());
+        }
+        Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
+    }
+
+    @Test
+    public void testExecuteRequestRetryOnTooBusy() throws RpcException {
+        Config.meta_service_rpc_retry_cnt = 2;
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+
+        Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
+        serviceMap.put(Config.meta_service_endpoint, client);
+
+        MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
+        Cloud.GetVersionResponse tooBusyResponse = Cloud.GetVersionResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.MS_TOO_BUSY)
+                        .setMsg("server is overloaded"))
+                .build();
+        Cloud.GetVersionResponse okResponse = Cloud.GetVersionResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK))
+                .build();
+        AtomicInteger callCount = new AtomicInteger();
+
+        Cloud.GetVersionResponse result = wrapper.executeRequest("ignored", (ignored) ->
+                callCount.incrementAndGet() == 1 ? tooBusyResponse : okResponse, Cloud.GetVersionResponse::getStatus);
+
+        Assert.assertEquals(Cloud.MetaServiceCode.OK, result.getStatus().getCode());
+        Assert.assertEquals(2, callCount.get());
+        Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
+    }
+
+    @Test
+    public void testExecuteRequestFailureAfterTooBusyRetries() throws RpcException {
+        Config.meta_service_rpc_retry_cnt = 2;
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+
+        Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
+        serviceMap.put(Config.meta_service_endpoint, client);
+
+        MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
+        Cloud.GetVersionResponse tooBusyResponse = Cloud.GetVersionResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.MS_TOO_BUSY)
+                        .setMsg("server is overloaded"))
+                .build();
+        AtomicInteger callCount = new AtomicInteger();
+
+        try {
+            wrapper.executeRequest("ignored", (ignored) -> {
+                callCount.incrementAndGet();
+                return tooBusyResponse;
+            }, Cloud.GetVersionResponse::getStatus);
+            Assert.fail("should throw RpcException");
+        } catch (RpcException e) {
+            Assert.assertEquals("server is overloaded", e.getMessage());
+        }
+
+        Assert.assertEquals(2, callCount.get());
+        Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
+    }
+
+    private MetaServiceClient mockNormalClient() {
+        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
+        Mockito.when(client.isNormalState()).thenReturn(true);
+        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        return client;
     }
 }

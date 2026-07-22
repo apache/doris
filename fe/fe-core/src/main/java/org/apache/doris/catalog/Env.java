@@ -106,6 +106,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -4362,7 +4363,14 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            IcebergExternalTable icebergExternalTable;
+            if (table instanceof IcebergExternalTable) {
+                icebergExternalTable = (IcebergExternalTable) table;
+            } else if (table instanceof IcebergSysExternalTable) {
+                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
+            } else {
+                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
+            }
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
             }
@@ -4786,7 +4794,14 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            IcebergExternalTable icebergExternalTable;
+            if (table instanceof IcebergExternalTable) {
+                icebergExternalTable = (IcebergExternalTable) table;
+            } else if (table instanceof IcebergSysExternalTable) {
+                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
+            } else {
+                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
+            }
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
             }
@@ -6673,6 +6688,9 @@ public class Env {
      */
     public void setMutableConfigWithCallback(String key, String value) throws ConfigException {
         ConfigBase.setMutableConfig(key, value);
+        if ("ldap_default_roles".equals(key)) {
+            getAuth().getLdapManager().refresh(true, null);
+        }
         if (configtoThreads.get(key) != null) {
             try {
                 // not atomic. maybe delay to aware. but acceptable.

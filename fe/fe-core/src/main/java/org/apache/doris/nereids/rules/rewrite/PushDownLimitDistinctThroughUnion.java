@@ -68,11 +68,11 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
                             LogicalUnion union = agg.child();
 
                             List<Plan> newChildren = new ArrayList<>();
-                            for (Plan child : union.children()) {
+                            for (int childIdx = 0; childIdx < union.arity(); ++childIdx) {
                                 Map<Expression, Expression> replaceMap = new HashMap<>();
                                 for (int i = 0; i < union.getOutputs().size(); ++i) {
                                     NamedExpression output = union.getOutputs().get(i);
-                                    replaceMap.put(output, child.getOutput().get(i));
+                                    replaceMap.put(output, union.getRegularChildOutput(childIdx).get(i));
                                 }
 
                                 List<Expression> newGroupBy = agg.getGroupByExpressions().stream()
@@ -82,7 +82,8 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
                                         .map(expr -> ExpressionUtils.replaceNameExpression(expr, replaceMap))
                                         .collect(Collectors.toList());
 
-                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(newGroupBy, newOutputs, child);
+                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(
+                                        newGroupBy, newOutputs, union.child(childIdx));
                                 LogicalLimit<Plan> newLimit = limit.withLimitChild(limit.getLimit() + limit.getOffset(),
                                         0, newAgg);
 

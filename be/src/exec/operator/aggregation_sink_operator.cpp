@@ -275,16 +275,20 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
 
     for (int i = 0; i < key_size; ++i) {
         if constexpr (for_spill) {
-            key_columns[i] = block->get_by_position(i).column.get();
             key_locs[i] = i;
         } else {
             int& result_column_id = key_locs[i];
             RETURN_IF_ERROR(
                     Base::_shared_state->probe_expr_ctxs[i]->execute(block, &result_column_id));
             block->replace_by_position_if_const(result_column_id);
-            key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
-        key_columns[i]->assume_mutable()->replace_float_special_values();
+        {
+            auto mutable_col =
+                    IColumn::mutate(std::move(block->get_by_position(key_locs[i]).column));
+            mutable_col->replace_float_special_values();
+            block->get_by_position(key_locs[i]).column = std::move(mutable_col);
+            key_columns[i] = block->get_by_position(key_locs[i]).column.get();
+        }
     }
 
     size_t rows = block->rows();
@@ -456,8 +460,13 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(Block* block) {
             block->get_by_position(result_column_id).column =
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
+            {
+                auto mutable_col =
+                        IColumn::mutate(std::move(block->get_by_position(result_column_id).column));
+                mutable_col->replace_float_special_values();
+                block->get_by_position(result_column_id).column = std::move(mutable_col);
+            }
             key_columns[i] = block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -863,7 +872,7 @@ Status AggSinkOperatorX::_check_agg_fn_output() {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status AggSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

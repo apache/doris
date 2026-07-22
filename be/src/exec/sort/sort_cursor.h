@@ -22,6 +22,7 @@
 
 #include <glog/logging.h>
 
+#include <functional>
 #include <utility>
 
 #include "core/block/block.h"
@@ -108,6 +109,7 @@ struct MergeSortCursorImpl {
     virtual void process_next() {}
     virtual Block* block_ptr() { return nullptr; }
     virtual bool eof() const { return false; }
+    virtual bool has_ready_block_or_eos() const { return false; }
 
     Field get_top_value() const {
         Field field {PrimitiveType::TYPE_NULL};
@@ -117,14 +119,18 @@ struct MergeSortCursorImpl {
 };
 
 using BlockSupplier = std::function<Status(Block*, bool* eos)>;
+using BlockSupplierReadyChecker = std::function<bool()>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     ENABLE_FACTORY_CREATOR(BlockSupplierSortCursorImpl);
     BlockSupplierSortCursorImpl(BlockSupplier block_supplier,
                                 const VExprContextSPtrs& ordering_expr,
                                 const std::vector<bool>& is_asc_order,
-                                const std::vector<bool>& nulls_first)
-            : _ordering_expr(ordering_expr), _block_supplier(std::move(block_supplier)) {
+                                const std::vector<bool>& nulls_first,
+                                BlockSupplierReadyChecker block_supplier_ready_checker = {})
+            : _ordering_expr(ordering_expr),
+              _block_supplier(std::move(block_supplier)),
+              _block_supplier_ready_checker(std::move(block_supplier_ready_checker)) {
         block = Block::create_shared();
         sort_columns_size = ordering_expr.size();
 
@@ -136,9 +142,16 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         process_next();
     }
 
-    BlockSupplierSortCursorImpl(BlockSupplier block_supplier, const SortDescription& desc_)
-            : MergeSortCursorImpl(desc_), _block_supplier(std::move(block_supplier)) {
+    BlockSupplierSortCursorImpl(BlockSupplier block_supplier, const SortDescription& desc_,
+                                BlockSupplierReadyChecker block_supplier_ready_checker = {})
+            : MergeSortCursorImpl(desc_),
+              _block_supplier(std::move(block_supplier)),
+              _block_supplier_ready_checker(std::move(block_supplier_ready_checker)) {
         process_next();
+    }
+
+    bool has_ready_block_or_eos() const override {
+        return _block_supplier_ready_checker && _block_supplier_ready_checker();
     }
 
     void process_next() override {
@@ -167,6 +180,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
 
     VExprContextSPtrs _ordering_expr;
     BlockSupplier _block_supplier;
+    BlockSupplierReadyChecker _block_supplier_ready_checker;
     bool _is_eof = false;
 };
 

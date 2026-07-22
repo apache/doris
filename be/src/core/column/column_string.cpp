@@ -36,6 +36,7 @@
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
+#include "util/utf8_check.h"
 namespace doris {
 #include "common/compile_check_begin.h"
 
@@ -95,33 +96,43 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::IColumn& src, 
         return;
     }
 
-    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
-    if (start + length > src_concrete.offsets.size()) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Parameter out of bound in "
-                               "IColumnStr<T>::insert_range_from_ignore_overflow method.");
-    }
-
-    auto nested_offset = src_concrete.offset_at(start);
-    auto nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
-
-    size_t old_chars_size = chars.size();
-    chars.resize(old_chars_size + nested_length);
-    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
-
-    if (start == 0 && offsets.empty()) {
-        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
-    } else {
-        size_t old_size = offsets.size();
-        auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
-        offsets.resize(old_size + length);
-
-        for (size_t i = 0; i < length; ++i) {
-            // unsinged integer overflow is well defined in C++,
-            // so we don't need to check the overflow here.
-            offsets[old_size + i] =
-                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
+    auto do_insert = [&](const auto& src_concrete) {
+        const auto& src_offsets = src_concrete.get_offsets();
+        const auto& src_chars = src_concrete.get_chars();
+        if (start + length > src_offsets.size()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Parameter out of bound in "
+                                   "IColumnStr<T>::insert_range_from_ignore_overflow method.");
         }
+
+        auto nested_offset = src_offsets[static_cast<ssize_t>(start) - 1];
+        auto nested_length = src_offsets[start + length - 1] - nested_offset;
+
+        size_t old_chars_size = chars.size();
+        chars.resize(old_chars_size + nested_length);
+        memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
+
+        using OffsetsType = std::decay_t<decltype(src_offsets)>;
+        if (std::is_same_v<T, typename OffsetsType::value_type> && start == 0 && offsets.empty()) {
+            offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+        } else {
+            size_t old_size = offsets.size();
+            auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+            offsets.resize(old_size + length);
+
+            for (size_t i = 0; i < length; ++i) {
+                // unsinged integer overflow is well defined in C++,
+                // so we don't need to check the overflow here.
+                offsets[old_size + i] =
+                        static_cast<T>(src_offsets[start + i] - nested_offset) + prev_max_offset;
+            }
+        }
+    };
+
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
 
 #ifndef NDEBUG
@@ -692,6 +703,20 @@ void ColumnStr<T>::insert(const Field& x) {
 template <typename T>
 bool ColumnStr<T>::is_ascii() const {
     return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
+}
+
+template <typename T>
+bool ColumnStr<T>::is_valid_utf8() const {
+    const auto num_rows = offsets.size();
+    const char* data = reinterpret_cast<const char*>(chars.data());
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto str_offset = offset_at(i);
+        auto str_size = size_at(i);
+        if (!validate_utf8(data + str_offset, str_size)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 template class ColumnStr<uint32_t>;

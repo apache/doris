@@ -53,7 +53,7 @@ public:
                             const DescriptorTbl& descs)
             : SortSourceOperatorX(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         std::swap(*block, this->block);
         *eos = this->eos;
         return Status::OK();

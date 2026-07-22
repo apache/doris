@@ -272,6 +272,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to enable stream load forward endpoint for cloud group commit
+DEFINE_mBool(enable_group_commit_streamload_be_forward, "false");
 // whether to check md5sum when download
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
@@ -827,6 +829,11 @@ DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
 // Whether to enable adaptive flush thread adjustment
 DEFINE_mBool(enable_adaptive_flush_threads, "true");
 
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DEFINE_mBool(enable_table_memtable_flush_backpressure, "true");
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DEFINE_mInt32(table_memtable_flush_pending_count_limit, "10");
+
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 DEFINE_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
@@ -1043,9 +1050,8 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
-DEFINE_mInt64(big_column_size_buffer, "65535");
-DEFINE_mInt64(small_column_size_buffer, "100");
-
+DEFINE_Validator(orc_natural_read_size_mb,
+                 [](const int config) -> bool { return config > 0 && config <= 1024; });
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
@@ -1164,7 +1170,7 @@ DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 // Reserved for future use when NestedGroup expansion moves to storage layer
 // Deeper arrays will be stored as JSONB
 DEFINE_mInt32(variant_nested_group_max_depth, "10");
-DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "true");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
@@ -1342,7 +1348,6 @@ DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
-DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
 DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 
@@ -1414,6 +1419,9 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Max time(ms) to wait for creating group commit plan fragment.
+// 0 means no timeout, default 2min.
+DEFINE_mInt32(group_commit_create_plan_timeout_ms, "120000");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");

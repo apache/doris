@@ -40,7 +40,6 @@
 #include "recycler/snapshot_chain_compactor.h"
 #include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
-#include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
 
 namespace brpc {
@@ -56,6 +55,11 @@ class SimpleThreadPool;
 class RecyclerMetricsContext;
 class TabletRecyclerMetricsContext;
 class SegmentRecyclerMetricsContext;
+
+int64_t calculate_tmp_rowset_expired_time(
+        const std::string& instance_id_, const doris::RowsetMetaCloudPB& tmp_rowset_meta_pb,
+        int64_t* earlest_ts /* tmp_rowset earliest expiration ts */);
+
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
@@ -118,7 +122,6 @@ private:
 
     std::string ip_port_;
 
-    WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
 
     RecyclerThreadPoolGroup _thread_pool_group;

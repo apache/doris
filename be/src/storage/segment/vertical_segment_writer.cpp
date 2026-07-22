@@ -96,6 +96,14 @@ inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id)
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
 }
 
+static ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx) {
+    auto skip_bitmap_column =
+            IColumn::mutate(std::move(block->get_by_position(skip_bitmap_col_idx).column));
+    auto* skip_bitmap_column_ptr = assert_cast<ColumnBitmap*>(skip_bitmap_column.get());
+    block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
+    return skip_bitmap_column_ptr;
+}
+
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
@@ -784,10 +792,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(
-                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                    ->get_data());
+    auto* mutable_input_block = const_cast<Block*>(data.block);
+    std::vector<BitmapValue>* skip_bitmaps =
+            &get_mutable_skip_bitmap_column(mutable_input_block, skip_bitmap_col_idx)->get_data();
     const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
@@ -913,11 +920,13 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
         const auto& default_value = info.default_values[idx];
         StringRef str {default_value};
+        auto column_guard = block.mutate_column_scoped(0);
         RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
-                str, *block.get_by_position(0).column->assume_mutable().get()));
+                str, *column_guard.mutable_column()));
 
     } else {
-        block.get_by_position(0).column->assume_mutable()->insert_default();
+        auto column_guard = block.mutate_column_scoped(0);
+        column_guard.mutable_column()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
@@ -1315,6 +1324,9 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
+    // Record the common index range for cloud index-only file-cache preload.
+    // This VerticalSegmentWriter path is used when cloud load, compaction, or schema change flushes
+    // a whole block through SegmentCreator with enable_vertical_segment_writer enabled.
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_inverted_index());
@@ -1336,6 +1348,8 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
         RETURN_IF_ERROR(_write_short_key_index());
         *index_size = _file_writer->bytes_appended() - index_start;
     }
+    uint64_t file_index_end = _file_writer->bytes_appended();
+    _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
 
     // reset all column writers and data_conveter
     clear();
@@ -1343,18 +1357,28 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size) {
+Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size,
+                                              SegmentIndexFileCacheInfo* index_file_cache_info) {
+    uint64_t footer_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
+    // The closed size completes the preload range recorded above. SegmentIndexFileCacheLoader
+    // later decides whether this is a remote cloud rowset that should actually be preloaded.
+    _index_file_cache_info.segment_file_size = *segment_file_size;
+    _index_file_cache_info.add_index_range(footer_start, *segment_file_size - footer_start);
+    if (index_file_cache_info != nullptr) {
+        *index_file_cache_info = _index_file_cache_info;
+    }
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                                       SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
@@ -1368,7 +1392,7 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer(segment_file_size, index_file_cache_info));
 
     if (timer.elapsed_time() > 5000000000L) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()

@@ -188,6 +188,9 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
+                                                           rowid_t min_rowid,
+                                                           RowRanges* row_ranges);
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             std::shared_ptr<ColumnPredicate> pred,
@@ -257,8 +260,8 @@ private:
                         {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
                         &block->get_by_position(block_cid).column));
             } else {
-                MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                auto output_column_guard = block->mutate_column_scoped(block_cid);
+                auto& output_column = output_column_guard.mutable_column();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));

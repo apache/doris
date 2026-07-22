@@ -201,6 +201,7 @@ protected:
     virtual Status _create_line_reader();
     virtual Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice);
     virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice);
+    virtual bool _empty_line_as_record() const { return false; }
     // check the utf8 encoding of a line.
     // return error status to stop processing.
     // If return Status::OK but "success" is false, which means this is load request
@@ -226,9 +227,9 @@ protected:
 private:
     Status _create_decompressor();
     Status _create_file_reader(bool need_schema);
-    Status _fill_dest_columns(const Slice& line, Block* block,
-                              std::vector<MutableColumnPtr>& columns, size_t* rows);
-    Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
+    Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns,
+                              size_t* rows);
+    Status _fill_empty_line(std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     void _init_system_properties();

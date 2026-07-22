@@ -43,6 +43,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -194,6 +195,7 @@ Status SegmentFileCollection::close() {
         if (writer->state() != io::FileWriter::State::CLOSED) {
             RETURN_IF_ERROR(writer->close());
         }
+        TEST_SYNC_POINT_CALLBACK("SegmentFileCollection::close_file_writer", writer.get());
     }
 
     return Status::OK();
@@ -398,9 +400,11 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     // Submit the entire delete bitmap calculation process to thread pool for async execution
     // This avoids blocking memtable flush thread while waiting for file upload to complete
     // The process includes: file_writer->close(), _build_tmp, load_segments, and calc_delete_bitmap
+    const auto submit_time_us = MonotonicMicros();
     return _calc_delete_bitmap_token->submit_func([this, segment_id,
-                                                   specified_rowsets = std::move(
-                                                           specified_rowsets)]() -> Status {
+                                                   specified_rowsets = std::move(specified_rowsets),
+                                                   submit_time_us]() -> Status {
+        const auto queue_time_us = MonotonicMicros() - submit_time_us;
         Status st = Status::OK();
         // Step 1: Close file_writer (must be done before load_segments)
         auto* file_writer = _seg_files.get(segment_id);
@@ -463,6 +467,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
                   << ", delete_bitmap_cardinality: "
                   << _context.mow_context->delete_bitmap->cardinality()
+                  << ", queue_time_us: " << queue_time_us
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
         return Status::OK();
     });
@@ -1114,8 +1119,8 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
 
 Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
                                                  io::FileWriterPtr& file_writer,
-                                                 bool is_index_file) {
-    io::FileWriterOptions opts = _context.get_file_writer_options(is_index_file);
+                                                 FileType file_type) {
+    io::FileWriterOptions opts = _context.get_file_writer_options(file_type);
     Status st = _context.fs()->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -1123,6 +1128,8 @@ Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
     }
 
     DCHECK(file_writer != nullptr);
+    TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_create_file_writer", &path, &file_type,
+                             file_writer.get(), &opts);
     return Status::OK();
 }
 
@@ -1133,9 +1140,9 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
         std::string prefix =
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
-        return _create_file_writer(index_path, file_writer, true /* is_index_file */);
+        return _create_file_writer(index_path, file_writer, file_type);
     } else if (file_type == FileType::SEGMENT_FILE) {
-        return _create_file_writer(segment_path, file_writer, false /* is_index_file */);
+        return _create_file_writer(segment_path, file_writer, file_type);
     }
     return Status::Error<ErrorCode::INTERNAL_ERROR>(
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
@@ -1146,7 +1153,9 @@ Status BaseBetaRowsetWriter::create_index_file_writer(uint32_t segment_id,
     RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
     (*index_file_writer)
-            ->set_file_writer_opts(_context.get_file_writer_options(true /* is_index_file */));
+            ->set_file_writer_opts(_context.get_file_writer_options(FileType::INVERTED_INDEX_FILE));
+    TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::create_inverted_index_file_writer", &segment_id,
+                             index_file_writer->get());
     return Status::OK();
 }
 
@@ -1156,7 +1165,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
                                                                    _context.rowset_id, begin, end);
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(_create_file_writer(path, file_writer, false /* is_index_file */));
+    RETURN_IF_ERROR(_create_file_writer(path, file_writer, FileType::SEGMENT_FILE));
 
     IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
@@ -1165,13 +1174,15 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
             InvertedIndexStorageFormatPB::V1) {
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
-            RETURN_IF_ERROR(
-                    _create_file_writer(index_path, idx_file_writer, true /* is_index_file */));
+            RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer,
+                                                FileType::INVERTED_INDEX_FILE));
         }
         index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));
+        index_file_writer->set_file_writer_opts(
+                _context.get_file_writer_options(FileType::INVERTED_INDEX_FILE));
     }
 
     segment_v2::SegmentWriterOptions writer_options;

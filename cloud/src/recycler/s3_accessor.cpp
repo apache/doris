@@ -237,13 +237,14 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
             }
         }
 
+        if (obj_info.has_cred_provider_type()) {
+            s3_conf.cred_provider_type = cred_provider_type_from_pb(obj_info.cred_provider_type());
+        }
+
         if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
             s3_conf.role_arn = obj_info.role_arn();
             s3_conf.external_id = obj_info.external_id();
-            if (obj_info.has_cred_provider_type()) {
-                s3_conf.cred_provider_type =
-                        cred_provider_type_from_pb(obj_info.cred_provider_type());
-            } else {
+            if (!obj_info.has_cred_provider_type()) {
                 s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
             }
         }
@@ -393,9 +394,6 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        if (config::s3_client_retry_slow_down) {
-            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
-        }
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
@@ -440,8 +438,9 @@ int S3Accessor::init() {
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
+        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry, config::s3_client_retry_slow_down);
+                config::max_s3_client_retry, /*retry_slow_down=*/false);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =

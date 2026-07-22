@@ -30,9 +30,11 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
@@ -74,6 +76,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -88,6 +91,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
     public static final String PROP_GROUP_ID = "group.id";
+    private static final String KAFKA_ISOLATION_LEVEL = "isolation.level";
+    private static final String KAFKA_READ_COMMITTED = "read_committed";
+    private static final String HAS_POSITIVE_LAG_DEBUG_POINT = "KafkaRoutineLoadJob.hasPositiveLagForTask";
+    private static final String READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE = "Kafka routine load consumed 0 rows "
+            + "while lag is still positive under isolation.level=read_committed. If the upstream producer uses "
+            + "Kafka transactions, some records may be in uncommitted transactions and are not visible yet.";
+    private static final String SENSITIVE_PROPERTY_MASK = "******";
 
     @SerializedName("bl")
     private String brokerList;
@@ -356,6 +366,33 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateProgressAndOffsetsCache(attachment);
         super.updateProgress(attachment);
+        updateReadCommittedLagHint(attachment);
+    }
+
+    private void updateReadCommittedLagHint(RLTaskTxnCommitAttachment attachment) {
+        if (shouldDelayScheduleForReadCommittedZeroRowsWithLag(attachment)) {
+            setOtherMsg(READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE);
+        }
+    }
+
+    boolean shouldDelayScheduleForReadCommittedZeroRowsWithLag(RLTaskTxnCommitAttachment attachment) {
+        return DebugPointUtil.isEnable(HAS_POSITIVE_LAG_DEBUG_POINT)
+                || (attachment.getTotalRows() == 0 && isReadCommitted() && hasPositiveLagForTask(attachment));
+    }
+
+    private boolean isReadCommitted() {
+        return KAFKA_READ_COMMITTED.equalsIgnoreCase(customProperties.get(KAFKA_ISOLATION_LEVEL));
+    }
+
+    private boolean hasPositiveLagForTask(RLTaskTxnCommitAttachment attachment) {
+        Map<Integer, Long> partitionIdToOffset = ((KafkaProgress) attachment.getProgress()).getOffsetByPartition();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            Long latestOffset = cachedPartitionWithLatestOffsets.get(entry.getKey());
+            if (latestOffset != null && latestOffset > entry.getValue() + 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -376,7 +413,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
                 ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()), isMultiTable());
-        kafkaTaskInfo.setDelaySchedule(delaySchedule);
+        kafkaTaskInfo.setDelaySchedule(delaySchedule || oldKafkaTaskInfo.isDelaySchedule());
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
@@ -676,7 +713,31 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(customProperties);
+        return gson.toJson(getMaskedCustomProperties(""));
+    }
+
+    private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
+        Map<String, String> maskedProperties = new HashMap<>();
+        customProperties.forEach((key, value) -> {
+            String lowerKey = key.toLowerCase(Locale.ROOT);
+            boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
+                    || KafkaConfiguration.AWS_ACCESS_KEY.equalsIgnoreCase(key)
+                    || PrintableMap.SENSITIVE_KEY.contains(key)
+                    || lowerKey.endsWith(".password")
+                    || lowerKey.endsWith(".secret")
+                    || lowerKey.endsWith(".secret_key")
+                    || lowerKey.endsWith(".secret.key")
+                    || lowerKey.endsWith(".session_key")
+                    || lowerKey.endsWith(".session.token")
+                    || lowerKey.contains(".private.key.")
+                    || lowerKey.endsWith(".private.key")
+                    || lowerKey.endsWith(".private_key")
+                    || lowerKey.endsWith(".passphrase")
+                    || "ssl.keystore.key".equals(lowerKey)
+                    || "ssl.key.pem".equals(lowerKey);
+            maskedProperties.put(keyPrefix + key, sensitive ? SENSITIVE_PROPERTY_MASK : value);
+        });
+        return maskedProperties;
     }
 
     @Override
@@ -689,9 +750,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public Map<String, String> getCustomProperties() {
-        Map<String, String> ret = new HashMap<>();
-        customProperties.forEach((k, v) -> ret.put("property." + k, v));
-        return ret;
+        return getMaskedCustomProperties("property.");
     }
 
     @Override

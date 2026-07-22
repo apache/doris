@@ -325,6 +325,11 @@ bool PipelineTask::is_blockable() const {
            _sink->is_blockable(_state);
 }
 
+void PipelineTask::_stop_accepting_submit() {
+    std::unique_lock<std::mutex> lock(_blockable_check_lock);
+    _accept_submit = false;
+}
+
 bool PipelineTask::_is_blocked() {
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
@@ -641,7 +646,6 @@ Status PipelineTask::execute(bool* done) {
 
             bool eos = false;
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, &eos));
-            RETURN_IF_ERROR(block->check_type_and_column());
             _eos = eos;
         }
 
@@ -712,7 +716,7 @@ Status PipelineTask::execute(bool* done) {
                     }
                 }
             });
-            RETURN_IF_ERROR(block->check_type_and_column());
+
             status = _sink->sink(_state, block, _eos);
 
             if (_eos) {
@@ -881,6 +885,7 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    _stop_accepting_submit();
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     std::unique_lock<std::mutex> lc(_dependency_lock);
     _sink_shared_state.reset();
@@ -894,6 +899,9 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::close(Status exec_status, bool close_sink) {
+    if (close_sink) {
+        _stop_accepting_submit();
+    }
     int64_t close_ns = 0;
     Status s;
     {

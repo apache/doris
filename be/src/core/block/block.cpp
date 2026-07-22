@@ -80,6 +80,51 @@ template void clear_blocks<Block>(moodycamel::ConcurrentQueue<Block>&,
 template void clear_blocks<BlockUPtr>(moodycamel::ConcurrentQueue<BlockUPtr>&,
                                       RuntimeProfile::Counter* memory_used_counter);
 
+namespace {
+
+// The no-clone fast path is only safe when the whole column tree is uniquely
+// owned. A composite column with shared children still needs COW detachment.
+bool is_recursively_exclusive(const IColumn& column) {
+    if (!column.is_exclusive()) {
+        return false;
+    }
+
+    bool exclusive = true;
+    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+        if (!exclusive) {
+            return;
+        }
+        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
+        DCHECK(subcolumn_ptr);
+        exclusive = is_recursively_exclusive(*subcolumn_ptr);
+    };
+    // `for_each_subcolumn` only exposes a mutable callback type. This callback
+    // only reads the wrapped pointers and never calls the non-const accessors.
+    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    return exclusive;
+}
+
+// Acquire one live Block slot transactionally. Shared columns are detached while
+// the original slot is still intact, so a clone failure cannot leave Block with
+// a moved-from/null column. Exclusive column trees keep the stealing fast path.
+MutableColumnPtr scoped_mutate_column(ColumnPtr& column, const DataTypePtr& type) {
+    DCHECK(type);
+    if (!column) {
+        return type->create_column();
+    }
+
+    MutableColumnPtr mutable_column;
+    if (is_recursively_exclusive(*column)) {
+        mutable_column = std::move(*column).mutate();
+    } else {
+        mutable_column = IColumn::mutate(column);
+    }
+    column = nullptr;
+    return mutable_column;
+}
+
+} // namespace
+
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {}
 
 Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {}
@@ -574,12 +619,127 @@ Columns Block::get_columns_and_convert() {
     return columns;
 }
 
-MutableColumns Block::mutate_columns() {
+Block::ScopedMutableColumns::ScopedMutableColumns(Block& block) : _block(&block) {
+    const size_t num_columns = block.data.size();
+    _columns.resize(num_columns);
+    size_t acquired_columns = 0;
+    try {
+        for (; acquired_columns < num_columns; ++acquired_columns) {
+            auto& column_with_type_and_name = block.data[acquired_columns];
+            _columns[acquired_columns] = scoped_mutate_column(column_with_type_and_name.column,
+                                                              column_with_type_and_name.type);
+        }
+    } catch (...) {
+        for (size_t i = 0; i < acquired_columns; ++i) {
+            block.data[i].column = std::move(_columns[i]);
+        }
+        _block = nullptr;
+        throw;
+    }
+}
+
+Block::ScopedMutableColumns::~ScopedMutableColumns() {
+    restore();
+}
+
+Block::ScopedMutableColumns::ScopedMutableColumns(ScopedMutableColumns&& other) noexcept
+        : _block(std::exchange(other._block, nullptr)), _columns(std::move(other._columns)) {}
+
+Block::ScopedMutableColumns& Block::ScopedMutableColumns::operator=(
+        ScopedMutableColumns&& other) noexcept {
+    if (this != &other) {
+        restore();
+        _block = std::exchange(other._block, nullptr);
+        _columns = std::move(other._columns);
+    }
+    return *this;
+}
+
+const DataTypePtr& Block::ScopedMutableColumns::get_datatype_by_position(size_t position) const {
+    DCHECK(_block != nullptr);
+    return _block->get_by_position(position).type;
+}
+
+const std::string& Block::ScopedMutableColumns::get_name_by_position(size_t position) const {
+    DCHECK(_block != nullptr);
+    return _block->get_by_position(position).name;
+}
+
+MutableColumns Block::ScopedMutableColumns::release() {
+    DCHECK(_block != nullptr);
+    _block = nullptr;
+    return std::move(_columns);
+}
+
+void Block::ScopedMutableColumns::restore() {
+    if (_block != nullptr) {
+        _block->set_columns(std::move(_columns));
+        _block = nullptr;
+    }
+}
+
+Block::ScopedMutableColumn::ScopedMutableColumn(Block& block, size_t position)
+        : _block(&block), _position(position) {
+    DCHECK_LT(_position, _block->data.size());
+    auto& column_with_type_and_name = _block->data[_position];
+    DCHECK(column_with_type_and_name.type);
+    _column =
+            scoped_mutate_column(column_with_type_and_name.column, column_with_type_and_name.type);
+}
+
+Block::ScopedMutableColumn::~ScopedMutableColumn() {
+    restore();
+}
+
+Block::ScopedMutableColumn::ScopedMutableColumn(ScopedMutableColumn&& other) noexcept
+        : _block(std::exchange(other._block, nullptr)),
+          _position(other._position),
+          _column(std::move(other._column)) {}
+
+Block::ScopedMutableColumn& Block::ScopedMutableColumn::operator=(
+        ScopedMutableColumn&& other) noexcept {
+    if (this != &other) {
+        restore();
+        _block = std::exchange(other._block, nullptr);
+        _position = other._position;
+        _column = std::move(other._column);
+    }
+    return *this;
+}
+
+void Block::ScopedMutableColumn::restore() {
+    if (_block != nullptr) {
+        DCHECK_LT(_position, _block->data.size());
+        _block->data[_position].column = std::move(_column);
+        _block = nullptr;
+    }
+}
+
+Block::ScopedMutableColumns Block::mutate_columns_scoped() & {
+    return ScopedMutableColumns(*this);
+}
+
+Block::ScopedMutableColumn Block::mutate_column_scoped(size_t position) & {
+    return ScopedMutableColumn(*this, position);
+}
+
+ScopedMutableBlock::ScopedMutableBlock(Block* block) {
+    DCHECK(block != nullptr);
+    DataTypes data_types = block->get_data_types();
+    std::vector<std::string> names = block->get_names();
+    auto columns_guard = block->mutate_columns_scoped();
+    _mutable_block.data_types() = std::move(data_types);
+    _mutable_block.get_names() = std::move(names);
+    _mutable_block.set_mutable_columns(columns_guard.release());
+    _block = block;
+}
+
+MutableColumns Block::mutate_columns() && {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
         DCHECK(data[i].type);
-        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+        columns[i] = data[i].column ? IColumn::mutate(std::move(data[i].column))
                                     : data[i].type->create_column();
     }
     return columns;
@@ -642,7 +802,7 @@ void Block::clear() {
     data.clear();
 }
 
-void Block::clear_column_data(int64_t column_size) noexcept {
+void Block::clear_column_data(int64_t column_size) {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
@@ -653,9 +813,26 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     }
     for (auto& d : data) {
         if (d.column) {
-            // Temporarily disable reference count check because a column might be referenced multiple times within a block.
-            // Queries like this: `select c, c from t1;`
-            (*std::move(d.column)).assume_mutable()->clear();
+            if (d.column->is_exclusive()) {
+                d.column->assert_mutable()->clear();
+            } else {
+                d.column = d.column->clone_empty();
+            }
+        }
+    }
+}
+
+void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
+    SCOPED_SKIP_MEMORY_CHECK();
+    for (auto col : columns_to_clear) {
+        DCHECK_LT(col, data.size());
+        auto& column = data[col].column;
+        if (column) {
+            if (column->is_exclusive()) {
+                column->assert_mutable()->clear();
+            } else {
+                column = column->clone_empty();
+            }
         }
     }
 }
@@ -714,11 +891,15 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
             continue;
         }
         if (count == 0) {
-            block->get_by_position(col).column->assume_mutable()->clear();
+            if (column->is_exclusive()) {
+                column->assert_mutable()->clear();
+            } else {
+                column = column->clone_empty();
+            }
             continue;
         }
         if (column->is_exclusive()) {
-            const auto result_size = column->assume_mutable()->filter(filter);
+            const auto result_size = column->assert_mutable()->filter(filter);
             if (result_size != count) [[unlikely]] {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "result_size not equal with filter_size, result_size={}, "
@@ -747,7 +928,7 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
     for (int i = 0; i < block->columns(); ++i) {
         auto& column = block->get_by_position(i).column;
         if (column->is_exclusive()) {
-            column->assume_mutable()->filter(filter);
+            column->assert_mutable()->filter(filter);
         } else {
             column = column->filter(filter, count);
         }
@@ -776,7 +957,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
 
         MutableColumnPtr mutable_holder =
                 nested_column->use_count() == 1
-                        ? nested_column->assume_mutable()
+                        ? nested_column->assert_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
         auto* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
@@ -792,9 +973,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
     } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
-            for (const auto& col : columns_to_filter) {
-                std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-            }
+            block->clear_column_data(columns_to_filter);
         }
     } else {
         const IColumn::Filter& filter =
@@ -825,14 +1004,16 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
-    for (const auto& c : *this) {
-        PColumnMeta* pcm = pblock->add_column_metas();
-        c.to_pb_column_meta(pcm);
-        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
-        // get serialized size
-        content_uncompressed_size +=
-                c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            PColumnMeta* pcm = pblock->add_column_metas();
+            c.to_pb_column_meta(pcm);
+            DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
+            // get serialized size
+            content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
+                    *(c.column), pblock->be_exec_version());
+        }
+    });
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
@@ -848,9 +1029,11 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     }
     char* buf = column_values.data();
 
-    for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
+        }
+    });
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;

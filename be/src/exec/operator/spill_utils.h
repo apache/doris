@@ -79,8 +79,10 @@ struct SpillContext {
 // small utility to run the provided callbacks and forward cancellation.
 inline Status run_spill_task(RuntimeState* state, std::function<Status()> exec_func,
                              std::function<Status()> fin_cb = {}) {
+    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(exec_func());
     if (fin_cb) {
+        RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(fin_cb());
     }
     return Status::OK();

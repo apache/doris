@@ -41,6 +41,8 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+    ports:
+      - ${SPARK_THRIFT_PORT}:10000
     entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
     user: root
     networks:
@@ -98,6 +100,23 @@ services:
       - -cp
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
       - org.apache.iceberg.rest.RESTCatalogServer
+
+  trino:
+    image: trinodb/trino:482
+    container_name: doris--iceberg-trino
+    depends_on:
+      rest:
+        condition: service_started
+      mc:
+        condition: service_completed_successfully
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /etc/trino/catalog && command -v trino >/dev/null"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
 
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z

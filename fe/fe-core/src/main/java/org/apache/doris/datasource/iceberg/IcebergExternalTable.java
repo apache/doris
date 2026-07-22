@@ -311,6 +311,16 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return true;
     }
 
+    @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        return true;
+    }
+
     @VisibleForTesting
     public boolean isValidRelatedTableCached() {
         return isValidRelatedTableCached;
@@ -329,6 +339,19 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Map<String, SysTable> getSupportedSysTables() {
         makeSureInitialized();
         return IcebergSysTable.SUPPORTED_SYS_TABLES;
+    }
+
+    @Override
+    public Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
+        Optional<SysTable> sysTable = MTMVRelatedTableIf.super.findSysTable(tableNameWithSysTableName);
+        if (sysTable.isPresent()) {
+            return sysTable;
+        }
+        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
+        if (IcebergSysTable.POSITION_DELETES.equals(sysTableName)) {
+            return Optional.of(IcebergSysTable.UNSUPPORTED_POSITION_DELETES_TABLE);
+        }
+        return Optional.empty();
     }
 
     @Override

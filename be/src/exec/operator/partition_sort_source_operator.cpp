@@ -33,8 +33,8 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     return Status::OK();
 }
 
-Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, Block* output_block,
-                                               bool* eos) {
+Status PartitionSortSourceOperatorX::get_block_impl(RuntimeState* state, Block* output_block,
+                                                    bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());

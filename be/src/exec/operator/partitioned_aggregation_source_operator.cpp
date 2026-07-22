@@ -228,7 +228,7 @@ Status PartitionedAggSourceOperatorX::revoke_memory(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status PartitionedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Status status;
 
@@ -357,8 +357,9 @@ void PartitionedAggLocalState::_init_partition_queue() {
 
 Status PartitionedAggLocalState::_recover_blocks_from_partition(RuntimeState* state,
                                                                 AggSpillPartitionInfo& partition) {
+    RETURN_IF_CANCELLED(state);
     size_t accumulated_bytes = 0;
-    if (!partition.spill_file || state->is_cancelled()) {
+    if (!partition.spill_file) {
         return Status::OK();
     }
 
@@ -448,6 +449,7 @@ Status PartitionedAggLocalState::_flush_hash_table_to_sub_spill_files(RuntimeSta
 }
 
 Status PartitionedAggLocalState::_flush_and_repartition(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& p = _parent->cast<PartitionedAggSourceOperatorX>();
     const int new_level = _current_partition.level + 1;
 

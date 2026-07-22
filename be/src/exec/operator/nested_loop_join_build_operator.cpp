@@ -54,7 +54,10 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
+    if (!state->is_cancelled()) {
+        RETURN_IF_ERROR(
+                _runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
+    }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
@@ -66,8 +69,6 @@ NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* p
                                                                    const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
                                                                     tnode, descs),
-          _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
-                                    tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
 Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -94,7 +95,8 @@ Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, Block* block, bool eos) {
+Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* block,
+                                                   bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -111,13 +113,6 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, Block*
     }
 
     if (eos) {
-        // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
-        if (_is_output_left_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
-                                           local_state._shared_state->build_blocks.empty()) ||
-                                          (_join_op == TJoinOp::type::LEFT_ANTI_JOIN &&
-                                           !local_state._shared_state->build_blocks.empty()))) {
-            local_state._shared_state->left_side_eos = true;
-        }
         local_state._dependency->set_ready_to_read();
     }
 

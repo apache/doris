@@ -381,7 +381,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -390,14 +390,14 @@ void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
+            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
+            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
             DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
                                                cast_set<int>(_tablet_schema->num_columns()), serdes,
                                                {_tablet_schema->row_columns_uids().begin(),
                                                 _tablet_schema->row_columns_uids().end()});
+            block.replace_by_position(i, std::move(row_store_column_ptr));
             break;
         }
     }
@@ -711,7 +711,7 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*block);
+        _serialize_block_to_row_column(*const_cast<Block*>(block));
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
@@ -946,6 +946,10 @@ Status SegmentWriter::finalize_columns_data() {
 
 Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
+    // Record each index range separately. Vertical compaction writes column groups as
+    // data+index pairs, so a single [first index, EOF) range would include later column data.
+    // This SegmentWriter path is shared by cloud load, non-vertical compaction, schema change
+    // final output, and vertical compaction via VerticalBetaRowsetWriter.
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_inverted_index());
@@ -981,24 +985,36 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
             *index_size = _file_writer->bytes_appended() - index_start;
         }
     }
+    uint64_t file_index_end = _file_writer->bytes_appended();
+    _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
     // reset all column writers and data_conveter
     clear();
 
     return Status::OK();
 }
 
-Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
+Status SegmentWriter::finalize_footer(uint64_t* segment_file_size,
+                                      SegmentIndexFileCacheInfo* index_file_cache_info) {
+    uint64_t footer_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
+    // The closed size completes the preload range recorded above. Local temporary rowsets, such as
+    // schema-change internal sorting output, are filtered by SegmentIndexFileCacheLoader.
+    _index_file_cache_info.segment_file_size = *segment_file_size;
+    _index_file_cache_info.add_index_range(footer_start, *segment_file_size - footer_start);
+    if (index_file_cache_info != nullptr) {
+        *index_file_cache_info = _index_file_cache_info;
+    }
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
     return Status::OK();
 }
 
-Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                               SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
@@ -1008,12 +1024,10 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
-    // Get the index start before finalize_footer since this function would write new data.
-    uint64_t index_start = _file_writer->bytes_appended();
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer(segment_file_size, index_file_cache_info));
 
     if (timer.elapsed_time() > 5000000000l) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
@@ -1024,6 +1038,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     if (auto* cache_builder = _file_writer->cache_builder(); cache_builder != nullptr &&
                                                              cache_builder->_expiration_time == 0 &&
                                                              config::is_cloud_mode()) {
+        auto index_start = _index_file_cache_info.cache_start_offset();
         auto size = *index_size + *segment_file_size;
         auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
         for (auto& segment : holder->file_blocks) {

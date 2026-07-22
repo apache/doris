@@ -23,8 +23,10 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <utility>
 
@@ -41,6 +43,8 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "cpp/sync_point.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -55,6 +59,7 @@
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/iterators.h"
 #include "storage/key_coder.h"
@@ -84,6 +89,106 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 class InvertedIndexIterator;
+
+namespace {
+
+Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
+                                     const StorageReadOptions& read_options,
+                                     const VExprContextSPtrs& conjuncts, ZoneMapEvalContext* ctx) {
+    DORIS_CHECK(segment != nullptr);
+    DORIS_CHECK(ctx != nullptr);
+    std::set<int> slot_indexes;
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        // Segment zone maps have one min/max/null summary per column for the whole segment, so a
+        // segment-level context can safely hold every slot referenced by a compound expression.
+        // Page zone maps are page-aligned per column and still use single-slot filtering in
+        // SegmentIterator.
+        root->collect_slot_column_ids(slot_indexes);
+    }
+    for (const int slot_index : slot_indexes) {
+        if (slot_index < 0 || cast_set<size_t>(slot_index) >= schema.num_column_ids()) {
+            continue;
+        }
+        const auto column_id = schema.column_id(cast_set<size_t>(slot_index));
+        const auto* tablet_column = schema.column(column_id);
+        DORIS_CHECK(tablet_column != nullptr);
+        if (!segment->can_apply_predicate_safely(
+                    column_id, schema, read_options.target_cast_type_for_variants, read_options)) {
+            continue;
+        }
+        auto data_type = segment->get_data_type_of(*tablet_column, read_options);
+        if (data_type == nullptr) {
+            continue;
+        }
+        ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+        slot_zone_map.data_type = data_type;
+        std::shared_ptr<ColumnReader> reader;
+        Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        if (reader != nullptr && reader->has_zone_map()) {
+            ZoneMap zone_map;
+            RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
+        }
+        ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+    }
+    return Status::OK();
+}
+
+void fill_missing_decimal_precision(const TabletColumn& column, ColumnMetaPB* meta) {
+    auto meta_type = static_cast<FieldType>(meta->type());
+    if (meta_type != column.type()) {
+        return;
+    }
+
+    if (field_is_decimal_type(meta_type)) {
+        if ((!meta->has_precision() || meta->precision() <= 0) && column.precision() > 0) {
+            meta->set_precision(column.precision());
+        }
+        if ((!meta->has_frac() || meta->frac() < 0) && column.frac() >= 0) {
+            meta->set_frac(column.frac());
+        }
+    }
+
+    // Complex column meta may also include storage helper children, such as
+    // array offsets. Only schema children have matching TabletColumn subtypes.
+    int child_count =
+            std::min(meta->children_columns_size(), static_cast<int>(column.get_subtype_count()));
+    for (int i = 0; i < child_count; ++i) {
+        fill_missing_decimal_precision(column.get_sub_column(i), meta->mutable_children_columns(i));
+    }
+}
+
+void fill_missing_decimal_precision_from_schema(const TabletSchemaSPtr& tablet_schema,
+                                                ColumnMetaPB* meta) {
+    if (!meta->has_unique_id()) {
+        return;
+    }
+    int32_t col_idx = tablet_schema->field_index(static_cast<int32_t>(meta->unique_id()));
+    if (col_idx < 0) {
+        return;
+    }
+    fill_missing_decimal_precision(tablet_schema->column(col_idx), meta);
+}
+
+void fill_footer_missing_decimal_precision(const TabletSchemaSPtr& tablet_schema,
+                                           SegmentFooterPB* footer) {
+    for (int i = 0; i < footer->columns_size(); ++i) {
+        fill_missing_decimal_precision_from_schema(tablet_schema, footer->mutable_columns(i));
+    }
+}
+
+} // namespace
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -279,8 +384,27 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
                 read_options.stats->filtered_segment_number++;
+                read_options.stats->rows_stats_filtered += num_rows();
                 return Status::OK();
             }
+        }
+    }
+
+    // Segment-level expr-zonemap runs before SegmentIterator can rebind storage expressions to
+    // the reader schema. Only apply it when scan tuple slot ordinals already match this schema.
+    if (expr_zonemap::is_expr_zonemap_filter_enabled(read_options.runtime_state) &&
+        !read_options.common_expr_ctxs_push_down.empty()) {
+        ZoneMapEvalContext ctx;
+        RETURN_IF_ERROR(build_segment_zonemap_context(
+                this, *schema, read_options, read_options.common_expr_ctxs_push_down, &ctx));
+        const auto result =
+                VExprContext::evaluate_zonemap_filter(read_options.common_expr_ctxs_push_down, ctx);
+        ctx.stats.accumulate_to(read_options.stats);
+        if (result == ZoneMapFilterResult::kNoMatch) {
+            *iter = std::make_unique<EmptySegmentIterator>(*schema);
+            read_options.stats->filtered_segment_number++;
+            read_options.stats->expr_zonemap_filtered_segments++;
+            return Status::OK();
         }
     }
 
@@ -473,6 +597,10 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
+    // Segments written before #26572 do not persist decimal precision/frac in
+    // ColumnMetaPB, so recover the logical p/s from TabletSchema before
+    // ColumnReader builds DataTypeDecimal.
+    fill_footer_missing_decimal_precision(_tablet_schema, footer.get());
 
     VLOG_DEBUG << fmt::format("Loading segment footer from {} finished",
                               _file_reader->path().native());

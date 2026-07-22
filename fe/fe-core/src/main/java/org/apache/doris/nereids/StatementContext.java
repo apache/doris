@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -84,6 +85,7 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -261,6 +263,9 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    // Record external tables that can be preloaded before internal table locks are acquired.
+    private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     private boolean privChecked;
 
@@ -460,6 +465,27 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /**
+     * Register an external relation that may preload metadata before internal table locks are acquired.
+     *
+     * @param table external table referenced by the relation
+     * @param tableSnapshot optional explicit snapshot specification on the relation
+     * @param scanParams optional relation scan parameters such as branch or tag
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
+            return;
+        }
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo((ExternalTable) table));
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            preloadInfo.markNonLatestRelation();
+        } else {
+            preloadInfo.markLatestRelation();
+        }
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
@@ -937,6 +963,37 @@ public class StatementContext implements Closeable {
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
         snapshots.put(mvccTableInfo, snapshot);
+    }
+
+    public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
+        return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    public int getExternalTablePreloadCandidateCount() {
+        return externalTablePreloadInfos.size();
+    }
+
+    public boolean hasAnyPlanReadLockTable() {
+        return containsPlanReadLockTable(tables.values())
+                || containsPlanReadLockTable(mtmvRelatedTables.values())
+                || containsPlanReadLockTable(insertTargetTables.values());
+    }
+
+    public Optional<ExternalMetadataPreloadResult> getExternalMetadataPreloadResult() {
+        return Optional.ofNullable(externalMetadataPreloadResult);
+    }
+
+    public void setExternalMetadataPreloadResult(ExternalMetadataPreloadResult result) {
+        this.externalMetadataPreloadResult = result;
+    }
+
+    private boolean containsPlanReadLockTable(Collection<TableIf> tableIfs) {
+        for (TableIf tableIf : tableIfs) {
+            if (tableIf.needReadLockWhenPlan()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static class CloseableResource implements Closeable {

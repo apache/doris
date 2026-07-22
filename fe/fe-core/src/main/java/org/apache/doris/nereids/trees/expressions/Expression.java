@@ -249,7 +249,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             DataType expected = expectedTypes.get(i);
             if (!checkInputDataTypesWithExpectType(input.getDataType(), expected)) {
                 errorMessages.add(String.format("argument %d requires %s type, however '%s' is of %s type",
-                        i + 1, expected.simpleString(), input.toSql(), input.getDataType().simpleString()));
+                        i + 1, expected, input.toSql(), input.getDataType()));
             }
         }
         if (!errorMessages.isEmpty()) {
@@ -379,11 +379,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public boolean isKeyColumnFromTable() {
         return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent()
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
-    }
-
-    public boolean containsVolatileExpression() {
-        return anyMatch(expr -> expr instanceof VolatileExpression
-                && ((VolatileExpression) expr).isVolatile());
     }
 
     /** containsNullLiteralChildren */

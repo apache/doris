@@ -18,6 +18,9 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
+#include <atomic>
+#include <future>
+
 #include "io/cache/block_file_cache_test_common.h"
 #include "io/fs/buffered_reader.h"
 #include "storage/olap_define.h"
@@ -2766,6 +2769,188 @@ TEST_F(BlockFileCacheTest, recyle_cache_async_ttl) {
         fs::remove_all(cache_base_path);
     }
     delete holder;
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_removes_releasable_blocks_synchronously) {
+    std::string my_cache_path = caches_dir / "clear_file_cache_sync_mixed_states" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    constexpr int num_blocks = 100000;
+    constexpr size_t block_size = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = num_blocks * block_size * 2;
+    settings.query_queue_elements = num_blocks + 1024;
+    settings.index_queue_size = num_blocks * block_size * 2;
+    settings.index_queue_elements = num_blocks + 1024;
+    settings.disposable_queue_size = num_blocks * block_size * 2;
+    settings.disposable_queue_elements = num_blocks + 1024;
+    settings.capacity = num_blocks * block_size * 2;
+    settings.max_file_block_size = 64;
+    settings.max_query_cache_size = num_blocks * block_size * 2;
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("clear_file_cache_sync_mixed_states");
+    int expected_sync_removes = 0;
+    int expected_remaining = 0;
+    std::vector<size_t> expected_remaining_offsets;
+    std::vector<io::FileBlockSPtr> busy_refs;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        for (int i = 0; i < num_blocks; ++i) {
+            // Keep the scan large, but make non-releasable states sparse so the test does not
+            // spend most of its time writing one log line per busy block.
+            const bool busy = i % 997 == 0;
+            const bool downloading = i % 991 == 0;
+            const bool empty = !downloading && i % 983 == 0;
+            const auto state =
+                    empty ? io::FileBlock::State::EMPTY : io::FileBlock::State::DOWNLOADED;
+            auto* cell =
+                    cache.add_cell(key, context, i * block_size, block_size, state, cache_lock);
+            ASSERT_NE(cell, nullptr);
+            if (downloading) {
+                FileBlockTestAccessor::set_state(*cell->file_block,
+                                                 io::FileBlock::State::DOWNLOADING);
+                FileBlockTestAccessor::set_downloader_id(*cell->file_block, 1000 + i);
+            }
+            if (busy) {
+                busy_refs.push_back(cell->file_block);
+            }
+
+            if (busy || downloading) {
+                ++expected_remaining;
+                expected_remaining_offsets.push_back(i * block_size);
+            } else if (!empty) {
+                ++expected_sync_removes;
+            }
+        }
+    }
+
+    std::atomic<int> storage_remove_calls {0};
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "FSFileCacheStorage::remove",
+            [&storage_remove_calls](auto&& args) {
+                storage_remove_calls.fetch_add(1);
+                try_any_cast_ret<Status>(args)->second = true;
+            },
+            &guard);
+    sp->enable_processing();
+    Defer defer {[sp] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    }};
+
+    auto msg = cache.clear_file_cache_sync();
+    EXPECT_NE(msg.find("clear_file_cache_sync"), std::string::npos);
+    EXPECT_NE(msg.find("sync_remove=1"), std::string::npos);
+    EXPECT_EQ(storage_remove_calls.load(), expected_sync_removes);
+    EXPECT_EQ(cache._cur_cache_size, expected_remaining * block_size);
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        for (auto offset : expected_remaining_offsets) {
+            auto* cell = cache.get_cell(key, offset, cache_lock);
+            ASSERT_NE(cell, nullptr);
+            EXPECT_TRUE(cell->file_block->is_deleting());
+        }
+    }
+
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, clear_file_cache_sync_factory_rejects_concurrent_sync_clear) {
+    std::string my_cache_path = caches_dir / "clear_file_cache_sync_factory_busy" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    auto* factory = FileCacheFactory::instance();
+    factory->_caches.clear();
+    factory->_path_to_cache.clear();
+    factory->_capacity = 0;
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1024;
+    settings.query_queue_elements = 128;
+    settings.index_queue_size = 1024;
+    settings.index_queue_elements = 128;
+    settings.disposable_queue_size = 1024;
+    settings.disposable_queue_elements = 128;
+    settings.capacity = 2048;
+    settings.max_file_block_size = 64;
+    settings.max_query_cache_size = 1024;
+    ASSERT_TRUE(factory->create_file_cache(my_cache_path, settings).ok());
+    auto* cache = factory->get_by_path(my_cache_path);
+    ASSERT_NE(cache, nullptr);
+    wait_until_cache_ready(*cache);
+
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("clear_file_cache_sync_factory_busy");
+    {
+        std::lock_guard<std::mutex> cache_lock(cache->_mutex);
+        ASSERT_NE(cache->add_cell(key, context, 0, 4, io::FileBlock::State::DOWNLOADED, cache_lock),
+                  nullptr);
+    }
+
+    std::promise<void> remove_entered;
+    std::promise<void> release_remove;
+    auto release_remove_future = release_remove.get_future().share();
+    std::atomic_bool remove_released {false};
+    auto release_remove_once = [&]() {
+        if (!remove_released.exchange(true)) {
+            release_remove.set_value();
+        }
+    };
+    std::atomic_bool block_first_remove {true};
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "FSFileCacheStorage::remove",
+            [&](auto&& args) {
+                try_any_cast_ret<Status>(args)->second = true;
+                if (block_first_remove.exchange(false)) {
+                    remove_entered.set_value();
+                    release_remove_future.wait();
+                }
+            },
+            &guard);
+    sp->enable_processing();
+    Defer defer {[&] {
+        release_remove_once();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+        factory->_caches.clear();
+        factory->_path_to_cache.clear();
+        factory->_capacity = 0;
+        if (fs::exists(my_cache_path)) {
+            fs::remove_all(my_cache_path);
+        }
+    }};
+
+    auto first_clear =
+            std::async(std::launch::async, [factory] { return factory->clear_file_caches(true); });
+    ASSERT_EQ(remove_entered.get_future().wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+
+    auto second_result = factory->clear_file_caches(true);
+    EXPECT_NE(second_result.find("already running"), std::string::npos);
+
+    release_remove_once();
+    auto first_result = first_clear.get();
+    EXPECT_NE(first_result.find("clear_file_cache_sync"), std::string::npos);
 }
 
 TEST_F(BlockFileCacheTest, remove_directly) {

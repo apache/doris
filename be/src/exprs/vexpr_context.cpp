@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -188,6 +189,54 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
     return st;
 }
 
+ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtrs& conjuncts,
+                                                          const ZoneMapEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        if (root->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_dictionary_filter(const VExprContextSPtrs& conjuncts,
+                                                             const DictionaryEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_dictionary_filter()) {
+            continue;
+        }
+        if (root->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_bloom_filter(const VExprContextSPtrs& conjuncts,
+                                                        const BloomFilterEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        if (root->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
 bool VExprContext::all_expr_inverted_index_evaluated() {
     return _index_context->has_index_result_for_expr(_root.get());
 }
@@ -329,9 +378,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         ctxs[0]->_memory_usage += result_filter.allocated_bytes();
     }
     if (can_filter_all) {
-        for (auto& col : columns_to_filter) {
-            block->get_by_position(col).column->assume_mutable()->clear();
-        }
+        block->clear_column_data(columns_to_filter);
     } else {
         try {
             Block::filter_block_internal(block, columns_to_filter, result_filter);
@@ -367,10 +414,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         ctxs[0]->_memory_usage += filter.allocated_bytes();
     }
     if (can_filter_all) {
-        for (auto& col : columns_to_filter) {
-            // NOLINTNEXTLINE(performance-move-const-arg)
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-        }
+        block->clear_column_data(columns_to_filter);
     } else {
         RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, filter));
     }

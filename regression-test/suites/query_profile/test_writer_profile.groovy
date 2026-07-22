@@ -45,6 +45,7 @@ suite('test_writer_profile', "nonConcurrent") {
     }
     
     sql "set enable_profile=true;"
+    sql "set profile_level=1;"
 
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()

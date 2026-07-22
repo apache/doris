@@ -4444,6 +4444,131 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
 }
 
+TEST(CheckerTest, delete_bitmap_inverted_check_unexpired_tmp_rowset) {
+    auto retention_seconds = config::retention_seconds;
+    auto force_immediate_recycle = config::force_immediate_recycle;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+        config::force_immediate_recycle = force_immediate_recycle;
+    };
+    config::retention_seconds = 3600;
+    config::force_immediate_recycle = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 10000;
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t partition_id = 10002;
+    constexpr int64_t tablet_id = 600011;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto tmp_rowset = create_rowset("1", tablet_id, index_id, 1, schema, 100001);
+    tmp_rowset.set_creation_time(current_time);
+    tmp_rowset.set_txn_expiration(current_time);
+    tmp_rowset.set_start_version(10);
+    tmp_rowset.set_end_version(10);
+    tmp_rowset.set_job_id("compaction-job-1");
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, false));
+    ASSERT_EQ(0, create_delete_bitmaps_v1(txn_kv.get(), tablet_id, tmp_rowset.rowset_id_v2()));
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_unexpired_non_job_tmp_rowset) {
+    auto retention_seconds = config::retention_seconds;
+    auto force_immediate_recycle = config::force_immediate_recycle;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+        config::force_immediate_recycle = force_immediate_recycle;
+    };
+    config::retention_seconds = 3600;
+    config::force_immediate_recycle = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 10000;
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t partition_id = 10002;
+    constexpr int64_t tablet_id = 600013;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto tmp_rowset = create_rowset("1", tablet_id, index_id, 1, schema, 100003);
+    tmp_rowset.set_creation_time(current_time);
+    tmp_rowset.set_txn_expiration(current_time);
+    tmp_rowset.set_start_version(10);
+    tmp_rowset.set_end_version(10);
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, false));
+    ASSERT_EQ(0, create_delete_bitmaps_v1(txn_kv.get(), tablet_id, tmp_rowset.rowset_id_v2()));
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_expired_tmp_rowset) {
+    auto retention_seconds = config::retention_seconds;
+    auto force_immediate_recycle = config::force_immediate_recycle;
+    DORIS_CLOUD_DEFER {
+        config::retention_seconds = retention_seconds;
+        config::force_immediate_recycle = force_immediate_recycle;
+    };
+    config::retention_seconds = 3600;
+    config::force_immediate_recycle = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    constexpr int64_t table_id = 10000;
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t partition_id = 10002;
+    constexpr int64_t tablet_id = 600012;
+    ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto tmp_rowset = create_rowset("1", tablet_id, index_id, 1, schema, 100002);
+    tmp_rowset.set_creation_time(current_time - config::retention_seconds - 10);
+    tmp_rowset.set_txn_expiration(current_time - config::retention_seconds - 10);
+    tmp_rowset.set_start_version(10);
+    tmp_rowset.set_end_version(10);
+    tmp_rowset.set_job_id("compaction-job-2");
+    ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, false));
+    ASSERT_EQ(0, create_delete_bitmaps_v1(txn_kv.get(), tablet_id, tmp_rowset.rowset_id_v2()));
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+}
+
 TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
     // abnormal case, some delete bitmaps arem leaked
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -5718,6 +5843,9 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &updated_val));
 
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    for (int i = 0; i < rowset.num_segments(); ++i) {
+        EXPECT_EQ(0, accessor->exists(segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i)));
+    }
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_respects_recycled_tablet) {
@@ -5881,6 +6009,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_batch_rowsets) {
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &updated_val));
 
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    EXPECT_EQ(0, accessor->exists(small_path));
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
@@ -5999,7 +6128,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
     }
 
     for (const auto& path : segment_paths) {
-        EXPECT_EQ(1, accessor->exists(path));
+        EXPECT_EQ(0, accessor->exists(path));
     }
     for (const auto& path : index_paths) {
         EXPECT_EQ(1, accessor->exists(path));
@@ -6835,6 +6964,37 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
     // no resource id, cannot recycle
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
+}
+
+TEST(RecyclerTest, recycle_tablet_with_empty_resource_id_and_no_segments) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    InstanceInfoPB instance;
+    instance.set_instance_id("test_instance");
+
+    sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
+        auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
+        auto* rs = resp->add_rowset_meta();
+        rs->set_num_segments(0);
+        rs->set_resource_id("");
+        EXPECT_TRUE(rs->has_resource_id());
+        EXPECT_TRUE(rs->resource_id().empty());
+    });
+    sp->enable_processing();
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), 0);
+
+    RecyclerMetricsContext ctx;
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), 0);
 }
 
 TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
@@ -9038,5 +9198,35 @@ TEST(RecyclerTest, enable_recycler_skip_recycle_callback) {
     EXPECT_TRUE(recycler.pending_instance_queue_.empty());
     EXPECT_TRUE(recycler.pending_instance_set_.empty());
     EXPECT_TRUE(recycler.recycling_instance_map_.empty());
+}
+
+TEST(RecyclerTest, RecycleInstanceFilterReadsConfigDynamically) {
+    auto old_whitelist = config::recycle_whitelist;
+    auto old_blacklist = config::recycle_blacklist;
+    DORIS_CLOUD_DEFER {
+        config::recycle_whitelist = old_whitelist;
+        config::recycle_blacklist = old_blacklist;
+    };
+
+    auto [succ, cause] = config::update_config("recycle_whitelist=", false, "");
+    ASSERT_TRUE(succ) << cause;
+    std::tie(succ, cause) =
+            config::update_config("recycle_blacklist=instance1,instance2", false, "");
+    ASSERT_TRUE(succ) << cause;
+    ASSERT_EQ(config::recycle_blacklist.size(), 2);
+    EXPECT_TRUE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+    EXPECT_FALSE(filter_out_instance("instance3"));
+
+    std::tie(succ, cause) = config::update_config("recycle_blacklist=instance2", false, "");
+    ASSERT_TRUE(succ) << cause;
+    EXPECT_FALSE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+
+    std::tie(succ, cause) = config::update_config(
+            "recycle_whitelist=instance1,recycle_blacklist=instance1", false, "");
+    ASSERT_TRUE(succ) << cause;
+    EXPECT_FALSE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
 }
 } // namespace doris::cloud

@@ -434,14 +434,6 @@ if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi
 
-if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
-        USE_UNWIND='ON'
-    else
-        USE_UNWIND='OFF'
-    fi
-fi
-
 if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
     DISPLAY_BUILD_TIME='OFF'
 fi
@@ -534,6 +526,12 @@ fi
 if [[ -z "${WITH_TDE_DIR}" ]]; then
     WITH_TDE_DIR=''
 fi
+if [[ -z "${ENABLE_VARIANT_NESTED_GROUP}" ]]; then
+    ENABLE_VARIANT_NESTED_GROUP='OFF'
+fi
+if [[ -z "${VARIANT_NESTED_GROUP_MODULE_DIR}" ]]; then
+    VARIANT_NESTED_GROUP_MODULE_DIR=''
+fi
 
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
@@ -555,7 +553,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
@@ -564,10 +561,13 @@ echo "Get params:
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
     WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
+    ENABLE_VARIANT_NESTED_GROUP         -- ${ENABLE_VARIANT_NESTED_GROUP}
+    VARIANT_NESTED_GROUP_MODULE_DIR     -- ${VARIANT_NESTED_GROUP_MODULE_DIR}
 "
 
 FEAT=()
 FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($([[ "${ENABLE_VARIANT_NESTED_GROUP}" == "ON" ]] && echo "+VARIANT_NESTED_GROUP" || echo "-VARIANT_NESTED_GROUP"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
@@ -689,7 +689,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
@@ -701,6 +700,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        -DENABLE_VARIANT_NESTED_GROUP="${ENABLE_VARIANT_NESTED_GROUP}" \
+        -DVARIANT_NESTED_GROUP_MODULE_DIR="${VARIANT_NESTED_GROUP_MODULE_DIR}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then

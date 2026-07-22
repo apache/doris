@@ -397,6 +397,9 @@ public abstract class JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
+                if (!isExactTable(databaseMetaData, rs, remoteDbName, remoteTableName)) {
+                    continue;
+                }
                 tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
@@ -487,13 +490,20 @@ public abstract class JdbcClient {
         return remoteTableName;
     }
 
-    protected boolean isTableModified(String modifiedTableName, String actualTableName) {
-        return false;
-    }
-
     protected ResultSet getRemoteColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
             String remoteTableName) throws SQLException {
         return databaseMetaData.getColumns(catalogName, remoteDbName, remoteTableName, null);
+    }
+
+    protected boolean isExactTable(DatabaseMetaData databaseMetaData, ResultSet resultSet,
+            String remoteDbName, String remoteTableName) throws SQLException {
+        // JDBC treats schema and table names as patterns, so verify both identities on returned rows.
+        return remoteDbName.equals(getRemoteDatabaseName(resultSet))
+                && remoteTableName.equals(resultSet.getString("TABLE_NAME"));
+    }
+
+    protected String getRemoteDatabaseName(ResultSet resultSet) throws SQLException {
+        return resultSet.getString("TABLE_SCHEM");
     }
 
     protected List<String> filterDatabaseNames(List<String> remoteDbNames) {

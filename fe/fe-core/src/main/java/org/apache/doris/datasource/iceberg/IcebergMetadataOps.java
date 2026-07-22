@@ -193,7 +193,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // IcebergMetadataOps handles listTableNames and listViewNames separately.
                 // listTableNames should only focus on the table type,
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (catalog instanceof ViewCatalog) {
+                if (isViewCatalogEnabled()) {
                     views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
                             .stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
@@ -356,8 +356,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
-        Type visit =
-                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
+        List<String> rootFieldNames = columns.stream().map(Column::getName).collect(Collectors.toList());
+        Type visit = DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType, rootFieldNames));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
@@ -808,7 +808,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + oldDorisType.toSql() + " to " + newDorisType.toSql());
         }
         try {
-            ColumnType.checkSupportSchemaChangeForComplexType(oldDorisType, newDorisType, false);
+            ColumnType.checkSupportIcebergSchemaChangeForComplexType(oldDorisType, newDorisType, false);
         } catch (DdlException e) {
             throw new UserException(e.getMessage(), e);
         }
@@ -1133,7 +1133,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String remoteDbName, String remoteViewName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return false;
         }
         try {
@@ -1147,7 +1147,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public View loadView(String dbName, String tblName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return null;
         }
         try {
@@ -1161,7 +1161,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listViewNames(String db) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return Collections.emptyList();
         }
         try {
@@ -1199,12 +1199,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
     }
 
+    private boolean isViewCatalogEnabled() {
+        if (!(catalog instanceof ViewCatalog)) {
+            return false;
+        }
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties) {
+                return ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
+            }
+        }
+        return true;
+    }
+
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
         return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;
@@ -1221,7 +1234,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         org.apache.iceberg.SortOrder.Builder builder = org.apache.iceberg.SortOrder.builderFor(schema);
         for (SortFieldInfo sortField : sortFields) {
-            String columnName = sortField.getColumnName();
+            String columnName = getIcebergColumnName(schema, sortField.getColumnName());
             if (sortField.isAscending()) {
                 if (sortField.isNullFirst()) {
                     builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
@@ -1237,5 +1250,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         return builder.build();
+    }
+
+    private static String getIcebergColumnName(Schema schema, String columnName) {
+        NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 }

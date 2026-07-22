@@ -287,8 +287,10 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        res.append("failed to initialize storage reader. tablet=" +
-                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+        // init() also runs the eager first-row read that evaluates pushed-down expressions,
+        // so res may be a data/expression error rather than a storage failure. Keep its own
+        // message and only append the tablet/backend, without a misleading storage wording.
+        res.append(". tablet=" + std::to_string(_tablet_reader_params.tablet->tablet_id()) +
                    ", backend=" + BackendOptions::get_localhost());
         return res;
     }
@@ -737,6 +739,14 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,
+                   stats.expr_zonemap_filtered_segments);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_page_counter,
+                   stats.expr_zonemap_filtered_pages);
+    COUNTER_UPDATE(local_state->_expr_zonemap_unusable_counter, stats.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(local_state->_in_zonemap_point_check_counter,
+                   stats.in_zonemap_point_check_count);
+    COUNTER_UPDATE(local_state->_in_zonemap_range_only_counter, stats.in_zonemap_range_only_count);
     COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.segment_dict_filtered);
     COUNTER_UPDATE(local_state->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_filtered);

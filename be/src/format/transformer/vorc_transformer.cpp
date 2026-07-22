@@ -184,6 +184,13 @@ void VOrcTransformer::set_compression_type(const TFileCompressType::type& compre
         _write_options->setCompression(orc::CompressionKind::CompressionKind_ZSTD);
         break;
     }
+    case TFileCompressType::LZ4BLOCK: {
+        // ORC has a single, unambiguous LZ4 codec (raw LZ4 inside ORC's own compression
+        // framing), interoperable with Spark/Trino. Honor the requested codec instead of
+        // silently falling back to ZLIB below.
+        _write_options->setCompression(orc::CompressionKind::CompressionKind_LZ4);
+        break;
+    }
     default: {
         _write_options->setCompression(orc::CompressionKind::CompressionKind_ZLIB);
     }

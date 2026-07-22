@@ -182,6 +182,10 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
+    // reverted, so the audit log (built after execute() returns) can reflect the values that
+    // were actually in effect for this statement. Null when no SET_VAR hint was used.
+    private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
@@ -480,6 +484,10 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public List<List<String>> getChangedSessionVarsForAudit() {
+        return changedSessionVarsForAudit;
+    }
+
     public boolean isHandleQueryInFe() {
         return isHandleQueryInFe;
     }
@@ -504,6 +512,7 @@ public class StmtExecutor {
         UUID uuid;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        boolean disableCloudVersionCacheOnRetry = false;
         // If the query is an `outfile` statement,
         // we execute it only once to avoid exporting redundant data.
         if (parsedStmt instanceof Queriable) {
@@ -511,7 +520,11 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
-                execute(queryId);
+                if (disableCloudVersionCacheOnRetry) {
+                    executeWithVersionCacheDisabled(queryId);
+                } else {
+                    execute(queryId);
+                }
                 return;
             } catch (UserException e) {
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
@@ -523,6 +536,7 @@ public class StmtExecutor {
                 if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
+                disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
                 TUniqueId lastQueryId = queryId;
                 uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -542,6 +556,34 @@ public class StmtExecutor {
                 throw e;
             }
         }
+    }
+
+    // Temporarily disable the cloud version cache for this single attempt so that the retry
+    // re-fetches the visible version from meta-service, then restore the user-set TTLs.
+    private void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long oldPartitionTtl = sessionVariable.cloudPartitionVersionCacheTtlMs;
+        long oldTableTtl = sessionVariable.cloudTableVersionCacheTtlMs;
+        try {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = 0;
+            sessionVariable.cloudTableVersionCacheTtlMs = 0;
+            LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
+                    SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
+                    SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
+                    context.getQueryIdentifier());
+            execute(queryId);
+        } finally {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
+            sessionVariable.cloudTableVersionCacheTtlMs = oldTableTtl;
+        }
+    }
+
+    boolean shouldDisableCloudVersionCacheOnRetry(String errorMessage) {
+        return Config.isCloudMode()
+                && errorMessage != null
+                && errorMessage.contains(SystemInfoService.ERROR_E230)
+                && (context.getSessionVariable().cloudPartitionVersionCacheTtlMs != 0
+                || context.getSessionVariable().cloudTableVersionCacheTtlMs != 0);
     }
 
     public void execute(TUniqueId queryId) throws Exception {
@@ -572,6 +614,17 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
+            // so the audit log (logged after execute() returns, i.e. after the revert below) can
+            // reflect what was actually in effect for this statement instead of the reverted values.
+            if (sessionVariable.getIsSingleSetVar()) {
+                try {
+                    changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
+                } catch (Throwable t) {
+                    LOG.warn("failed to snapshot changed session variables for audit. {}",
+                            context.getQueryIdentifier(), t);
+                }
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);

@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <ostream>
+#include <set>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -61,6 +62,7 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
@@ -81,7 +83,9 @@ const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name
 const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
         TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
 
-VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
+VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
+    _function_name = _fn.name.function_name;
+}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
@@ -207,6 +211,35 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
         return Status::OK();
     }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return _function->evaluate_zonemap_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_zonemap_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_zonemap_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    return _function->evaluate_dictionary_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_dictionary_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_dictionary_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_bloom_filter(
+        const BloomFilterEvalContext& ctx) const {
+    return _function->evaluate_bloom_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_bloom_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_bloom_filter(_children);
 }
 
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
@@ -344,6 +377,18 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
 
 bool VectorizedFnCall::can_push_down_to_index() const {
     return _function->can_push_down_to_index();
+}
+
+bool VectorizedFnCall::is_deterministic() const {
+    static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+    return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
+}
+
+bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
+    static const std::set<std::string> ERROR_PRESERVING_FUNCTIONS = {"assert_true"};
+    return !ERROR_PRESERVING_FUNCTIONS.contains(_function_name) &&
+           VExpr::is_safe_to_execute_on_selected_rows();
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

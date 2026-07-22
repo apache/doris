@@ -158,6 +158,10 @@ public abstract class RoutineLoadTaskInfo {
         return isEof;
     }
 
+    public boolean isDelaySchedule() {
+        return delaySchedule;
+    }
+
     public boolean needDedalySchedule() {
         return delaySchedule || isEof;
     }
@@ -178,6 +182,7 @@ public abstract class RoutineLoadTaskInfo {
 
     public void handleTaskByTxnCommitAttachment(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         judgeEof(rlTaskTxnCommitAttachment);
+        this.delaySchedule = shouldDelaySchedule(rlTaskTxnCommitAttachment);
     }
 
     private void judgeEof(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
@@ -195,7 +200,11 @@ public abstract class RoutineLoadTaskInfo {
         }
     }
 
-    abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
+    protected boolean shouldDelaySchedule(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        return false;
+    }
+
+    protected abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
 
     public void updateAdaptiveTimeout(RoutineLoadJob routineLoadJob) {
     }

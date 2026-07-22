@@ -199,8 +199,12 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
 }
 
 Status IcebergTableReader::init_row_filters() {
-    // We get the count value by doris's be, so we don't need to read the delete file
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count > 0) {
+    // We get the count value by doris's be, so we don't need to read the delete file.
+    // A table-level row count of 0 (e.g. an all-deleted table read with ignore_iceberg_dangling_delete,
+    // where total-records == total-position-deletes) is still a valid pushed-down count, so accept >= 0.
+    // FE sends -1 when there is no table-level count; using > 0 here would drop a genuine 0 into the
+    // delete-applying path below and never produce the intended CountReader(0).
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count >= 0) {
         return Status::OK();
     }
 
@@ -303,7 +307,9 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
-        col.column->assume_mutable()->clear();
+        auto mutable_column = IColumn::mutate(std::move(col.column));
+        mutable_column->clear();
+        col.column = std::move(mutable_column);
         if (names.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
@@ -1100,8 +1106,8 @@ Status IcebergParquetReader::_process_equality_delete(
             size_t read_rows = 0;
             RETURN_IF_ERROR(delete_reader->get_next_block(&tmp_block, &read_rows, &eof));
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
-                RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                ScopedMutableBlock mutable_block(&eq_file_block);
+                RETURN_IF_ERROR(mutable_block.mutable_block().merge(tmp_block));
             }
         }
     }
@@ -1247,8 +1253,8 @@ Status IcebergOrcReader::_process_equality_delete(
             size_t read_rows = 0;
             RETURN_IF_ERROR(delete_reader->get_next_block(&tmp_block, &read_rows, &eof));
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
-                RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                ScopedMutableBlock mutable_block(&eq_file_block);
+                RETURN_IF_ERROR(mutable_block.mutable_block().merge(tmp_block));
             }
         }
     }

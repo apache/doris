@@ -28,7 +28,8 @@ suite("test_insert_into_s3_tvf", "external,external_docker") {
         return
     }
 
-    def s3BasePath = "${bucket}/regression/insert_tvf_test"
+    def s3BasePrefix = "regression/insert_tvf_test/${UUID.randomUUID().toString()}"
+    def s3BasePath = "${bucket}/${s3BasePrefix}"
 
     // file_path is now a prefix; BE generates: {prefix}{query_id}_{idx}.{ext}
     def s3WriteProps = { String path, String format ->
@@ -45,7 +46,7 @@ suite("test_insert_into_s3_tvf", "external,external_docker") {
     // Read uses wildcard to match generated file names
     def s3ReadProps = { String path, String format ->
         return """
-            "uri" = "https://${bucket}.${s3_endpoint}/regression/insert_tvf_test/${path}",
+            "uri" = "https://${bucket}.${s3_endpoint}/${s3BasePrefix}/${path}",
             "s3.access_key" = "${ak}",
             "s3.secret_key" = "${sk}",
             "format" = "${format}",

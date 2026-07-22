@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/status.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/data_type/data_type.h"
 #include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
@@ -47,7 +48,13 @@ public:
             return Status::IOError("Out-of-bounds access in parquet data decoder");
         }
 
-        size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+        size_t primitive_length = _type_length;
+        if (const auto* fixed_length_column =
+                    check_and_get_column<ColumnFixedLengthObject>(*doris_column)) {
+            DCHECK_EQ(fixed_length_column->item_size(), _type_length);
+        } else {
+            primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+        }
         size_t data_index = doris_column->size() * primitive_length;
         size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
                             (_type_length / primitive_length);

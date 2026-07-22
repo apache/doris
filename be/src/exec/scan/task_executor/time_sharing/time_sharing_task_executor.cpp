@@ -48,6 +48,24 @@ extern ::doris::MetricPrototype METRIC_thread_pool_task_execution_count_total;
 extern ::doris::MetricPrototype METRIC_thread_pool_task_wait_worker_time_ns_total;
 extern ::doris::MetricPrototype METRIC_thread_pool_task_wait_worker_count_total;
 
+namespace {
+
+Result<std::shared_ptr<TimeSharingTaskHandle>> get_time_sharing_task_handle(
+        const std::shared_ptr<TaskHandle>& task_handle, const char* operation) {
+    if (task_handle == nullptr) {
+        return ResultError(Status::InternalError("{} got null task handle", operation));
+    }
+
+    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    if (handle == nullptr) {
+        return ResultError(Status::InternalError("{} got invalid task handle type, task id: {}",
+                                                 operation, task_handle->task_id().to_string()));
+    }
+    return handle;
+}
+
+} // namespace
+
 SplitThreadPoolToken::SplitThreadPoolToken(TimeSharingTaskExecutor* pool,
                                            TimeSharingTaskExecutor::ExecutionMode mode,
                                            std::shared_ptr<SplitQueue> split_queue,
@@ -256,9 +274,7 @@ Status TimeSharingTaskExecutor::init() {
 }
 
 TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
-    if (!_stopped.exchange(true)) {
-        stop();
-    }
+    stop();
 
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
     {
@@ -277,7 +293,7 @@ TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
         }
         {
             std::unique_lock<std::mutex> l(_lock);
-            _tokenless->_entries->remove_all(splits_to_destroy);
+            _remove_queued_splits_unlocked(splits_to_destroy);
         }
     }
 
@@ -295,6 +311,9 @@ Status TimeSharingTaskExecutor::start() {
 }
 
 void TimeSharingTaskExecutor::stop() {
+    if (_stopped.exchange(true)) {
+        return;
+    }
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of SplitThreadPool is guaranteed to take place before doris_main exits by
@@ -422,7 +441,7 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     DCHECK(state == SplitThreadPoolToken::State::IDLE ||
            state == SplitThreadPoolToken::State::RUNNING);
     split->submit_time_watch().start();
-    _tokenless->_entries->offer(std::move(split));
+    _offer_split_unlocked(std::move(split));
     if (state == SplitThreadPoolToken::State::IDLE) {
         _tokenless->transition(SplitThreadPoolToken::State::RUNNING);
     }
@@ -434,8 +453,6 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
     //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
     //       then submitted to the queue.
-    _total_queued_tasks++;
-
     // Wake up an idle thread for this task. Choosing the thread at the front of
     // the list ensures LIFO semantics as idling threads are also added to the front.
     //
@@ -571,7 +588,8 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                         lock.unlock();
                         l.lock();
                         if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
-                            _tokenless->_entries->offer(split);
+                            split->submit_time_watch().reset();
+                            _offer_split_unlocked(split);
                         }
                         l.unlock();
                     } else {
@@ -587,7 +605,8 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                                 split->reset_level_priority();
                                 std::unique_lock<std::mutex> l(_lock);
                                 if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING) {
-                                    _tokenless->_entries->offer(split);
+                                    split->submit_time_watch().reset();
+                                    _offer_split_unlocked(split);
                                 }
                             } else {
                                 LOG(WARNING) << "blocked split is failed, split_id: "
@@ -744,7 +763,7 @@ Status TimeSharingTaskExecutor::add_task(const TaskId& task_id,
 }
 
 Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_handle) {
-    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    auto handle = DORIS_TRY(get_time_sharing_task_handle(task_handle, "remove_task"));
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
 
     {
@@ -771,7 +790,7 @@ Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_han
         }
         {
             std::unique_lock<std::mutex> l(_lock);
-            _tokenless->_entries->remove_all(splits_to_destroy);
+            _remove_queued_splits_unlocked(splits_to_destroy);
         }
     }
 
@@ -807,7 +826,11 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
         }
     }};
     std::vector<SharedListenableFuture<Void>> finished_futures;
-    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    auto handle_result = get_time_sharing_task_handle(task_handle, "enqueue_splits");
+    if (!handle_result.has_value()) {
+        return ResultError(handle_result.error());
+    }
+    auto handle = handle_result.value();
     {
         std::unique_lock<std::mutex> lock(_mutex);
         for (const auto& task_split : splits) {
@@ -840,11 +863,41 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
 Status TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> task_handle,
                                                  bool intermediate,
                                                  const std::shared_ptr<SplitRunner>& split) {
-    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    auto handle = DORIS_TRY(get_time_sharing_task_handle(task_handle, "re_enqueue_split"));
     std::shared_ptr<PrioritizedSplitRunner> prioritized_split =
             handle->get_split(split, intermediate);
     prioritized_split->reset_level_priority();
     return _do_submit(prioritized_split);
+}
+
+void TimeSharingTaskExecutor::_offer_split_unlocked(std::shared_ptr<PrioritizedSplitRunner> split) {
+    _tokenless->_entries->offer(std::move(split));
+    ++_total_queued_tasks;
+}
+
+void TimeSharingTaskExecutor::_remove_queued_splits_unlocked(
+        const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) {
+    if (splits.empty()) {
+        return;
+    }
+
+    const size_t queue_size_before = _tokenless->_entries->size();
+    _tokenless->_entries->remove_all(splits);
+    const size_t queue_size_after = _tokenless->_entries->size();
+    DCHECK_GE(queue_size_before, queue_size_after);
+
+    const auto removed = static_cast<int>(queue_size_before - queue_size_after);
+    DCHECK_GE(_total_queued_tasks, removed);
+    _total_queued_tasks -= removed;
+
+    if (_tokenless->state() == SplitThreadPoolToken::State::RUNNING &&
+        _tokenless->_active_threads == 0 && _tokenless->_entries->size() == 0) {
+        _tokenless->transition(SplitThreadPoolToken::State::IDLE);
+    }
+
+    if (_total_queued_tasks == 0 && _active_threads == 0) {
+        _idle_cond.notify_all();
+    }
 }
 
 void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRunner> split,

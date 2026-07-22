@@ -46,6 +46,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -78,7 +79,12 @@ import java.util.stream.Collectors;
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
+    // Keep the timeout message aligned with the client-facing error returned by the legacy insert path.
+    private static final String INSERT_VISIBLE_TIMEOUT_ERROR_MSG = "transaction commit successfully, "
+            + "BUT data did not become visible within insert_visible_timeout_ms and will be visible later.";
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    // Track publish timeout separately from real failures so committed bookkeeping still runs.
+    protected boolean publishTimedOutAfterCommit = false;
 
     protected OlapTable olapTable;
 
@@ -229,7 +235,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 ctx.getSessionVariable().getInsertVisibleTimeoutMs(), txnCommitAttachment)) {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
+            // Keep the committed status so load accounting and insert result bookkeeping stay aligned.
             txnStatus = TransactionStatus.COMMITTED;
+            publishTimedOutAfterCommit = true;
         }
         if (Config.isCloudMode()) {
             String clusterName = ctx.getCloudCluster();
@@ -364,6 +372,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 txnStatus, loadedRows, filteredRows);
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
+        if (publishTimedOutAfterCommit && ctx.getSessionVariable().isInsertVisibleTimeoutReturnError()) {
+            // Log the committed timeout branch explicitly so operators can distinguish it from real failures.
+            LOG.warn("insert [{}] with txn id {} committed but return error because {}={}",
+                    labelName, txnId, SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE,
+                    SessionVariable.InsertVisibleTimeoutReturnMode.ERROR);
+            // Convert the final client response to ERR after all committed-side bookkeeping has finished.
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, INSERT_VISIBLE_TIMEOUT_ERROR_MSG);
+        }
     }
 
     public long getTimeout() {

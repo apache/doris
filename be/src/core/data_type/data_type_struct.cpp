@@ -243,8 +243,9 @@ const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* colum
         auto* struct_column = assert_cast<ColumnStruct*>(origin_column);
         DCHECK(elems.size() == struct_column->tuple_size());
         for (size_t i = 0; i < elems.size(); ++i) {
-            auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+            auto child_column = std::move(*struct_column->get_column_ptr(i)).mutate();
             buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+            struct_column->get_column_ptr(i) = std::move(child_column);
         }
         return buf;
     } else {
@@ -252,8 +253,9 @@ const char* DataTypeStruct::deserialize(const char* buf, MutableColumnPtr* colum
         DCHECK(elems.size() == struct_column->tuple_size());
 
         for (size_t i = 0; i < elems.size(); ++i) {
-            auto child_column = struct_column->get_column_ptr(i)->assume_mutable();
+            auto child_column = std::move(*struct_column->get_column_ptr(i)).mutate();
             buf = elems[i]->deserialize(buf, &child_column, be_exec_version);
+            struct_column->get_column_ptr(i) = std::move(child_column);
         }
         return buf;
     }

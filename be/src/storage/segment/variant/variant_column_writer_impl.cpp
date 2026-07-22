@@ -1566,8 +1566,14 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
     DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
     converter->add_column_data_convertor(*_tablet_column);
     const uint8_t* nullmap = nullptr;
-    auto& nullable_column = assert_cast<ColumnNullable&>(*ptr->get_root()->assume_mutable());
-    auto root_column = nullable_column.get_nested_column_ptr();
+    // get_root() already returns a MutableColumnPtr; store it to avoid dangling ref and
+    // to avoid calling assert_mutable() again (which would see use_count>1 and throw).
+    auto root_mut = ptr->get_root();
+    auto& nullable_column = assert_cast<ColumnNullable&>(*root_mut);
+    // Use const access to get the nested column ptr without bumping use_count in the
+    // non-const chameleon_ptr path, then mutate() to get exclusive ownership.
+    auto root_column = IColumn::mutate(
+            static_cast<const ColumnNullable&>(nullable_column).get_nested_column_ptr());
 
     const bool has_root_ng =
             std::ranges::any_of(_nested_group_routing_plan.ng_only_prefixes,
@@ -1579,13 +1585,15 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
     // If the root variant is nullable, then update the root column null column with the outer null column.
     if (_tablet_column->is_nullable()) {
         // use outer null column as final null column
+        // Move root_column (exclusive) directly into create() to avoid sharing ownership.
         root_column =
-                ColumnNullable::create(root_column->get_ptr(), ColumnUInt8::create(*_null_column));
+                ColumnNullable::create(std::move(root_column), ColumnUInt8::create(*_null_column));
         nullmap = _null_column->get_data().data();
     } else {
         // Otherwise setting to all not null.
-        root_column = ColumnNullable::create(root_column->get_ptr(),
-                                             ColumnUInt8::create(root_column->size(), 0));
+        size_t col_size = root_column->size();
+        root_column =
+                ColumnNullable::create(std::move(root_column), ColumnUInt8::create(col_size, 0));
     }
     // make sure the root_column is nullable
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(

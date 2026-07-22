@@ -69,12 +69,14 @@
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/lakesoul_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
 #include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
 #include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
+#include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
@@ -330,6 +332,11 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
+        // Preserve a safe prefix of the row-level conjunct order. Considering later predicates
+        // after an unsafe one could prune the split before the unsafe predicate is evaluated.
+        if (!expr->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
         if (_check_partition_prune_expr(expr)) {
             _runtime_filter_partition_prune_ctxs.emplace_back(conjunct);
         }
@@ -357,33 +364,12 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         auto data_type = partition_slot_desc->get_data_type_ptr();
-        auto test_serde = data_type->get_serde();
         auto partition_value_column = data_type->create_column();
-        auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
-        Slice slice(partition_value.data(), partition_value.size());
-        uint64_t num_deserialized = 0;
-        DataTypeSerDe::FormatOptions options {};
-        if (_partition_value_is_null.contains(partition_slot_desc->col_name())) {
-            // for iceberg/paimon table
-            // NOTICE: column is always be nullable for iceberg/paimon table now
-            DCHECK(data_type->is_nullable());
-            test_serde = test_serde->get_nested_serdes()[0];
-            auto* null_column = assert_cast<ColumnNullable*>(col_ptr);
-            if (_partition_value_is_null[partition_slot_desc->col_name()]) {
-                null_column->insert_many_defaults(partition_value_column_size);
-            } else {
-                // If the partition value is not null, we set null map to 0 and deserialize it normally.
-                null_column->get_null_map_column().insert_many_vals(0, partition_value_column_size);
-                RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                        null_column->get_nested_column(), slice, partition_value_column_size,
-                        &num_deserialized, options));
-            }
-        } else {
-            // for hive/hudi table, the null value is set as "\\N"
-            // TODO: this will be unified as iceberg/paimon table in the future
-            RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                    *col_ptr, slice, partition_value_column_size, &num_deserialized, options));
-        }
+        auto null_it = _partition_value_is_null.find(partition_slot_desc->col_name());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *partition_value_column, *partition_slot_desc, partition_value,
+                partition_value_column_size, null_it != _partition_value_is_null.end(),
+                null_it != _partition_value_is_null.end() && null_it->second));
 
         partition_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
@@ -395,20 +381,9 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (partition_slot_id_to_column.find(slot_desc->id()) !=
             partition_slot_id_to_column.end()) {
-            auto data_type = slot_desc->get_data_type_ptr();
             auto partition_value_column = std::move(partition_slot_id_to_column[slot_desc->id()]);
-            if (data_type->is_nullable()) {
-                _runtime_filter_partition_prune_block.insert(
-                        index, ColumnWithTypeAndName(
-                                       ColumnNullable::create(
-                                               std::move(partition_value_column),
-                                               ColumnUInt8::create(partition_value_column_size, 0)),
-                                       data_type, slot_desc->col_name()));
-            } else {
-                _runtime_filter_partition_prune_block.insert(
-                        index, ColumnWithTypeAndName(std::move(partition_value_column), data_type,
-                                                     slot_desc->col_name()));
-            }
+            _runtime_filter_partition_prune_block.replace_by_position(
+                    index, std::move(partition_value_column));
             if (index == 0) {
                 first_column_filled = true;
             }
@@ -420,8 +395,10 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        _runtime_filter_partition_prune_block.get_by_position(0).column->assume_mutable()->resize(
-                partition_value_column_size);
+        auto column = IColumn::mutate(
+                std::move(_runtime_filter_partition_prune_block.get_by_position(0).column));
+        column->resize(partition_value_column_size);
+        _runtime_filter_partition_prune_block.replace_by_position(0, std::move(column));
     }
     IColumn::Filter result_filter(_runtime_filter_partition_prune_block.rows(), 1);
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
@@ -762,27 +739,13 @@ Status FileScanner::_fill_columns_from_path(size_t rows) {
     }
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : _partition_col_descs) {
-        auto doris_column =
-                _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first]).column;
-        // _src_block_ptr points to a mutable block created by this class itself, so const_cast can be used here.
-        IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
+        auto column_guard = _src_block_ptr->mutate_column_scoped(_src_block_name_to_idx[kv.first]);
+        IColumn* col_ptr = column_guard.mutable_column().get();
         auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows, null_it != _partition_value_is_null.end(),
+                null_it != _partition_value_is_null.end() && null_it->second, _text_formatOptions));
     }
     return Status::OK();
 }
@@ -796,8 +759,9 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
     for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto mutable_column = _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first])
-                                          .column->assume_mutable();
+            auto column_guard =
+                    _src_block_ptr->mutate_column_scoped(_src_block_name_to_idx[kv.first]);
+            auto& mutable_column = column_guard.mutable_column();
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
@@ -810,8 +774,9 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto mutable_column = result_column_ptr->assume_mutable();
+                auto mutable_column = IColumn::mutate(std::move(result_column_ptr));
                 mutable_column->resize(rows);
+                result_column_ptr = std::move(mutable_column);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type =
@@ -862,16 +827,17 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug
-    MutableBlock mutable_output_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto scoped_mutable_output_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto& mutable_output_block = scoped_mutable_output_block.mutable_block();
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
 
     std::vector<BitmapValue>* skip_bitmaps {nullptr};
+    MutableColumnPtr skip_bitmap_column;
     if (_should_process_skip_bitmap_col()) {
-        auto* skip_bitmap_nullable_col_ptr =
-                assert_cast<ColumnNullable*>(_src_block_ptr->get_by_position(_skip_bitmap_col_idx)
-                                                     .column->assume_mutable()
-                                                     .get());
+        skip_bitmap_column = IColumn::mutate(
+                std::move(_src_block_ptr->get_by_position(_skip_bitmap_col_idx).column));
+        auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(skip_bitmap_column.get());
         skip_bitmaps = &(assert_cast<ColumnBitmap*>(
                                  skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())
                                  ->get_data());
@@ -888,6 +854,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                 }
             }
         }
+        _src_block_ptr->replace_by_position(_skip_bitmap_col_idx, std::move(skip_bitmap_column));
     }
 
     // for (auto slot_desc : _output_tuple_desc->slots()) {
@@ -954,6 +921,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
+    scoped_mutable_output_block.restore();
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block_ptr->clear();
@@ -1163,6 +1131,11 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "iceberg") {
+                _cur_reader = IcebergSysTableJniReader::create_unique(_file_slot_descs, _state,
+                                                                      _profile, range, _params);
+                init_status = ((IcebergSysTableJniReader*)(_cur_reader.get()))->init_reader();
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
@@ -1625,7 +1598,8 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
 
     RETURN_IF_ERROR(_generate_missing_columns());
     if (_fill_partition_from_path) {
-        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs,
+                                                      _partition_value_is_null));
     } else {
         // If the partition columns are not from path, we only fill the missing columns.
         RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
@@ -1761,12 +1735,21 @@ Status FileScanner::_generate_partition_columns() {
     _partition_value_is_null.clear();
     const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
+        if (range.__isset.columns_from_path_is_null) {
+            DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path.size());
+        }
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
                 auto it = _partition_slot_index_map.find(slot_desc->id());
                 if (it == std::end(_partition_slot_index_map)) {
                     return Status::InternalError("Unknown source slot descriptor, slot_id={}",
                                                  slot_desc->id());
+                }
+                if (it->second < 0 ||
+                    static_cast<size_t>(it->second) >= range.columns_from_path.size()) {
+                    return Status::InternalError(
+                            "Invalid partition value index {}, value count {} for column {}",
+                            it->second, range.columns_from_path.size(), slot_desc->col_name());
                 }
                 const std::string& column_from_path = range.columns_from_path[it->second];
                 _partition_col_descs.emplace(slot_desc->col_name(),
@@ -2002,6 +1985,19 @@ void FileScanner::update_realtime_counters() {
 
     _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
     _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
+}
+
+bool FileScanner::_should_update_load_counters() const {
+    if (_is_load) {
+        return true;
+    }
+    // TVF based loads (e.g. http_stream, group commit relay) plan the load source as a
+    // tvf query scan without src tuple desc, so _is_load is false. But rows filtered by
+    // the load's WHERE clause still need to be reported as unselected rows. FILE_STREAM
+    // is only reachable from such load entries, never from normal queries, so use it to
+    // identify these scanners.
+    return (_params->__isset.file_type && _params->file_type == TFileType::FILE_STREAM) ||
+           (_current_range.__isset.file_type && _current_range.file_type == TFileType::FILE_STREAM);
 }
 
 void FileScanner::_collect_profile_before_close() {

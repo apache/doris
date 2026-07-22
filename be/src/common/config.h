@@ -330,6 +330,8 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 DECLARE_mInt32(download_low_speed_time);
 // whether to download small files in batch.
 DECLARE_mBool(enable_batch_download);
+// whether to enable stream load forward endpoint for cloud group commit
+DECLARE_mBool(enable_group_commit_streamload_be_forward);
 // whether to check md5sum when download
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
@@ -885,6 +887,11 @@ DECLARE_mDouble(min_flush_thread_num_per_cpu);
 // Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
 
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DECLARE_mBool(enable_table_memtable_flush_backpressure);
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DECLARE_mInt32(table_memtable_flush_pending_count_limit);
+
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
 DECLARE_mInt32(tablet_meta_checkpoint_min_interval_secs);
@@ -1387,8 +1394,6 @@ DECLARE_mInt32(kerberos_refresh_interval_second);
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
 
-// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
-DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
@@ -1501,6 +1506,8 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
+DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.

@@ -51,6 +51,55 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         }
     }
 
+    sql """DROP TABLE IF EXISTS test_variant_typed_int_bloom_filter"""
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set enable_common_expr_pushdown = true"
+    // Keep doc mode controlled by the session variable above. The column-level
+    // variant_enable_doc_mode property is mutually exclusive with typed-path
+    // properties such as variant_max_subcolumns_count.
+    sql """
+        CREATE TABLE test_variant_typed_int_bloom_filter (
+            k bigint,
+            v variant<'int_1' : int, properties(
+                "variant_max_subcolumns_count" = "2",
+                "variant_enable_typed_paths_to_sparse" = "false"
+            )>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties(
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "bloom_filter_columns" = "v"
+        );
+    """
+    sql """
+        INSERT INTO test_variant_typed_int_bloom_filter VALUES
+            (1, '{"int_1": 1}'),
+            (2, '{"int_1": 2}'),
+            (3, '{"int_1": 100}'),
+            (4, '{"int_1": 101}');
+    """
+    sql """sync"""
+
+    def matched = sql """
+        select k, cast(v['int_1'] as int) from test_variant_typed_int_bloom_filter
+        where cast(v['int_1'] as int) in (1, 101)
+        order by k
+    """
+    assertEquals("[[1, 1], [4, 101]]", matched.toString())
+
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
+        def missing = sql """
+            select k from test_variant_typed_int_bloom_filter
+            where cast(v['int_1'] as int) = 50
+        """
+        assertEquals(0, missing.size())
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("bloom_filter_must_filter_data")
+    }
+
     sql """DROP TABLE IF EXISTS ${index_table}"""
     int seed = Math.floor(Math.random() * 7) 
     def var_def = "variant"

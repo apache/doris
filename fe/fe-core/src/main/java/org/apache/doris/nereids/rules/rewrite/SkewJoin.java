@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,9 +34,12 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * When encountering a data-skewed join, there are currently two optimization methods:
@@ -50,8 +54,9 @@ public class SkewJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getJoinType().isOneSideOuterJoin()
-                        || join.getJoinType().isInnerJoin() || join.getJoinType().isAsofJoin())
+                        || join.getJoinType().isInnerJoin())
                 .when(join -> join.getDistributeHint().distributeType == DistributeType.NONE)
+                .whenNot(join -> join.getJoinReorderContext().isSaltJoinGenerated())
                 .whenNot(LogicalJoin::isMarkJoin)
                 .thenApply(SkewJoin::transform).toRule(RuleType.SALT_JOIN);
     }
@@ -81,20 +86,27 @@ public class SkewJoin extends OneRewriteRuleFactory {
         if (join.left().getOutputSet().contains(equal.right())) {
             equal = equal.commute();
         }
-        if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
-                || join.getJoinType().isAsofInnerJoin() || join.getJoinType().isAsofLeftOuterJoin()) {
+        if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()) {
             Expression leftEqHand = equal.child(0);
-            if (left.getStats().findColumnStatistics(leftEqHand) != null
-                    && left.getStats().findColumnStatistics(leftEqHand).getHotValues() != null) {
-                skewExpr = leftEqHand;
-                hotValues.addAll(left.getStats().findColumnStatistics(leftEqHand).getHotValues().keySet());
+            if (left.getStats().findColumnStatistics(leftEqHand) != null) {
+                ColumnStatistic leftColStats = left.getStats().findColumnStatistics(leftEqHand);
+                Map<Literal, Float> filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
+                        leftColStats.getHotValues(), leftColStats.ndv);
+                if (filtered != null) {
+                    skewExpr = leftEqHand;
+                    hotValues.addAll(filtered.keySet());
+                }
             }
-        } else if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isAsofRightOuterJoin()) {
+        } else if (join.getJoinType().isRightOuterJoin()) {
             Expression rightEqHand = equal.child(1);
-            if (right.getStats().findColumnStatistics(rightEqHand) != null
-                    && right.getStats().findColumnStatistics(rightEqHand).getHotValues() != null) {
-                skewExpr = rightEqHand;
-                hotValues.addAll(right.getStats().findColumnStatistics(rightEqHand).getHotValues().keySet());
+            if (right.getStats().findColumnStatistics(rightEqHand) != null) {
+                ColumnStatistic rightColStats = right.getStats().findColumnStatistics(rightEqHand);
+                Map<Literal, Float> filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
+                        rightColStats.getHotValues(), rightColStats.ndv);
+                if (filtered != null) {
+                    skewExpr = rightEqHand;
+                    hotValues.addAll(filtered.keySet());
+                }
             }
         } else {
             return null;

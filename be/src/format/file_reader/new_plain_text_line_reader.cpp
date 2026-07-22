@@ -47,6 +47,19 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
+    if (_skip_utf8_bom && !_first_record_prefix_checked && _idx == 0) {
+        constexpr uint8_t UTF8_BOM[] = {0xEF, 0xBB, 0xBF};
+        constexpr size_t UTF8_BOM_SIZE = sizeof(UTF8_BOM);
+        const size_t prefix_size = std::min(length, UTF8_BOM_SIZE);
+        if (std::memcmp(start, UTF8_BOM, prefix_size) != 0) {
+            _first_record_prefix_checked = true;
+        } else if (length < UTF8_BOM_SIZE) {
+            return nullptr;
+        } else {
+            _idx = UTF8_BOM_SIZE;
+            _first_record_prefix_checked = true;
+        }
+    }
     // Avoid part bytes of the multi-char column separator have already been parsed,
     // causing parse column separator error.
     if (_state.curr_state == ReaderState::NORMAL ||

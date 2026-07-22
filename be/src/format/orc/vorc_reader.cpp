@@ -82,6 +82,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/partition_column_filler.h"
 #include "format/table/transactional_hive_common.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -171,6 +172,44 @@ Status build_iceberg_rowid_column(const DataTypePtr& type, const std::string& fi
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
+
+static std::string normalized_orc_timezone_name(const std::string& ctz) {
+    return ctz.empty() ? "UTC" : (ctz == "CST" ? "Asia/Shanghai" : ctz);
+}
+
+static void fill_orc_null_map(ColumnNullable* nullable_column, const orc::ColumnVectorBatch* cvb,
+                              size_t num_values) {
+    NullMap& map_data_column = nullable_column->get_null_map_data();
+    const auto origin_size = map_data_column.size();
+    map_data_column.resize(origin_size + num_values);
+    if (cvb->hasNulls) {
+        const auto* cvb_nulls = cvb->notNull.data();
+        for (int i = 0; i < num_values; ++i) {
+            map_data_column[origin_size + i] = !cvb_nulls[i];
+        }
+    } else {
+        memset(map_data_column.data() + origin_size, 0, num_values);
+    }
+}
+
+static void align_orc_null_map(const ColumnPtr& src_column, ColumnNullable* dst_nullable_column,
+                               size_t src_null_map_start, size_t new_rows) {
+    auto& dst_null_map = dst_nullable_column->get_null_map_column();
+    const size_t old_rows = dst_nullable_column->get_nested_column().size();
+    const size_t expected_rows = old_rows + new_rows;
+    if (dst_null_map.size() == expected_rows) {
+        return;
+    }
+    DCHECK_EQ(dst_null_map.size(), old_rows);
+    if (src_column->is_nullable()) {
+        const auto* src_nullable = assert_cast<const ColumnNullable*>(src_column.get());
+        DCHECK_GE(src_nullable->get_null_map_column().size(), src_null_map_start + new_rows);
+        dst_null_map.insert_range_from(src_nullable->get_null_map_column(), src_null_map_start,
+                                       new_rows);
+    } else {
+        dst_null_map.insert_many_vals(0, new_rows);
+    }
+}
 // Because HIVE 0.11 & 0.12 does not support precision and scale for decimal
 // The decimal type of orc file produced by HIVE 0.11 & 0.12 are DECIMAL(0,0)
 // We should set a default precision and scale for these orc files.
@@ -252,7 +291,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -278,7 +317,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -312,6 +351,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -332,6 +372,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -1154,8 +1195,10 @@ bool OrcReader::_init_search_argument(const VExprSPtrs& exprs) {
 Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+        const std::unordered_map<std::string, bool>& partition_value_is_null) {
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
+    _lazy_read_ctx.partition_value_is_null = partition_value_is_null;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
@@ -1334,7 +1377,7 @@ Status OrcReader::set_fill_columns(
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
-        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        _row_reader_options.setTimezoneName(normalized_orc_timezone_name(_ctz));
         if (!_column_ids.empty()) {
             std::list<uint64_t> column_ids_list(_column_ids.begin(), _column_ids.end());
             _row_reader_options.includeTypes(column_ids_list);
@@ -1488,26 +1531,15 @@ Status OrcReader::_fill_partition_columns(
                 partition_columns) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (const auto& kv : partition_columns) {
-        auto col_ptr = block->get_by_position((*_col_name_to_block_idx)[kv.first])
-                               .column->assume_mutable();
+        auto column_guard = block->mutate_column_scoped((*_col_name_to_block_idx)[kv.first]);
+        auto& col_ptr = column_guard.mutable_column();
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually "
-                    "written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _lazy_read_ctx.partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows,
+                null_it != _lazy_read_ctx.partition_value_is_null.end(),
+                null_it != _lazy_read_ctx.partition_value_is_null.end() && null_it->second,
+                _text_formatOptions));
     }
     return Status::OK();
 }
@@ -1522,8 +1554,8 @@ Status OrcReader::_fill_missing_columns(
         }
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto mutable_column = block->get_by_position((*_col_name_to_block_idx)[kv.first])
-                                          .column->assume_mutable();
+            auto column_guard = block->mutate_column_scoped((*_col_name_to_block_idx)[kv.first]);
+            auto& mutable_column = column_guard.mutable_column();
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
@@ -1536,8 +1568,9 @@ Status OrcReader::_fill_missing_columns(
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto mutable_column = result_column_ptr->assume_mutable();
+                auto mutable_column = IColumn::mutate(std::move(result_column_ptr));
                 mutable_column->resize(rows);
+                result_column_ptr = std::move(mutable_column);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type =
@@ -1556,15 +1589,15 @@ Status OrcReader::_fill_row_id_columns(Block* block, int64_t start_row) {
     size_t fill_size = _batch->numElements;
     if (_row_id_column_iterator_pair.first != nullptr) {
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->seek_to_ordinal(start_row));
-        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
-                           .column->assume_mutable();
+        auto column_guard = block->mutate_column_scoped(_row_id_column_iterator_pair.second);
+        auto& col = column_guard.mutable_column();
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
     }
 
     if (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids() &&
         _row_lineage_columns->first_row_id >= 0) {
-        auto col = block->get_by_position(_row_lineage_columns->row_id_column_idx)
-                           .column->assume_mutable();
+        auto column_guard = block->mutate_column_scoped(_row_lineage_columns->row_id_column_idx);
+        auto& col = column_guard.mutable_column();
         auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
         auto& null_map = nullable_column->get_null_map_data();
         auto& data =
@@ -1580,9 +1613,9 @@ Status OrcReader::_fill_row_id_columns(Block* block, int64_t start_row) {
     if (_row_lineage_columns != nullptr &&
         _row_lineage_columns->has_last_updated_sequence_number_column() &&
         _row_lineage_columns->last_updated_sequence_number >= 0) {
-        auto col = block->get_by_position(
-                                _row_lineage_columns->last_updated_sequence_number_column_idx)
-                           .column->assume_mutable();
+        auto column_guard = block->mutate_column_scoped(
+                _row_lineage_columns->last_updated_sequence_number_column_idx);
+        auto& col = column_guard.mutable_column();
         auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
         auto& null_map = nullable_column->get_null_map_data();
         auto& data =
@@ -2213,13 +2246,14 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         // Handle key column: if still missing, fill with default values
         if (key_is_missing) {
             // Fill key column with default values (nulls or empty values)
-            auto mutable_key_column = doris_key_column->assume_mutable();
+            auto mutable_key_column = IColumn::mutate(std::move(doris_key_column));
             if (mutable_key_column->is_nullable()) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_key_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
                 mutable_key_column->insert_many_defaults(element_size);
             }
+            doris_key_column = std::move(mutable_key_column);
         } else {
             // Normal processing: convert ORC column to Doris column
             RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
@@ -2230,13 +2264,14 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         // Handle value column: if still missing, fill with default values
         if (value_is_missing) {
             // Fill value column with default values (nulls or empty values)
-            auto mutable_value_column = doris_value_column->assume_mutable();
+            auto mutable_value_column = IColumn::mutate(std::move(doris_value_column));
             if (mutable_value_column->is_nullable()) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_value_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
                 mutable_value_column->insert_many_defaults(element_size);
             }
+            doris_value_column = std::move(mutable_value_column);
         } else {
             // Normal processing: convert ORC column to Doris column
             RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
@@ -2301,8 +2336,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         "Child field of '{}' is not nullable, but is missing in orc file",
                         col_name);
             }
-            reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
+            auto mutable_field = IColumn::mutate(std::move(doris_field));
+            reinterpret_cast<ColumnNullable*>(mutable_field.get())
                     ->insert_many_defaults(num_values);
+            doris_field = std::move(mutable_field);
         }
 
         for (auto read_field : read_fields) {
@@ -2367,45 +2404,65 @@ Status OrcReader::_orc_column_to_doris_column(
         resolved_column = converter->get_column(src_type, doris_column, data_type);
         resolved_type = converter->get_type();
 
-        if (resolved_column->is_nullable()) {
+        MutableColumnPtr mutable_resolved_column;
+        if (converter->is_consistent()) {
+            resolved_column.reset();
+            mutable_resolved_column = IColumn::mutate(std::move(doris_column));
+        } else {
+            mutable_resolved_column = IColumn::mutate(std::move(resolved_column));
+        }
+
+        size_t src_null_map_start = 0;
+        if (mutable_resolved_column->is_nullable()) {
             SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
             auto* nullable_column =
-                    reinterpret_cast<ColumnNullable*>(resolved_column->assume_mutable().get());
+                    reinterpret_cast<ColumnNullable*>(mutable_resolved_column.get());
             data_column = nullable_column->get_nested_column_ptr();
-
-            NullMap& map_data_column = nullable_column->get_null_map_data();
-            auto origin_size = map_data_column.size();
-            map_data_column.resize(origin_size + num_values);
-            if (cvb->hasNulls) {
-                const auto* cvb_nulls = cvb->notNull.data();
-                for (int i = 0; i < num_values; ++i) {
-                    map_data_column[origin_size + i] = !cvb_nulls[i];
-                }
-            } else {
-                memset(map_data_column.data() + origin_size, 0, num_values);
-            }
+            src_null_map_start = nullable_column->get_null_map_column().size();
+            fill_orc_null_map(nullable_column, cvb, num_values);
         } else {
             if (cvb->hasNulls) {
                 return Status::InternalError("Not nullable column {} has null values in orc file",
                                              col_name);
             }
-            data_column = resolved_column->assume_mutable();
+            data_column = std::move(mutable_resolved_column);
         }
 
         RETURN_IF_ERROR(_fill_doris_data_column<is_filter>(
                 col_name, data_column, remove_nullable(resolved_type), root_node, orc_column_type,
                 cvb, num_values));
-        // resolve schema change
-        auto converted_column = doris_column->assume_mutable();
-        return converter->convert(resolved_column, converted_column);
+
+        if (mutable_resolved_column) {
+            data_column.reset();
+            resolved_column = std::move(mutable_resolved_column);
+        } else {
+            resolved_column = std::move(data_column);
+        }
+
+        if (converter->is_consistent()) {
+            doris_column = std::move(resolved_column);
+            return Status::OK();
+        }
+
+        auto converted_column = IColumn::mutate(std::move(doris_column));
+        if (converted_column->is_nullable()) {
+            const size_t new_rows = remove_nullable(resolved_column)->size();
+            align_orc_null_map(resolved_column,
+                               reinterpret_cast<ColumnNullable*>(converted_column.get()),
+                               src_null_map_start, new_rows);
+        }
+        auto status = converter->convert(resolved_column, converted_column);
+        doris_column = std::move(converted_column);
+        return status;
     } else {
-        auto mutable_column = doris_column->assume_mutable();
+        auto mutable_column = IColumn::mutate(std::move(doris_column));
         if (mutable_column->is_nullable()) {
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(num_values);
         } else {
             mutable_column->insert_many_defaults(num_values);
         }
+        doris_column = std::move(mutable_column);
     }
 
     return Status::OK();
@@ -2441,11 +2498,10 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
 
         set_remaining_rows(get_remaining_rows() - rows);
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
+        auto columns_guard = block->mutate_columns_scoped();
+        for (auto& col : columns_guard.mutable_columns()) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (get_remaining_rows() == 0) {
             *eof = true;
@@ -2692,9 +2748,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                         filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
                 if (can_filter_all) {
-                    for (auto& col : columns_to_filter) {
-                        std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-                    }
+                    block->clear_column_data(columns_to_filter);
                     Block::erase_useless_column(block, column_to_keep);
                     return _convert_dict_cols_to_string_cols(block, &batch_vec);
                 }
@@ -2852,7 +2906,8 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     if (_lazy_read_ctx.resize_first_column) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        block->get_by_position(0).column->assume_mutable()->resize(size);
+        auto column_guard = block->mutate_column_scoped(0);
+        column_guard.mutable_column()->resize(size);
     }
 
     // transactional hive orc delete row
@@ -2879,26 +2934,25 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
 
     if (_lazy_read_ctx.resize_first_column) {
         // We have to clean the first column to insert right data.
-        block->get_by_position(0).column->assume_mutable()->clear();
+        block->clear_column_data(std::vector<uint32_t> {0});
     }
 
     if (can_filter_all) {
+        std::vector<uint32_t> columns_to_clear;
+        columns_to_clear.reserve(table_col_names.size() +
+                                 _lazy_read_ctx.predicate_partition_columns.size() +
+                                 _lazy_read_ctx.predicate_missing_columns.size());
         for (auto& col : table_col_names) {
             // clean block to read predicate columns and acid columns
-            block->get_by_position((*_col_name_to_block_idx)[col])
-                    .column->assume_mutable()
-                    ->clear();
+            columns_to_clear.emplace_back((*_col_name_to_block_idx)[col]);
         }
         for (auto& col : _lazy_read_ctx.predicate_partition_columns) {
-            block->get_by_position((*_col_name_to_block_idx)[col.first])
-                    .column->assume_mutable()
-                    ->clear();
+            columns_to_clear.emplace_back((*_col_name_to_block_idx)[col.first]);
         }
         for (auto& col : _lazy_read_ctx.predicate_missing_columns) {
-            block->get_by_position((*_col_name_to_block_idx)[col.first])
-                    .column->assume_mutable()
-                    ->clear();
+            columns_to_clear.emplace_back((*_col_name_to_block_idx)[col.first]);
         }
+        block->clear_column_data(columns_to_clear);
         Block::erase_useless_column(block, origin_column_num);
         RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
     }
@@ -3074,7 +3128,8 @@ Status OrcReader::on_string_dicts_loaded(
         if (dict_pos != 0) {
             // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
             // The following process may be tricky and time-consuming, but we have no other way.
-            temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
+            auto column_guard = temp_block.mutate_column_scoped(0);
+            column_guard.mutable_column()->resize(dict_value_column_size);
         }
         IColumn::Filter result_filter(temp_block.rows(), 1);
         bool can_filter_all;
@@ -3082,7 +3137,8 @@ Status OrcReader::on_string_dicts_loaded(
                                                         &can_filter_all));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
-            temp_block.get_by_position(0).column->assume_mutable()->clear();
+            auto column_guard = temp_block.mutate_column_scoped(0);
+            column_guard.mutable_column()->clear();
         }
 
         // If can_filter_all = true, can filter this stripe.
@@ -3180,7 +3236,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }
-            root = VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set, false);
         }
         {
             SlotDescriptor* slot = nullptr;

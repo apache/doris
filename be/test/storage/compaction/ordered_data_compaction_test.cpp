@@ -304,7 +304,7 @@ protected:
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
                 int32_t c2 = std::get<1>(rowset_data[i][rid]);
@@ -317,6 +317,7 @@ protected:
                 }
                 num_rows++;
             }
+            block.set_columns(std::move(columns));
             auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -451,7 +452,15 @@ protected:
 
     void block_create(TabletSchemaSPtr tablet_schema, Block* block) {
         block->clear();
-        Schema schema(tablet_schema);
+        size_t num_columns = tablet_schema->num_columns();
+        if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
+            --num_columns;
+        }
+        std::vector<ColumnId> schema_column_ids(num_columns);
+        for (uint32_t cid = 0; cid < num_columns; ++cid) {
+            schema_column_ids[cid] = cid;
+        }
+        Schema schema(tablet_schema->columns(), schema_column_ids);
         const auto& column_ids = schema.column_ids();
         for (size_t i = 0; i < schema.num_column_ids(); ++i) {
             auto column_desc = schema.column(column_ids[i]);
@@ -573,7 +582,7 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
         uint32_t num_rows = 0;
         for (int j = 0; j < input_data[i].size(); ++j) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < input_data[i][j].size(); ++rid) {
                 int32_t c1 = std::get<0>(input_data[i][j][rid]);
                 int32_t c2 = std::get<1>(input_data[i][j][rid]);
@@ -586,6 +595,7 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
                 }
                 num_rows++;
             }
+            block.set_columns(std::move(columns));
             auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();

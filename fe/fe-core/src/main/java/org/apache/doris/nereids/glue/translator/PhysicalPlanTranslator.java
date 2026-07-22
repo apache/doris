@@ -59,6 +59,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
@@ -244,7 +245,6 @@ import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -761,7 +761,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
             }
-        } else if (table instanceof IcebergExternalTable) {
+        } else if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
         } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
@@ -2030,9 +2030,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
             filters.forEach(filter -> runtimeFilterTranslator
                     .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
-            if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
-                nestedLoopJoinNode.setOutputLeftSideOnly(true);
-            }
         });
 
         Map<ExprId, SlotReference> leftChildOutputMap = nestedLoopJoin.child(0).getOutput().stream()
@@ -2128,13 +2125,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
         List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
-                .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-
-        if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
-            // left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
-            joinConjuncts.add(new BoolLiteral(true));
-        }
 
         nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 

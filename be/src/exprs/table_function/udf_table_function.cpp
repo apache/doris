@@ -124,10 +124,12 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                             .with_arg(output_map)
                             .call(&output_address));
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
+    _array_result_column =
+            IColumn::mutate(std::move(block->get_by_position(_result_column_idx).column));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
         return Status::NotSupported("column type {} not supported now",
-                                    block->get_by_position(_result_column_idx).column->get_name());
+                                    _array_result_column->get_name());
     }
     return Status::OK();
 }
@@ -160,9 +162,9 @@ void UDFTableFunction::get_same_many_values(MutableColumnPtr& column, int length
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto nullmap_column = nullable_column->get_null_map_column_ptr();
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_many_from(*_array_column_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_many_defaults(length);
+            nullmap_column->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_array_column_detail.nested_col, pos, length);
         }
@@ -179,8 +181,7 @@ int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);

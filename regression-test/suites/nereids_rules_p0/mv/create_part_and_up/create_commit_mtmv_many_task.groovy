@@ -79,6 +79,7 @@ suite("create_commit_mtmv_many_tasks", "p2") {
             table table_name
             set 'column_separator', '|'
             file """${getS3Url() + '/regression/tpch/sf1/'}${src_file_name}"""
+            retryIfHttpError true
 
             check { result, exception, startTime, endTime ->
                 if (exception != null) {

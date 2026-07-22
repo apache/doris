@@ -55,9 +55,9 @@ enum TExprNodeType {
   // for josn
   JSON_LITERAL = 25,
   
-  // only used in runtime filter
+  // Deprecated: bitmap runtime filter predicate is no longer planned; only used in runtime filter
   BITMAP_PRED = 26,
-  
+
   // for fulltext search
   MATCH_PRED = 27,
   
@@ -88,6 +88,10 @@ enum TExprNodeType {
   TRY_CAST_EXPR = 41
   // for search DSL function
   SEARCH_EXPR = 42,
+  // Normal predicate expression
+  PREDICATE = 43,
+  // Normal literal
+  LITERAL = 44,
 }
 
 //enum TAggregationOp {

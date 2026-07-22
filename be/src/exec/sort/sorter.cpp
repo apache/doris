@@ -96,7 +96,9 @@ Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size, bo
 void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos) {
     size_t num_columns = unsorted_block()->columns();
 
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *unsorted_block());
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
@@ -125,7 +127,6 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
         }
     }
 
-    block->set_columns(std::move(merged_columns));
     *eos = merged_rows == 0;
 }
 
@@ -224,6 +225,8 @@ Status FullSorter::append_block(Block* block) {
 
     {
         SCOPED_TIMER(_merge_block_timer);
+        auto columns_guard = _state->unsorted_block()->mutate_columns_scoped();
+        auto& mutable_columns = columns_guard.mutable_columns();
         const auto& data = _state->unsorted_block()->get_columns_with_type_and_name();
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
@@ -232,12 +235,12 @@ Status FullSorter::append_block(Block* block) {
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             if (is_column_const(*arrival_data[i].column)) {
-                data[i].column->assume_mutable()->insert_many_from(
+                mutable_columns[i]->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())
                                 ->get_data_column(),
                         0, sz);
             } else {
-                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+                mutable_columns[i]->insert_range_from(*arrival_data[i].column, 0, sz);
             }
         }
         block->clear_column_data();

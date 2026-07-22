@@ -59,6 +59,17 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     std::string debug_string() const override;
+    bool has_else_expr() const { return _has_else_expr; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TCaseExpr case_node;
+        case_node.__set_has_case_expr(false);
+        case_node.__set_has_else_expr(_has_else_expr);
+        node.__set_case_expr(case_node);
+        *cloned_expr = VCaseExpr::create_shared(node);
+        return Status::OK();
+    }
 
 private:
     template <typename IndexType, typename ColumnType>
@@ -217,9 +228,9 @@ private:
             if (!then_columns[i]) {
                 continue;
             }
-            auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
-                            then_columns[i]->assume_mutable().get())
+            const auto* __restrict column_raw_data =
+                    assert_cast<const ColumnType*, TypeCheckOnRelease::DISABLE>(
+                            then_columns[i].get())
                             ->get_data()
                             .data();
             if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
@@ -277,10 +288,7 @@ private:
                     continue;
                 }
                 const auto* __restrict cond_raw_nullmap =
-                        assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                column_nullable_ptr->get_null_map_column_ptr().get())
-                                ->get_data()
-                                .data();
+                        column_nullable_ptr->get_null_map_column_ptr()->get_data().data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
                                               !cond_raw_nullmap[row_idx]) *
