@@ -230,7 +230,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             }
         }
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue,
-                null, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker());
+                null, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker(),
+                view.getNewestUpdateWallClockMillis());
     }
 
     /**
@@ -825,6 +826,25 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // Skip the UNKNOWN(-1) sentinel (a connector that did not collect a modified time): legacy
         // used Paimon's lastFileCreationTime() which has no -1 sentinel, so feeding -1 into max()
         // would let the sentinel win on an all-unknown table (returning -1 instead of the legacy 0).
+        return pin.getNameToLastModifiedMillis().values().stream()
+                .mapToLong(Long::longValue).filter(v -> v >= 0).max().orElse(0L);
+    }
+
+    @Override
+    public long getNewestUpdateTimeMillisForCache() {
+        // Same branches as getNewestUpdateVersionOrTime, but the range-view (iceberg) branch returns a genuine
+        // wall-clock epoch-millis (the connector normalizes its unit, e.g. iceberg micros/1000) instead of the
+        // micros version token, so the SqlCache quiet-window gate can subtract it from wall-clock now without
+        // the micros value dominating. Staleness/version comparison keeps using the token via
+        // getNewestUpdateVersionOrTime; this value is gate-only. The last-modified (hive) and legacy (paimon)
+        // branches already yield epoch millis, so they are unchanged.
+        PluginDrivenMvccSnapshot pin = materializeLatest();
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            return queryTableFreshness().map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
+        }
+        if (pin.getPartitionType() != null) {
+            return pin.getNewestUpdateWallClockMillis();
+        }
         return pin.getNameToLastModifiedMillis().values().stream()
                 .mapToLong(Long::longValue).filter(v -> v >= 0).max().orElse(0L);
     }

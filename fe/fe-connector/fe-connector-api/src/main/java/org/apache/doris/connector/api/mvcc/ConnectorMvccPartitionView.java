@@ -69,15 +69,23 @@ public final class ConnectorMvccPartitionView {
     private final Freshness freshness;
     private final List<ConnectorMvccPartition> partitions;
     private final long newestUpdateMonotonicMarker;
+    private final long newestUpdateWallClockMillis;
 
     public ConnectorMvccPartitionView(Style style, Freshness freshness,
             List<ConnectorMvccPartition> partitions, long newestUpdateMonotonicMarker) {
+        this(style, freshness, partitions, newestUpdateMonotonicMarker, 0L);
+    }
+
+    public ConnectorMvccPartitionView(Style style, Freshness freshness,
+            List<ConnectorMvccPartition> partitions, long newestUpdateMonotonicMarker,
+            long newestUpdateWallClockMillis) {
         this.style = Objects.requireNonNull(style, "style");
         this.freshness = Objects.requireNonNull(freshness, "freshness");
         this.partitions = partitions == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(partitions);
         this.newestUpdateMonotonicMarker = newestUpdateMonotonicMarker;
+        this.newestUpdateWallClockMillis = newestUpdateWallClockMillis;
     }
 
     /** Returns an {@code UNPARTITIONED} view (no partitions, newest-update-time {@code 0}); the freshness
@@ -115,6 +123,19 @@ public final class ConnectorMvccPartitionView {
         return newestUpdateMonotonicMarker;
     }
 
+    /**
+     * The table's newest data-update time as a genuine WALL-CLOCK epoch-millis value, used only by the
+     * SqlCache eligibility "quiet window" gate ({@code CacheAnalyzer}) — distinct from the monotonic marker
+     * above, which stays a source-defined-scale version token. The connector normalizes to millis here (for
+     * iceberg: {@code last_updated_at} microseconds / 1000) so the generic model never has to know a source's
+     * unit. {@code 0} when unknown / unpartitioned. This value is NOT used for staleness (that is the token's
+     * job via {@code getNewestUpdateVersionOrTime}); it only decides whether a table has been quiet long
+     * enough to be worth caching, so a coarse millis value is sufficient.
+     */
+    public long getNewestUpdateWallClockMillis() {
+        return newestUpdateWallClockMillis;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -127,12 +148,14 @@ public final class ConnectorMvccPartitionView {
         return style == that.style
                 && freshness == that.freshness
                 && newestUpdateMonotonicMarker == that.newestUpdateMonotonicMarker
+                && newestUpdateWallClockMillis == that.newestUpdateWallClockMillis
                 && partitions.equals(that.partitions);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(style, freshness, partitions, newestUpdateMonotonicMarker);
+        return Objects.hash(style, freshness, partitions, newestUpdateMonotonicMarker,
+                newestUpdateWallClockMillis);
     }
 
     @Override
@@ -140,6 +163,7 @@ public final class ConnectorMvccPartitionView {
         return "ConnectorMvccPartitionView{style=" + style
                 + ", freshness=" + freshness
                 + ", partitions=" + partitions.size()
-                + ", newestUpdateMonotonicMarker=" + newestUpdateMonotonicMarker + "}";
+                + ", newestUpdateMonotonicMarker=" + newestUpdateMonotonicMarker
+                + ", newestUpdateWallClockMillis=" + newestUpdateWallClockMillis + "}";
     }
 }

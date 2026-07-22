@@ -1154,6 +1154,27 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testRangeViewCacheGateUsesWallClockMillisNotMarker() {
+        // The SqlCache quiet-window gate needs a genuine wall-clock millis, distinct from the monotonic marker
+        // (which iceberg reports in MICROSECONDS). getNewestUpdateTimeMillisForCache must return the view's
+        // wall-clock value; the version token (getNewestUpdateVersionOrTime) must still be the raw marker.
+        // MUTATION: returning the marker here (the old conflation) makes this red — that micros value dominates
+        // wall-clock now in CacheAnalyzer and is exactly why iceberg never cached.
+        long marker = 1_700_000_000_000_000L;   // micros (as iceberg reports)
+        long wallClock = marker / 1000;          // millis (connector-normalized)
+        ConnectorMvccPartitionView view = new ConnectorMvccPartitionView(
+                ConnectorMvccPartitionView.Style.RANGE, ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID,
+                Arrays.asList(rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)),
+                marker, wallClock);
+        Fixture f = Fixture.rangeView(view);
+
+        Assertions.assertEquals(wallClock, f.table.getNewestUpdateTimeMillisForCache(),
+                "the cache gate must use the wall-clock millis, not the micros marker");
+        Assertions.assertEquals(marker, f.table.getNewestUpdateVersionOrTime(),
+                "the version token must stay the raw monotonic marker");
+    }
+
+    @Test
     public void testRangeViewValidRelatedTableMirrorsStyle() {
         // RANGE style => valid related table; UNPARTITIONED style (the connector's eligibility gate failed) =>
         // invalid, so MTMVTask stops the refresh loud. MUTATION: always returning true (the interface default)

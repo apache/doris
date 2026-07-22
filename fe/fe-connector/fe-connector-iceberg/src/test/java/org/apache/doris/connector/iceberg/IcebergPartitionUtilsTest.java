@@ -822,6 +822,12 @@ public class IcebergPartitionUtilsTest {
         // committed table has a positive value. MUTATION: mapping lastUpdateTime->0 (or orElse over no rows) -> red.
         Assertions.assertTrue(view.getNewestUpdateMonotonicMarker() > 0,
                 "a committed RANGE table must report a positive newest-update-time for dictionary refresh");
+        // The view ALSO carries a wall-clock epoch-millis for the SqlCache quiet-window gate, normalized from the
+        // micros marker (last_updated_at is an iceberg timestamp in microseconds). MUTATION: passing the raw
+        // micros marker as the wall clock (no /1000) -> red, which is exactly the bug that kept iceberg out of
+        // SqlCache (a ~1.7e15 value dominating wall-clock now).
+        Assertions.assertEquals(view.getNewestUpdateMonotonicMarker() / 1000, view.getNewestUpdateWallClockMillis(),
+                "the wall-clock gate value must be the micros marker normalized to millis");
     }
 
     @Test

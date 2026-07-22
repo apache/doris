@@ -36,7 +36,7 @@
 | 11 | B5 | PARTIAL | 🚫 | paimon CREATE CHAR/VARCHAR→MAX、DATETIME scale→micros（刻意 legacy parity）——**用户选择不升级** |
 | 12 | B5 | PARTIAL | ✅ | paimon 嵌套 struct comment 全链路打通（写侧 DataField 4 参 + 读侧 structOf 4 参 + fe-core convertStructType 4 参 StructField，DESC 可见）；单测 3 新 + e2e |
 | 13 | B5 | PARTIAL | 🚫 | `initialValues` LIST/RANGE 恒空 vestigial 槽（有意分层，零消费者）——**用户选择不升级** |
-| 16 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做，含 SqlCache 抑制根因，碰缓存正确性→先出设计签字）**：改名去单位语义 + 让 iceberg 表能安全用上 SqlCache |
+| 16 | B5 | PARTIAL | ✅ | 探针改名去单位（`8043536a812`）+ iceberg SqlCache 根因修复（方向 B 用户签字）：连接器提供墙钟毫秒与版本 token 分开，闸门用墙钟；单测 3 + e2e。不引入陈旧命中（token 相等校验未碰）|
 | 19 | B5 | PARTIAL | 🚫 | 读路径嵌套 nullable/comment 不进 StructField（legacy parity，功能影响为零）——**用户选择不升级** |
 | 3  | B6 | STALE_FIXED | ☑️ | paimon JNI/COUNT 已改 per-file 后缀 format + 回归测试 |
 | 4  | B6 | STALE_FIXED | ☑️ | hive 分区值 KEY+VALUE 双 unescape 已修（#65473）+ 单测 |
@@ -186,10 +186,10 @@
 - **测**：`IcebergSchemaUtilsTest.writeDefaultCarriedAsDorisString`（int/string/boolean/date/timestamp/timestamptz + binary/complex/null 跳过）24 全绿；e2e `test_iceberg_write_default.groovy`（v3 `ALTER ADD COLUMN DEFAULT 42` → DESC 显 42 + 省列 INSERT 得 42）。见 `fix-iceberg-write-default-{design,summary}.md`。
 - 例子：iceberg v3 表列 c `DEFAULT 42`，`INSERT INTO t(id) VALUES(...)` 省略 c → 修后落 42（现落 NULL）。文档 [B](analysis-B-schema-column-identity.md#10)。
 
-**#16 — 探针命名去单位语义 + 让 iceberg 表能安全用上 SqlCache**（⚠️ 碰缓存正确性，先设计签字）
-- 现状：`ConnectorMvccPartitionView.getNewestUpdateTimeMillis()`（**HEAD `:70/:113`**）名义 millis、iceberg 实际返回 **micros**；消费者 `CacheAnalyzer.java:~489/258/263` 把该微秒值与 wall-clock 毫秒 `Math.max` + 差值判 gate → iceberg 微秒(~1.7e15)恒 > epoch 毫秒 → "静默≥30s"闸门永不通过 → **iceberg 表永不启用 SqlCache**（correctness-safe 抑制 + master parity）。
-- 做（**两部分**）：① 改名去单位语义（如 `getNewestUpdateMonotonicMarker`），同步 `ConnectorMvccPartitionView` / `PluginDrivenMvccSnapshot:~173` / `IcebergPartitionUtils:~603` + 测试；② **根因**=`CacheAnalyzer.latestPartitionTime` 同时承载"毫秒时间戳"与"不透明版本 token"两义、把 token 与 `now` 混算。**用户要求把 SqlCache 抑制也修好**——须让 iceberg 表能安全用上 SqlCache，**但绝不能引入错误缓存命中（陈旧结果）**。
-- ⚠️ **铁律**：这是缓存正确性敏感区，**下一 session 先出中文设计**（如何区分 token vs wall-clock、如何在不误命中陈旧结果的前提下重新启用 iceberg SqlCache），**用户签字后再动手**。文档 [E](analysis-E-stats-mvcc-timetravel.md#16)。
+**#16 — 探针命名去单位语义 + 让 iceberg 表能安全用上 SqlCache** ✅ 完成
+- **① 探针改名**（`8043536a812`）：`getNewestUpdateTimeMillis`→`getNewestUpdateMonotonicMarker`（去误导单位），纯符号改名零行为变化，4 生产 + 2 测试文件。
+- **② SqlCache 根因**（方向 B，用户签字）：`CacheAnalyzer.latestPartitionTime` 一字段两义（墙钟闸门 + BE 版本键），iceberg token 是微秒被当毫秒 → 闸门恒 0 → 永不缓存。修法=连接器提供**墙钟毫秒**（iceberg `last_updated_at/1000`）与版本 token 分开：`ConnectorMvccPartitionView` 加 `newestUpdateWallClockMillis` 字段、`MTMVRelatedTableIf.getNewestUpdateTimeMillisForCache()` 默认方法 + `PluginDrivenMvccExternalTable` override、`CacheAnalyzer` 加 `latestPartitionUpdateMillis` 字段并让闸门用它（与 token 排序的 latestTable 解耦）。token 路径（Nereids 陈旧校验 + BE 版本键）一行未碰 → **不引入陈旧命中**。
+- **测**：`IcebergPartitionUtilsTest`（墙钟=微秒/1000）、`PluginDrivenMvccExternalTableTest.testRangeViewCacheGateUsesWallClockMillisNotMarker`、`PluginTableCacheAnalyzerTest.testGateValueSourcedFromWallClockAccessor` 各 1 新测；e2e `test_iceberg_sqlcache.groovy`（静默后命中 + 写入后不命中）。67 单测全绿。见 `fix-iceberg-sqlcache-gate-{design,summary}.md`。文档 [E](analysis-E-stats-mvcc-timetravel.md#16)。
 
 ### 🚫 维持不做（用户 2026-07-22 选择不升级）
 

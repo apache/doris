@@ -77,13 +77,13 @@
 
 ## 5. 当前进度快照
 
-**进度：B1/B2/B3/B4 全部可执行项已完成并提交+验证。B5 用户已签字挑 3 项——#12、#10 已完成，剩 #16。其余 B5 + #27 维持不做。**
+**进度：B1/B2/B3/B4 全部可执行项已完成并提交+验证。B5 用户已签字的 3 项（#12/#10/#16）全部完成并提交+验证。其余 B5（#11/#13/#19）+ #27 维持不做——本追踪空间的可执行项已清零。**
 
-### 👉 待办 = B5 剩 #16（缓存，方向 B；见 [`TASKLIST.md`](TASKLIST.md) B5 节）
+### 👉 待办 = 无（B5 签字项已清零）。剩余仅"维持不做"项（#27 reader-type 需独立设计；#11/#13/#19 有意 legacy parity）+ 各 e2e 待 docker 回归环境实跑。
 
-- ✅ **#12** paimon 嵌套 struct 字段 comment —— 已全链路打通并提交（写侧 4 参 DataField + 读侧 4 参 structOf + fe-core `convertStructType` 4 参 StructField，DESC 可见）。commit `3d6a48cc757`。见 `fix-paimon-nested-struct-comment-{design,summary}.md`。
-- ✅ **#10** 接 iceberg writeDefault —— 已提交。`IcebergSchemaUtils.writeDefaultToDorisString`（复用 `serializeInitialDefault`，二进制/复杂跳过、tz 对齐读路径、不回退读默认）+ `parseSchema` 第 5 参改调它。单测 24 全绿 + e2e。见 `fix-iceberg-write-default-{design,summary}.md`。
-- **#16** 探针改名去单位语义 + **修 iceberg SqlCache 被抑制的根因** —— ⚠️ **碰缓存正确性，动手前必先出中文设计并让用户签字**。用户已选**方向 B**（新增墙钟毫秒 SPI，与版本 token 分开；保留 30s 静默窗）。先做无副作用的探针改名（`getNewestUpdateTimeMillis`→去单位名，4 生产 + 2 测试文件），再出缓存设计。**关键澄清**：这不是陈旧读 bug（token 相等比较独立兜底），是"永不缓存"可用性 bug——iceberg 报微秒被当毫秒做 `now - t >= 30s` 门控恒 0。
+- ✅ **#12** paimon 嵌套 struct 字段 comment —— 全链路打通（写侧 4 参 DataField + 读侧 4 参 structOf + fe-core `convertStructType` 4 参 StructField，DESC 可见）。commit `3d6a48cc757`。见 `fix-paimon-nested-struct-comment-{design,summary}.md`。
+- ✅ **#10** 接 iceberg writeDefault —— `IcebergSchemaUtils.writeDefaultToDorisString`（复用 `serializeInitialDefault`，二进制/复杂跳过、tz 对齐读路径、不回退读默认）+ `parseSchema` 第 5 参改调它。单测 24 全绿 + e2e。见 `fix-iceberg-write-default-{design,summary}.md`。
+- ✅ **#16** 探针改名（`8043536a812`）+ iceberg SqlCache 根因（方向 B 用户签字）—— 连接器提供墙钟毫秒（iceberg `last_updated_at/1000`）与版本 token 分开，`CacheAnalyzer` 闸门用墙钟、token 路径未碰 → 不引入陈旧命中。3 新单测 + e2e，67 单测全绿。见 `fix-iceberg-sqlcache-gate-{design,summary}.md`。
 
 > 每项动手前仍按第 4 节工作法**重侦察当前代码**（analysis-* 基线是旧分支，行号会漂）。
 
@@ -93,7 +93,7 @@
 - B2：✅ #1（`ae525a88c1c`）、✅ #14（`1c3f86646f3`）
 - B3：✅ #21（`5f63c3af9b6`）、✅ #23（`186f28e57df`）、✅ #25（`0885de225a5`）、✅ #28（`914f191c830`）
 - B4：✅ #7（`656b03c9d86`）、✅ #8（`13daac21606`）、✅ #9（`895b71b9e8e`）、⬜ #27（reader-type：默认不做，需独立设计）
-- B5：✅ #12（`fix-paimon-nested-struct-comment`，读写全链路 + fe-core convertStructType，`3d6a48cc757`）、✅ #10（`fix-iceberg-write-default`）｜⬜ **#16（用户已签字升级，选方向 B，须先出设计签字）**｜🚫 #11、#13、#19（用户选择不做）
+- B5：✅ #12（`fix-paimon-nested-struct-comment`，`3d6a48cc757`）、✅ #10（`fix-iceberg-write-default`）、✅ #16（探针改名 `8043536a812` + `fix-iceberg-sqlcache-gate` 方向 B）｜🚫 #11、#13、#19（用户选择不做）
 - B6：☑️ #3、#4、#5、#6、#17（已闭环）｜🚫 ~~#15~~ **已修**（`724a874b1df`，随 #2 一并做）、#18、#20、#22、#24、#26（有意/潜伏，记录不动）
   - **有意留白 / 建议另立**：iceberg/maxcompute 各自 cutover 的同款过时 dormant 注释（#28 未扫的别连接器）；#27 若真要统一 reader-type 枚举。
 
