@@ -94,6 +94,32 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!--
+          For the same reason (hive-catalog-shade no longer on the shared classpath),
+          paimon-scanner must also carry the Hive metastore API classes. When BE
+          deserializes an HMS-backed Paimon table, org.apache.paimon.hive.HiveCatalogLoader
+          links org.apache.paimon.hive.HiveCatalog, which references a broad slice of
+          org.apache.hadoop.hive.metastore.api.* (Table, Database, Partition,
+          StorageDescriptor, SerDeInfo, FieldSchema, NoSuchObjectException,
+          UnknownTableException, ...). In Hive 3.x that whole thrift-generated `api`
+          package lives in hive-standalone-metastore (the `hive-metastore` artifact is a
+          thin shim and does NOT contain it). Transitives are pruned like the two jars
+          above: the api classes only extend org.apache.thrift.* (provided by java-common's
+          libthrift on the shared classpath, exactly as under the old hive-catalog-shade)
+          and java stdlib; datanucleus/orc/hadoop/etc. are only needed by the metastore
+          server/client, which BE never runs (it reads the already-resolved table).
+        -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-standalone-metastore</artifactId>
+            <version>${hive.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.paimon</groupId>
