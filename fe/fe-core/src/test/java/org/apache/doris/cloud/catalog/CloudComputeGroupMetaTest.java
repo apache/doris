@@ -26,12 +26,13 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-public class ComputeGroupTest {
-    private ComputeGroup computeGroup;
+public class CloudComputeGroupMetaTest {
+    private CloudComputeGroupMeta computeGroup;
 
     @BeforeEach
     public void setUp() {
-        computeGroup = new ComputeGroup("test_id", "test_group", ComputeGroup.ComputeTypeEnum.COMPUTE);
+        computeGroup = new CloudComputeGroupMeta("test_id", "test_group",
+                CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
     }
 
     @Test
@@ -44,16 +45,16 @@ public class ComputeGroupTest {
     public void testCheckPropertiesWithValidBalanceType() throws DdlException {
         // 测试有效的balance_type
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        properties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         computeGroup.checkProperties(properties);
 
-        properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        properties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
         computeGroup.checkProperties(properties);
 
-        properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
+        properties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
         computeGroup.checkProperties(properties);
 
-        properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue());
+        properties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue());
         computeGroup.checkProperties(properties);
     }
 
@@ -61,7 +62,7 @@ public class ComputeGroupTest {
     public void testCheckPropertiesWithInvalidBalanceType() {
         // 测试无效的balance_type
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(ComputeGroup.BALANCE_TYPE, "invalid_type");
+        properties.put(CloudComputeGroupMeta.BALANCE_TYPE, "invalid_type");
 
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(properties);
@@ -72,11 +73,11 @@ public class ComputeGroupTest {
     public void testCheckPropertiesWithValidTimeout() throws DdlException {
         // 测试有效的timeout
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
-        properties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "300");
+        properties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        properties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "300");
         computeGroup.checkProperties(properties);
 
-        properties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "1");
+        properties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "1");
         computeGroup.checkProperties(properties);
     }
 
@@ -84,13 +85,13 @@ public class ComputeGroupTest {
     public void testCheckPropertiesWithInvalidTimeout() {
         // 测试无效的timeout
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "-1");
+        properties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "-1");
 
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(properties);
         });
 
-        properties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "invalid");
+        properties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "invalid");
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(properties);
         });
@@ -111,62 +112,62 @@ public class ComputeGroupTest {
     public void testModifyPropertiesWithDirectSwitch() throws DdlException {
         // 测试without_warmup类型，应该删除timeout
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT,
-                String.valueOf(ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT,
+                String.valueOf(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
 
         // 先设置timeout到properties中
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT,
-                String.valueOf(ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
-        Assertions.assertTrue(computeGroup.getProperties().containsKey(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT,
+                String.valueOf(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertTrue(computeGroup.getProperties().containsKey(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
 
         computeGroup.modifyProperties(inputProperties);
 
         // 验证timeout被删除
-        Assertions.assertFalse(computeGroup.getProperties().containsKey(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertFalse(computeGroup.getProperties().containsKey(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
     }
 
     @Test
     public void testModifyPropertiesWithSyncCache() throws DdlException {
         // 测试sync_cache类型，应该删除timeout
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT,
-                String.valueOf(ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT,
+                String.valueOf(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
 
         // 先设置timeout到properties中
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT,
-                String.valueOf(ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
-        Assertions.assertTrue(computeGroup.getProperties().containsKey(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT,
+                String.valueOf(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertTrue(computeGroup.getProperties().containsKey(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
 
         computeGroup.modifyProperties(inputProperties);
 
         // 验证timeout被删除
-        Assertions.assertFalse(computeGroup.getProperties().containsKey(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertFalse(computeGroup.getProperties().containsKey(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
     }
 
     @Test
     public void testCheckPropertiesWithBalanceTypeTransition() throws DdlException {
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testCheckPropertiesWithWarmupCacheToWarmupCache() throws DdlException {
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testCheckPropertiesWithDirectSwitchToDirectSwitch() throws DdlException {
         // 测试从direct_switch转换到direct_switch，不需要设置timeout
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         computeGroup.checkProperties(inputProperties);
     }
 
@@ -174,34 +175,34 @@ public class ComputeGroupTest {
     public void testModifyPropertiesWithWarmupCacheAndExistingTimeout() throws DdlException {
         // 测试async_warmup类型，已存在timeout，不应该添加默认值
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "600");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "600");
 
         // 先设置timeout到properties中
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
-        String originalTimeout = computeGroup.getProperties().get(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT);
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        String originalTimeout = computeGroup.getProperties().get(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT);
 
         computeGroup.modifyProperties(inputProperties);
 
         // 验证timeout没有被修改, 这里的意思是用户已经设置过timeout了，就不应该被覆盖
-        Assertions.assertEquals(originalTimeout, computeGroup.getProperties().get(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertEquals(originalTimeout, computeGroup.getProperties().get(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
     }
 
     @Test
     public void testModifyPropertiesWithWarmupCacheAndNoTimeout() throws DdlException {
         // 测试async_warmup类型，不存在timeout，应该添加默认值
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
 
         // 确保properties中没有timeout
-        computeGroup.getProperties().remove(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT);
-        Assertions.assertFalse(computeGroup.getProperties().containsKey(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        computeGroup.getProperties().remove(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT);
+        Assertions.assertFalse(computeGroup.getProperties().containsKey(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
 
         computeGroup.modifyProperties(inputProperties);
         // 验证默认值被添加
-        Assertions.assertTrue(computeGroup.getProperties().containsKey(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
-        Assertions.assertEquals(String.valueOf(ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT),
-                computeGroup.getProperties().get(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertTrue(computeGroup.getProperties().containsKey(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
+        Assertions.assertEquals(String.valueOf(CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT),
+                computeGroup.getProperties().get(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT));
     }
 
     @Test
@@ -233,56 +234,56 @@ public class ComputeGroupTest {
 
     @Test
     public void testCheckPropertiesWithSyncCacheToWarmupCache() throws DdlException {
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testValidateTimeoutRestrictionWithNoCurrentBalanceType() throws DdlException {
         // 测试当前没有设置balance_type的情况
-        computeGroup.getProperties().remove(ComputeGroup.BALANCE_TYPE);
+        computeGroup.getProperties().remove(CloudComputeGroupMeta.BALANCE_TYPE);
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testValidateTimeoutRestrictionWithCurrentWarmupCache() throws DdlException {
         // 测试当前balance_type是warmup_cache的情况
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testValidateTimeoutRestrictionWithDirectSwitchToWarmupCache() throws DdlException {
         // 测试从direct_switch转换到warmup_cache并设置timeout
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testValidateTimeoutRestrictionWithSyncCacheToWarmupCacheWithTimeout() throws DdlException {
         // 测试从sync_cache转换到warmup_cache并设置timeout
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
         computeGroup.checkProperties(inputProperties);
     }
 
     @Test
     public void testValidateTimeoutRestrictionWithDirectSwitchAndOnlyTimeout() {
         // 测试当前是direct_switch，仅设置timeout应该失败
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
 
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(inputProperties);
@@ -292,9 +293,9 @@ public class ComputeGroupTest {
     @Test
     public void testValidateTimeoutRestrictionWithSyncCacheAndOnlyTimeout() {
         // 测试当前是sync_cache，仅设置timeout应该失败
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
 
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(inputProperties);
@@ -304,10 +305,10 @@ public class ComputeGroupTest {
     @Test
     public void testValidateTimeoutRestrictionWithDirectSwitchToSyncCacheAndTimeout() {
         // 测试从direct_switch转换到sync_cache并设置timeout应该失败
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
 
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(inputProperties);
@@ -317,10 +318,10 @@ public class ComputeGroupTest {
     @Test
     public void testValidateTimeoutRestrictionWithDirectSwitchToSameAndTimeout() {
         // 测试从direct_switch转换到direct_switch并设置timeout应该失败
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
-        inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        inputProperties.put(CloudComputeGroupMeta.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
 
         Assertions.assertThrows(DdlException.class, () -> {
             computeGroup.checkProperties(inputProperties);
@@ -330,7 +331,7 @@ public class ComputeGroupTest {
     @Test
     public void testValidateTimeoutRestrictionWithNoInputTimeout() throws DdlException {
         // 测试输入中没有timeout的情况
-        computeGroup.getProperties().put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
+        computeGroup.getProperties().put(CloudComputeGroupMeta.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         Map<String, String> inputProperties = Maps.newHashMap();
         inputProperties.put("other_property", "value");
         Assertions.assertThrows(DdlException.class, () -> {
