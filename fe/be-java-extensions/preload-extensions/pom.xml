@@ -199,6 +199,16 @@ under the License.
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sdk-core</artifactId>
         </dependency>
+
+        <!-- fastutil-core: this jar transitively bundles fe-foundation's ConcurrentLong2LongHashMap /
+             ConcurrentLong2ObjectHashMap, which extend fastutil abstract maps. fe-foundation marks
+             fastutil-core optional (to stay out of the FE SPI plugin zips), so it is not propagated
+             here. BE's ScannerLoader eagerly loads every org.apache.doris.* class at startup, so the
+             fastutil superclasses must be bundled or the BE fails JNI init and cannot start. -->
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
