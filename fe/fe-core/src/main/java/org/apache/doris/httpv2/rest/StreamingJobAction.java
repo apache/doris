@@ -90,7 +90,7 @@ public class StreamingJobAction extends RestBaseController {
 
         StreamingInsertJob streamingJob = (StreamingInsertJob) job;
         try {
-            LOG.info("Committing offset with {}", offsetRequest);
+            LOG.info("Committing offset with {}", offsetRequest.toString());
             streamingJob.commitOffset(offsetRequest);
             return ResponseEntityBuilder.ok("Offset committed successfully");
         } catch (Exception e) {
