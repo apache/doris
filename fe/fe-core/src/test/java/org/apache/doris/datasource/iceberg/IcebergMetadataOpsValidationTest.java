@@ -641,7 +641,7 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testLegacyComplexModifyRestoresRecursiveNullableSemantics() throws Throwable {
+    public void testLegacyComplexModifyDoesNotInferRecursiveNullableChanges() throws Throwable {
         Schema schema = requiredNestedSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
         Table icebergTable = Mockito.mock(Table.class);
@@ -664,10 +664,10 @@ public class IcebergMetadataOpsValidationTest {
         }
 
         Mockito.verify(updateSchema).makeColumnOptional("info");
-        Mockito.verify(updateSchema).makeColumnOptional("info.metric");
-        Mockito.verify(updateSchema).makeColumnOptional("info.child.value");
-        Mockito.verify(updateSchema).makeColumnOptional("info.events.element");
-        Mockito.verify(updateSchema).makeColumnOptional("info.attrs.value");
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional("info.metric");
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional("info.child.value");
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional("info.events.element");
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional("info.attrs.value");
         Mockito.verify(updateSchema).commit();
     }
 

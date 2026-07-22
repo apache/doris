@@ -243,7 +243,8 @@ public class ColumnDefinition {
     }
 
     /**
-     * Convert this column definition to SQL with a caller-provided column name.
+     * Convert this column definition to schema-change SQL with a caller-provided column name.
+     * Unlike {@link #toSql()}, this overload emits COMMENT only when it was explicitly specified.
      */
     public String toSql(String columnNameSql) {
         return toSql(columnNameSql, commentSpecified);

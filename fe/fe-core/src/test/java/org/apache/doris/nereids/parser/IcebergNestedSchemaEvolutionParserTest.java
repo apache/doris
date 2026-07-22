@@ -106,6 +106,33 @@ public class IcebergNestedSchemaEvolutionParserTest {
     }
 
     @Test
+    public void testTopLevelColumnRoundTripPreservesOmittedIntent() {
+        AddColumnOp add = assertSingleClausePath(
+                "ALTER TABLE t ADD COLUMN added INT", AddColumnOp.class, "added");
+        String renderedAdd = add.toSql();
+        Assertions.assertFalse(renderedAdd.contains(" NULL"));
+        Assertions.assertFalse(renderedAdd.contains(" COMMENT "));
+        AddColumnOp reparsedAdd = assertSingleClausePath(
+                "ALTER TABLE t " + renderedAdd, AddColumnOp.class, "added");
+        Assertions.assertFalse(reparsedAdd.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+        Assertions.assertFalse(reparsedAdd.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isCommentSpecified());
+
+        ModifyColumnOp modify = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN existing BIGINT", ModifyColumnOp.class, "existing");
+        String renderedModify = modify.toSql();
+        Assertions.assertFalse(renderedModify.contains(" NULL"));
+        Assertions.assertFalse(renderedModify.contains(" COMMENT "));
+        ModifyColumnOp reparsedModify = assertSingleClausePath(
+                "ALTER TABLE t " + renderedModify, ModifyColumnOp.class, "existing");
+        Assertions.assertFalse(reparsedModify.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+        Assertions.assertFalse(reparsedModify.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isCommentSpecified());
+    }
+
+    @Test
     public void testLegacyStringConstructorsKeepDottedTopLevelNames() {
         DropColumnOp drop = new DropColumnOp("top.level", null, Collections.emptyMap());
         RenameColumnOp rename = new RenameColumnOp("top.level", "renamed");
@@ -157,6 +184,7 @@ public class IcebergNestedSchemaEvolutionParserTest {
                         + "STRUCT<`key`:INT,`Metric``Name`:STRING> NULL",
                 AddColumnOp.class, "info.payload");
         assertStructMemberNames((StructType) add.getColumnDef().getType());
+        Assertions.assertTrue(add.toSql().contains("STRUCT<`key`:INT,`metric``name`:TEXT>"));
         AddColumnOp reparsedAdd = assertSingleClausePath(
                 "ALTER TABLE t " + add.toSql(), AddColumnOp.class, "info.payload");
         assertStructMemberNames((StructType) reparsedAdd.getColumnDef().getType());
@@ -169,6 +197,11 @@ public class IcebergNestedSchemaEvolutionParserTest {
         ModifyColumnOp reparsedModify = assertSingleClausePath(
                 "ALTER TABLE t " + modify.toSql(), ModifyColumnOp.class, "info.payload");
         assertStructMemberNames((StructType) reparsedModify.getColumnDef().getType());
+
+        ModifyColumnOp ordinary = assertSingleClausePath(
+                "ALTER TABLE t MODIFY COLUMN info.payload STRUCT<city:INT>",
+                ModifyColumnOp.class, "info.payload");
+        Assertions.assertTrue(ordinary.toSql().contains("STRUCT<city:INT>"));
     }
 
     @Test

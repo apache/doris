@@ -300,13 +300,14 @@ public class NereidsParser {
     }
 
     public Expression parseExpression(String expression) {
-        if (isSimpleIdentifier(expression)) {
+        if (isValidUnquotedIdentifier(expression)) {
             return new UnboundSlot(expression);
         }
         return parse(expression, DorisParser::expressionWithEof);
     }
 
-    private static boolean isSimpleIdentifier(String expression) {
+    /** Return whether the text can be emitted as an unquoted Nereids identifier. */
+    public static boolean isValidUnquotedIdentifier(String expression) {
         if (expression == null || expression.isEmpty()) {
             return false;
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -96,7 +97,8 @@ public class StructField {
     }
 
     public String toSql() {
-        return SqlUtils.getIdentSql(name) + ":" + dataType.toSql()
+        String nameSql = NereidsParser.isValidUnquotedIdentifier(name) ? name : SqlUtils.getIdentSql(name);
+        return nameSql + ":" + dataType.toSql()
                 + (nullable ? "" : " NOT NULL")
                 + (!commentSpecified ? "" : " COMMENT "
                         + SqlLiteralUtils.quoteStringLiteral(comment));
