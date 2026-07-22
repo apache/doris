@@ -45,7 +45,7 @@ public class KillConnectionCommand extends KillCommand {
         if (connectionId < 0) {
             throw new AnalysisException("Please specify connection id which >= 0 to kill");
         }
-        KillUtils.kill(ctx, true, null, connectionId, null);
+        KillUtils.kill(ctx, true, null, connectionId, executor.getOriginStmt());
     }
 
     @Override
