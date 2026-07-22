@@ -1938,7 +1938,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     private ConnectorFilterConstraint buildFilterConstraint(List<Expr> exprs) {
         ConnectorExpression combined = ExprToConnectorExpressionConverter.convertConjuncts(exprs);
-        return new ConnectorFilterConstraint(combined, Collections.emptyMap());
+        return new ConnectorFilterConstraint(combined);
     }
 
     /**
