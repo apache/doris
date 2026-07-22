@@ -68,6 +68,7 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.security.InvalidParameterException;
 import java.security.SecureRandom;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
@@ -1356,7 +1357,8 @@ public class SessionVariable implements Serializable, Writable {
     public int netReadTimeout = 600;
 
     // The current time zone
-    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true)
+    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true,
+            checker = "checkTimeZone", setter = "setTimeZoneStandardized")
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VarAttrDef.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResultInExecution = true,
@@ -4330,6 +4332,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setTimeZone(String timeZone) {
         this.timeZone = timeZone;
+    }
+
+    public void checkTimeZone(String timeZone) throws DdlException {
+        ZoneId.of(TimeUtils.checkTimeZoneValidAndStandardize(timeZone), TimeUtils.timeZoneAliasMap);
+    }
+
+    public void setTimeZoneStandardized(String timeZone) throws DdlException {
+        this.timeZone = TimeUtils.checkTimeZoneValidAndStandardize(timeZone);
     }
 
     private static String standarlizeLcTimeNames(String value) {

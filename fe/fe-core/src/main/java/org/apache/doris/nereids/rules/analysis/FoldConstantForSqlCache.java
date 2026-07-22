@@ -50,21 +50,8 @@ public class FoldConstantForSqlCache implements CustomRewriter {
                     public Expression rewrite(Expression root, ExpressionRewriteContext ctx) {
                         StatementContext statementContext = ctx.cascadesContext.getStatementContext();
                         SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
-                        Expression foldNondeterministic = new FoldConstantRuleOnFE(true) {
-                            @Override
-                            public Expression visitBoundFunction(
-                                    BoundFunction boundFunction, ExpressionRewriteContext context) {
-                                Expression fold = super.visitBoundFunction(boundFunction, context);
-                                boolean unfold = !fold.isDeterministic();
-                                if (unfold) {
-                                    sqlCacheContext.setCannotProcessExpression(true);
-                                }
-                                if (!boundFunction.isDeterministic() && !unfold) {
-                                    sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
-                                }
-                                return fold;
-                            }
-                        }.rewrite(root, ctx);
+                        Expression foldNondeterministic
+                                = foldNondeterministic(root, ctx, sqlCacheContext);
 
                         if (foldNondeterministic != root) {
                             sqlCacheContext.addFoldFullNondeterministicPair(root, foldNondeterministic);
@@ -77,6 +64,27 @@ public class FoldConstantForSqlCache implements CustomRewriter {
 
         rewriteJob = new BottomUpVisitorRewriteJob(
                 new FilteredRules(rules), Predicates.alwaysTrue());
+    }
+
+    static Expression foldNondeterministic(
+            Expression root, ExpressionRewriteContext ctx, SqlCacheContext sqlCacheContext) {
+        return new FoldConstantRuleOnFE(true) {
+            @Override
+            public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+                Expression fold = super.rewrite(expression, context);
+                if (!(expression instanceof BoundFunction)) {
+                    return fold;
+                }
+                boolean unfold = !fold.isDeterministic();
+                if (unfold) {
+                    sqlCacheContext.setCannotProcessExpression(true);
+                }
+                if (!expression.isDeterministic() && !unfold) {
+                    sqlCacheContext.addFoldNondeterministicPair(expression, fold);
+                }
+                return fold;
+            }
+        }.rewrite(root, ctx);
     }
 
     @Override

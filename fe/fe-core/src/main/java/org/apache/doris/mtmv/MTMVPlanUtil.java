@@ -219,7 +219,10 @@ public class MTMVPlanUtil {
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         StatementContext original = ctx.getStatementContext();
-        try (StatementContext tempCtx = new StatementContext()) {
+        try (StatementContext tempCtx = original == null
+                ? new StatementContext(ctx, null)
+                : new StatementContext(ctx, null, original.getStatementStartTime(),
+                        original.getStatementTimeZone())) {
             ctx.setStatementContext(tempCtx);
             try {
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -256,7 +259,10 @@ public class MTMVPlanUtil {
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         StatementContext original = ctx.getStatementContext();
-        try (StatementContext tempCtx = new StatementContext()) {
+        try (StatementContext tempCtx = original == null
+                ? new StatementContext(ctx, null)
+                : new StatementContext(ctx, null, original.getStatementStartTime(),
+                        original.getStatementTimeZone())) {
             ctx.setStatementContext(tempCtx);
             try {
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());

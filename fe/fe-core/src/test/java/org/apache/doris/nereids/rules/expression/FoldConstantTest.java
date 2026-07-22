@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -56,6 +57,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
@@ -82,6 +85,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondA
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -102,6 +106,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -115,6 +122,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -126,6 +134,8 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -133,9 +143,113 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
+
+    @Test
+    void testNowUsesStatementStartTime() {
+        Instant statementStartTime = Instant.parse("2026-06-10T04:34:56.123456Z");
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setTimeZone("+08:00");
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select now()", 0), statementStartTime);
+        connectContext.setStatementContext(statementContext);
+        cascadesContext = MemoTestUtils.createCascadesContext(statementContext,
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        context = new ExpressionRewriteContext(cascadesContext);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        assertRewrite(new Now(), new DateTimeV2Literal("2026-06-10 12:34:56"));
+        assertRewrite(new Now(new IntegerLiteral(6)),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2026-06-10 12:34:56.123456"));
+        Expression currentTimestamp = ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(
+                PARSER.parseExpression("current_timestamp(6)"), context);
+        Assertions.assertInstanceOf(Now.class, currentTimestamp);
+        Assertions.assertEquals(
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2026-06-10 12:34:56.123456"),
+                executor.rewrite(currentTimestamp, context));
+
+        connectContext.getSessionVariable().setTimeZone("+00:00");
+        Assertions.assertEquals("+08:00", statementContext.getStatementTimeZone().getId());
+        statementContext.refreshStatementTimeZone();
+        assertRewrite(new Now(new IntegerLiteral(6)),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2026-06-10 04:34:56.123456"));
+    }
+
+    @Test
+    void testCurrentTimeFunctionsUseStatementStartTime() {
+        Instant statementStartTime = Instant.parse("2026-06-10T04:34:56.123456Z");
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setTimeZone("+08:00");
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select current_date()", 0), statementStartTime);
+        connectContext.setStatementContext(statementContext);
+        cascadesContext = MemoTestUtils.createCascadesContext(statementContext,
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        context = new ExpressionRewriteContext(cascadesContext);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        assertRewrite(new CurrentDate(), new DateV2Literal("2026-06-10"));
+        assertRewrite(new CurrentTime(), new TimeV2Literal("12:34:56"));
+        assertRewrite(new CurrentTime(new TinyIntLiteral((byte) 6)),
+                new TimeV2Literal("12:34:56.123456"));
+        assertRewrite(new UnixTimestamp(), new BigIntLiteral(statementStartTime.getEpochSecond()));
+        assertRewrite(new UtcDate(), new DateV2Literal("2026-06-10"));
+        assertRewrite(new UtcTime(new IntegerLiteral(6)), new TimeV2Literal("04:34:56.123456"));
+        assertRewrite(new UtcTimestamp(new IntegerLiteral(6)),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2026-06-10 04:34:56.123456"));
+
+        Expression unixTimestampWithArgument = new UnixTimestamp(new DateV2Literal("2026-06-10"));
+        Assertions.assertNotEquals(new BigIntLiteral(statementStartTime.getEpochSecond()),
+                executor.rewrite(unixTimestampWithArgument, context));
+    }
+
+    @Test
+    void testStatementTimeFunctionsUseCanonicalTimeZoneAlias() {
+        Instant statementStartTime = Instant.parse("2026-06-10T04:34:56.123456Z");
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setTimeZone("PST");
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select now(6)", 0), statementStartTime);
+        connectContext.setStatementContext(statementContext);
+        cascadesContext = MemoTestUtils.createCascadesContext(statementContext,
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        context = new ExpressionRewriteContext(cascadesContext);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        Assertions.assertEquals("America/Los_Angeles", statementContext.getStatementTimeZone().getId());
+        assertRewrite(new Now(new IntegerLiteral(6)),
+                new DateTimeV2Literal(DateTimeV2Type.of(6), "2026-06-09 21:34:56.123456"));
+        assertRewrite(new CurrentDate(), new DateV2Literal("2026-06-09"));
+        assertRewrite(new CurrentTime(), new TimeV2Literal("21:34:56"));
+    }
+
+    @Test
+    void testCurrentTimeWithNullPrecisionDoesNotThrow() {
+        Instant statementStartTime = Instant.parse("2026-06-10T04:34:56.123456Z");
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setTimeZone("+08:00");
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select curtime(null)", 0), statementStartTime);
+        connectContext.setStatementContext(statementContext);
+        cascadesContext = MemoTestUtils.createCascadesContext(statementContext,
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        context = new ExpressionRewriteContext(cascadesContext);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        CurrentTime currentTime = new CurrentTime(new NullLiteral(TinyIntType.INSTANCE));
+        Assertions.assertInstanceOf(CurrentTime.class, executor.rewrite(currentTime, context));
+    }
 
     @Test
     void testCaseWhenFold() {

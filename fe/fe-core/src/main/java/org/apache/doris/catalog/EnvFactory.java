@@ -26,6 +26,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -43,6 +44,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -54,6 +56,8 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.thrift.TException;
 
 import java.lang.reflect.Type;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -175,6 +179,17 @@ public class EnvFactory {
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        return createCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
+                enableProfile, CoordinatorContext.getStatementStartTimeOrNow(ConnectContext.get()));
+    }
+
+    // Used for broker load task/export task/update coordinator
+    public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+                                         List<PlanFragment> fragments, List<ScanNode> scanNodes,
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile,
+                                         Instant statementStartTime) {
+        String canonicalTimeZone = TimeUtils.getCanonicalTimeZoneId(timezone);
+        ZoneId statementTimeZone = ZoneId.of(canonicalTimeZone);
         if (SessionVariable.canUseNereidsDistributePlanner()) {
             if (queryId == null) {
                 UUID taskId = UUID.randomUUID();
@@ -191,8 +206,10 @@ public class EnvFactory {
                 connectContext.setEnv(Env.getCurrentEnv());
             }
             StatementContext statementContext = connectContext.getStatementContext();
-            if (statementContext == null) {
-                statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+            if (statementContext == null || !statementStartTime.equals(statementContext.getStatementStartTime())
+                    || !statementTimeZone.equals(statementContext.getStatementTimeZone())) {
+                statementContext = new StatementContext(connectContext, new OriginStatement("", 0),
+                        statementStartTime, statementTimeZone);
             }
             DistributePlanner distributePlanner = new DistributePlanner(
                     statementContext, fragments, false, true);
@@ -200,11 +217,12 @@ public class EnvFactory {
 
             return new NereidsCoordinator(
                     jobId, queryId, descTable, fragments, distributedPlans.valueList(),
-                    scanNodes, timezone, loadZeroTolerance, enableProfile
+                    scanNodes, canonicalTimeZone, loadZeroTolerance, enableProfile, statementStartTime
             );
         }
         return new Coordinator(
-                jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile
+                jobId, queryId, descTable, fragments, scanNodes, canonicalTimeZone, loadZeroTolerance, enableProfile,
+                statementStartTime
         );
     }
 

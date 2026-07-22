@@ -256,6 +256,8 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                                             TableNameInfo tableNameInfo)
             throws UserException {
         ExportJob exportJob = new ExportJob(Env.getCurrentEnv().getNextId());
+        exportJob.setStatementStartTime(ctx.getStatementContext().getStatementStartTime());
+        exportJob.setStatementTimeZone(ctx.getStatementContext().getStatementTimeZone().getId());
         // set export job and check catalog/db/table
         CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tableNameInfo.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
@@ -431,4 +433,3 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         return sb.toString();
     }
 }
-

@@ -21,6 +21,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <barrier>
+#include <thread>
+
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "exprs/vexpr.h"
@@ -152,7 +155,8 @@ public:
         return dtb.desc_tbl();
     }
 
-    static std::shared_ptr<Reusable> create_reusable() {
+    static std::shared_ptr<Reusable> create_reusable(
+            const PTabletKeyLookupRequest& request = PTabletKeyLookupRequest()) {
         auto obj_pool = std::make_unique<ObjectPool>();
         auto runtime_state = RuntimeState::create_unique();
         auto reusable = std::make_shared<Reusable>();
@@ -161,7 +165,8 @@ public:
         TDescriptorTable t_desc_tbl = create_descriptor_tablet();
 
         // Initialize Reusable
-        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, *tablet_schema, 2);
+        Status st =
+                reusable->init(t_desc_tbl, output_exprs, query_options, *tablet_schema, request, 2);
         if (!st.ok()) {
             return nullptr;
         }
@@ -199,6 +204,53 @@ std::shared_ptr<TabletSchema> ReusableTestHelper::tablet_schema = []() {
     }
     return schema;
 }();
+
+TEST(ReusableTest, PQTestUpdateRuntimeStateForEachRequest) {
+    PTabletKeyLookupRequest first_request;
+    first_request.set_time_zone("Asia/Shanghai");
+    first_request.set_timestamp_ms(1001);
+    first_request.set_nano_seconds(123456000);
+    auto reusable = ReusableTestHelper::create_reusable(first_request);
+    ASSERT_NE(reusable, nullptr);
+
+    EXPECT_EQ(reusable->runtime_state()->timezone(), "Asia/Shanghai");
+    EXPECT_EQ(reusable->runtime_state()->timestamp_ms(), 1001);
+    EXPECT_EQ(reusable->runtime_state()->nano_seconds(), 123456000);
+
+    PTabletKeyLookupRequest second_request;
+    second_request.set_time_zone("UTC");
+    second_request.set_timestamp_ms(2002);
+    second_request.set_nano_seconds(654321000);
+    ASSERT_TRUE(reusable->refresh(second_request).ok());
+
+    EXPECT_EQ(reusable->runtime_state()->timezone(), "UTC");
+    EXPECT_EQ(reusable->runtime_state()->timestamp_ms(), 2002);
+    EXPECT_EQ(reusable->runtime_state()->nano_seconds(), 654321000);
+}
+
+TEST(ReusableTest, PQTestSerializeExecutionsForSameReusable) {
+    auto reusable = ReusableTestHelper::create_reusable();
+    ASSERT_NE(reusable, nullptr);
+
+    auto first_execution = reusable->acquire_execution_lock();
+    std::barrier sync_point(2);
+    bool acquired_concurrently = true;
+    std::thread overlapping_execution([&] {
+        sync_point.arrive_and_wait();
+        auto second_execution = reusable->try_acquire_execution_lock();
+        acquired_concurrently = second_execution.owns_lock();
+        sync_point.arrive_and_wait();
+    });
+
+    sync_point.arrive_and_wait();
+    sync_point.arrive_and_wait();
+    EXPECT_FALSE(acquired_concurrently);
+    first_execution.unlock();
+    overlapping_execution.join();
+
+    auto next_execution = reusable->try_acquire_execution_lock();
+    EXPECT_TRUE(next_execution.owns_lock());
+}
 
 // RowCache test class
 class RowCacheTest : public testing::Test {

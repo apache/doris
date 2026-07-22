@@ -358,6 +358,9 @@ message PTabletKeyLookupRequest {
     optional bytes query_options = 8;
     // timezone string, e.g. "America/Mexico_City"
     optional string time_zone = 9;
+    // Statement start time for functions like now().
+    optional int64 timestamp_ms = 10;
+    optional int32 nano_seconds = 11;
 }
 
 message PTabletKeyLookupResponse {

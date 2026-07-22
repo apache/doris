@@ -85,6 +85,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -163,6 +165,8 @@ public class MTMVTask extends AbstractTask {
     private StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
     private long mtmvSchemaChangeVersion;
+    private transient Instant statementStartTime;
+    private transient ZoneId statementTimeZone;
 
     private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -189,6 +193,10 @@ public class MTMVTask extends AbstractTask {
         }
         mtmvSchemaChangeVersion = mtmv.getSchemaChangeVersion();
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        StatementContext taskStatementContext = new StatementContext(ctx, null);
+        ctx.setStatementContext(taskStatementContext);
+        statementStartTime = taskStatementContext.getStatementStartTime();
+        statementTimeZone = taskStatementContext.getStatementTimeZone();
         try {
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
@@ -329,7 +337,7 @@ public class MTMVTask extends AbstractTask {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         setComputeGroup(ctx);
         recordComputeGroup(ctx);
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(ctx, null, statementStartTime, statementTimeZone);
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }

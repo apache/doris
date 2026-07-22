@@ -50,6 +50,7 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -176,7 +177,7 @@ public class InsertTask extends AbstractTask {
             throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
         }
         ctx = makeConnectContext(userIdentity, currentDb);
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(ctx, null, Instant.now());
         ctx.setStatementContext(statementContext);
         if (StringUtils.isNotEmpty(sql)) {
             NereidsParser parser = new NereidsParser();

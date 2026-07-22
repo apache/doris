@@ -336,6 +336,9 @@ public abstract class ConnectProcessor {
                 StatementBase parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                if (parsedStmt instanceof LogicalPlanAdapter) {
+                    ((LogicalPlanAdapter) parsedStmt).getStatementContext().resetStatementStartTime();
+                }
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);

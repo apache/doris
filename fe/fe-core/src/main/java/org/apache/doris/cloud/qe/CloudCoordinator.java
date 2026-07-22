@@ -35,6 +35,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.List;
 
 public class CloudCoordinator extends Coordinator {
@@ -54,6 +55,13 @@ public class CloudCoordinator extends Coordinator {
                        List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
                     boolean enbaleProfile) {
         super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enbaleProfile);
+    }
+
+    public CloudCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
+            boolean enableProfile, Instant statementStartTime) {
+        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile,
+                statementStartTime);
     }
 
     @Override

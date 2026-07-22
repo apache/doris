@@ -45,6 +45,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -57,6 +58,16 @@ public class StmtExecutorTest extends TestWithFeService {
         InternalSchemaInitializer.createDb();
         InternalSchemaInitializer.createTbl();
         createDatabase("testDb");
+    }
+
+    @Test
+    public void testStatementStartTimeCanBePropagatedForInternalTask() {
+        Instant statementStartTime = Instant.parse("2026-06-12T03:04:05.123456Z");
+
+        new StmtExecutor(connectContext, "select now(6)", statementStartTime);
+
+        Assertions.assertEquals(statementStartTime,
+                connectContext.getStatementContext().getStatementStartTime());
     }
 
     @Test

@@ -66,6 +66,7 @@ public class SelectHintSetVar extends SelectHint {
                 }
             }
         }
+        context.refreshStatementTimeZone();
     }
 
     @Override
