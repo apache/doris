@@ -456,6 +456,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
             "enable_runtime_filter_partition_prune";
 
+    public static final String ENABLE_RUNTIME_FILTER_TABLET_PRUNE =
+            "enable_runtime_filter_tablet_prune";
+
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
 
     static final String SESSION_CONTEXT = "session_context";
@@ -2194,6 +2197,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_TABLET_PRUNE, needForward = true)
+    public boolean enableRuntimeFilterTabletPrune = false;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -5483,6 +5489,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableRuntimeFilterPartitionPrune(boolean enableRuntimeFilterPartitionPrune) {
         this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
+    }
+
+    public boolean isEnableRuntimeFilterTabletPrune() {
+        return enableRuntimeFilterTabletPrune;
+    }
+
+    public void setEnableRuntimeFilterTabletPrune(boolean enableRuntimeFilterTabletPrune) {
+        this.enableRuntimeFilterTabletPrune = enableRuntimeFilterTabletPrune;
     }
 
     public void setFragmentTransmissionCompressionCodec(String codec) {

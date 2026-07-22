@@ -1022,6 +1022,16 @@ struct TOlapScanNode {
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  // Tablet -> hash bucket index (0 .. distribution_bucket_num-1) for BE-side runtime
+  // filter tablet pruning. Only set when enable_runtime_filter_tablet_prune=true, at
+  // least one eligible IN RF targets this scan's distribution column, and ALL selected
+  // partitions share the same bucket count (bucket counts are per-partition and may
+  // differ, e.g. partitions added with their own DISTRIBUTED BY ... BUCKETS clause).
+  29: optional map<Types.TTabletId, i32> tablet_id_to_bucket_index
+  // Hash bucket count shared by all selected partitions. BE computes
+  // hash(rf_value) % distribution_bucket_num to match a tablet's bucket index.
+  // Only set together with tablet_id_to_bucket_index.
+  30: optional i32 distribution_bucket_num
 }
 
 struct TEqJoinCondition {
@@ -1629,6 +1639,13 @@ struct TRuntimeFilterDesc {
   // slice and must be merged before being applied. Computed truthfully by FE after local
   // exchange planning; replaces inferring this from the target scan's is_serial_operator.
   21: optional bool force_local_merge;
+
+  // Target scan node IDs for which this RF can drive BE-side tablet (hash bucket)
+  // pruning. A scan node appears here iff this is an IN filter whose target is a
+  // direct SlotRef on the scan's single-column hash distribution key. BE uses this
+  // together with TOlapScanNode.tablet_id_to_bucket_index/distribution_bucket_num
+  // to skip tablets whose bucket index no RF value hashes into.
+  22: optional set<Types.TPlanNodeId> planId_to_can_prune_tablets;
 }
 
 

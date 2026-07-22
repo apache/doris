@@ -244,14 +244,8 @@ public class RuntimeFilterTranslator {
                             || targetAdjustedAfterNonIdentityList.get(i)) {
                         continue;
                     }
-                    RuntimeFilterPartitionPruneClassifier.Classification classification =
-                            RuntimeFilterPartitionPruneClassifier.classify(
-                                    head.getType(), targetExpr, nereidsTargetExprList.get(i), scanNode);
-                    if (classification.canPrunePartitions()) {
-                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
-                    }
-                    origFilter.setTargetPartitionMonotonicity(
-                            scanNode.getId(), classification.getPartitionMonotonicity());
+                    classifyAndMarkPruningTargets(head.getType(), targetExpr,
+                            nereidsTargetExprList.get(i), scanNode, origFilter);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
@@ -351,14 +345,8 @@ public class RuntimeFilterTranslator {
                     if (targetAdjustedAfterNonIdentityList.get(i)) {
                         continue;
                     }
-                    RuntimeFilterPartitionPruneClassifier.Classification classification =
-                            RuntimeFilterPartitionPruneClassifier.classify(
-                                    filter.getType(), targetExpr, filter.getTargetExpressions().get(i), scanNode);
-                    if (classification.canPrunePartitions()) {
-                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
-                    }
-                    origFilter.setTargetPartitionMonotonicity(
-                            scanNode.getId(), classification.getPartitionMonotonicity());
+                    classifyAndMarkPruningTargets(filter.getType(), targetExpr,
+                            filter.getTargetExpressions().get(i), scanNode, origFilter);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
@@ -386,6 +374,29 @@ public class RuntimeFilterTranslator {
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
         return origFilter;
+    }
+
+    /**
+     * Run the partition-pruning and tablet-pruning classifiers on one final legacy
+     * target expression and record the results on the legacy runtime filter.
+     * Shared by the grouped-filter and single-filter translation paths above.
+     */
+    private void classifyAndMarkPruningTargets(TRuntimeFilterType filterType, Expr targetExpr,
+            Expression nereidsTargetExpr, ScanNode scanNode,
+            org.apache.doris.planner.RuntimeFilter origFilter) {
+        RuntimeFilterPartitionPruneClassifier.Classification classification =
+                RuntimeFilterPartitionPruneClassifier.classify(
+                        filterType, targetExpr, nereidsTargetExpr, scanNode);
+        if (classification.canPrunePartitions()) {
+            origFilter.markTargetCanPrunePartitions(scanNode.getId());
+        }
+        origFilter.setTargetPartitionMonotonicity(
+                scanNode.getId(), classification.getPartitionMonotonicity());
+        RuntimeFilterTabletPruneClassifier.Classification tabletClassification =
+                RuntimeFilterTabletPruneClassifier.classify(filterType, targetExpr, scanNode);
+        if (tabletClassification.canPruneTablets()) {
+            origFilter.markTargetCanPruneTablets(scanNode.getId());
+        }
     }
 
     private void setWaitTimeMs(org.apache.doris.planner.RuntimeFilter filter,
