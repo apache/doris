@@ -1087,6 +1087,18 @@ TEST_F(ColumnVariantTest, visible_root_does_not_hide_sparse_fields) {
     const auto& sparse_offsets = destination->serialized_sparse_column_offsets();
     EXPECT_LT(sparse_offsets[0], sparse_offsets[1]);
 
+    // Simulate a mixed-format result column: row 0 came from a doc-snapshot row, while row 1
+    // contains sparse fields. Doc-value offsets are cumulative, so both end offsets are non-zero,
+    // but only row 0 has doc-value entries.
+    auto [doc_paths, doc_values] = destination->get_doc_value_data_paths_and_values();
+    doc_paths->insert_data("prior", 5);
+    doc_values->insert_data("", 0);
+    auto& doc_offsets = destination->serialized_doc_value_column_offsets();
+    doc_offsets[0] = 1;
+    doc_offsets[1] = 1;
+    EXPECT_TRUE(destination->has_doc_value_column(0));
+    EXPECT_FALSE(destination->has_doc_value_column(1));
+
     DataTypeSerDe::FormatOptions options;
     std::string json;
     destination->serialize_one_row_to_string(1, &json, options);

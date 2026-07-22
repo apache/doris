@@ -1920,9 +1920,10 @@ void ColumnVariant::serialize_one_row_to_json_format(
         subcolumns.get_root()->data.serialize_text_json(row_num, output, options);
         return;
     }
-    const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
-    // if doc snapshot column is not empty, we should serialize from doc snapshot column first
-    if (doc_value_column_map.get_offsets()[row_num] != 0) {
+    // If the current row has a doc snapshot, serialize it first. Do not use the cumulative end
+    // offset here: a previous row may have populated the doc-value column while the current row
+    // stores its fields in the sparse column.
+    if (has_doc_value_column(row_num)) {
         serialize_from_doc_value_to_json_format(row_num, output, is_null);
         return;
     }
