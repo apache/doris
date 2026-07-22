@@ -2,7 +2,9 @@ create database if not exists multi_catalog;
 
 use multi_catalog;
 
-CREATE TABLE `region`(
+drop table if exists `region`;
+
+create table `region`(
   `r_regionkey` int, 
   `r_name` char(25))
 ROW FORMAT SERDE 
@@ -18,5 +20,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/region'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1670483235');
-
-msck repair table region;

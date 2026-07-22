@@ -53,7 +53,7 @@ services:
 
   postgres:
     image: postgis/postgis:14-3.3
-    container_name: doris--postgres
+    container_name: doris--iceberg-postgres
     environment:
       POSTGRES_PASSWORD: 123456
       POSTGRES_USER: root
@@ -101,7 +101,7 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
-    container_name: doris--minio
+    container_name: doris--iceberg-minio
     ports:
       - ${MINIO_API_PORT}:9000
     healthcheck:
@@ -127,7 +127,7 @@ services:
       minio:
         condition: service_healthy
     image: minio/mc:RELEASE.2025-01-17T23-25-50Z
-    container_name: doris--mc
+    container_name: doris--iceberg-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
