@@ -130,14 +130,11 @@ private:
     template <typename Element, typename Result>
     NO_SANITIZE_UNDEFINED static void impl(const Element* __restrict src, Result* __restrict dst,
                                            size_t begin, size_t end) {
-        size_t curr_pos = begin;
-        if (curr_pos < end) {
-            Element prev_element = src[curr_pos];
-            dst[curr_pos] = {};
-            curr_pos++;
-            Element curr_element = src[curr_pos];
-            for (; curr_pos < end; ++curr_pos) {
-                curr_element = src[curr_pos];
+        if (begin < end) {
+            Element prev_element = src[begin];
+            dst[begin] = {};
+            for (size_t curr_pos = begin + 1; curr_pos < end; ++curr_pos) {
+                Element curr_element = src[curr_pos];
                 dst[curr_pos] =
                         static_cast<Result>(curr_element) - static_cast<Result>(prev_element);
                 prev_element = curr_element;
