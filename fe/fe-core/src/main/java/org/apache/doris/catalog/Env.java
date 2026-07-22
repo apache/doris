@@ -4477,17 +4477,8 @@ public class Env {
             addTableComment(table, sb);
             sb.append("\n-- Internal Elasticsearch tables are deprecated. Please use ES Catalog instead.");
         } else if (table.getType() == TableType.HIVE) {
-            HiveTable hiveTable = (HiveTable) table;
-
-            addTableComment(hiveTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
-            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
-                    " = ", true, true, hidePassword).toString());
-            sb.append("\n)");
+            addTableComment(table, sb);
+            sb.append("\n-- Internal Hive tables are deprecated. Please use Hive Catalog instead.");
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
@@ -4845,17 +4836,8 @@ public class Env {
             addTableComment(table, sb);
             sb.append("\n-- Internal Elasticsearch tables are deprecated. Please use ES Catalog instead.");
         } else if (table.getType() == TableType.HIVE) {
-            HiveTable hiveTable = (HiveTable) table;
-
-            addTableComment(hiveTable, sb);
-
-            // properties
-            sb.append("\nPROPERTIES (\n");
-            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
-            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
-                    " = ", true, true, hidePassword).toString());
-            sb.append("\n)");
+            addTableComment(table, sb);
+            sb.append("\n-- Internal Hive tables are deprecated. Please use Hive Catalog instead.");
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");

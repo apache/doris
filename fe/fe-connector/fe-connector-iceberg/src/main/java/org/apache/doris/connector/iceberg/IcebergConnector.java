@@ -839,13 +839,18 @@ public class IcebergConnector implements Connector {
         // path reproduces this ONLY under this capability (PluginDrivenExternalTable.supportsExternalMetadataPreload),
         // so post-cutover iceberg keeps async pre-load instead of degrading to synchronous bind-time load. Pure
         // lock-latency optimization, opt-in via enable_preload_external_metadata. Inert pre-cutover (P6.6).
+        // SUPPORTS_SORT_ORDER: iceberg is the only engine that accepts a create-time write sort order
+        // (CREATE TABLE ... ORDER BY (...)). fe-core admits the ORDER BY clause for a plugin-driven CREATE TABLE
+        // ONLY under this capability (replacing the legacy engine-name "iceberg" gate); the sort-column validation
+        // (existence / type / duplicates) runs connector-side in IcebergConnectorMetadata.createTable.
         EnumSet<ConnectorCapability> capabilities = EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
-                ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
+                ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
+                ConnectorCapability.SUPPORTS_SORT_ORDER);
         // SUPPORTS_USER_SESSION: only a REST catalog configured iceberg.rest.session=user projects the querying
         // user's delegated credential onto a per-request Iceberg REST SessionCatalog (#63068 re-migration). This
         // gates FE credential injection + shared-cache bypass; every other flavor/config authenticates with a

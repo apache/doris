@@ -758,16 +758,8 @@ public class CreateTableCommandTest extends TestWithFeService {
                     e.getMessage());
         }
 
-        try {
-            getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
-                    + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () "
-                    + "distributed by hash (id) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', "
-                            + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.",
-                    e.getMessage());
-        }
+        // NOTE: the iceberg DISTRIBUTE BY rejection moved off fe-core into IcebergConnectorMetadata.createTable
+        // (SPI cutover); it is covered by fe-connector-iceberg IcebergCreateTableValidationTest.
 
         par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
                 + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
@@ -863,72 +855,10 @@ public class CreateTableCommandTest extends TestWithFeService {
         return createTableInfo.getPartitionDesc();
     }
 
-    @Test
-    public void testPartitionCheckForHive() {
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `par1` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("Cannot set all columns as partitioning columns.", e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `par1` int,\n"
-                    + "    `c1` bigint\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "The partition field must be at the end of the schema.",
-                    e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par2` int,\n"
-                    + "    `par1` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "The order of partition fields in the schema "
-                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`",
-                    e.getMessage());
-        }
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par2` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2, par3 ,par4\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("partition key par1 is not exists", e.getMessage());
-        }
-
-        try {
-            getCreateTableStmt("CREATE TABLE `tb11`(\n"
-                    + "    `c1` bigint,\n"
-                    + "    `par1` int,\n"
-                    + "    `par2` int,\n"
-                    + "    `par3` int\n"
-                    + ") ENGINE = hive PARTITION BY LIST (\n"
-                    + "    par1, par2\n"
-                    + ")();");
-            Assertions.assertTrue(false);
-        } catch (Exception e) {
-            Assertions.assertEquals("The partition field must be at the end of the schema.", e.getMessage());
-        }
-    }
+    // NOTE: testPartitionCheckForHive removed. The hive external partition-column rules (not-all-columns,
+    // partition-fields-at-end, order-consistent, partition-key-exists, float/complex/nullable) moved off fe-core
+    // PartitionTableInfo.validatePartitionInfo into HiveConnectorMetadata.createTable (SPI cutover), and are now
+    // covered by fe-connector-hive HiveCreateTableValidationTest.
 
     @Test
     public void testConvertToPartitionTableInfo() throws Exception {

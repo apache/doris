@@ -39,11 +39,11 @@ import java.util.Optional;
  *
  * <p>The single live row-level-DML loop lives in {@link RowLevelDmlCommand}; this interface parameterizes the
  * six points that differ per table/operation (mode check, synthesis, required sink, executor factory, label
- * prefix, finalize) plus the connector-agnostic O5-2 write-constraint extraction.</p>
+ * prefix, finalize) plus the connector-agnostic write-constraint extraction.</p>
  */
 public interface RowLevelDmlTransform {
 
-    /** Whether this transform handles the given target table. Pre-cutover this is the table-type check. */
+    /** Whether this transform handles the given target table (a connector-capability probe). */
     boolean handles(TableIf table);
 
     /** Reject unsupported table modes (e.g. copy-on-write) for the operation, mirroring legacy command checks. */
@@ -74,7 +74,7 @@ public interface RowLevelDmlTransform {
             DataSink sink, PhysicalSink<?> physicalSink);
 
     /**
-     * O5-2 write-constraint extraction: the target-only predicate handed to a {@code ConnectorTransaction} via
+     * write-constraint extraction: the target-only predicate handed to a {@code ConnectorTransaction} via
      * {@code applyWriteConstraint}. Supplies the connector-specific synthetic-column exclusion. Returns empty
      * when no target-only conjunct survives.
      */

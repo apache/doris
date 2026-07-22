@@ -21,13 +21,13 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.nereids.trees.plans.commands.IcebergRowId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -275,14 +275,14 @@ class ConnectorColumnConverterTest {
 
     @Test
     void convertColumnReconstructsIcebergRowIdHiddenColumn() {
-        // CONTRACT PIN (③ C3b-core, fe-core half): the iceberg connector declares the request-scoped row-id
-        // synthetic write column (__DORIS_ICEBERG_ROWID_COL__) as an engine-neutral invisible STRUCT
-        // ConnectorColumn through ConnectorWritePlanProvider.getSyntheticWriteColumns (pinned connector-side by
-        // IcebergWritePlanProviderTest.getSyntheticWriteColumnsDeclaresRowIdStruct). fe-core cannot import the
-        // connector, so this two-sided pin asserts that converting that exact agreed shape yields the legacy
-        // fe-core IcebergRowId.createHiddenColumn() byte-for-byte (name / STRUCT type / hidden / not-null) — the
-        // column post-flip getFullSchema appends. If the connector's literal and the legacy IcebergRowId drift
-        // apart, one of the two sides turns red.
+        // CONTRACT PIN (fe-core half): the iceberg connector declares the request-scoped row-id synthetic write
+        // column (__DORIS_ICEBERG_ROWID_COL__) as an engine-neutral invisible STRUCT ConnectorColumn through
+        // ConnectorWritePlanProvider.getSyntheticWriteColumns (pinned connector-side by
+        // IcebergWritePlanProviderTest.getSyntheticWriteColumnsDeclaresRowIdStruct). The row-id column identity
+        // is owned by the connector alone — fe-core no longer keeps a duplicate STRUCT definition — so this pin
+        // asserts that converting that exact agreed shape yields the Doris hidden column fe-core's getFullSchema
+        // appends: name / STRUCT field names+order+types / hidden / not-null. If the connector's declared shape
+        // drifts, this pin and IcebergWritePlanProviderTest turn red together.
         ConnectorType rowIdStruct = ConnectorType.structOf(
                 Arrays.asList("file_path", "row_position", "partition_spec_id", "partition_data"),
                 Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"),
@@ -291,14 +291,19 @@ class ConnectorColumnConverterTest {
                 new ConnectorColumn("__DORIS_ICEBERG_ROWID_COL__", rowIdStruct,
                         "Iceberg row position metadata", false, null, false).invisible());
 
-        Column legacy = IcebergRowId.createHiddenColumn();
         Assertions.assertEquals(Column.ICEBERG_ROWID_COL, converted.getName());
-        Assertions.assertEquals(legacy.getName(), converted.getName());
-        Assertions.assertEquals(legacy.getType(), converted.getType(),
-                "the converted STRUCT must equal the legacy IcebergRowId struct type");
         Assertions.assertFalse(converted.isVisible(), "the row-id column must be hidden");
-        Assertions.assertEquals(legacy.isVisible(), converted.isVisible());
-        Assertions.assertEquals(legacy.isAllowNull(), converted.isAllowNull());
+        Assertions.assertFalse(converted.isAllowNull(), "the row-id column must be not-null");
+        // Pin the exact STRUCT type (field names + order + scalar types). Load-bearing: ExternalRowLevelMergePlanBuilder
+        // types the not-matched INSERT-branch row-id NULL literal from this column's type, and BE resolves the
+        // STRUCT fields by name — so STRING must stay ScalarType.createStringType(), not drift to another form.
+        StructType expected = new StructType(new ArrayList<>(Arrays.asList(
+                new StructField("file_path", ScalarType.createStringType()),
+                new StructField("row_position", ScalarType.createType(PrimitiveType.BIGINT)),
+                new StructField("partition_spec_id", ScalarType.createType(PrimitiveType.INT)),
+                new StructField("partition_data", ScalarType.createStringType()))));
+        Assertions.assertEquals(expected, converted.getType(),
+                "the converted STRUCT must equal the row-id struct type (STRING/BIGINT/INT/STRING)");
     }
 
     @Test

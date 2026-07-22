@@ -128,7 +128,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.getTableStatistics(session, foreignHandle);
         md.getColumnStatistics(session, foreignHandle, "c");
         long size = md.estimateDataSizeByListingFiles(session, foreignHandle);
-        List<List<String>> timelineRows = md.getMetadataTableRows(session, foreignHandle, "timeline");
         Optional<FilterApplicationResult<ConnectorTableHandle>> filter = md.applyFilter(session, foreignHandle, null);
         List<String> partNames = md.listPartitionNames(session, foreignHandle);
         md.listPartitions(session, foreignHandle, Optional.empty());
@@ -168,9 +167,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertTrue(sysIsTvf,
                 "isPartitionValuesSysTable must return the sibling's answer for a foreign handle, not hive's — "
                         + "dropping this delegation would misroute an iceberg-on-HMS t$partitions into the hive TVF");
-        Assertions.assertSame(RecordingSiblingMetadata.SIBLING_TIMELINE_ROWS, timelineRows,
-                "getMetadataTableRows must return the sibling's timeline rows, not hive's empty default — a "
-                        + "hudi-on-HMS hudi_meta()/TIMELINE read gets its rows from the hudi sibling post-flip");
 
         // Handle-out methods must return the sibling's handle/result UNMODIFIED (a rewrap poisons a scan cast).
         Assertions.assertSame(siblingMetadata.filterResult, filter, "applyFilter must return the sibling result");
@@ -397,35 +393,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "no marker when the sibling declares no capabilities");
     }
 
-    @Test
-    public void foreignHandleSchemaWithholdsAutoAnalyzeFromRealHudiSibling() {
-        // The REAL hudi sibling declares a NON-EMPTY connector-wide set that does NOT include auto-analyze
-        // (HudiConnector.getCapabilities() = {SUPPORTS_METADATA_TABLE}), so it never takes the isEmpty()
-        // early-return — it goes through the copy loop. reflectSiblingScanCapabilities copies EXACTLY that set, so a
-        // flipped hudi-on-HMS table gains the metadata-table capability (hudi_meta()/TIMELINE works) but stays OUT of
-        // background column auto-analyze — legacy StatisticsUtil.supportAutoAnalyze excluded dlaType HUDI. This pins
-        // the copy-fidelity path that actually governs hudi withholding (the empty-sibling test only exercises the
-        // early-return). MUTATION: reflecting auto-analyze for any non-empty owner (or HudiConnector gaining the
-        // flag) -> the marker would contain SUPPORTS_COLUMN_AUTO_ANALYZE -> red here.
-        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
-                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
-                        EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)), SiblingOwner.ICEBERG_LABEL));
-
-        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        Assertions.assertNotNull(csv, "a non-empty hudi sibling must still stamp its declared capabilities");
-        List<String> names = Arrays.asList(csv.split(","));
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_METADATA_TABLE.name()),
-                "the hudi sibling's metadata-table capability must survive delegation (hudi_meta works post-flip)");
-        Assertions.assertFalse(names.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name()),
-                "hudi-on-HMS must stay OUT of background auto-analyze (legacy excluded dlaType HUDI)");
-        Assertions.assertFalse(names.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name()),
-                "hudi-on-HMS gains no Top-N lazy from a sibling that does not declare it");
-        Assertions.assertFalse(names.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name()),
-                "hudi-on-HMS gains no nested-column prune from a sibling that does not declare it");
-    }
-
     // ============== per-statement sibling-metadata funnel (HMS heterogeneous gateway) ==============
     // Within one statement, the gateway obtains ONE sibling ConnectorMetadata per (catalogId, owner) and reuses it
     // across every forward (read / scan / DDL / MVCC / the write-transaction open), keyed
@@ -442,7 +409,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
         md.getColumnHandles(live, foreignHandle);
         md.listPartitionNames(live, foreignHandle);
-        md.getMetadataTableRows(live, foreignHandle, "timeline");
         md.getTableSchema(live, foreignHandle);
         md.beginTransaction(live, foreignHandle);
 
@@ -571,14 +537,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         static final long SENTINEL_SNAPSHOT_ID = 99L;
         static final List<ConnectorExpression> SIBLING_PREDICATES = Collections.singletonList(
                 new ConnectorColumnRef("sibling-pred", ConnectorType.of("STRING")));
-        static final List<List<String>> SIBLING_TIMELINE_ROWS = Collections.singletonList(
-                Arrays.asList("20260101000000000", "commit", "COMPLETED", "20260101000001000"));
 
         // The exact set + order of forwarded methods the foreign-handle test drives (a Rule-9 completeness lock:
         // dropping a guard, or adding one that should not forward, changes this list and fails the test).
         static final List<String> EXPECTED_METHODS = Collections.unmodifiableList(Arrays.asList(
                 "getTableSchema", "getColumnHandles", "getTableStatistics", "getColumnStatistics",
-                "estimateDataSizeByListingFiles", "getMetadataTableRows",
+                "estimateDataSizeByListingFiles",
                 "applyFilter", "listPartitionNames", "listPartitions",
                 "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis", "dropTable",
                 "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
@@ -638,12 +602,6 @@ public class HiveConnectorMetadataSiblingDelegationTest {
             return SENTINEL_SIZE;
         }
 
-        @Override
-        public List<List<String>> getMetadataTableRows(ConnectorSession session, ConnectorTableHandle handle,
-                String kind) {
-            calls.add("getMetadataTableRows");
-            return SIBLING_TIMELINE_ROWS;
-        }
 
         @Override
         public Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(ConnectorSession session,

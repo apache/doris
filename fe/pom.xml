@@ -296,7 +296,6 @@ under the License.
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.25.4</log4j2.version>
         <log4j-1.2.version>2.25.4</log4j-1.2.version>
-        <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
@@ -329,7 +328,6 @@ under the License.
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
         <okhttp.version>5.3.2</okhttp.version>
         <snakeyaml.version>2.0</snakeyaml.version>
-        <validation-api.version>2.0.1.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <kafka-clients.version>3.4.0</kafka-clients.version>
         <oshi-core.version>6.4.5</oshi-core.version>
@@ -1134,17 +1132,6 @@ under the License.
                 <artifactId>metrics-core</artifactId>
                 <version>${metrics-core.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.eclipse.paho</groupId>
-                <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
-                <version>${mqtt.version}</version>
-                <!--
-               bce-java-sdk transitively depends on MQTT, but MQTT is not required
-               for normal object storage usage. Marked as "provided" to avoid
-               unnecessary runtime dependency.
-               -->
-               <scope>provided</scope>
-            </dependency>
             <!-- velocity-engine-core dependency-->
             <dependency>
                 <groupId>org.apache.velocity</groupId>
@@ -1269,12 +1256,6 @@ under the License.
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
                 <version>${snakeyaml.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/javax.validation/validation-api -->
-            <dependency>
-                <groupId>javax.validation</groupId>
-                <artifactId>validation-api</artifactId>
-                <version>${validation-api.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
             <dependency>
@@ -1736,17 +1717,6 @@ under the License.
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-glue</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-dynamodb</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <!--only for apache ranger audit-->
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-logs</artifactId>
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>

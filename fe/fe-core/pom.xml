@@ -215,9 +215,9 @@ under the License.
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <!-- Runtime-only: hadoop-huaweicloud's OBSFileSystem (reflection-loaded, so no compile-time
-             reference reveals this) and bce-java-sdk both call org.apache.commons.lang.StringUtils
-             while declaring no commons-lang of their own. This declaration is its only source on the
-             FE classpath; dropping it compiles green and then NoClassDefFoundErrors on OBS access.
+             reference reveals this) calls org.apache.commons.lang.StringUtils while declaring no
+             commons-lang of its own. This declaration is its only source on the FE classpath;
+             dropping it compiles green and then NoClassDefFoundErrors on OBS access.
              scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
         <dependency>
             <groupId>commons-lang</groupId>
@@ -372,14 +372,6 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-dynamodb</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-logs</artifactId>
-        </dependency>
         <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
              with graceful S3A fallback — runtime only, not needed at compile time -->
         <dependency>
@@ -498,110 +490,10 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
-        <!-- lakesoul -->
-        <dependency>
-            <groupId>com.dmetasoul</groupId>
-            <artifactId>lakesoul-io-java</artifactId>
-            <version>${lakesoul.version}</version>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-vector</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty-buffer-patch</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-format</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.spark</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.datatype</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.commons</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.scala-lang</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.json4s</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.ow2.asm</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.postgresql</groupId>
-                    <artifactId>postgresql</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- LakeSoul dependencies - provided scope as lakesoul is deprecated -->
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <version>42.7.3</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.scala-lang</groupId>
-            <artifactId>scala-library</artifactId>
-            <version>${scala.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>glue</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>apache-client</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- Required at runtime by hadoop-aws (and iceberg-aws's S3FileIO): their S3 I/O paths use
+        <!-- Required at runtime by hadoop-aws: its S3 I/O paths use
              software.amazon.awssdk.transfer.s3.S3TransferManager / ObjectTransfer and related classes
              from this jar.  Without it the FE classloader throws NoClassDefFoundError when loading the
-             object-store / Iceberg catalog metadata. -->
+             object-store filesystem. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
@@ -622,21 +514,20 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
-            <artifactId>aws-json-protocol</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
             <artifactId>protocol-core</artifactId>
         </dependency>
-        <!-- For Iceberg, must be consistent with Iceberg version -->
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-        </dependency>
 
+        <!-- Parquet reader used by the HTTP import-sampling path (common/parquet/ParquetReader):
+             needs parquet-hadoop (ParquetFileReader / ParquetReadOptions) + parquet-column
+             (column / schema / example.data / io record readers). Replaces the old parquet-avro
+             declaration, whose only extra was the unused avro bridge. -->
         <dependency>
             <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-avro</artifactId>
+            <artifactId>parquet-hadoop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-column</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
@@ -657,26 +548,11 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>com.baidubce</groupId>
-            <artifactId>bce-java-sdk</artifactId>
-            <version>0.10.212</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
             <groupId>org.apache.ranger</groupId>
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
 
-        <!-- for hudi catalog -->
+        <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->
         <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
@@ -765,15 +641,6 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3tables</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.s3tables</groupId>
-            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
-            <version>${s3tables.catalog.version}</version>
         </dependency>
         <!-- AWS SDK Core -->
         <dependency>

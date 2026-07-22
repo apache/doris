@@ -100,8 +100,6 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFrontendsMetadataParams;
-import org.apache.doris.thrift.THudiMetadataParams;
-import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
@@ -299,9 +297,6 @@ public class MetadataGenerator {
         TMetadataTableRequestParams params = request.getMetadaTableParams();
         TMetadataType metadataType = request.getMetadaTableParams().getMetadataType();
         switch (metadataType) {
-            case HUDI:
-                result = hudiMetadataResult(params);
-                break;
             case BACKENDS:
                 result = backendsMetadataResult(params);
                 break;
@@ -427,65 +422,6 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
         result.status.addToErrorMsgs(msg);
-        return result;
-    }
-
-    private static TFetchSchemaTableDataResult hudiMetadataResult(TMetadataTableRequestParams params) {
-        if (!params.isSetHudiMetadataParams()) {
-            return errorResult("Hudi metadata params is not set.");
-        }
-
-        THudiMetadataParams hudiMetadataParams = params.getHudiMetadataParams();
-        THudiQueryType hudiQueryType = hudiMetadataParams.getHudiQueryType();
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(hudiMetadataParams.getCatalog());
-        if (catalog == null) {
-            return errorResult("The specified catalog does not exist:" + hudiMetadataParams.getCatalog());
-        }
-        if (!(catalog instanceof ExternalCatalog)) {
-            return errorResult("The specified catalog is not an external catalog: "
-                    + hudiMetadataParams.getCatalog());
-        }
-
-        ExternalTable dorisTable;
-        try {
-            dorisTable = (ExternalTable) catalog.getDbOrAnalysisException(hudiMetadataParams.getDatabase())
-                    .getTableOrAnalysisException(hudiMetadataParams.getTable());
-        } catch (AnalysisException e) {
-            return errorResult("The specified db or table does not exist");
-        }
-
-        if (hudiQueryType != THudiQueryType.TIMELINE) {
-            return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
-        }
-
-        // A flipped hudi table is a PluginDrivenExternalTable served by its connector via the
-        // SUPPORTS_METADATA_TABLE SPI. Timeline iteration/parsing lives OUTSIDE this class, so
-        // MetadataGenerator no longer imports org.apache.hudi.
-        List<List<String>> timelineRows;
-        switch (dorisTable.getType()) {
-            case PLUGIN_EXTERNAL_TABLE: {
-                PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) dorisTable;
-                if (!pluginTable.supportsMetadataTable()) {
-                    return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
-                }
-                timelineRows = pluginTable.getMetadataTableRows("timeline");
-                break;
-            }
-            default:
-                return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
-        }
-
-        List<TRow> dataBatch = Lists.newArrayList();
-        for (List<String> row : timelineRows) {
-            TRow trow = new TRow();
-            for (String cell : row) {
-                trow.addToColumnValue(new TCell().setStringVal(cell));
-            }
-            dataBatch.add(trow);
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 

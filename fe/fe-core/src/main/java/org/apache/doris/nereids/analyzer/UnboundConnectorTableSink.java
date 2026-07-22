@@ -44,7 +44,7 @@ public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundB
     // semantics after the cutover. Consumed via the PluginDrivenInsertCommandContext.
     private final Map<String, Expression> staticPartitionKeyValues;
 
-    // Rewrite (compaction) marker. Mirrors UnboundIcebergTableSink.rewrite: carried through bind so the
+    // Rewrite (compaction) marker, carried through bind so the
     // neutral connector sink chain (Logical/Physical) can force single-node GATHER output for a
     // rewrite_data_files INSERT-SELECT (controls output file count). Defaults false; set true only by the
     // distributed rewrite coordinator. Always false for ordinary INSERT, so this is dormant pre-cutover.
