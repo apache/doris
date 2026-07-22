@@ -17,13 +17,13 @@
 
 suite("test_nereids_drop_resource") {
 	
-    sql """  
-     CREATE RESOURCE test_drop_hive_resource PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://127.0.0.1:9083',
+    sql """
+     CREATE RESOURCE test_drop_hdfs_resource PROPERTIES (
+    'type'='hdfs',
+    'fs.defaultFS' = 'hdfs://127.0.0.1:8120',
     'hadoop.username' = 'hive'
     );
     """
 
-	sql """drop resource 'test_drop_hive_resource';"""
+	sql """drop resource 'test_drop_hdfs_resource';"""
 }

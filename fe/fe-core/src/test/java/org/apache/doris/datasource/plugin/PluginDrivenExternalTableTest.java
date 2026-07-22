@@ -69,7 +69,7 @@ import java.util.Set;
  * so these tests use a generic invisible synthetic column.
  *
  * <p>Mockito {@code CALLS_REAL_METHODS} runs the real getFullSchema/needInternalHiddenColumns/fetch+append
- * over stubbed seams (schema cache, the connector chain), mirroring {@code PhysicalIcebergMergeSinkTest}.</p>
+ * over stubbed seams (schema cache, the connector chain), mirroring {@code PhysicalExternalRowLevelMergeSinkTest}.</p>
  */
 public class PluginDrivenExternalTableTest {
 
@@ -384,6 +384,28 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void getSyntheticWriteColumnsReturnsConvertedColumnsUngated() {
+        // The accessor is NOT gated on show-hidden / in-flight DML (unlike getFullSchema): it always asks the
+        // connector and converts the declared ConnectorColumn to an engine Column. Row-level DML uses it to
+        // source the row-id column identity from the connector when the gated getFullSchema append is off, so it
+        // must resolve regardless of needInternalHiddenColumns() (deliberately left unstubbed here).
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, true);
+
+        List<Column> cols = table.getSyntheticWriteColumns();
+
+        Assertions.assertEquals(1, cols.size());
+        Assertions.assertEquals("__syn_write_col__", cols.get(0).getName());
+        Assertions.assertFalse(cols.get(0).isVisible(), "the invisible marker survives the SPI conversion");
+    }
+
+    @Test
+    public void getSyntheticWriteColumnsEmptyWhenWriteProviderAbsent() {
+        // Degrades to empty (never throws) on a read-only connector — mirrors fetchSyntheticWriteColumns.
+        Assertions.assertTrue(pluginTable(Collections.singletonList(SYNTHETIC), false, true)
+                .getSyntheticWriteColumns().isEmpty());
+    }
+
+    @Test
     public void getFullSchemaDegradesWhenWriteProviderAbsent() {
         // MUTATION: dropping the null-write-provider guard throws NPE here — a read-only connector
         // (getWritePlanProvider()==null) must degrade to the base schema, never fail schema resolution.
@@ -457,25 +479,6 @@ public class PluginDrivenExternalTableTest {
         // The marker is capability-specific: an auto-analyze marker must NOT enable Top-N.
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeMarker).supportsTopNLazyMaterialize());
-    }
-
-    @Test
-    public void supportsMetadataTableReflectsConnectorCapability() {
-        // The hudi_meta() / TIMELINE TVF's plugin arm gates on this. Hudi declares it connector-wide; the hive
-        // gateway reflects it onto a hudi-on-HMS table via the per-table marker (both resolved by hasScanCapability).
-        // MUTATION: hard-coding it / reading a different capability -> a flipped hudi table's hudi_meta() rejects
-        // with "not a hudi table".
-        Assertions.assertTrue(pluginTableWithCapabilities(
-                EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)).supportsMetadataTable());
-        Assertions.assertTrue(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class),
-                Collections.singletonMap(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                        ConnectorCapability.SUPPORTS_METADATA_TABLE.name())).supportsMetadataTable());
-        Assertions.assertFalse(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class)).supportsMetadataTable());
-        // Independent of the other capabilities: declaring metadata-table must NOT enable auto-analyze.
-        Assertions.assertFalse(pluginTableWithCapabilities(
-                EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)).supportsColumnAutoAnalyze());
     }
 
     @Test

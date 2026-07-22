@@ -307,8 +307,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         });
 
         getPartitionTableInfo().validatePartitionInfo(
-                getEngineName(),
-                columns,
                 columnMap,
                 properties,
                 ctx,

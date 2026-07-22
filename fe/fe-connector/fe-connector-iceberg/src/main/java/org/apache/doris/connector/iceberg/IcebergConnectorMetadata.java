@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.ConnectorSortField;
 import org.apache.doris.connector.api.ddl.DropRefChange;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
@@ -82,6 +83,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Predicate;
 
 /**
@@ -912,7 +915,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        rejectDistribution(request);
         rejectReservedRowLineageColumns(request);
+        validateSortOrder(request);
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
@@ -956,6 +961,68 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         + " table with reserved row lineage column: " + name);
             }
         }
+    }
+
+    /**
+     * Rejects a {@code DISTRIBUTE BY} clause: iceberg has no hash/random distribution, buckets are expressed via
+     * {@code bucket(num, column)} inside {@code PARTITIONED BY}. Moved off fe-core {@code CreateTableInfo.validate}
+     * — the connector owns the iceberg DDL rule. {@code request.getBucketSpec() != null} iff the user wrote
+     * {@code DISTRIBUTE BY}. Message kept byte-identical to the former fe-core wording.
+     */
+    // package-private for unit test; reached only via createTable() in production.
+    void rejectDistribution(ConnectorCreateTableRequest request) {
+        if (request.getBucketSpec() != null) {
+            throw new DorisConnectorException("Iceberg doesn't support 'DISTRIBUTE BY', "
+                    + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
+        }
+    }
+
+    /**
+     * Validates the create-time write sort order ({@code CREATE TABLE ... ORDER BY (...)}) against the request
+     * columns: every sort column must exist, be a sortable (non metric-only) type, and appear at most once. Moved
+     * off fe-core {@code CreateTableInfo.validateIcebergSortOrder} — the iceberg connector owns this now that it is
+     * the sole {@code SUPPORTS_SORT_ORDER} declarer (fe-core rejects a sort order on any non-declaring engine up
+     * front). Runs BEFORE {@link IcebergSchemaBuilder#buildSchema} so a bad sort column surfaces this message
+     * rather than a downstream schema-build error. Existence + duplicate checks are case-insensitive, mirroring the
+     * former fe-core {@code CASE_INSENSITIVE_ORDER} maps.
+     */
+    // package-private for unit test; reached only via createTable() in production.
+    void validateSortOrder(ConnectorCreateTableRequest request) {
+        List<ConnectorSortField> sortOrder = request.getSortOrder();
+        if (sortOrder == null || sortOrder.isEmpty()) {
+            return;
+        }
+        Map<String, ConnectorColumn> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (ConnectorColumn column : request.getColumns()) {
+            columnMap.put(column.getName(), column);
+        }
+        for (ConnectorSortField field : sortOrder) {
+            String sortCol = field.getColumnName();
+            ConnectorColumn column = columnMap.get(sortCol);
+            if (column == null) {
+                throw new DorisConnectorException("Sort order column '" + sortCol + "' does not exist in table");
+            }
+            String typeName = column.getType().getTypeName();
+            if (isMetricOnlyType(typeName)) {
+                throw new DorisConnectorException("Sort order column '" + sortCol
+                        + "' has unsupported type: " + typeName);
+            }
+        }
+        Set<String> sortColSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (ConnectorSortField field : sortOrder) {
+            if (!sortColSet.add(field.getColumnName())) {
+                throw new DorisConnectorException("Duplicate sort order column: " + field.getColumnName());
+            }
+        }
+    }
+
+    // Mirrors fe-core DataType.isOnlyMetricType(): HLL / BITMAP / QUANTILE_STATE cannot be sorted. These types are
+    // not representable in an iceberg table, so this is a defensive parity check reached only if such a column ever
+    // reaches createTable ahead of the schema builder.
+    private static boolean isMetricOnlyType(String typeName) {
+        return "HLL".equalsIgnoreCase(typeName)
+                || "BITMAP".equalsIgnoreCase(typeName)
+                || "QUANTILE_STATE".equalsIgnoreCase(typeName);
     }
 
     /**

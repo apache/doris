@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -33,6 +37,9 @@ import java.util.Set;
  * half was removed together with its dead legacy callers).
  */
 public class RowLevelDmlRowIdUtilsTest {
+
+    private static final Column ROW_ID_COLUMN =
+            new Column(Column.ICEBERG_ROWID_COL, ScalarType.createStringType());
 
     // ==================== isRowIdInjectionTarget (row-id injection guard) ====================
 
@@ -96,5 +103,42 @@ public class RowLevelDmlRowIdUtilsTest {
         Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(EnumSet.noneOf(WriteOperation.class));
 
         Assertions.assertFalse(RowLevelDmlRowIdUtils.isRowIdInjectionTarget(table));
+    }
+
+    // ==================== getRowIdColumn (connector-sourced row-id identity) ====================
+
+    @Test
+    public void getRowIdColumnPrefersFullSchemaColumn() {
+        // Happy path: the connector-appended row-id column is already in getFullSchema() (gated append ran), so
+        // it is returned directly and the ungated connector accessor is never consulted.
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.singletonList(ROW_ID_COLUMN));
+
+        Assertions.assertSame(ROW_ID_COLUMN, RowLevelDmlRowIdUtils.getRowIdColumn(table));
+        Mockito.verify(table, Mockito.never()).getSyntheticWriteColumns();
+    }
+
+    @Test
+    public void getRowIdColumnFallsBackToConnectorSyntheticColumns() {
+        // Gated append off (full schema lacks the row-id): source the identity from the connector's declared
+        // synthetic write columns rather than reconstructing the STRUCT in fe-core. MUTATION: deleting the
+        // fallback branch reddens this (the throw would fire instead).
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(table.getSyntheticWriteColumns()).thenReturn(Collections.singletonList(ROW_ID_COLUMN));
+
+        Assertions.assertSame(ROW_ID_COLUMN, RowLevelDmlRowIdUtils.getRowIdColumn(table));
+    }
+
+    @Test
+    public void getRowIdColumnThrowsWhenConnectorDeclaresNoRowId() {
+        // Fail loud: neither the full schema nor the connector declares the row-id column (dropped / unresolvable
+        // handle) — better than the old silent fe-core-hardcoded fallback, which manufactured a column that would
+        // fail later at the sink.
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(table.getSyntheticWriteColumns()).thenReturn(Collections.emptyList());
+
+        Assertions.assertThrows(AnalysisException.class, () -> RowLevelDmlRowIdUtils.getRowIdColumn(table));
     }
 }

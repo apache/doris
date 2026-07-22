@@ -39,9 +39,10 @@ import java.util.concurrent.Callable;
 /**
  * Generic shell for row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against external tables.
  *
- * <p>Owns the single live planner-drive loop that was triplicated across {@code IcebergDeleteCommand},
- * {@code IcebergUpdateCommand} and {@code IcebergMergeCommand}: the per-operation points (mode check, plan
- * synthesis, required sink, executor factory, label prefix, conflict-detection wiring, finalize) are routed
+ * <p>Owns the single live planner-drive loop that was triplicated across {@code ExternalRowLevelDeletePlanBuilder},
+ * {@code ExternalRowLevelUpdatePlanBuilder} and {@code ExternalRowLevelMergePlanBuilder}: the per-operation
+ * points (mode check, plan synthesis, required sink, executor factory, label prefix, conflict-detection
+ * wiring, finalize) are routed
  * through a {@link RowLevelDmlTransform} resolved from {@link RowLevelDmlRegistry}. The dispatching commands
  * ({@code UpdateCommand}/{@code DeleteFromCommand}/{@code MergeIntoCommand}) delegate here once a transform is
  * found, so the reverse {@code instanceof} dispatch is consolidated into the registry.</p>
@@ -63,8 +64,9 @@ public class RowLevelDmlCommand {
     }
 
     /**
-     * Execute the row-level DML. Mirrors legacy {@code IcebergDeleteCommand.run} /
-     * {@code IcebergUpdateCommand.executeMergePlan} / {@code IcebergMergeCommand.executeMergePlan} step-for-step;
+     * Execute the row-level DML. Mirrors the per-op plan builders
+     * ({@code ExternalRowLevelDeletePlanBuilder} / {@code ExternalRowLevelUpdatePlanBuilder} /
+     * {@code ExternalRowLevelMergePlanBuilder}) step-for-step;
      * the four divergences (required sink, label prefix, executor + finalize, result) are parameterized by op.
      */
     public void run(ConnectContext ctx, StmtExecutor stmtExecutor) throws Exception {
@@ -145,7 +147,7 @@ public class RowLevelDmlCommand {
     }
 
     /**
-     * O5-2 new write-constraint path. Dormant until P6.6: only fires when the executor exposes an SPI
+     * Write-constraint path: only fires when the executor exposes an SPI
      * {@link ConnectorTransaction}. Today iceberg DELETE/MERGE run on the legacy {@code IcebergTransaction}
      * (the base {@code getConnectorTransactionOrNull()} returns {@code null}), so this is a no-op; the legacy
      * 3-hop conflict-detection path ({@link RowLevelDmlTransform#setupConflictDetection}) remains the live one.
