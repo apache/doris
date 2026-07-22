@@ -267,6 +267,12 @@ under the License.
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- oshi: used by HardwareInfoController. Previously satisfied only transitively via
+             io.trino:trino-main (now off fe-core's classpath); declared explicitly here. -->
+        <dependency>
+            <groupId>com.github.oshi</groupId>
+            <artifactId>oshi-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
@@ -658,13 +664,20 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- @SuppressModernizer in TestEvictableCache (a Trino-derived test). Previously satisfied only
+             transitively via io.trino:trino-main (now off fe-core's classpath); declared explicitly. -->
+        <dependency>
+            <groupId>org.gaul</groupId>
+            <artifactId>modernizer-maven-annotations</artifactId>
+            <version>2.7.0</version>
+            <scope>test</scope>
+        </dependency>
         <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
              (e.g. Long2ObjectOpenHashMap). This used to need a maven-shade-plugin execution that
              bundled it into doris-fe.jar (pinned first on the FE classpath by bin/start_fe.sh),
              because hive-catalog-shade bundled an ancient unrelocated fastutil (6.5.6) whose
              Long2ObjectOpenHashMap lacks computeIfAbsent. That jar is gone, so the override is
-             gone with it. A full fastutil (via fe-common -> trino-main) still shares the
-             classpath, but it carries the same API, so either copy is correct. -->
+             gone with it, so fe-core declares fastutil-core directly below. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>

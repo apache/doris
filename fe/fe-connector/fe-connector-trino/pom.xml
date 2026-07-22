@@ -61,10 +61,11 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
-        <!-- fe-common for shared types (TrinoColumnMetadata) -->
+        <!-- Shared Trino plugin bootstrap types (TrinoColumnMetadata, TrinoConnectorPluginManager,
+             TrinoConnectorServicesProvider), moved out of fe-common so fe-common no longer needs trino. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-common</artifactId>
+            <artifactId>fe-trino-connector-common</artifactId>
             <version>${project.version}</version>
         </dependency>
 
