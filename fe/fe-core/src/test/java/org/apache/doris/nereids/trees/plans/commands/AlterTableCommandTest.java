@@ -308,19 +308,23 @@ public class AlterTableCommandTest {
     }
 
     @Test
-    void testRejectCompoundNestedIcebergColumnOperations() throws AnalysisException {
+    void testRejectCompoundIcebergColumnOperations() throws AnalysisException {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(
                 "ALTER TABLE t ADD COLUMN s.good INT NULL, DROP COLUMN m.value.x",
-                "ALTER TABLE t MODIFY COLUMN c COMMENT 'new comment', ADD COLUMN d INT NULL")) {
+                "ALTER TABLE t MODIFY COLUMN c COMMENT 'new comment', ADD COLUMN d INT NULL",
+                "ALTER TABLE t ADD COLUMN c INT NULL, DROP COLUMN d",
+                "ALTER TABLE t RENAME COLUMN c TO c2, RENAME COLUMN d TO d2",
+                "ALTER TABLE t MODIFY COLUMN c COMMENT 'c', MODIFY COLUMN d COMMENT 'd'",
+                "ALTER TABLE t ORDER BY (c, d), ORDER BY (d, c)")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
-                    .contains("Multiple Iceberg column operations are not supported"));
+                    .contains("Multiple Iceberg ALTER clauses are not supported"));
         }
 
         AlterTableCommand.checkColumnOperationsSupported(table,
-                parseAlter("ALTER TABLE t ADD COLUMN c INT NULL, DROP COLUMN d").getOps());
+                parseAlter("ALTER TABLE t ADD COLUMN (c1 INT NULL, c2 BIGINT NULL)").getOps());
     }
 
     @Test

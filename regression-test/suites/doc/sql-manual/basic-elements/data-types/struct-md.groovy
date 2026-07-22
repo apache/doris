@@ -184,7 +184,7 @@ suite("struct-md", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Aggregate type SUM is not compatible with primitive type STRUCT<`id`:INT,`name`:TEXT>"
+        exception "Aggregate type SUM is not compatible with primitive type STRUCT<id:INT,name:TEXT>"
     }
 
     test{
@@ -200,7 +200,7 @@ suite("struct-md", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Aggregate type MIN is not compatible with primitive type STRUCT<`id`:INT,`name`:TEXT>"
+        exception "Aggregate type MIN is not compatible with primitive type STRUCT<id:INT,name:TEXT>"
     }
 
     test {
@@ -216,7 +216,7 @@ suite("struct-md", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Aggregate type MAX is not compatible with primitive type STRUCT<`id`:INT,`name`:TEXT>"
+        exception "Aggregate type MAX is not compatible with primitive type STRUCT<id:INT,name:TEXT>"
     }
 
     test {
@@ -232,7 +232,7 @@ suite("struct-md", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Aggregate type HLL_UNION is not compatible with primitive type STRUCT<`id`:INT,`name`:TEXT>"
+        exception "Aggregate type HLL_UNION is not compatible with primitive type STRUCT<id:INT,name:TEXT>"
     }
 
     test {
@@ -248,7 +248,7 @@ suite("struct-md", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Aggregate type BITMAP_UNION is not compatible with primitive type STRUCT<`id`:INT,`name`:TEXT>"
+        exception "Aggregate type BITMAP_UNION is not compatible with primitive type STRUCT<id:INT,name:TEXT>"
     }
      
     test {
@@ -264,7 +264,7 @@ suite("struct-md", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Aggregate type QUANTILE_UNION is not compatible with primitive type STRUCT<`id`:INT,`name`:TEXT>"
+        exception "Aggregate type QUANTILE_UNION is not compatible with primitive type STRUCT<id:INT,name:TEXT>"
     }
 
     test {

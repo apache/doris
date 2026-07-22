@@ -188,10 +188,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             return;
         }
         for (AlterTableOp alterTableOp : alterTableOps) {
-            if (getNestedColumnPath(alterTableOp) != null
-                    || alterTableOp instanceof ModifyColumnCommentOp) {
-                throw new AnalysisException("Multiple Iceberg column operations are not supported when a statement "
-                        + "contains a nested column path or MODIFY COLUMN COMMENT");
+            if (isIcebergColumnSchemaOperation(alterTableOp)) {
+                throw new AnalysisException("Multiple Iceberg ALTER clauses are not supported when a statement "
+                        + "contains a column operation");
             }
         }
     }
@@ -226,7 +225,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         return alterTableOp instanceof AddColumnOp
                 || alterTableOp instanceof AddColumnsOp
                 || alterTableOp instanceof DropColumnOp
+                || alterTableOp instanceof RenameColumnOp
                 || alterTableOp instanceof ModifyColumnOp
+                || alterTableOp instanceof ModifyColumnCommentOp
                 || alterTableOp instanceof ReorderColumnsOp;
     }
 
