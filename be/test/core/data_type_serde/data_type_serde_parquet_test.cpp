@@ -158,6 +158,27 @@ TEST(DataTypeSerDeParquetTest, MaterializesLogicalUnsignedIntegersDirectly) {
     EXPECT_EQ(data[2], 7);
 }
 
+TEST(DataTypeSerDeParquetTest, NonStrictNarrowUnsignedIntegersPreserveBitWidthCompatibility) {
+    TestParquetDecodeSource source;
+    source.set_fixed_values<int32_t>(
+            {0, 255, 32767, 65535, std::numeric_limits<int32_t>::max(), -1});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .logical_type = ParquetLogicalType::INTEGER,
+                                  .logical_integer_bit_width = 8,
+                                  .logical_integer_is_signed = false};
+    IColumn::Filter null_map(6, 0);
+    ParquetMaterializationState state;
+    state.conversion_failure_null_map = &null_map;
+    DataTypeInt16 type;
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 6, state).ok());
+    const auto& data = assert_cast<const ColumnInt16&>(*column).get_data();
+    EXPECT_EQ(data, (ColumnInt16::Container {0, 255, 255, 255, 255, 255}));
+    EXPECT_EQ(null_map, IColumn::Filter(6, 0));
+}
+
 TEST(DataTypeSerDeParquetTest, LogicalIntegerRejectsOutOfRangePhysicalCarrier) {
     TestParquetDecodeSource source;
     source.set_fixed_values<int32_t>({1000});
@@ -166,6 +187,7 @@ TEST(DataTypeSerDeParquetTest, LogicalIntegerRejectsOutOfRangePhysicalCarrier) {
                                   .logical_integer_bit_width = 8,
                                   .logical_integer_is_signed = true};
     ParquetMaterializationState state;
+    state.enable_strict_mode = true;
     DataTypeInt8 type;
     auto column = type.create_column();
 
@@ -175,7 +197,7 @@ TEST(DataTypeSerDeParquetTest, LogicalIntegerRejectsOutOfRangePhysicalCarrier) {
     EXPECT_EQ(column->size(), 0);
 }
 
-TEST(DataTypeSerDeParquetTest, LogicalIntegerDictionaryCarrierOverflowBecomesNull) {
+TEST(DataTypeSerDeParquetTest, NonStrictLogicalIntegerDictionaryPreservesBitWidthCompatibility) {
     const int32_t overflow = 1000;
     std::vector<uint8_t> dictionary(sizeof(overflow));
     memcpy(dictionary.data(), &overflow, sizeof(overflow));
@@ -195,7 +217,9 @@ TEST(DataTypeSerDeParquetTest, LogicalIntegerDictionaryCarrierOverflowBecomesNul
     ASSERT_TRUE(
             type.get_serde()->read_column_from_parquet(*column, source, context, 2, state).ok());
     EXPECT_EQ(column->size(), 2);
-    EXPECT_EQ(null_map, IColumn::Filter({1, 1}));
+    EXPECT_EQ(assert_cast<const ColumnInt8&>(*column).get_data(),
+              (ColumnInt8::Container {-24, -24}));
+    EXPECT_EQ(null_map, IColumn::Filter({0, 0}));
 }
 
 TEST(DataTypeSerDeParquetTest, MaterializesFloat16Directly) {

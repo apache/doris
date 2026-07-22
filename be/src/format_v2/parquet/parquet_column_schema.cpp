@@ -58,6 +58,7 @@ void fill_native_type_descriptor(const NativeFieldSchema& field, ParquetTypeDesc
     DORIS_CHECK(result != nullptr);
     const auto& schema = field.parquet_schema;
     result->doris_type = field.data_type;
+    result->unsupported_reason = field.unsupported_reason;
     result->physical_type = static_cast<tparquet::Type::type>(field.physical_type);
     result->fixed_length = schema.__isset.type_length ? schema.type_length : -1;
     if (schema.__isset.logicalType) {

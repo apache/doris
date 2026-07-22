@@ -47,6 +47,9 @@ struct NativeFieldSchema {
 
     // Used to identify whether this field is a nested field.
     DataTypePtr data_type;
+    // Schema construction keeps a physical fallback so unprojected columns and metadata-only
+    // queries remain readable, while projection validation reports the original logical failure.
+    std::string unsupported_reason;
 
     // Only valid when this field is a leaf node
     tparquet::Type::type physical_type;

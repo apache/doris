@@ -133,11 +133,14 @@ public:
     // Whether the chunk reader has a more page to read.
     bool has_next_page() const {
         if constexpr (OFFSET_INDEX) {
-            return _page_reader->has_next_page();
-        } else {
-            // no offset need parse all page header.
-            return _chunk_parsed_values < _metadata.num_values;
+            if (_page_reader->has_active_offset_index()) {
+                return _page_reader->has_next_page();
+            }
         }
+        // A nested V1 page can invalidate its offset index after initialization. In that mode the
+        // validated byte range may contain writer padding, so logical values—not remaining bytes—
+        // are the authoritative chunk boundary.
+        return _chunk_parsed_values < _metadata.num_values;
     }
 
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.

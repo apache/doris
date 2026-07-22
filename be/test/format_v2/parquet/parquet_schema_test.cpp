@@ -125,6 +125,55 @@ TEST(ParquetSchemaTest, NativeLogicalUtcTimeIsDeferredToProjectionValidation) {
               "Parquet TIME with isAdjustedToUTC=true is not supported");
 }
 
+TEST(ParquetSchemaTest, NativeOversizedByteArrayDecimalIsDeferredToProjectionValidation) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement decimal;
+    decimal.__set_name("decimal_77");
+    decimal.__set_type(tparquet::Type::BYTE_ARRAY);
+    decimal.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    decimal.__set_logicalType(tparquet::LogicalType());
+    decimal.logicalType.__set_DECIMAL(tparquet::DecimalType());
+    decimal.logicalType.DECIMAL.__set_precision(77);
+    decimal.logicalType.DECIMAL.__set_scale(2);
+
+    NativeFieldDescriptor native_schema;
+    ASSERT_TRUE(native_schema.parse_from_thrift({root, decimal}).ok());
+    native_schema.assign_ids();
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(native_schema, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_TRUE(fields[0]->type_descriptor.is_decimal);
+    EXPECT_FALSE(fields[0]->type_descriptor.unsupported_reason.empty());
+    EXPECT_NE(fields[0]->type_descriptor.unsupported_reason.find("precision 77"),
+              std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeUnknownLogicalTypeRetainsPhysicalFallback) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement interval;
+    interval.__set_name("duration");
+    interval.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    interval.__set_type_length(12);
+    interval.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    interval.__set_logicalType(tparquet::LogicalType());
+    interval.__set_converted_type(tparquet::ConvertedType::INTERVAL);
+
+    NativeFieldDescriptor native_schema;
+    ASSERT_TRUE(native_schema.parse_from_thrift({root, interval}).ok());
+    native_schema.assign_ids();
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(native_schema, &fields).ok());
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_TRUE(fields[0]->type_descriptor.unsupported_reason.empty());
+    EXPECT_EQ(fields[0]->type_descriptor.doris_type->get_primitive_type(), TYPE_STRING);
+}
+
 TEST(ParquetSchemaTest, NativeGroupPrimitiveLogicalTypesAreRejected) {
     tparquet::SchemaElement root;
     root.__set_name("schema");
@@ -172,7 +221,12 @@ TEST(ParquetSchemaTest, NativeGroupPrimitiveLogicalTypesAreRejected) {
         group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
         group.__set_logicalType(logical_type);
         NativeFieldDescriptor native_schema;
-        EXPECT_FALSE(native_schema.parse_from_thrift({root, group, child}).ok());
+        const auto status = native_schema.parse_from_thrift({root, group, child});
+        EXPECT_FALSE(status.ok());
+        if (name == "ENUM") {
+            EXPECT_NE(status.to_string().find("Logical type Enum cannot be applied to group node"),
+                      std::string::npos);
+        }
     }
 
     for (const auto converted_type :

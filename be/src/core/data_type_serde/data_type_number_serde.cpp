@@ -180,7 +180,10 @@ Status read_logical_integer_decoded_values_as(IColumn& column, const DecodedColu
             continue;
         }
         const auto physical_value = values[row];
-        if (!parquet_logical_integer_carrier_fits<SourceType, LogicalType>(physical_value)) {
+        // Predicate decoding must match permissive materialization: annotated narrow integers use
+        // their declared bit width unless strict metadata validation explicitly requests rejection.
+        if (view.enable_strict_mode &&
+            !parquet_logical_integer_carrier_fits<SourceType, LogicalType>(physical_value)) {
             if (decoded_column_view_can_null_on_conversion_failure(view)) {
                 decoded_column_view_insert_null_on_conversion_failure(column, view, row);
                 continue;
@@ -302,7 +305,10 @@ Status append_parquet_logical_integers(PaddedPODArray<DorisCppType>& data, const
     }
     for (size_t row = 0; row < num_values; ++row) {
         const auto physical_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
-        if (!parquet_logical_integer_carrier_fits<SourceType, LogicalType>(physical_value)) {
+        // Permissive scans preserve the long-standing bit-width interpretation of annotated
+        // carriers; strict scans still reject malformed physical values before narrowing.
+        if ((state == nullptr || state->enable_strict_mode) &&
+            !parquet_logical_integer_carrier_fits<SourceType, LogicalType>(physical_value)) {
             if (state != nullptr && state->can_insert_null_on_conversion_failure()) {
                 data[old_size + row] = DorisCppType();
                 DORIS_CHECK(state->mark_conversion_failure(old_size + row));

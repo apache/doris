@@ -1077,6 +1077,30 @@ bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
     }
     const auto min_value = unaligned_load<ValueType>(column_index.min_values[page_idx].data());
     const auto max_value = unaligned_load<ValueType>(column_index.max_values[page_idx].data());
+    if constexpr (std::is_integral_v<ValueType>) {
+        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_TIMEV2) {
+            int64_t units_per_day = 0;
+            switch (column_schema.type_descriptor.time_unit) {
+            case ParquetTimeUnit::MILLIS:
+                units_per_day = 86400000;
+                break;
+            case ParquetTimeUnit::MICROS:
+                units_per_day = 86400000000;
+                break;
+            case ParquetTimeUnit::NANOS:
+                units_per_day = 86400000000000;
+                break;
+            default:
+                return false;
+            }
+            // TIME statistics are pruning proofs. Validate the raw carrier before rescaling so an
+            // invalid bound at or beyond 24:00 cannot publish a misleading ZoneMap.
+            if (min_value < 0 || max_value < 0 || min_value >= units_per_day ||
+                max_value >= units_per_day) {
+                return false;
+            }
+        }
+    }
     if constexpr (std::is_same_v<ValueType, int64_t>) {
         if (!timestamp_min_max_is_safe(column_schema, min_value, max_value, timezone)) {
             return false;
@@ -1087,6 +1111,34 @@ bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
     }
     if (!set_decoded_field(column_schema, kind, min_value, &page_statistics->min_value, timezone) ||
         !set_decoded_field(column_schema, kind, max_value, &page_statistics->max_value, timezone)) {
+        return false;
+    }
+    if (decoded_min_max_is_ordered(*page_statistics)) {
+        page_statistics->has_min_max = true;
+    }
+    return true;
+}
+
+bool set_native_page_boolean_min_max(const tparquet::ColumnIndex& column_index,
+                                     const ParquetColumnSchema& column_schema, size_t page_idx,
+                                     ParquetColumnStatistics* page_statistics,
+                                     const cctz::time_zone* timezone) {
+    if (page_idx >= column_index.min_values.size() || page_idx >= column_index.max_values.size() ||
+        column_index.min_values[page_idx].size() != 1 ||
+        column_index.max_values[page_idx].size() != 1) {
+        return false;
+    }
+    // Parquet BOOLEAN statistics use the same one-bit value representation as PLAIN pages; bits
+    // outside the value bit are padding and must not change false into true.
+    const uint8_t min_value = static_cast<uint8_t>(column_index.min_values[page_idx][0]) & 1;
+    const uint8_t max_value = static_cast<uint8_t>(column_index.max_values[page_idx][0]) & 1;
+    if (!valid_min_max(min_value, max_value)) {
+        return true;
+    }
+    if (!set_decoded_field(column_schema, DecodedValueKind::BOOL, min_value,
+                           &page_statistics->min_value, timezone) ||
+        !set_decoded_field(column_schema, DecodedValueKind::BOOL, max_value,
+                           &page_statistics->max_value, timezone)) {
         return false;
     }
     if (decoded_min_max_is_ordered(*page_statistics)) {
@@ -1121,9 +1173,8 @@ bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
     }
     switch (column_schema.type_descriptor.physical_type) {
     case tparquet::Type::BOOLEAN:
-        return set_native_page_scalar_min_max<uint8_t>(column_index, column_schema, page_idx,
-                                                       DecodedValueKind::BOOL, page_statistics,
-                                                       timezone);
+        return set_native_page_boolean_min_max(column_index, column_schema, page_idx,
+                                               page_statistics, timezone);
     case tparquet::Type::INT32:
         return set_native_page_scalar_min_max<int32_t>(
                 column_index, column_schema, page_idx,

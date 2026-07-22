@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_time.h"
 #include "core/field.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr.h"
@@ -162,6 +163,38 @@ private:
     int32_t _value;
     const std::string _expr_name = "MetadataInt32GreaterThanExpr";
 };
+
+class MetadataBoundsProbeExpr final : public VExpr {
+public:
+    explicit MetadataBoundsProbeExpr(bool require_false_boolean = false)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _require_false_boolean(require_false_boolean) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("MetadataBoundsProbeExpr is metadata-only");
+    }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    void collect_slot_column_ids(std::set<int>& column_ids) const override { column_ids.insert(0); }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        const auto zone_map = ctx.zone_map(0);
+        if (zone_map == nullptr || !zone_map->has_not_null || zone_map->min_value.is_null() ||
+            zone_map->max_value.is_null()) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        if (_require_false_boolean &&
+            zone_map->min_value == Field::create_field<TYPE_BOOLEAN>(false) &&
+            zone_map->max_value == Field::create_field<TYPE_BOOLEAN>(false)) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        return ZoneMapFilterResult::kNoMatch;
+    }
+
+private:
+    bool _require_false_boolean;
+    const std::string _expr_name = "MetadataBoundsProbeExpr";
+};
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
             std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
@@ -223,6 +256,110 @@ TEST(NativeParquetStatisticsTest, InvalidNullableDecimalBoundsDisableMinMax) {
     const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
             column_schema, &statistics, 1, nullptr);
     EXPECT_FALSE(result.has_min_max);
+}
+
+TEST(NativeParquetStatisticsTest, InvalidTimeBoundsDisableFooterMinMax) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeTimeV2>(3);
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
+    column_schema.type_descriptor.time_unit = format::parquet::ParquetTimeUnit::MILLIS;
+
+    const int32_t invalid_time = 90000000;
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(
+            std::string(reinterpret_cast<const char*>(&invalid_time), sizeof(invalid_time)));
+    statistics.__set_max_value(
+            std::string(reinterpret_cast<const char*>(&invalid_time), sizeof(invalid_time)));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    EXPECT_FALSE(result.has_min_max);
+}
+
+TEST(NativeParquetStatisticsTest, BooleanFooterBoundsDecodeOnlyTheValueBit) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeUInt8>();
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::BOOLEAN;
+
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(std::string(1, '\x02'));
+    statistics.__set_max_value(std::string(1, '\x02'));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    ASSERT_TRUE(result.has_min_max);
+    EXPECT_EQ(result.min_value, Field::create_field<TYPE_BOOLEAN>(false));
+    EXPECT_EQ(result.max_value, Field::create_field<TYPE_BOOLEAN>(false));
+}
+
+TEST(NativeParquetStatisticsTest, InvalidTimeAndPaddedBooleanPageBoundsCannotPrune) {
+    auto run_page_index = [](std::unique_ptr<format::parquet::ParquetColumnSchema> column_schema,
+                             std::string min_value, std::string max_value,
+                             bool require_false_boolean) {
+        column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column_schema->local_id = 0;
+        column_schema->leaf_column_id = 0;
+        std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+        schema.push_back(std::move(column_schema));
+
+        tparquet::ColumnOrder order;
+        order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+        tparquet::FileMetaData metadata;
+        metadata.__set_column_orders({order});
+        format::FileScanRequest request;
+        request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+        request.predicate_columns = {format::LocalColumnIndex::top_level(format::LocalColumnId(0))};
+        request.conjuncts = {VExprContext::create_shared(
+                std::make_shared<MetadataBoundsProbeExpr>(require_false_boolean))};
+
+        format::parquet::NativeParquetPageIndex page_index;
+        page_index.column_index.__set_min_values({std::move(min_value)});
+        page_index.column_index.__set_max_values({std::move(max_value)});
+        page_index.column_index.__set_null_pages({false});
+        page_index.column_index.__set_null_counts({0});
+        tparquet::PageLocation location;
+        location.__set_offset(0);
+        location.__set_compressed_page_size(10);
+        location.__set_first_row_index(0);
+        page_index.offset_index.__set_page_locations({location});
+        std::unordered_map<int, format::parquet::NativeParquetPageIndex> page_indexes;
+        page_indexes.emplace(0, std::move(page_index));
+        std::vector<format::parquet::RowRange> selected_ranges;
+        std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
+        EXPECT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, page_indexes, schema, request, 1, &selected_ranges,
+                            &skip_plans, nullptr)
+                            .ok());
+        return selected_ranges;
+    };
+
+    auto time_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    time_schema->type = std::make_shared<DataTypeTimeV2>(3);
+    time_schema->type_descriptor.doris_type = time_schema->type;
+    time_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+    time_schema->type_descriptor.time_unit = format::parquet::ParquetTimeUnit::MILLIS;
+    const int32_t invalid_time = 90000000;
+    const std::string invalid_time_bytes(reinterpret_cast<const char*>(&invalid_time),
+                                         sizeof(invalid_time));
+    const auto time_ranges =
+            run_page_index(std::move(time_schema), invalid_time_bytes, invalid_time_bytes, false);
+    ASSERT_EQ(time_ranges.size(), 1);
+    EXPECT_EQ(time_ranges[0].start, 0);
+    EXPECT_EQ(time_ranges[0].length, 1);
+
+    auto bool_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+    bool_schema->type = std::make_shared<DataTypeUInt8>();
+    bool_schema->type_descriptor.doris_type = bool_schema->type;
+    bool_schema->type_descriptor.physical_type = tparquet::Type::BOOLEAN;
+    const auto bool_ranges = run_page_index(std::move(bool_schema), std::string(1, '\x02'),
+                                            std::string(1, '\x02'), true);
+    ASSERT_EQ(bool_ranges.size(), 1);
+    EXPECT_EQ(bool_ranges[0].start, 0);
+    EXPECT_EQ(bool_ranges[0].length, 1);
 }
 TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
     const auto column_schema = uint32_parquet_bloom_schema();

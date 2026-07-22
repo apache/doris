@@ -305,7 +305,26 @@ void NativeFieldDescriptor::parse_physical_field(const tparquet::SchemaElement& 
     physical_field->column_id = NATIVE_UNASSIGNED_COLUMN_ID; // Initialize column_id
     _physical_fields.push_back(physical_field);
     physical_field->physical_column_index = cast_set<int>(_physical_fields.size() - 1);
-    auto type = get_doris_type(physical_schema, is_nullable);
+    std::pair<DataTypePtr, bool> type;
+    try {
+        type = get_doris_type(physical_schema, is_nullable);
+    } catch (const Exception& e) {
+        const bool is_decimal =
+                (physical_schema.__isset.logicalType &&
+                 physical_schema.logicalType.__isset.DECIMAL) ||
+                (physical_schema.__isset.converted_type &&
+                 physical_schema.converted_type == tparquet::ConvertedType::DECIMAL);
+        // DECIMAL conversion failures carry precision/scale semantics that must not be erased by
+        // a raw-byte fallback. Other unknown annotations intentionally retain the established
+        // physical fallback, including legacy INTERVAL footers and forward-compatible types.
+        if (is_decimal) {
+            physical_field->unsupported_reason = e.what();
+        }
+        auto fallback_schema = physical_schema;
+        fallback_schema.__isset.logicalType = false;
+        fallback_schema.__isset.converted_type = false;
+        type = get_doris_type(fallback_schema, is_nullable);
+    }
     physical_field->data_type = type.first;
     physical_field->is_type_compatibility = type.second;
     physical_field->field_id = physical_schema.__isset.field_id ? physical_schema.field_id : -1;
@@ -314,15 +333,10 @@ void NativeFieldDescriptor::parse_physical_field(const tparquet::SchemaElement& 
 std::pair<DataTypePtr, bool> NativeFieldDescriptor::get_doris_type(
         const tparquet::SchemaElement& physical_schema, bool nullable) {
     std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
-    try {
-        if (physical_schema.__isset.logicalType) {
-            ans = convert_to_doris_type(physical_schema.logicalType, nullable);
-        } else if (physical_schema.__isset.converted_type) {
-            ans = convert_to_doris_type(physical_schema, nullable);
-        }
-    } catch (...) {
-        // now the Not supported exception are ignored
-        // so those byte_array maybe be treated as varbinary(now) : string(before)
+    if (physical_schema.__isset.logicalType) {
+        ans = convert_to_doris_type(physical_schema.logicalType, nullable);
+    } else if (physical_schema.__isset.converted_type) {
+        ans = convert_to_doris_type(physical_schema, nullable);
     }
     if (ans.first->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
         switch (physical_schema.type) {
@@ -507,6 +521,14 @@ Status NativeFieldDescriptor::parse_group_field(
         const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
         NativeFieldSchema* group_field) {
     auto& group_schema = t_schemas[curr_pos];
+    if ((group_schema.__isset.logicalType && group_schema.logicalType.__isset.ENUM) ||
+        (group_schema.__isset.converted_type &&
+         group_schema.converted_type == tparquet::ConvertedType::ENUM)) {
+        // Preserve the established diagnostic used by compatibility tests and clients while the
+        // generic branch below handles every other primitive-only group annotation.
+        return Status::InvalidArgument("Logical type Enum cannot be applied to group node {}",
+                                       group_schema.name);
+    }
     if (has_primitive_only_annotation(group_schema)) {
         // Primitive annotations cannot change a group into a scalar. Reject them here instead of
         // silently interpreting malformed metadata as an ordinary STRUCT.

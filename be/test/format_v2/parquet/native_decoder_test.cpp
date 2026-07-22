@@ -3245,6 +3245,53 @@ TEST(ParquetV2NativeDecoderTest, NestedV1IgnoresUnverifiableOffsetIndexRows) {
     EXPECT_EQ(levels, std::vector<level_t>({0, 1, 1}));
 }
 
+TEST(ParquetV2NativeDecoderTest, NestedV1DiscardedOffsetIndexStopsAtLogicalChunkEnd) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE;
+    const std::vector<uint8_t> payload {2, 0, 0, 0, 2, 0, 0, 0, 0, 0};
+    header.__set_compressed_page_size(payload.size());
+    header.__set_uncompressed_page_size(payload.size());
+    header.__isset.data_page_header = true;
+    header.data_page_header.__set_num_values(1);
+    header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    auto bytes = serialize_page(header, payload);
+    const size_t page_size = bytes.size();
+    // A compatibility reader may pad the validated physical range beyond the encoded chunk.
+    bytes.resize(page_size + 16, 0);
+
+    MemoryBufferedReader stream(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(page_size);
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.repetition_level = 1;
+    tparquet::OffsetIndex offset_index;
+    tparquet::PageLocation location;
+    location.__set_offset(0);
+    location.__set_compressed_page_size(page_size);
+    location.__set_first_row_index(0);
+    offset_index.__set_page_locations({location});
+    ColumnChunkRange padded_range {.offset = 0, .length = bytes.size()};
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<true, true> chunk_reader(&stream, &chunk, &field, &offset_index, 1, nullptr,
+                                               context, &padded_range);
+    ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.load_page_data().ok());
+    std::vector<level_t> levels;
+    size_t rows = 0;
+    bool cross_page = false;
+    ASSERT_TRUE(chunk_reader.load_page_nested_rows(levels, 1, &rows, &cross_page).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_FALSE(cross_page);
+    EXPECT_FALSE(chunk_reader.has_next_page());
+}
+
 TEST(ParquetV2NativeDecoderTest, HugeNestedPageCountsDoNotPreallocateFromHeaders) {
     for (auto page_type : {tparquet::PageType::DATA_PAGE, tparquet::PageType::DATA_PAGE_V2}) {
         tparquet::PageHeader header;
