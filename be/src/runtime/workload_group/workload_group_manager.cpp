@@ -231,16 +231,14 @@ void WorkloadGroupMgr::refresh_workload_group_memory_state() {
     for (auto& [wg_id, wg] : _workload_groups) {
         all_workload_groups_mem_usage += wg->refresh_memory_usage();
     }
-    if (all_workload_groups_mem_usage <= 0) {
-        return;
+    if (all_workload_groups_mem_usage > 0) {
+        std::string debug_msg = fmt::format(
+                "\nProcess Memory Summary: {}, {}, all workload groups memory usage: {}",
+                doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
+                doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
+                PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES));
+        LOG_EVERY_T(INFO, 60) << debug_msg;
     }
-
-    std::string debug_msg =
-            fmt::format("\nProcess Memory Summary: {}, {}, all workload groups memory usage: {}",
-                        doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
-                        doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
-                        PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES));
-    LOG_EVERY_T(INFO, 60) << debug_msg;
     for (auto& wg : _workload_groups) {
         update_queries_limit_(wg.second, false);
     }
