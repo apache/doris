@@ -495,6 +495,13 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
     RETURN_IF_ERROR(validate_residual_scan_conjuncts(state, p._push_down_agg_type, _conjuncts));
+    if (!_conjuncts.empty()) {
+        _ann_topn_runtime.reset();
+        // Keep ScoreRuntime to materialize score(), but do not pre-limit before residual filters.
+        if (_score_runtime) {
+            _score_runtime->disable_topn_prelimit();
+        }
+    }
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
     return Status::OK();
 }

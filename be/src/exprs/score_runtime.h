@@ -58,6 +58,7 @@ public:
 
     bool is_asc() const { return _asc; }
     size_t get_limit() const { return _limit; }
+    void disable_topn_prelimit() { _limit = 0; }
 
     // Score range filtering methods
     void set_score_range_info(TExprOpcode::type op, double threshold) {
@@ -71,7 +72,7 @@ public:
 private:
     VExprContextSPtr _order_by_expr_ctx;
     const bool _asc = false;
-    const size_t _limit = 0;
+    size_t _limit = 0;
 
     std::string _name = "score_runtime";
     size_t _dest_column_idx = -1;
