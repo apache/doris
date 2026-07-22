@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_decimal`(
+drop table if exists `multi_catalog.parquet_alter_column_to_decimal`;
+
+create table `multi_catalog.parquet_alter_column_to_decimal`(
   `col_int` decimal(5,1), 
   `col_smallint` decimal(5,1), 
   `col_tinyint` decimal(5,1), 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697217403', 
   'transient_lastDdlTime'='1697217403');
-
-msck repair table parquet_alter_column_to_decimal;
