@@ -36,7 +36,7 @@
 #include "core/field.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "format_v2/deletion_vector_reader.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/orc/orc_reader.h"
@@ -44,6 +44,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
+#include "util/debug_points.h"
 #include "util/url_coding.h"
 
 namespace doris::format::iceberg {
@@ -195,7 +196,7 @@ static std::string iceberg_params_debug_string(const std::optional<TIcebergFileD
         << (iceberg_params.__isset.delete_files
                     ? iceberg_delete_files_debug_string(iceberg_params.delete_files)
                     : "[]")
-        << "}";
+        << ", has_serialized_split=" << iceberg_params.__isset.serialized_split << "}";
     return out.str();
 }
 
@@ -232,25 +233,31 @@ Status IcebergTableReader::PositionDeleteRowsCollector::collect(const Block& blo
 }
 
 Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options) {
-    _row_lineage_columns = {};
-    _iceberg_params.reset();
-    _delete_predicates_initialized = false;
-    _position_delete_rows_storage.clear();
-    _equality_delete_filters.clear();
-    _split_cache = options.cache;
-    if (options.current_range.__isset.table_format_params &&
-        options.current_range.table_format_params.__isset.iceberg_params) {
-        const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
-        _iceberg_params = iceberg_params;
-        if (iceberg_params.__isset.first_row_id) {
-            _row_lineage_columns.first_row_id = iceberg_params.first_row_id;
-        }
-        if (iceberg_params.__isset.last_updated_sequence_number) {
-            _row_lineage_columns.last_updated_sequence_number =
-                    iceberg_params.last_updated_sequence_number;
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        _row_lineage_columns = {};
+        _iceberg_params.reset();
+        _delete_predicates_initialized = false;
+        _position_delete_rows_storage.clear();
+        _equality_delete_filters.clear();
+        _split_cache = options.cache;
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.__isset.iceberg_params) {
+            const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
+            _iceberg_params = iceberg_params;
+            if (iceberg_params.__isset.first_row_id) {
+                _row_lineage_columns.first_row_id = iceberg_params.first_row_id;
+            }
+            if (iceberg_params.__isset.last_updated_sequence_number) {
+                _row_lineage_columns.last_updated_sequence_number =
+                        iceberg_params.last_updated_sequence_number;
+            }
         }
     }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -262,6 +269,8 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
+    DBUG_EXECUTE_IF("IcebergTableReader.prepare_split.before_delete_file_scan",
+                    DBUG_RUN_CALLBACK());
     RETURN_IF_ERROR(_init_delete_predicates(options.current_range.table_format_params));
     return Status::OK();
 }
@@ -400,8 +409,7 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
     const std::string data_file_path = iceberg_params.__isset.original_file_path
                                                ? iceberg_params.original_file_path
                                                : _data_file_path();
-    desc->key = ::doris::format::build_iceberg_deletion_vector_cache_key(data_file_path,
-                                                                         *deletion_vector);
+    desc->key = build_iceberg_deletion_vector_cache_key(data_file_path, *deletion_vector);
     desc->path = deletion_vector->path;
     desc->start_offset = deletion_vector->content_offset;
     desc->size = static_cast<int64_t>(bytes_read);
@@ -650,10 +658,13 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
     std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
     const bool enable_mapping_timestamp_tz = scan_params.__isset.enable_mapping_timestamp_tz &&
                                              scan_params.enable_mapping_timestamp_tz;
+    const bool enable_mapping_varbinary =
+            scan_params.__isset.enable_mapping_varbinary && scan_params.enable_mapping_varbinary;
     if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
+        // Delete and data files must parse raw binary fields with the same scan-level mapping.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary);
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
                                                            io_ctx, _scanner_profile, std::nullopt,

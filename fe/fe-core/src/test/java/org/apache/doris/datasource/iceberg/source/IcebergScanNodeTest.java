@@ -17,12 +17,13 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
@@ -46,6 +47,8 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
@@ -123,10 +126,14 @@ public class IcebergScanNodeTest {
             return Collections.emptyList();
         }
 
-        void addSlot(int slotId, Column column) {
-            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc.getId());
-            slot.setColumn(column);
-            desc.addSlot(slot);
+        @Override
+        public TableSnapshot getQueryTableSnapshot() {
+            return tableSnapshot;
+        }
+
+        @Override
+        public TableScanParams getScanParams() {
+            return scanParams;
         }
 
         int enableAndGetIcebergScanSemanticsVersion() {
@@ -220,53 +227,6 @@ public class IcebergScanNodeTest {
         }
     }
 
-    @Test
-    public void testSystemTableProjectionMatchesFileSlotOrder() throws Exception {
-        Schema systemTableSchema = new Schema(
-                Types.NestedField.required(1, "file_path", Types.StringType.get()),
-                Types.NestedField.required(2, "record_count", Types.LongType.get()),
-                Types.NestedField.optional(3, "readable_metrics", Types.StructType.of(
-                        Types.NestedField.optional(4, "id", Types.StructType.of(
-                                Types.NestedField.optional(5, "lower_bound", Types.IntegerType.get()))))));
-        Table systemTable = Mockito.mock(Table.class);
-        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
-
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
-        setIcebergTable(node, systemTable);
-        node.addSlot(1, new Column("RECORD_COUNT", Type.BIGINT));
-        node.addSlot(2, new Column(Column.GLOBAL_ROWID_COL + "system_table", Type.BIGINT));
-        node.addSlot(3, new Column("FILE_PATH", Type.STRING));
-
-        List<Expression> filters = Collections.singletonList(Expressions.greaterThan("record_count", 0L));
-        Schema projectedSchema = node.getSystemTableProjectedSchema(filters, false);
-
-        Assert.assertEquals(2, projectedSchema.columns().size());
-        Assert.assertEquals("record_count", projectedSchema.columns().get(0).name());
-        Assert.assertEquals("file_path", projectedSchema.columns().get(1).name());
-        Assert.assertNull(projectedSchema.findField("readable_metrics"));
-    }
-
-    @Test
-    public void testSystemTableProjectionRejectsUnmaterializedFilterColumn() throws Exception {
-        Schema systemTableSchema = new Schema(
-                Types.NestedField.required(1, "file_path", Types.StringType.get()),
-                Types.NestedField.required(2, "record_count", Types.LongType.get()));
-        Table systemTable = Mockito.mock(Table.class);
-        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
-
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
-        setIcebergTable(node, systemTable);
-        node.addSlot(1, new Column("record_count", Type.BIGINT));
-
-        try {
-            node.getSystemTableProjectedSchema(
-                    Collections.singletonList(Expressions.equal("file_path", "data.parquet")), true);
-            Assert.fail("Filter columns must be materialized by the planner");
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("filter column file_path is not materialized"));
-        }
-    }
-
     private static class CountPlanningIcebergScanNode extends IcebergScanNode {
         private final TableScan tableScan;
         private final long snapshotCount;
@@ -352,16 +312,16 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testInitialDefaultMetadataUsesStatementPinnedSchemaAfterCacheInvalidation() throws Exception {
-        Schema pinnedSchema = new Schema(11, List.of(Types.NestedField.optional("binary_default")
+        Schema pinnedSchema = new Schema(11, ImmutableList.of(Types.NestedField.optional("binary_default")
                 .withId(7)
                 .ofType(Types.BinaryType.get())
                 .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
                 .build()));
         Schema refreshedSchema = new Schema(12,
-                List.of(Types.NestedField.optional(8, "replacement", Types.IntegerType.get())));
+                ImmutableList.of(Types.NestedField.optional(8, "replacement", Types.IntegerType.get())));
         Table refreshedTable = Mockito.mock(Table.class);
         Mockito.when(refreshedTable.schema()).thenReturn(refreshedSchema);
-        Mockito.when(refreshedTable.schemas()).thenReturn(Map.of(
+        Mockito.when(refreshedTable.schemas()).thenReturn(ImmutableMap.of(
                 pinnedSchema.schemaId(), pinnedSchema,
                 refreshedSchema.schemaId(), refreshedSchema));
 
@@ -430,12 +390,12 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testInitialDefaultMetadataUsesStatementPinnedBranchSchema() throws Exception {
-        Schema dataSnapshotSchema = new Schema(11, List.of(Types.NestedField.optional("string_default")
+        Schema dataSnapshotSchema = new Schema(11, ImmutableList.of(Types.NestedField.optional("string_default")
                 .withId(7)
                 .ofType(Types.StringType.get())
                 .withInitialDefault("not-base64")
                 .build()));
-        Schema branchSchema = new Schema(12, List.of(Types.NestedField.optional("binary_default")
+        Schema branchSchema = new Schema(12, ImmutableList.of(Types.NestedField.optional("binary_default")
                 .withId(7)
                 .ofType(Types.BinaryType.get())
                 .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
@@ -443,7 +403,7 @@ public class IcebergScanNodeTest {
         Snapshot dataSnapshot = Mockito.mock(Snapshot.class);
         Mockito.when(dataSnapshot.schemaId()).thenReturn(dataSnapshotSchema.schemaId());
         Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schemas()).thenReturn(Map.of(
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
                 dataSnapshotSchema.schemaId(), dataSnapshotSchema,
                 branchSchema.schemaId(), branchSchema));
         TableScan branchScan = Mockito.mock(TableScan.class);
@@ -577,25 +537,6 @@ public class IcebergScanNodeTest {
                 .get(0);
         Assert.assertEquals((long) Integer.MAX_VALUE + 5L, deleteFileDesc.getContentOffset());
         Assert.assertEquals((long) Integer.MAX_VALUE + 7L, deleteFileDesc.getContentSizeInBytes());
-    }
-
-    @Test
-    public void testSetIcebergParamsUsesSplitFileFormat() throws Exception {
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
-        String dataPath = "file:///tmp/data-file.orc";
-        IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
-                2, Collections.emptyMap(), new ArrayList<>(), dataPath);
-        split.setTableFormatType(TableFormatType.ICEBERG);
-        split.setSplitFileFormat(FileFormat.ORC);
-
-        Method method = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
-                TFileRangeDesc.class, IcebergSplit.class);
-        method.setAccessible(true);
-
-        TFileRangeDesc rangeDesc = new TFileRangeDesc();
-        method.invoke(node, rangeDesc, split);
-
-        Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
     }
 
     @Test

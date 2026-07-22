@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,8 +40,10 @@ public class IcebergSnapshotCacheValue {
         this.snapshot = snapshot;
         this.nameMapping = nameMapping.map(mapping -> {
             Map<Integer, List<String>> copy = new HashMap<>();
-            mapping.forEach((id, names) -> copy.put(id, List.copyOf(names)));
-            return Map.copyOf(copy);
+            // Preserve the immutable snapshot contract while remaining compatible with branch-4.1's Java target.
+            mapping.forEach((id, names) -> copy.put(id,
+                    Collections.unmodifiableList(new ArrayList<>(names))));
+            return Collections.unmodifiableMap(copy);
         });
     }
 

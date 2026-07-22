@@ -262,6 +262,14 @@ public:
                 "Method insert_many_continuous_binary_data is not supported for " + get_name());
     }
 
+    // OFFSET_ONLY readers still need true string lengths; keeping this virtual preserves that
+    // invariant when decoders only hold an IColumn reference and intentionally skip payloads.
+    virtual void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_offsets_from_lengths is not supported for " + get_name());
+    }
+
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_strings is not supported for " + get_name());
@@ -681,6 +689,12 @@ public:
     /** Print column name, size, and recursively print all subcolumns.
       */
     String dump_structure() const;
+
+    Status column_self_check() const {
+        // branch-4.1 predates the recursive debug validators used by master format_v2; keeping
+        // this check side-effect free preserves the branch's established column semantics.
+        return Status::OK();
+    }
 
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)

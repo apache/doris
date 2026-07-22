@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -76,7 +77,7 @@ public class IcebergMergeSinkTest {
 
     @Test
     public void testBindDataSinkDisablesColumnStatsWhenAllMetricsAreNone() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, Map.of(
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, ImmutableMap.of(
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none")), new DeleteCommandContext());
 
         sink.bindDataSink(Optional.empty());
@@ -88,7 +89,7 @@ public class IcebergMergeSinkTest {
 
     @Test
     public void testBindDataSinkKeepsColumnStatsForMetricsOverride() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, Map.of(
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, ImmutableMap.of(
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none",
                 TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "id", "counts")),
                 new DeleteCommandContext());
@@ -102,7 +103,7 @@ public class IcebergMergeSinkTest {
 
     @Test
     public void testBindDataSinkKeepsColumnStatsForV3LineageFields() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(3, Map.of(
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(3, ImmutableMap.of(
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "counts",
                 TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "id", "none")),
                 new DeleteCommandContext());
@@ -118,7 +119,7 @@ public class IcebergMergeSinkTest {
     public void testBindDataSinkKeepsColumnStatsForOrcTopLevelComplexField() throws Exception {
         Schema schema = new Schema(Types.NestedField.optional(1, "items",
                 Types.ListType.ofOptional(2, Types.IntegerType.get())));
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, schema, Map.of(
+        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2, schema, ImmutableMap.of(
                 TableProperties.DEFAULT_FILE_FORMAT, "orc",
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none",
                 TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "items", "counts")),

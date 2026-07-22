@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -53,7 +54,7 @@ public class TVFScanNodeTest {
         ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
         Mockito.when(table.getTvf()).thenReturn(tvf);
         Mockito.when(tvf.getTFileType()).thenReturn(TFileType.FILE_LOCAL);
-        Mockito.when(tvf.getFileStatuses()).thenReturn(List.of(
+        Mockito.when(tvf.getFileStatuses()).thenReturn(ImmutableList.of(
                 splittableFile("file:///tmp/count_col_1.parquet", 128 * MB),
                 splittableFile("file:///tmp/count_col_2.parquet", 128 * MB)));
         desc.setTable(table);

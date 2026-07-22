@@ -1236,10 +1236,6 @@ public class SummaryProfile {
         return TimeUnit.NANOSECONDS.toMillis(getPartitionVersionTime + getTableVersionTime);
     }
 
-    public void addExternalCatalogMetaTime(long ms) {
-        this.externalCatalogMetaTime += ms;
-    }
-
     public long getExternalCatalogMetaTimeMs() {
         return externalCatalogMetaTime;
     }

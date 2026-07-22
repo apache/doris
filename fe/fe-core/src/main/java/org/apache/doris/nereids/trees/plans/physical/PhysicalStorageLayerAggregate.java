@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -97,30 +96,30 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
     }
 
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
-                physicalOlapScan, aggOp, countArgumentExprIds));
+        // branch-4.1 predates copyWithSameId; its plan-copy contract creates a fresh node ID.
+        return new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp, countArgumentExprIds);
     }
 
     @Override
     public PhysicalStorageLayerAggregate withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(relation, aggOp,
-                countArgumentExprIds, groupExpression, getLogicalProperties(), physicalProperties, statistics));
+        return new PhysicalStorageLayerAggregate(relation, aggOp, countArgumentExprIds,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(relation, aggOp,
-                countArgumentExprIds, groupExpression, logicalProperties.get(), physicalProperties, statistics));
+        return new PhysicalStorageLayerAggregate(relation, aggOp, countArgumentExprIds,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
+        return new PhysicalStorageLayerAggregate(
                 (PhysicalCatalogRelation) relation.withPhysicalPropertiesAndStats(null, statistics),
                 aggOp, countArgumentExprIds, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics));
+                getLogicalProperties(), physicalProperties, statistics);
     }
 
     /** PushAggOp */

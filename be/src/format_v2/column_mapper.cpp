@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/short_circuit_evaluation_expr.h"
 #include "exprs/vcase_expr.h"
 #include "exprs/vcast_expr.h"
@@ -45,7 +46,6 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_reader.h"
@@ -372,14 +372,23 @@ static bool is_cast_expr(const VExprSPtr& expr) {
 }
 
 static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
-    // BINARY_PRED and NULL_AWARE_BINARY_PRED are comparison-only node kinds. Nereids does not
-    // always populate the legacy opcode after resolving the comparison through TFunction, so
-    // requiring expr->op() to be set leaves an otherwise ordinary slot-literal predicate with
-    // mismatched implicit-coercion types. Row evaluation still works through the resolved
-    // function, but Parquet zonemap evaluation conservatively rejects the mismatched types.
-    return expr != nullptr && expr->get_num_children() == 2 &&
-           (expr->node_type() == TExprNodeType::BINARY_PRED ||
-            expr->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED);
+    if (expr == nullptr || expr->get_num_children() != 2 ||
+        (expr->node_type() != TExprNodeType::BINARY_PRED &&
+         expr->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED)) {
+        return false;
+    }
+    switch (expr->op()) {
+    case TExprOpcode::EQ:
+    case TExprOpcode::EQ_FOR_NULL:
+    case TExprOpcode::NE:
+    case TExprOpcode::GE:
+    case TExprOpcode::GT:
+    case TExprOpcode::LE:
+    case TExprOpcode::LT:
+        return true;
+    default:
+        return false;
+    }
 }
 
 std::string TableColumnMapperOptions::debug_string() const {
@@ -514,8 +523,20 @@ static bool table_filter_has_only_local_entries(
     return true;
 }
 
-static bool is_lossless_file_to_table_numeric_cast(const DataTypePtr& file_type,
-                                                   const DataTypePtr& table_type);
+static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
+                                              const DataTypePtr& table_type) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+    if (expr->is_literal()) {
+        return expr;
+    }
+    if (is_cast_expr(expr) && expr->get_num_children() == 1 && expr->children()[0]->is_literal() &&
+        expr->children()[0]->data_type()->equals(*table_type)) {
+        return expr->children()[0];
+    }
+    return nullptr;
+}
 
 static Field literal_field_from_expr(const VExpr& literal_expr) {
     DORIS_CHECK(literal_expr.is_literal());
@@ -524,48 +545,6 @@ static Field literal_field_from_expr(const VExpr& literal_expr) {
     Field field;
     literal->get_column_ptr()->get(0, field);
     return field;
-}
-
-static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr, const DataTypePtr& table_type,
-                                              RewriteContext* rewrite_context) {
-    if (expr == nullptr) {
-        return nullptr;
-    }
-
-    VExprSPtr literal;
-    if (expr->is_literal()) {
-        literal = expr;
-    } else if (is_cast_expr(expr) && expr->get_num_children() == 1 &&
-               expr->children()[0]->is_literal() && expr->data_type()->equals(*table_type)) {
-        literal = expr->children()[0];
-    } else {
-        return nullptr;
-    }
-
-    if (literal->data_type()->equals(*table_type)) {
-        return literal;
-    }
-    // Nereids may leave a narrow numeric literal directly under a comparison and rely on the
-    // comparison's implicit type coercion, for example `INT slot = TINYINT 1`. Materialize that
-    // coercion before localizing the predicate so metadata readers still see slot-literal form.
-    if (!is_lossless_file_to_table_numeric_cast(literal->data_type(), table_type)) {
-        return nullptr;
-    }
-
-    Field table_field;
-    try {
-        convert_field_to_type(literal_field_from_expr(*literal), *table_type, &table_field,
-                              literal->data_type().get());
-    } catch (const Exception&) {
-        return nullptr;
-    }
-    if (table_field.is_null() ||
-        table_field.get_type() != remove_nullable(table_type)->get_primitive_type()) {
-        return nullptr;
-    }
-    auto normalized_literal = VLiteral::create_shared(table_type, std::move(table_field));
-    rewrite_context->add_created_expr(normalized_literal);
-    return normalized_literal;
 }
 
 // Table filter localization clones an already-prepared table expr and then rewrites it to file
@@ -771,8 +750,8 @@ static bool rewrite_binary_slot_literal_predicate(
     if (rewrite_info == nullptr || slot_ref == nullptr) {
         return false;
     }
-    auto literal_expr = unwrap_literal_for_file_cast(children[literal_child_idx],
-                                                     rewrite_info->table_type, rewrite_context);
+    auto literal_expr =
+            unwrap_literal_for_file_cast(children[literal_child_idx], rewrite_info->table_type);
     if (literal_expr == nullptr) {
         return false;
     }
@@ -809,8 +788,8 @@ static bool rewrite_in_slot_literal_predicate(
     VExprSPtrs rewritten_literals;
     rewritten_literals.reserve(children.size() - 1);
     for (size_t child_idx = 1; child_idx < children.size(); ++child_idx) {
-        auto literal_expr = unwrap_literal_for_file_cast(children[child_idx],
-                                                         rewrite_info->table_type, rewrite_context);
+        auto literal_expr =
+                unwrap_literal_for_file_cast(children[child_idx], rewrite_info->table_type);
         if (literal_expr == nullptr) {
             return false;
         }
@@ -818,8 +797,8 @@ static bool rewrite_in_slot_literal_predicate(
                 rewrite_literal_to_file_type(literal_expr, *rewrite_info, rewrite_context);
         if (rewritten_literal == nullptr) {
             for (size_t restore_idx = 1; restore_idx < children.size(); ++restore_idx) {
-                auto restore_literal = unwrap_literal_for_file_cast(
-                        children[restore_idx], rewrite_info->table_type, rewrite_context);
+                auto restore_literal = unwrap_literal_for_file_cast(children[restore_idx],
+                                                                    rewrite_info->table_type);
                 if (restore_literal != nullptr) {
                     children[restore_idx] =
                             original_table_literal(restore_literal, rewrite_context);
@@ -1014,8 +993,7 @@ static bool rewrite_binary_struct_literal_predicate(
 
     const auto table_leaf_type = children[struct_child_idx]->data_type();
     DORIS_CHECK(table_leaf_type != nullptr);
-    auto table_literal = unwrap_literal_for_file_cast(children[literal_child_idx], table_leaf_type,
-                                                      rewrite_context);
+    auto table_literal = unwrap_literal_for_file_cast(children[literal_child_idx], table_leaf_type);
     if (table_literal == nullptr ||
         !rewrite_struct_element_path_to_file_expr(children[struct_child_idx], filter_mappings,
                                                   global_to_file_slot, rewrite_context)) {
@@ -1069,8 +1047,7 @@ static bool rewrite_in_struct_literal_predicate(
     VExprSPtrs table_literals;
     table_literals.reserve(children.size() - 1);
     for (size_t child_idx = 1; child_idx < children.size(); ++child_idx) {
-        auto table_literal =
-                unwrap_literal_for_file_cast(children[child_idx], table_leaf_type, rewrite_context);
+        auto table_literal = unwrap_literal_for_file_cast(children[child_idx], table_leaf_type);
         if (table_literal == nullptr) {
             return false;
         }
@@ -1185,7 +1162,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     }
     DORIS_CHECK(rewrite_context != nullptr);
     DORIS_CHECK(can_localize != nullptr);
-    if (auto* runtime_filter = dynamic_cast<VRuntimeFilterWrapper*>(expr.get());
+    if (auto* runtime_filter = dynamic_cast<RuntimeFilterExpr*>(expr.get());
         runtime_filter != nullptr) {
         auto impl = runtime_filter->get_impl();
         if (impl == nullptr) {
@@ -2184,6 +2161,7 @@ Status TableColumnMapper::create_scan_request(
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
+    file_request->predicate_only_columns.clear();
     file_request->local_positions.clear();
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
@@ -2215,6 +2193,30 @@ Status TableColumnMapper::create_scan_request(
     // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
     RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state));
+    for (const auto& mapping : _hidden_mappings) {
+        if (!mapping.file_local_id.has_value()) {
+            continue;
+        }
+        const auto local_id = LocalColumnId(*mapping.file_local_id);
+        const bool is_visible_output =
+                std::ranges::any_of(_mappings, [local_id](const ColumnMapping& visible_mapping) {
+                    return visible_mapping.file_local_id.has_value() &&
+                           LocalColumnId(*visible_mapping.file_local_id) == local_id;
+                });
+        if (is_visible_output) {
+            continue;
+        }
+        // File-local filtering is an optimization; Scanner still evaluates the original
+        // table-level conjunct after TableReader returns. Only truly hidden mappings are absent
+        // from that scanner-visible block and may safely discard their payload here.
+        if (std::ranges::any_of(file_request->predicate_columns,
+                                [local_id](const LocalColumnIndex& projection) {
+                                    return projection.column_id() == local_id;
+                                }) &&
+            !file_request->is_predicate_only(local_id)) {
+            file_request->predicate_only_columns.push_back(local_id);
+        }
+    }
     // 3. Rebuild output projection expressions for projected columns. localize_filters() has
     // already applied the final scan projection to mapping.file_type/projected_file_children before
     // rewriting filter expressions.
@@ -2294,8 +2296,16 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     filter_mappings = _filter_visible_mappings();
     const auto global_to_file_slot = build_file_slot_rewrite_map(filter_mappings, _filter_entries);
     for (const auto& table_filter : table_filters) {
-        if (table_filter.conjunct != nullptr &&
-            table_filter_has_only_local_entries(table_filter, _filter_entries)) {
+        if (table_filter.conjunct != nullptr && table_filter.conjunct->root() != nullptr) {
+            const auto root = table_filter.conjunct->root();
+            const auto impl = root->get_impl();
+            const auto predicate = impl != nullptr ? impl : root;
+            if (!predicate->is_deterministic() ||
+                !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
+                continue;
+            }
+            // Scanner evaluates the original conjunct after final materialization. Only predicates
+            // whose result is stable across repeated execution may also run as a file-local copy.
             RewriteContext rewrite_context {.runtime_state = runtime_state};
             VExprSPtr rewrite_root;
             Status clone_status;

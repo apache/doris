@@ -629,6 +629,14 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(profile.get_counter("BytesScannedFromRemote")->value(), 13);
     EXPECT_EQ(profile.get_counter("BytesScannedFromPeer")->value(), 17);
     EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    ASSERT_TRUE(children.contains("IO"));
+    EXPECT_TRUE(children.at("IO").contains("FileCache"));
 }
 
 TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
@@ -648,6 +656,18 @@ TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
     EXPECT_FALSE(
             FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed"), false));
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
+}
+
+TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
+    auto status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"), TFileFormatType::FORMAT_ORC);
+    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
+
+    status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"),
+            TFileFormatType::FORMAT_PARQUET);
+    EXPECT_EQ(status.to_string().find("nextBatch failed"), std::string::npos) << status;
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise

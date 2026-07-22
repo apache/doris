@@ -40,6 +40,7 @@
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "format/table/table_format_reader.h"
 #include "io/hdfs_builder.h"
 #include "runtime/runtime_state.h"
@@ -135,8 +136,8 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
     return Status::InternalError("Unsupported file_path column type in position delete block");
 }
 
-Status init_parquet_delete_reader(ParquetReader* reader) {
-    if (reader == nullptr) {
+Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded) {
+    if (reader == nullptr || dictionary_coded == nullptr) {
         return Status::InvalidArgument("invalid parquet delete reader arguments");
     }
 
@@ -146,6 +147,20 @@ Status init_parquet_delete_reader(ParquetReader* reader) {
                                         slot_id_to_predicates, nullptr, nullptr, nullptr, nullptr,
                                         nullptr, TableSchemaChangeHelper::ConstNode::get_instance(),
                                         false));
+    // branch-4.1 initializes its projected-column state separately from init_reader(). Skipping
+    // this step makes every row group look like a path-only scan and yields empty batches forever.
+    RETURN_IF_ERROR(reader->set_fill_columns({}, {}));
+
+    const tparquet::FileMetaData* meta_data = reader->get_meta_data();
+    *dictionary_coded = true;
+    for (const auto& row_group : meta_data->row_groups) {
+        const auto& column_chunk = row_group.columns[0];
+        if (!(column_chunk.__isset.meta_data &&
+              IcebergTableReader::_is_fully_dictionary_encoded(column_chunk.meta_data))) {
+            *dictionary_coded = false;
+            break;
+        }
+    }
 
     return Status::OK();
 }
@@ -282,19 +297,30 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
                              options.batch_size,
                              const_cast<cctz::time_zone*>(&options.state->timezone_obj()),
                              options.io_ctx, options.state, options.meta_cache);
-        RETURN_IF_ERROR(init_parquet_delete_reader(&reader));
+        bool dictionary_coded = false;
+        RETURN_IF_ERROR(init_parquet_delete_reader(&reader, &dictionary_coded));
 
         bool eof = false;
         while (!eof) {
             Block block;
-            // branch-4.1 cannot safely nest ColumnDictI32 in ColumnNullable. Decode paths to
-            // strings so optional delete columns keep their null map for corruption checks.
-            block.insert(ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeString>()),
-                                               ICEBERG_FILE_PATH));
+            if (dictionary_coded) {
+                block.insert(ColumnWithTypeAndName(
+                        ColumnNullable::create(ColumnDictI32::create(), ColumnUInt8::create()),
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
+            } else {
+                block.insert(ColumnWithTypeAndName(
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
+            }
             block.insert(ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeInt64>()),
                                                ICEBERG_ROW_POS));
             size_t read_rows = 0;
             RETURN_IF_ERROR(reader.get_next_block(&block, &read_rows, &eof));
+            if (read_rows == 0 && !eof) {
+                // Position-delete scans have no predicates, so an empty non-EOF batch cannot
+                // make progress and must not spin forever on a malformed reader state.
+                return Status::InternalError(
+                        "Parquet position delete reader returned an empty non-EOF batch");
+            }
             RETURN_IF_ERROR(visit_position_delete_block(block, read_rows, visitor));
         }
         return Status::OK();

@@ -137,7 +137,7 @@ protected:
     virtual bool _should_update_load_counters() const { return _is_load; }
 
     // Filter the output block finally.
-    Status _filter_output_block(Block* block);
+    virtual Status _filter_output_block(Block* block);
 
     Status _do_projections(Block* origin_block, Block* output_block);
 

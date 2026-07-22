@@ -28,8 +28,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-std::string build_paimon_deletion_vector_cache_key(
-        const TPaimonDeletionFileDesc& deletion_file) {
+std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file) {
     // A shared file can contain multiple vectors, so the cache identity must include its range.
     return deletion_file.path + "#" + std::to_string(deletion_file.offset) + "#" +
            std::to_string(deletion_file.length);
@@ -44,6 +43,47 @@ Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc&
     }
     return validate_paimon_deletion_vector_read_range(deletion_file.offset, deletion_file.length,
                                                       bytes_read);
+}
+
+Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                            DeletionVector* deletion_vector) {
+    if (deletion_vector == nullptr) {
+        return Status::InvalidArgument("deletion vector output must not be null");
+    }
+    if (buf == nullptr) {
+        return Status::DataQualityError("Paimon deletion vector blob is null");
+    }
+    if (buffer_size < 8) [[unlikely]] {
+        return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
+    }
+
+    const uint32_t actual_length = BigEndian::Load32(buf);
+    if (static_cast<uint64_t>(actual_length) + 4 != buffer_size) [[unlikely]] {
+        return Status::DataQualityError(
+                "Paimon deletion vector length mismatch, expected: {}, actual: {}",
+                static_cast<uint64_t>(actual_length) + 4, buffer_size);
+    }
+
+    // Paimon deletion vectors always prefix the portable Roaring payload with this magic value.
+    constexpr char paimon_bitmap_magic[] = {'\x5E', '\x43', '\xF2', '\xD0'};
+    if (memcmp(buf + sizeof(actual_length), paimon_bitmap_magic, 4) != 0) [[unlikely]] {
+        return Status::DataQualityError(
+                "Paimon deletion vector magic number mismatch, expected: {}, actual: {}",
+                BigEndian::Load32(paimon_bitmap_magic),
+                BigEndian::Load32(buf + sizeof(actual_length)));
+    }
+
+    roaring::Roaring roaring_bitmap;
+    try {
+        roaring_bitmap = roaring::Roaring::readSafe(buf + 8, buffer_size - 8);
+    } catch (const std::runtime_error& e) {
+        return Status::RuntimeError(
+                "DeletionVector deserialize error: failed to deserialize roaring bitmap, {}",
+                e.what());
+    }
+
+    *deletion_vector |= DeletionVector(std::move(roaring_bitmap));
+    return Status::OK();
 }
 
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,

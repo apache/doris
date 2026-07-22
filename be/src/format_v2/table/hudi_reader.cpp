@@ -28,13 +28,20 @@
 namespace doris::format::hudi {
 
 Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
-    _split_schema_id = -1;
-    if (options.current_range.__isset.table_format_params &&
-        options.current_range.table_format_params.__isset.hudi_params &&
-        options.current_range.table_format_params.hudi_params.__isset.schema_id) {
-        _split_schema_id = options.current_range.table_format_params.hudi_params.schema_id;
+    {
+        // Derived schema selection is additive to, not nested around, the common base timers.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        _split_schema_id = -1;
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.__isset.hudi_params &&
+            options.current_range.table_format_params.hudi_params.__isset.schema_id) {
+            _split_schema_id = options.current_range.table_format_params.hudi_params.schema_id;
+        }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -66,6 +73,8 @@ Status HudiHybridReader::init(format::TableReadOptions&& options) {
 }
 
 Status HudiHybridReader::prepare_split(const format::SplitReadOptions& options) {
+    // A newly selected child initializes against the same scanner profile. Keep hybrid dispatch
+    // outside those shared counters so first-split initialization is counted exactly once.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->prepare_split(options);
@@ -120,7 +129,15 @@ Status HudiHybridReader::_ensure_current_split_reader(const format::SplitReadOpt
     DORIS_CHECK(_scan_params != nullptr);
     if (_is_jni_split(*_scan_params, options.current_range)) {
         if (_jni_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_jni_reader_factory) {
+                _jni_reader = _test_jni_reader_factory();
+            } else {
+                _jni_reader = std::make_unique<format::hudi::HudiJniReader>();
+            }
+#else
             _jni_reader = std::make_unique<format::hudi::HudiJniReader>();
+#endif
             RETURN_IF_ERROR(_init_child_reader(_jni_reader.get(), format::FileFormat::JNI));
         }
         _current_split_reader = _jni_reader.get();
@@ -128,7 +145,15 @@ Status HudiHybridReader::_ensure_current_split_reader(const format::SplitReadOpt
         format::FileFormat file_format;
         RETURN_IF_ERROR(_to_file_format(*_scan_params, options.current_range, &file_format));
         if (_native_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_native_reader_factory) {
+                _native_reader = _test_native_reader_factory();
+            } else {
+                _native_reader = format::hudi::HudiReader::create_unique();
+            }
+#else
             _native_reader = format::hudi::HudiReader::create_unique();
+#endif
             RETURN_IF_ERROR(_init_child_reader(_native_reader.get(), file_format));
         }
         _current_split_reader = _native_reader.get();

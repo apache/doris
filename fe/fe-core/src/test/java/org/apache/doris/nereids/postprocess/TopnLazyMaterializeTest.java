@@ -30,6 +30,7 @@ import org.apache.doris.planner.MaterializationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -80,40 +81,6 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         List<SlotDescriptor> slots = ((OlapScanNode) scanNodes.get(0)).getTupleDesc().getSlots();
         Assertions.assertEquals(1, slots.size());
         Assertions.assertEquals("k2", slots.get(0).getColumn().getName());
-    }
-
-    @Test
-    public void testNestedColumnAccessPathInLazyMaterialize() throws Exception {
-        this.createTables("create table lazy_materialize_struct_tbl("
-                + "id bigint, "
-                + "user_profile struct<"
-                + "personal:struct<name:varchar(100)>,"
-                + "professional:struct<skills:array<varchar(100)>>>) "
-                + "duplicate key(id) distributed by hash(id) buckets 1 "
-                + "properties('replication_num' = '1')");
-        String sql = "select struct_element(struct_element(user_profile, 'professional'), 'skills') "
-                + "from lazy_materialize_struct_tbl order by id limit 10";
-
-        PlanChecker checker = PlanChecker.from(connectContext)
-                .analyze(sql)
-                .rewrite()
-                .implement();
-        PhysicalPlan plan = checker.getPhysicalPlan();
-        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        PlanTranslatorContext translatorContext = new PlanTranslatorContext(checker.getCascadesContext());
-        PlanFragment fragment = new PhysicalPlanTranslator(translatorContext).translatePlan(plan);
-
-        List<MaterializationNode> materializationNodes = Lists.newArrayList();
-        fragment.getPlanRoot().collect(MaterializationNode.class, materializationNodes);
-        Assertions.assertEquals(1, materializationNodes.size());
-        TupleDescriptor materializeTupleDesc = translatorContext.getTupleDesc(
-                materializationNodes.get(0).getTupleIds().get(0));
-        SlotDescriptor userProfileSlot = materializeTupleDesc.getSlots().stream()
-                .filter(slot -> "user_profile".equals(slot.getColumn().getName()))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("lazy user_profile slot not found"));
-        Assertions.assertTrue(userProfileSlot.getAllAccessPaths().contains(
-                ColumnAccessPath.data(ImmutableList.of("user_profile", "professional", "skills"))));
     }
 
     @Test

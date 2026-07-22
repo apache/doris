@@ -23,16 +23,19 @@
 
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-std::string build_paimon_deletion_vector_cache_key(
-        const TPaimonDeletionFileDesc& deletion_file);
+std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
 
 Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
                                                   size_t& bytes_read);
+
+Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                            DeletionVector* deletion_vector);
 
 class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:

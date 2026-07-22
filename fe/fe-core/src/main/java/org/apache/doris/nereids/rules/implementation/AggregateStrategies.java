@@ -570,6 +570,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
 
         boolean containsCount = false;
+        boolean containsCountStar = false;
         boolean countHasCastArgument = false;
         Set<SlotReference> checkNullSlots = new HashSet<>();
         Set<Expression> expressionAfterProject = new HashSet<>();
@@ -586,7 +587,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             // Check if contains Count function
             if (functionClass.equals(Count.class)) {
                 containsCount = true;
-                if (!function.getArguments().isEmpty()) {
+                if (function.getArguments().isEmpty()) {
+                    containsCountStar = true;
+                } else {
                     Expression arg0 = function.getArguments().get(0);
                     if (arg0 instanceof SlotReference) {
                         checkNullSlots.add((SlotReference) arg0);
@@ -734,10 +737,21 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 }
             }
             if (mergeOp == PushDownAggOp.COUNT || mergeOp == PushDownAggOp.MIX) {
-                // NULL value behavior in `count` function is zero, so
-                // we should not use row_count to speed up query. the col
-                // must be not null
-                if (column.isAllowNull() && checkNullSlots.contains(slot)) {
+                if (logicalScan instanceof LogicalFileScan && mergeOp == PushDownAggOp.COUNT
+                        && containsCountStar && column.isAllowNull() && checkNullSlots.contains(slot)) {
+                    // One metadata cardinality cannot represent both COUNT(*) and the smaller
+                    // COUNT(nullable_col); synthetic rows would make one upper aggregate wrong.
+                    return canNotPush;
+                }
+                // Nullable file COUNT is exact only when this query is routed to FileScannerV2,
+                // which carries the semantic argument and counts definition levels. Gating on the
+                // session switch keeps V1 on its original full-column evaluation path.
+                boolean supportsNullableFileCount = logicalScan instanceof LogicalFileScan
+                        && mergeOp == PushDownAggOp.COUNT
+                        && cascadesContext.getConnectContext() != null
+                        && cascadesContext.getConnectContext().getSessionVariable().enableFileScannerV2;
+                if (column.isAllowNull() && checkNullSlots.contains(slot)
+                        && !supportsNullableFileCount) {
                     return canNotPush;
                 }
             }

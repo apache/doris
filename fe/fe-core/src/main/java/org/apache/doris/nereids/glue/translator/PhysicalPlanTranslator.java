@@ -883,7 +883,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(exprId -> Objects.requireNonNull(context.findSlotRef(exprId),
                         "missing slot for pushed-down COUNT argument " + exprId).getSlotId())
                 .collect(Collectors.toList()));
-        scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
 
         TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
         TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);

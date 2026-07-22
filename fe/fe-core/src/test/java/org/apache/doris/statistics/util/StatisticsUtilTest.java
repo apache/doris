@@ -54,6 +54,8 @@ import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Mock;
@@ -91,31 +93,31 @@ class StatisticsUtilTest {
         Mockito.when(table.schema()).thenReturn(schema);
         Mockito.when(table.spec()).thenReturn(spec);
         Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
-        Mockito.when(table.properties()).thenReturn(Map.of(
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
                 TableProperties.DEFAULT_FILE_FORMAT, "parquet",
                 TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
 
         TIcebergColumnStats columnStats = new TIcebergColumnStats();
-        columnStats.setColumnSizes(Map.of(1, 128L));
-        columnStats.setValueCounts(Map.of(1, 10L));
-        columnStats.setNullValueCounts(Map.of(1, 0L));
+        columnStats.setColumnSizes(ImmutableMap.of(1, 128L));
+        columnStats.setValueCounts(ImmutableMap.of(1, 10L));
+        columnStats.setNullValueCounts(ImmutableMap.of(1, 0L));
         TIcebergCommitData commitData = new TIcebergCommitData();
         commitData.setFilePath("/path/to/data.parquet");
         commitData.setRowCount(10);
         commitData.setFileSize(1024);
         commitData.setColumnStats(columnStats);
-        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, List.of(commitData)).dataFiles()[0];
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commitData)).dataFiles()[0];
 
         TableScan tableScan = Mockito.mock(TableScan.class);
         FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
         Mockito.when(table.newScan()).thenReturn(tableScan);
         Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
         Mockito.when(tableScan.planFiles())
-                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
+                .thenReturn(CloseableIterable.withNoopClose(ImmutableList.of(fileScanTask)));
         Mockito.when(fileScanTask.spec()).thenReturn(spec);
         Mockito.when(fileScanTask.file()).thenReturn(dataFile);
 
-        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+        Assertions.assertTrue(!StatisticsUtil.getIcebergColumnStats("id", table).isPresent());
     }
 
     @Test
@@ -129,15 +131,15 @@ class StatisticsUtilTest {
         Mockito.when(table.newScan()).thenReturn(tableScan);
         Mockito.when(tableScan.includeColumnStats()).thenReturn(tableScan);
         Mockito.when(tableScan.planFiles()).thenReturn(CloseableIterable.combine(
-                List.of(fileScanTask), () -> {
+                ImmutableList.of(fileScanTask), () -> {
                     throw new IOException("close failed");
                 }));
         Mockito.when(fileScanTask.spec()).thenReturn(spec);
         Mockito.when(fileScanTask.file()).thenReturn(dataFile);
-        Mockito.when(dataFile.columnSizes()).thenReturn(Map.of());
-        Mockito.when(dataFile.nullValueCounts()).thenReturn(Map.of());
+        Mockito.when(dataFile.columnSizes()).thenReturn(ImmutableMap.of());
+        Mockito.when(dataFile.nullValueCounts()).thenReturn(ImmutableMap.of());
 
-        Assertions.assertTrue(StatisticsUtil.getIcebergColumnStats("id", table).isEmpty());
+        Assertions.assertTrue(!StatisticsUtil.getIcebergColumnStats("id", table).isPresent());
     }
 
     @Test

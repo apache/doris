@@ -128,6 +128,14 @@ public:
         }
     }
 
+    bool is_safe_to_execute_on_selected_rows() const override {
+        // Boolean composition introduces no data-dependent failure of its own. Reuse the generic
+        // child walk so AND/OR remain eligible only when every nested expression is independently
+        // safe; applying VectorizedFnCall's scalar-function allowlist to this structural node would
+        // incorrectly disable selected-row execution for otherwise safe predicates.
+        return VExpr::is_safe_to_execute_on_selected_rows();
+    }
+
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
         switch (_op) {

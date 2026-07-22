@@ -339,7 +339,7 @@ private:
             return TPushAggOp::type::NONE;
         }
         return _effective_push_down_agg_type(_local_state->get_push_down_agg_type(),
-                                              _local_state->get_push_down_count_slot_ids());
+                                             _local_state->get_push_down_count_slot_ids());
     }
 
     // enable the file meta cache only when

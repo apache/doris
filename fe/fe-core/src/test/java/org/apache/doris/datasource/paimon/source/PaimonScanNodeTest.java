@@ -70,10 +70,18 @@ public class PaimonScanNodeTest {
     @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
 
+    private PaimonSource mockPaimonSourceWithPartitionKeys(List<String> partitionKeys) {
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.when(paimonTable.partitionKeys()).thenReturn(partitionKeys);
+        Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+        return source;
+    }
+
     @Test
     public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {
         PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
-        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.<String>emptyList()));
         List<org.apache.paimon.table.source.Split> dataSplits = Arrays.asList(
                 mockCountDataSplit("f1.parquet", 4_000),
                 mockCountDataSplit("f2.parquet", 5_000),

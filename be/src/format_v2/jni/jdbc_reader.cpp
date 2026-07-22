@@ -30,6 +30,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/table_reader.h"
+#include "util/jdbc_utils.h"
 
 namespace doris::format::jdbc {
 
@@ -38,14 +39,34 @@ std::string JdbcJniReader::connector_class() const {
 }
 
 Status JdbcJniReader::prepare_split(const format::SplitReadOptions& options) {
-    return Status::NotSupported("native JDBC file splits are unavailable on branch-4.1");
+    {
+        // End these scopes before JniTableReader enters the same counters; nested use would count
+        // this JDBC parameter preparation twice instead of extending the common lifecycle total.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        SCOPED_TIMER(connector_total_timer());
+        _jdbc_params.clear();
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.table_format_type == "jdbc") {
+            _jdbc_params = std::map<std::string, std::string>(
+                    options.current_range.table_format_params.jdbc_params.begin(),
+                    options.current_range.table_format_params.jdbc_params.end());
+        }
+    }
+    return format::JniTableReader::prepare_split(options);
 }
 
 // need pass to the java side, so the java scanner can parse the params and construct the JDBC connection
 Status JdbcJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {
     DORIS_CHECK(params != nullptr);
-    params->clear();
-    return Status::NotSupported("native JDBC file splits are unavailable on branch-4.1");
+    *params = _jdbc_params;
+    if (params->contains("jdbc_driver_url")) {
+        std::string resolved;
+        if (JdbcUtils::resolve_driver_url((*params)["jdbc_driver_url"], &resolved).ok()) {
+            (*params)["jdbc_driver_url"] = resolved;
+        }
+    }
+    return Status::OK();
 }
 
 Status JdbcJniReader::build_jni_columns(
