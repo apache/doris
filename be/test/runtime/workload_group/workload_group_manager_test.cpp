@@ -102,10 +102,12 @@ protected:
 
 private:
     std::shared_ptr<QueryContext> _generate_on_query(std::shared_ptr<WorkloadGroup>& wg,
-                                                     int64_t mem_limit = 1024L * 1024 * 128) {
+                                                     int64_t mem_limit = 1024L * 1024 * 128,
+                                                     bool has_mem_limit = false) {
         TQueryOptions query_options;
         query_options.query_type = TQueryType::SELECT;
         query_options.mem_limit = mem_limit;
+        query_options.__isset.mem_limit = has_mem_limit;
         query_options.query_slot_count = 1;
         TNetworkAddress fe_address;
         fe_address.hostname = "127.0.0.1";
@@ -176,6 +178,7 @@ TEST_F(WorkloadGroupManagerTest, refresh_memory_usage_updates_memory_limits) {
     EXPECT_EQ(wg->min_memory_limit(), updated_mem_limit / 4);
 }
 
+<<<<<<< HEAD
 TEST_F(WorkloadGroupManagerTest, handle_paused_queries_ignores_empty_workload_group) {
     auto wg = _wg_manager->get_or_create_workload_group({});
 
@@ -183,6 +186,36 @@ TEST_F(WorkloadGroupManagerTest, handle_paused_queries_ignores_empty_workload_gr
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_FALSE(_wg_manager->_paused_queries_list.contains(wg));
+=======
+TEST_F(WorkloadGroupManagerTest, refresh_restores_query_limit_after_cgroup_expands) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    const int64_t small_mem_limit = 1024L * 1024 * 20;
+    const int64_t large_mem_limit = 1024L * 1024 * 100;
+    MemInfo::set_mem_limit_for_test(small_mem_limit);
+
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = small_mem_limit,
+                               .max_memory_percent = 100,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg, large_mem_limit, true);
+    auto query_without_mem_limit = _generate_on_query(wg);
+
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), small_mem_limit);
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->user_set_mem_limit(),
+              large_mem_limit);
+    ASSERT_EQ(query_without_mem_limit->resource_ctx()->memory_context()->mem_limit(),
+              small_mem_limit);
+
+    MemInfo::set_mem_limit_for_test(large_mem_limit);
+    _wg_manager->refresh_workload_group_memory_state();
+
+    ASSERT_EQ(wg->memory_limit(), large_mem_limit);
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), large_mem_limit);
+    ASSERT_EQ(query_without_mem_limit->resource_ctx()->memory_context()->mem_limit(),
+              large_mem_limit);
+>>>>>>> f9f6673b274 (set user origin memlimit as a larger value)
 }
 
 // Query is paused due to query memlimit exceed, after waiting in queue for  spill_in_paused_queue_timeout_ms
