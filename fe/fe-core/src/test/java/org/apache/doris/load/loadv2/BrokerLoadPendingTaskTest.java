@@ -121,9 +121,7 @@ public class BrokerLoadPendingTaskTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getNextId()).thenReturn(1L);
             Mockito.when(brokerFileGroup.getFilePaths())
-                    .thenReturn(Lists.newArrayList(
-                            "hdfs://localhost:8900/test_column_1",
-                            "hdfs://localhost:8900/test_column_2"));
+                    .thenReturn(Lists.newArrayList("hdfs://localhost:8900/test_column"));
 
             mockedFsFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
                     .thenReturn(new SingleFileSystem(1L));
@@ -139,12 +137,9 @@ public class BrokerLoadPendingTaskTest {
             brokerLoadPendingTask.executeTask();
             BrokerPendingTaskAttachment brokerPendingTaskAttachment =
                     Deencapsulation.getField(brokerLoadPendingTask, "attachment");
-            Assert.assertEquals(2, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
+            Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
             Assert.assertEquals(1L,
                     brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0).size);
-            mockedFsFactory.verify(
-                    () -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)),
-                    Mockito.times(1));
         } finally {
             mockedFsFactory.close();
             mockedEnv.close();

@@ -67,19 +67,6 @@ public class BrokerLoadPendingTask extends LoadTask {
     }
 
     protected void getAllFileStatus() throws UserException {
-        if (brokerDesc.isMultiLoadBroker()) {
-            collectAllFileStatus(null);
-            return;
-        }
-        try (FileSystem fileSystem = FileSystemFactory.getFileSystem(brokerDesc)) {
-            collectAllFileStatus(fileSystem);
-        } catch (java.io.IOException e) {
-            throw new UserException(brokerDesc.getName() + " close filesystem exception: "
-                    + e.getMessage(), e);
-        }
-    }
-
-    private void collectAllFileStatus(FileSystem fileSystem) throws UserException {
         long start = System.currentTimeMillis();
         long totalFileSize = 0;
         int totalFileNum = 0;
@@ -113,18 +100,18 @@ public class BrokerLoadPendingTask extends LoadTask {
                     long groupFileSize = 0;
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                     for (String path : fileGroup.getFilePaths()) {
-                        try {
+                        try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                             // Use glob semantics (matching the old BrokerUtil.parseFile/globList behavior):
                             // exact paths match only that file, glob patterns expand.
                             // Plain listFiles uses S3 prefix matching which can return unintended
                             // prefix-siblings (e.g. "file.csv.bz2" when listing "file.csv").
                             List<FileEntry> entries;
                             try {
-                                GlobListing listing = fileSystem.globListWithLimit(
+                                GlobListing listing = fs.globListWithLimit(
                                         Location.of(path), null, 0, 0);
                                 entries = listing.getFiles();
                             } catch (UnsupportedOperationException ex) {
-                                entries = fileSystem.listFiles(Location.of(path));
+                                entries = fs.listFiles(Location.of(path));
                             }
                             for (FileEntry e : entries) {
                                 fileStatuses.add(new TBrokerFileStatus(

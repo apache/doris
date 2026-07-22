@@ -182,7 +182,7 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testS3ExpressObjectUrlParseFileSkipsEndpointPreflight() throws Exception {
+    public void testS3ExpressObjectUrlParseFileUsesRegionalEndpointPreflight() throws Exception {
         boolean previousRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = false;
         String objectUrl = "https://analytics--eun1-az1--x-s3."
@@ -194,7 +194,7 @@ public class ExternalFileTableValuedFunctionTest {
                             Mockito.eq(Location.of(normalizedUri)), Mockito.eq(""), Mockito.eq(0L), Mockito.eq(0L)))
                     .thenReturn(new GlobListing(
                             List.of(new FileEntry(Location.of(normalizedUri), 10L, false, 0L, List.of())),
-                            "analytics--eun1-az1--x-s3", "data/", "data/file.csv"));
+                            "analytics--eun1-az1--x-s3", "data/", ""));
             try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class);
                     MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
                 mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
@@ -210,7 +210,8 @@ public class ExternalFileTableValuedFunctionTest {
                 Assert.assertEquals(1, tvf.getFileStatuses().size());
                 Assert.assertEquals("eu-north-1", tvf.getBackendConnectProperties().get("AWS_REGION"));
                 Assert.assertEquals("AWS", tvf.getBackendConnectProperties().get("provider"));
-                mockedS3Util.verifyNoInteractions();
+                mockedS3Util.verify(() -> S3Util.validateAndTestEndpoint(
+                        "https://s3.eu-north-1.amazonaws.com"));
             }
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;

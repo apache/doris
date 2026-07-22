@@ -583,6 +583,7 @@ public class S3PropertiesTest {
         origProps.put("uri", "s3://analytics--usw2-azx--x-s3/data/file.parquet");
         Assertions.assertFalse(S3Properties.isS3Express(origProps));
         origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
+        origProps.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
         origProps.put("s3.region", "us-west-2");
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
         Assertions.assertTrue(s3Properties.isS3Express());

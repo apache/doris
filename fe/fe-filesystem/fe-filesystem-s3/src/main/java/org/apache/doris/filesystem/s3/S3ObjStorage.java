@@ -101,11 +101,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private final String bucket;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile S3Client client;
-    private volatile S3Client expressClient;
+    private volatile S3Client expressReadClient;
 
     private enum ClientMode {
         STANDARD,
-        EXPRESS
+        EXPRESS_READ
     }
 
     public S3ObjStorage(S3FileSystemProperties properties) {
@@ -144,7 +144,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 buildCredentialsProvider(), false);
     }
 
-    protected S3Client buildExpressClient() throws IOException {
+    protected S3Client buildExpressReadClient() throws IOException {
+        // The SDK automatic auth flow does not expose SessionMode here. Doris only routes read
+        // methods to this client; deployments should also restrict s3express:SessionMode to
+        // ReadOnly in IAM when credential-level enforcement is required.
         return buildClient(
                 "",
                 s3Properties.getRegion(),
@@ -152,8 +155,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     private S3Client buildClient(String endpointStr, String region,
-            AwsCredentialsProvider clientCredentialsProvider, boolean express)
+            AwsCredentialsProvider clientCredentialsProvider, boolean expressRead)
             throws IOException {
+        // Standard clients never create Express sessions. Directory-bucket mutations are rejected
+        // separately by ensureMutationSupported before a standard client can be used.
         S3ClientBuilder builder = S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder()
                         .socketTimeout(Duration.ofSeconds(30))
@@ -163,13 +168,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .region(Region.of(region))
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
-                        .pathStyleAccessEnabled(express ? false : usePathStyle)
-                        .build());
-        if (express) {
-            builder.disableS3ExpressSessionAuth(false);
-        }
+                        .pathStyleAccessEnabled(expressRead ? false : usePathStyle)
+                        .build())
+                .disableS3ExpressSessionAuth(!expressRead);
 
-        if (!express && StringUtils.isNotBlank(endpointStr)) {
+        if (!expressRead && StringUtils.isNotBlank(endpointStr)) {
             if (!endpointStr.contains("://")) {
                 endpointStr = "https://" + endpointStr;
             }
@@ -194,30 +197,30 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return S3CredentialsProviderFactory.createClientProvider(s3Properties, this::buildStsClient);
     }
 
-    boolean usesS3Express(String requestBucket) {
+    boolean usesS3ExpressRead(String requestBucket) {
         return s3Properties.isAwsProvider()
                 && S3ExpressUtils.isDirectoryBucket(requestBucket);
     }
 
-    private S3Client getExpressClient() throws IOException {
-        return getOrCreateClient(ClientMode.EXPRESS);
+    private S3Client getExpressReadClient() throws IOException {
+        return getOrCreateClient(ClientMode.EXPRESS_READ);
     }
 
     private S3Client getOrCreateClient(ClientMode mode) throws IOException {
         if (closed.get()) {
             throw new IOException("S3ObjStorage is already closed");
         }
-        S3Client selected = mode == ClientMode.EXPRESS ? expressClient : client;
+        S3Client selected = mode == ClientMode.EXPRESS_READ ? expressReadClient : client;
         if (selected == null) {
             synchronized (this) {
                 if (closed.get()) {
                     throw new IOException("S3ObjStorage is already closed");
                 }
-                selected = mode == ClientMode.EXPRESS ? expressClient : client;
+                selected = mode == ClientMode.EXPRESS_READ ? expressReadClient : client;
                 if (selected == null) {
-                    selected = mode == ClientMode.EXPRESS ? buildExpressClient() : buildClient();
-                    if (mode == ClientMode.EXPRESS) {
-                        expressClient = selected;
+                    selected = mode == ClientMode.EXPRESS_READ ? buildExpressReadClient() : buildClient();
+                    if (mode == ClientMode.EXPRESS_READ) {
+                        expressReadClient = selected;
                     } else {
                         client = selected;
                     }
@@ -227,23 +230,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return selected;
     }
 
-    private S3Client getClientForBucket(String requestBucket) throws IOException {
-        return usesS3Express(requestBucket) ? getExpressClient() : getClient();
-    }
-
-    void checkReadAccess(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
-        boolean s3Express = usesS3Express(uri.bucket());
-        try {
-            getClientForBucket(uri.bucket()).listObjectsV2(ListObjectsV2Request.builder()
-                    .bucket(uri.bucket())
-                    .maxKeys(1)
-                    .build());
-        } catch (SdkException e) {
-            String requiredPermission = s3Express ? " (requires s3express:CreateSession)" : "";
-            throw new IOException("Failed to verify read access to S3 bucket " + uri.bucket()
-                    + requiredPermission + ": " + e.getMessage(), e);
-        }
+    private S3Client getReadClient(String requestBucket) throws IOException {
+        // S3 Express support is intentionally read-only. Mutations are rejected separately by
+        // ensureMutationSupported and never obtain this client.
+        return usesS3ExpressRead(requestBucket) ? getExpressReadClient() : getClient();
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
@@ -267,7 +257,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
-        boolean s3Express = usesS3Express(uri.bucket());
+        boolean s3Express = usesS3ExpressRead(uri.bucket());
         String requestPrefix = uri.key();
         if (s3Express && !requestPrefix.isEmpty() && !requestPrefix.endsWith("/")) {
             throw new IOException("AWS directory bucket ListObjectsV2 prefix must end with '/': "
@@ -298,7 +288,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
         }
         try {
-            ListObjectsV2Response response = getClientForBucket(uri.bucket()).listObjectsV2(builder.build());
+            ListObjectsV2Response response = getReadClient(uri.bucket()).listObjectsV2(builder.build());
             List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
                     .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
                             s3Obj.key(),
@@ -363,7 +353,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public org.apache.doris.filesystem.spi.RemoteObject headObject(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            HeadObjectResponse response = getClientForBucket(uri.bucket()).headObject(
+            HeadObjectResponse response = getReadClient(uri.bucket()).headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return new org.apache.doris.filesystem.spi.RemoteObject(
                     uri.key(), uri.key(), response.eTag(), response.contentLength(),
@@ -384,6 +374,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void putObject(String remotePath, org.apache.doris.filesystem.spi.RequestBody requestBody)
             throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("putObject", uri.bucket());
         try (InputStream content = requestBody.content()) {
             getClient().putObject(
                     PutObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build(),
@@ -397,6 +388,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public void deleteObject(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("deleteObject", uri.bucket());
         try {
             getClient().deleteObject(DeleteObjectRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).build());
@@ -414,6 +406,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void copyObject(String srcPath, String dstPath) throws IOException {
         ObjectStorageUri srcUri = ObjectStorageUri.parse(srcPath, usePathStyle, getSupportedSchemes());
         ObjectStorageUri dstUri = ObjectStorageUri.parse(dstPath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("copyObject", srcUri.bucket());
+        ensureMutationSupported("copyObject", dstUri.bucket());
         try {
             getClient().copyObject(CopyObjectRequest.builder()
                     .copySource(SdkHttpUtils.urlEncodeIgnoreSlashes(
@@ -430,6 +424,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("initiateMultipartUpload", uri.bucket());
         try {
             CreateMultipartUploadResponse response = getClient().createMultipartUpload(
                     CreateMultipartUploadRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
@@ -444,6 +439,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             org.apache.doris.filesystem.spi.RequestBody body) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("uploadPart", uri.bucket());
         try (InputStream content = body.content()) {
             UploadPartResponse response = getClient().uploadPart(
                     UploadPartRequest.builder()
@@ -464,6 +460,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("completeMultipartUpload", uri.bucket());
         List<CompletedPart> completedParts = parts.stream()
                 .map(p -> CompletedPart.builder().partNumber(p.partNumber()).eTag(p.etag()).build())
                 .collect(Collectors.toList());
@@ -481,6 +478,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
+        ensureMutationSupported("abortMultipartUpload", uri.bucket());
         try {
             getClient().abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
@@ -502,7 +500,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     InputStream openInputStream(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            return getClientForBucket(uri.bucket()).getObject(
+            return getReadClient(uri.bucket()).getObject(
                     GetObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
@@ -523,7 +521,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             if (fromByte > 0) {
                 req.range("bytes=" + fromByte + "-");
             }
-            return getClientForBucket(uri.bucket()).getObject(req.build());
+            return getReadClient(uri.bucket()).getObject(req.build());
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
         } catch (SdkException e) {
@@ -538,7 +536,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public long headObjectLastModified(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, usePathStyle, getSupportedSchemes());
         try {
-            HeadObjectResponse resp = getClientForBucket(uri.bucket()).headObject(
+            HeadObjectResponse resp = getReadClient(uri.bucket()).headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return resp.lastModified() != null ? resp.lastModified().toEpochMilli() : 0L;
         } catch (NoSuchKeyException e) {
@@ -632,6 +630,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
         requireBucket("getPresignedUrl");
+        ensureMutationSupported("getPresignedUrl", bucket);
         try {
             PutObjectRequest putReq = PutObjectRequest.builder()
                     .bucket(bucket)
@@ -658,6 +657,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
+        ensureMutationSupported("deleteObjectsByKeys", bucket);
         // S3 DeleteObjects supports up to 1000 keys per request
         int batchSize = 1000;
         List<String> failedKeys = new ArrayList<>();
@@ -709,6 +709,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
+    private void ensureMutationSupported(String operation, String requestBucket) throws IOException {
+        if (usesS3ExpressRead(requestBucket)) {
+            throw new IOException(operation + " is not supported for AWS S3 Express directory bucket "
+                    + requestBucket);
+        }
+    }
+
     private static String normalizeAndCombinePrefix(String prefix, String subPrefix) {
         String normalized = (prefix == null || prefix.isEmpty()) ? ""
                 : (prefix.endsWith("/") ? prefix : prefix + "/");
@@ -730,13 +737,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true)) {
-            if (client != null) {
-                client.close();
-                client = null;
-            }
-            if (expressClient != null) {
-                expressClient.close();
-                expressClient = null;
+            synchronized (this) {
+                if (client != null) {
+                    client.close();
+                    client = null;
+                }
+                if (expressReadClient != null) {
+                    expressReadClient.close();
+                    expressReadClient = null;
+                }
             }
         }
     }

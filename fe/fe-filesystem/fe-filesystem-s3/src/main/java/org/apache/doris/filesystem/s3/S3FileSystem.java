@@ -18,8 +18,6 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.S3ExpressUtils;
-import org.apache.doris.filesystem.capability.Capability;
-import org.apache.doris.filesystem.capability.ReadAccessCheckCapability;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import java.util.List;
@@ -55,21 +53,11 @@ public class S3FileSystem extends S3CompatibleFileSystem {
 
     @Override
     protected GlobListPlan globListPlan(String bucket, String globPattern) {
-        if (!s3ObjStorage.usesS3Express(bucket)) {
+        if (!s3ObjStorage.usesS3ExpressRead(bucket)) {
             return super.globListPlan(bucket, globPattern);
         }
         String directoryPrefix = S3ExpressUtils.directoryPrefix(longestNonGlobPrefix(globPattern));
         return new GlobListPlan(directoryPrefix, List.of(directoryPrefix), false);
-    }
-
-    @Override
-    public <T extends Capability> Optional<T> capability(Class<T> capabilityType) {
-        if (capabilityType == ReadAccessCheckCapability.class) {
-            ReadAccessCheckCapability capability = location ->
-                    s3ObjStorage.checkReadAccess(location.uri());
-            return Optional.of(capabilityType.cast(capability));
-        }
-        return super.capability(capabilityType);
     }
 
     protected static boolean isSingleLevelGlob(String pathStr) {

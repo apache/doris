@@ -320,10 +320,17 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
     }
 
+    private void configureS3Express(String uri) throws UserException {
+        configureFromS3ExpressObjectUrl(uri);
+        if (isS3Express(uri) && StringUtils.isNotBlank(region)) {
+            endpoint = "https://s3." + region + ".amazonaws.com";
+        }
+    }
+
     private void configureFromS3ExpressObjectUrlProperty() {
         getPropertyIgnoreCase(origProps, URI_KEY).ifPresent(uri -> {
             try {
-                configureFromS3ExpressObjectUrl(uri);
+                configureS3Express(uri);
             } catch (UserException e) {
                 throw new IllegalArgumentException(e.getMessage(), e);
             }
@@ -382,6 +389,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        if (isS3Express()) {
+            // Express read clients derive the zonal endpoint from the directory bucket. Keep the
+            // generic endpoint used by FE connectivity checks and BE fallback paths regional.
+            endpoint = "https://s3." + region + ".amazonaws.com";
+        }
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isBlank(s3IAMRole)) {
             throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
         }
@@ -451,7 +463,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     public String validateAndNormalizeUri(String uri) throws UserException {
-        configureFromS3ExpressObjectUrl(uri);
+        configureS3Express(uri);
         return super.validateAndNormalizeUri(uri);
     }
 

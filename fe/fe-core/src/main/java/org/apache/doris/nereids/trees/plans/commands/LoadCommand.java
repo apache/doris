@@ -32,8 +32,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.fs.ObjectStorageAccessChecker;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -58,7 +59,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * load OLAP table data from external bulk file
@@ -457,11 +457,11 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
             if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
-                    && brokerDesc.getStorageProperties() != null) {
-                List<String> filePaths = dataDescriptions.stream()
-                        .flatMap(dataDescription -> dataDescription.getFilePaths().stream())
-                        .collect(Collectors.toList());
-                ObjectStorageAccessChecker.checkBrokerLoad(brokerDesc, filePaths);
+                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
+                //@zykkk todo We should use a unified connectivity check — it doesn’t really belong here.
+                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+                String endpoint = storageProperties.getEndpoint();
+                S3Util.validateAndTestEndpoint(endpoint);
             }
         } else {
             etlJobType = EtlJobType.UNKNOWN;

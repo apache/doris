@@ -67,7 +67,7 @@ import java.util.Map;
 
 /**
  * Full unit tests for {@link S3ObjStorage} using a testable subclass that overrides
- * {@link S3ObjStorage#buildClient()} and {@link S3ObjStorage#buildExpressClient()}
+ * {@link S3ObjStorage#buildClient()} and {@link S3ObjStorage#buildExpressReadClient()}
  * to inject mock S3 clients.
  */
 class S3ObjStorageMockTest {
@@ -270,51 +270,31 @@ class S3ObjStorageMockTest {
     }
 
     @Test
-    void checkReadAccess_directoryBucketUsesBoundedExpressList() throws IOException {
-        S3Client regularClient = Mockito.mock(S3Client.class);
-        S3Client expressClient = Mockito.mock(S3Client.class);
-        S3ObjStorage expressStorage = directoryBucketStorage(
-                "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
-                regularClient, expressClient);
-        Mockito.when(expressClient.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
-                .thenReturn(ListObjectsV2Response.builder().contents(List.of()).isTruncated(false).build());
-
-        expressStorage.checkReadAccess("s3://" + DIRECTORY_BUCKET + "/data/file.csv");
-
-        ArgumentCaptor<ListObjectsV2Request> captor = ArgumentCaptor.forClass(ListObjectsV2Request.class);
-        Mockito.verify(expressClient).listObjectsV2(captor.capture());
-        Assertions.assertEquals(DIRECTORY_BUCKET, captor.getValue().bucket());
-        Assertions.assertEquals(1, captor.getValue().maxKeys());
-        Assertions.assertNull(captor.getValue().prefix());
-        Mockito.verifyNoInteractions(regularClient);
-    }
-
-    @Test
-    void usesS3Express_requiresAwsProviderAndCompleteBucketName() {
+    void usesS3ExpressRead_requiresAwsProviderAndCompleteBucketName() {
         S3Client regularClient = Mockito.mock(S3Client.class);
         S3Client expressClient = Mockito.mock(S3Client.class);
 
         Map<String, String> unscoped = directoryBucketProperties(
                 "https://s3.us-west-2.amazonaws.com", "us-west-2", false);
         Assertions.assertFalse(new TestableS3ObjStorage(
-                unscoped, regularClient, expressClient).usesS3Express(DIRECTORY_BUCKET));
+                unscoped, regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
 
         Map<String, String> nonAws = new HashMap<>(unscoped);
         nonAws.put("provider", "GCP");
         Assertions.assertFalse(new TestableS3ObjStorage(
-                nonAws, regularClient, expressClient).usesS3Express(DIRECTORY_BUCKET));
+                nonAws, regularClient, expressClient).usesS3ExpressRead(DIRECTORY_BUCKET));
 
         S3ObjStorage expressStorage = directoryBucketStorage(
                 "https://ignored.example.com", "us-west-2", true,
                 regularClient, expressClient);
-        Assertions.assertTrue(expressStorage.usesS3Express(DIRECTORY_BUCKET));
-        Assertions.assertFalse(expressStorage.usesS3Express("ordinary-bucket"));
-        Assertions.assertFalse(expressStorage.usesS3Express("invalid--x-s3"));
-        Assertions.assertFalse(expressStorage.usesS3Express("--usw2-az1--x-s3"));
-        Assertions.assertFalse(expressStorage.usesS3Express("analytics----x-s3"));
-        Assertions.assertFalse(expressStorage.usesS3Express("analytics--usw2-az--x-s3"));
-        Assertions.assertFalse(expressStorage.usesS3Express("analytics--usw2-azx--x-s3"));
-        Assertions.assertFalse(expressStorage.usesS3Express("analytics--USW2-az1--x-s3"));
+        Assertions.assertTrue(expressStorage.usesS3ExpressRead(DIRECTORY_BUCKET));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("ordinary-bucket"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("invalid--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("--usw2-az1--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics----x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics--usw2-az--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics--usw2-azx--x-s3"));
+        Assertions.assertFalse(expressStorage.usesS3ExpressRead("analytics--USW2-az1--x-s3"));
     }
 
     // ------------------------------------------------------------------
@@ -373,6 +353,26 @@ class S3ObjStorageMockTest {
     }
 
     @Test
+    void openInputStreamAt_directoryBucketUsesExpressRangeGet() throws IOException {
+        S3Client regularClient = Mockito.mock(S3Client.class);
+        S3Client expressClient = Mockito.mock(S3Client.class);
+        S3ObjStorage expressStorage = directoryBucketStorage(
+                "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
+                regularClient, expressClient);
+        ResponseInputStream<GetObjectResponse> response = Mockito.mock(ResponseInputStream.class);
+        Mockito.when(expressClient.getObject(ArgumentMatchers.any(GetObjectRequest.class)))
+                .thenReturn(response);
+
+        Assertions.assertSame(response, expressStorage.openInputStreamAt(
+                "s3://" + DIRECTORY_BUCKET + "/data/file.parquet", 17L));
+
+        ArgumentCaptor<GetObjectRequest> captor = ArgumentCaptor.forClass(GetObjectRequest.class);
+        Mockito.verify(expressClient).getObject(captor.capture());
+        Assertions.assertEquals("bytes=17-", captor.getValue().range());
+        Mockito.verifyNoInteractions(regularClient);
+    }
+
+    @Test
     void headObject_throwsFileNotFoundForNoSuchKeyException() {
         Mockito.when(mockS3.headObject(ArgumentMatchers.any(HeadObjectRequest.class)))
                 .thenThrow(NoSuchKeyException.builder().message("not found").build());
@@ -411,24 +411,33 @@ class S3ObjStorageMockTest {
     }
 
     @Test
-    void putObject_directoryBucketStaysOnRegularClient() throws IOException {
+    void directoryBucketRejectsMutationsBeforeCreatingAClient() {
         S3Client regularClient = Mockito.mock(S3Client.class);
         S3Client expressClient = Mockito.mock(S3Client.class);
         S3ObjStorage expressStorage = directoryBucketStorage(
                 "https://s3.us-west-2.amazonaws.com", "us-west-2", false,
                 regularClient, expressClient);
-        Mockito.when(regularClient.putObject(
-                        ArgumentMatchers.any(PutObjectRequest.class),
-                        ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class)))
-                .thenReturn(PutObjectResponse.builder().build());
-
+        String remotePath = "s3://" + DIRECTORY_BUCKET + "/data/file.csv";
         RequestBody body = RequestBody.of(new ByteArrayInputStream(new byte[]{1}), 1);
-        expressStorage.putObject("s3://" + DIRECTORY_BUCKET + "/data/file.csv", body);
+        List<UploadPartResult> parts = List.of(new UploadPartResult(1, "etag-1"));
 
-        Mockito.verify(regularClient).putObject(
-                ArgumentMatchers.any(PutObjectRequest.class),
-                ArgumentMatchers.any(software.amazon.awssdk.core.sync.RequestBody.class));
-        Mockito.verifyNoInteractions(expressClient);
+        Assertions.assertThrows(IOException.class, () -> expressStorage.putObject(remotePath, body));
+        Assertions.assertThrows(IOException.class, () -> expressStorage.deleteObject(remotePath));
+        Assertions.assertThrows(IOException.class, () -> expressStorage.copyObject(remotePath, remotePath));
+        Assertions.assertThrows(IOException.class,
+                () -> expressStorage.copyObject("s3://ordinary-bucket/source.csv", remotePath));
+        Assertions.assertThrows(IOException.class, () -> expressStorage.initiateMultipartUpload(remotePath));
+        Assertions.assertThrows(IOException.class,
+                () -> expressStorage.uploadPart(remotePath, "upload-1", 1, body));
+        Assertions.assertThrows(IOException.class,
+                () -> expressStorage.completeMultipartUpload(remotePath, "upload-1", parts));
+        Assertions.assertThrows(IOException.class,
+                () -> expressStorage.abortMultipartUpload(remotePath, "upload-1"));
+        Assertions.assertThrows(IOException.class, () -> expressStorage.getPresignedUrl("data/file.csv"));
+        Assertions.assertThrows(IOException.class,
+                () -> expressStorage.deleteObjectsByKeys(DIRECTORY_BUCKET, List.of("data/file.csv")));
+
+        Mockito.verifyNoInteractions(regularClient, expressClient);
     }
 
     // ------------------------------------------------------------------
@@ -749,7 +758,7 @@ class S3ObjStorageMockTest {
         }
 
         @Override
-        protected S3Client buildExpressClient() {
+        protected S3Client buildExpressReadClient() {
             return mockExpressClient;
         }
     }

@@ -41,16 +41,17 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.ObjectStorageAccessChecker;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
@@ -160,7 +161,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
             StorageProperties sp = brokerDesc.getStorageProperties();
-            ObjectStorageAccessChecker.checkEndpoint(sp, List.of(path));
+            if (sp instanceof ObjectStorageProperties) {
+                S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
+            }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;
                 // Always prefer glob semantics: for exact paths it ensures precise matching

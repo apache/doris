@@ -79,6 +79,7 @@ public class ObjectInfoAdapter {
             case OSS:
                 return OSSProperties.of(buildS3CompatibleProps(obj));
             case S3:
+                return S3Properties.of(buildAwsS3Props(obj));
             case GCP:
                 return S3Properties.of(buildS3CompatibleProps(obj));
             case COS:
@@ -173,6 +174,12 @@ public class ObjectInfoAdapter {
         putIfNotBlank(props, STS_EXTERNAL_ID_KEY,  obj.getExternalId());
         putIfNotBlank(props, "AWS_ROLE_ARN", obj.getArn());
         putIfNotBlank(props, "AWS_EXTERNAL_ID", obj.getExternalId());
+        return props;
+    }
+
+    private static Map<String, String> buildAwsS3Props(ObjectInfo obj) {
+        Map<String, String> props = buildS3CompatibleProps(obj);
+        props.put(S3Properties.PROVIDER, "AWS");
         return props;
     }
 

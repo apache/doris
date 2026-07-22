@@ -21,13 +21,10 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.capability.ReadAccessCheckCapability;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -49,7 +46,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +58,7 @@ public class LoadCommandTest extends TestWithFeService {
             + "  ) "
             + "  WITH S3(  "
             + "     \"s3.provider\" = \"AWS\", "
+            + "     \"s3.endpoint\" = \"https://s3.us-east-1.amazonaws.com\", "
             + "     \"s3.region\" = \"us-west-2\", "
             + "     \"s3.access_key\" = \"AK\", "
             + "     \"s3.secret_key\" = \"SK\", "
@@ -182,43 +179,29 @@ public class LoadCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testS3ExpressLoadUsesStandardS3Properties() {
+    public void testS3ExpressLoadUsesStandardS3Properties() throws Exception {
         List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser()
                 .parseMultiple(S3_EXPRESS_LOAD_SQL);
         Assertions.assertFalse(statements.isEmpty());
 
         LoadCommand command = (LoadCommand) statements.get(0).first;
-        Map<String, String> backendProperties = command.getBrokerDesc().getBackendConfigProperties();
+        LoadCommand commandSpy = Mockito.spy(command);
+        Mockito.doNothing().when(commandSpy)
+                .handleLoadCommand(Mockito.any(), Mockito.any());
+        try (MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
+            commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class));
+            mockedS3Util.verify(() -> S3Util.validateAndTestEndpoint(
+                    "https://s3.us-west-2.amazonaws.com"));
+        }
+
+        Map<String, String> backendProperties = commandSpy.getBrokerDesc().getBackendConfigProperties();
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
         Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
                 backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
         Assertions.assertTrue(S3Properties.isS3Express(
-                command.getDataDescriptions().get(0).getFilePaths().get(0),
-                command.getBrokerDesc().getProperties()));
-    }
-
-    @Test
-    public void testS3ExpressLoadChecksReadAccessBeforeSubmit() throws Exception {
-        LoadCommand command = (LoadCommand) new NereidsParser()
-                .parseMultiple(S3_EXPRESS_LOAD_SQL).get(0).first;
-        LoadCommand commandSpy = Mockito.spy(command);
-        Mockito.doNothing().when(commandSpy)
-                .handleLoadCommand(Mockito.any(), Mockito.any());
-        FileSystem fileSystem = Mockito.mock(FileSystem.class);
-        ReadAccessCheckCapability accessCheck = Mockito.mock(ReadAccessCheckCapability.class);
-        Mockito.when(fileSystem.requireCapability(ReadAccessCheckCapability.class)).thenReturn(accessCheck);
-
-        try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
-                    .thenReturn(fileSystem);
-
-            commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class));
-
-            Mockito.verify(accessCheck).checkReadAccess(Location.of(
-                    "s3://analytics--usw2-az1--x-s3/customer/*.parquet"));
-            Mockito.verify(commandSpy).handleLoadCommand(Mockito.any(), Mockito.any());
-        }
+                commandSpy.getDataDescriptions().get(0).getFilePaths().get(0),
+                commandSpy.getBrokerDesc().getProperties()));
     }
 
     @Test
@@ -228,44 +211,17 @@ public class LoadCommandTest extends TestWithFeService {
         LoadCommand commandSpy = Mockito.spy(command);
         Mockito.doNothing().when(commandSpy)
                 .handleLoadCommand(Mockito.any(), Mockito.any());
-        FileSystem fileSystem = Mockito.mock(FileSystem.class);
-        ReadAccessCheckCapability accessCheck = Mockito.mock(ReadAccessCheckCapability.class);
-        Mockito.when(fileSystem.requireCapability(ReadAccessCheckCapability.class)).thenReturn(accessCheck);
 
-        try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
-                    .thenReturn(fileSystem);
+        try (MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
             commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class));
+            mockedS3Util.verify(() -> S3Util.validateAndTestEndpoint(
+                    "https://s3.eu-north-1.amazonaws.com"));
         }
 
         Assertions.assertEquals(List.of(
                         "s3://analytics--eun1-az1--x-s3/customer/*.parquet",
                         "s3://archive--eun1-az2--x-s3/history/*.parquet"),
                 commandSpy.getDataDescriptions().get(0).getFilePaths());
-        Mockito.verify(accessCheck, Mockito.times(2)).checkReadAccess(Mockito.any(Location.class));
-    }
-
-    @Test
-    public void testS3ExpressLoadRejectsMissingCreateSessionPermissionBeforeSubmit() throws Exception {
-        LoadCommand command = (LoadCommand) new NereidsParser()
-                .parseMultiple(S3_EXPRESS_LOAD_SQL).get(0).first;
-        LoadCommand commandSpy = Mockito.spy(command);
-        FileSystem fileSystem = Mockito.mock(FileSystem.class);
-        ReadAccessCheckCapability accessCheck = Mockito.mock(ReadAccessCheckCapability.class);
-        Mockito.when(fileSystem.requireCapability(ReadAccessCheckCapability.class)).thenReturn(accessCheck);
-        Mockito.doThrow(new IOException("AccessDenied: s3express:CreateSession"))
-                .when(accessCheck).checkReadAccess(Mockito.any(Location.class));
-
-        try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
-                    .thenReturn(fileSystem);
-
-            UserException exception = Assertions.assertThrows(UserException.class,
-                    () -> commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class)));
-
-            Assertions.assertTrue(exception.getMessage().contains("s3express:CreateSession"));
-            Mockito.verify(commandSpy, Mockito.never()).handleLoadCommand(Mockito.any(), Mockito.any());
-        }
     }
 
     @Test
