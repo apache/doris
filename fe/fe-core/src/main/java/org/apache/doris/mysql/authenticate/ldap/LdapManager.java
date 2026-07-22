@@ -122,6 +122,17 @@ public class LdapManager {
         return exists;
     }
 
+    //not allow to login in case when empty password is specified but such mode is disabled by configuration
+    public boolean checkLoginWithEmptyPasswordForLdapIsAllowed(String fullName, String passwd) {
+        if (Strings.isNullOrEmpty(passwd) && !LdapConfig.ldap_allow_empty_pass) {
+            LOG.info("User:{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
+                    fullName);
+            return false;
+        } else {
+            return true;
+        }
+    }
+
     public boolean checkUserPasswd(String fullName, String passwd) {
         long start = System.currentTimeMillis();
         String userName = fullName;
@@ -129,6 +140,12 @@ public class LdapManager {
                 || Objects.isNull(passwd)) {
             return false;
         }
+
+        // extra check for PR 61440 to disable login with empty LDAP password in case when specific property is true
+        if (!checkLoginWithEmptyPasswordForLdapIsAllowed(fullName, passwd)) {
+            return false;
+        }
+
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
         if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
             long elapsed = System.currentTimeMillis() - start;

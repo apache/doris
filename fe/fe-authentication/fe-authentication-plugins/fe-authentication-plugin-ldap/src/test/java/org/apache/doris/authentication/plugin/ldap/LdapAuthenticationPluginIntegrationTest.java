@@ -22,6 +22,7 @@ import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.Principal;
+import org.apache.doris.common.LdapConfig;
 
 import com.unboundid.ldap.listener.InMemoryDirectoryServer;
 import com.unboundid.ldap.listener.InMemoryDirectoryServerConfig;
@@ -30,6 +31,7 @@ import com.unboundid.ldap.sdk.LDAPException;
 import com.unboundid.ldif.LDIFException;
 import com.unboundid.ldif.LDIFReader;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -111,8 +113,17 @@ class LdapAuthenticationPluginIntegrationTest {
         }
     }
 
+    @AfterEach
+    void tearDown() {
+        //running test with specified value - ldap_allow_empty_pass is be true
+        LdapConfig.ldap_allow_empty_pass = true;
+    }
+
     @BeforeEach
     void setUp() {
+        //running test with specified value - ldap_allow_empty_pass is be true
+        LdapConfig.ldap_allow_empty_pass = true;
+
         plugin = new LdapAuthenticationPlugin();
 
         // Create integration configuration pointing to embedded LDAP
@@ -220,8 +231,43 @@ class LdapAuthenticationPluginIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should reject empty password")
-    void testAuthenticateEmptyPassword() throws Exception {
+    @DisplayName("Should reject empty password with default value of ldap_allow_empty_pass")
+    void testAuthenticateEmptyPasswordAndAllowEmptyPassDefault() throws Exception {
+        //running test with default value - ldap_allow_empty_pass should be true
+        LdapConfig.ldap_allow_empty_pass = true;
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        AuthenticationResult result = plugin.authenticate(request, integration);
+
+        Assertions.assertTrue(result.isFailure());
+    }
+
+    @Test
+    @DisplayName("Should reject empty password with true value of ldap_allow_empty_pass")
+    void testAuthenticateEmptyPasswordAndAllowEmptyPassTrue() throws Exception {
+        //running test with obvious value - ldap_allow_empty_pass is true
+        LdapConfig.ldap_allow_empty_pass = true;
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        AuthenticationResult result = plugin.authenticate(request, integration);
+
+        Assertions.assertTrue(result.isFailure());
+    }
+
+    @Test
+    @DisplayName("Should reject empty password with false value of ldap_allow_empty_pass")
+    void testAuthenticateEmptyPasswordAndAllowEmptyPassFalse() throws Exception {
+        //running test with obvious value - ldap_allow_empty_pass is false
+        LdapConfig.ldap_allow_empty_pass = false;
+
         AuthenticationRequest request = AuthenticationRequest.builder()
                 .username("alice")
                 .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
