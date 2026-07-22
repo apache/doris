@@ -2243,7 +2243,18 @@ build_paimon_rust() {
         env "${cargo_env[@]}" "${cargo_bin}" install cbindgen --locked
         cbindgen_bin="cbindgen"
     fi
-    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c --lang c --cpp-compat \
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
         --output "${BUILD_DIR}/release/paimon.h"
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
