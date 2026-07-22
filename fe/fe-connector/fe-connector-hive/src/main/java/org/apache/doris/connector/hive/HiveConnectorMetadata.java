@@ -1600,8 +1600,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
         }
 
-        // Partition columns: LIST only (reject RANGE), and reject explicit partition value definitions
-        // (hive external tables discover partitions from the data layout). Legacy parity.
+        // Partition columns: LIST only (reject RANGE). Hive external tables discover partitions from the data
+        // layout, so explicit partition value definitions are rejected below -- but only AFTER validatePartition
+        // checks the partition columns exist / have valid types. This keeps the pre-SPI-migration precedence
+        // (column existence, formerly validated in fe-core PartitionTableInfo.validatePartitionInfo during
+        // analysis, ran before the explicit-values rejection in HiveMetadataOps.createTable during execution),
+        // so a bad partition-column name reports the more specific "partition key ... is not exists".
         List<String> partitionColNames = new ArrayList<>();
         ConnectorPartitionSpec partitionSpec = request.getPartitionSpec();
         if (partitionSpec != null) {
@@ -1611,14 +1615,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             for (ConnectorPartitionField field : partitionSpec.getFields()) {
                 partitionColNames.add(field.getColumnName());
             }
-            if (partitionSpec.hasExplicitPartitionValues()) {
-                throw new DorisConnectorException(
-                        "Partition values expressions is not supported in hive catalog.");
-            }
         }
         // Hive external partition-column rules, moved off fe-core PartitionTableInfo.validatePartitionInfo (the
         // engineName==hive external arm). Runs before the remote create.
         validatePartition(request, allowPartitionColumnNullable(session), partitionColNames);
+        if (partitionSpec != null && partitionSpec.hasExplicitPartitionValues()) {
+            throw new DorisConnectorException(
+                    "Partition values expressions is not supported in hive catalog.");
+        }
 
         HmsCreateTableRequest.Builder builder = HmsCreateTableRequest.builder()
                 .dbName(request.getDbName())
