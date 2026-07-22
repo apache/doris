@@ -183,14 +183,15 @@ public class CopyIntoTest extends DorisHttpTestCase {
     }
 
     @Test
-    public void testBuildRequestSummaryUsesAllowlistOnly() throws Exception {
+    public void testBuildRequestSummaryMasksSensitiveHeadersAndKeepsSafeMetadata() throws Exception {
         jakarta.servlet.http.HttpServletRequest request = Mockito.mock(jakarta.servlet.http.HttpServletRequest.class);
         Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(
-                java.util.Arrays.asList("Authorization", "Cookie", "token", "X-Secret-Header")));
+                java.util.Arrays.asList("Authorization", "Cookie", "token", "fileName", "Content-Type")));
         Mockito.when(request.getHeader("Authorization")).thenReturn("Basic secret-auth");
         Mockito.when(request.getHeader("Cookie")).thenReturn("session=secret-cookie");
         Mockito.when(request.getHeader("token")).thenReturn("secret-token");
-        Mockito.when(request.getHeader("X-Secret-Header")).thenReturn("secret-header-value");
+        Mockito.when(request.getHeader("fileName")).thenReturn("file.csv");
+        Mockito.when(request.getHeader("Content-Type")).thenReturn("application/json");
         Map<String, String[]> parameterMap = new HashMap<>();
         parameterMap.put("cluster", new String[] {"default_cluster"});
         parameterMap.put("secret_param_name", new String[] {"secret-param-value"});
@@ -202,16 +203,18 @@ public class CopyIntoTest extends DorisHttpTestCase {
         buildRequestSummary.setAccessible(true);
         String summary = (String) buildRequestSummary.invoke(null, request, body);
 
-        Assert.assertTrue(summary.contains("parameterCount=2"));
-        Assert.assertTrue(summary.contains("headerCount=4"));
+        Assert.assertTrue(summary.contains("cluster"));
+        Assert.assertTrue(summary.contains("secret_param_name"));
+        Assert.assertTrue(summary.contains("Authorization=***MASKED***"));
+        Assert.assertTrue(summary.contains("Cookie=***MASKED***"));
+        Assert.assertTrue(summary.contains("token=***MASKED***"));
+        Assert.assertTrue(summary.contains("fileName=file.csv"));
+        Assert.assertTrue(summary.contains("Content-Type=application/json"));
         Assert.assertTrue(summary.contains("bodyLength=" + body.length()));
-        Assert.assertTrue(summary.contains("hasAuthorization=true"));
-        Assert.assertTrue(summary.contains("hasCookie=true"));
-        Assert.assertTrue(summary.contains("hasToken=true"));
-        Assert.assertFalse(summary.contains("X-Secret-Header"));
-        Assert.assertFalse(summary.contains("secret_param_name"));
-        Assert.assertFalse(summary.contains("secret-header-value"));
         Assert.assertFalse(summary.contains("secret-param-value"));
+        Assert.assertFalse(summary.contains("secret-auth"));
+        Assert.assertFalse(summary.contains("secret-cookie"));
+        Assert.assertFalse(summary.contains("secret-token"));
         Assert.assertFalse(summary.contains("body-secret"));
     }
 }

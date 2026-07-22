@@ -39,6 +39,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
 
 public class LoadActionTest {
     private final boolean originalEnableDebugPoints = Config.enable_debug_points;
@@ -231,6 +234,30 @@ public class LoadActionTest {
 
         Assertions.assertTrue(result instanceof RedirectView);
         Mockito.verifyNoInteractions(response);
+    }
+
+    @Test
+    public void testGetHeadersForLoggingMasksOnlySensitiveHeaders() {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(Arrays.asList(
+                "Authorization", "Cookie", "Set-Cookie", "token", "X-Api-Key", "label", "format")));
+        Mockito.when(request.getHeader("Authorization")).thenReturn("Basic secret-auth");
+        Mockito.when(request.getHeader("Cookie")).thenReturn("session=secret-cookie");
+        Mockito.when(request.getHeader("Set-Cookie")).thenReturn("session=secret-set-cookie");
+        Mockito.when(request.getHeader("token")).thenReturn("secret-token");
+        Mockito.when(request.getHeader("X-Api-Key")).thenReturn("secret-api-key");
+        Mockito.when(request.getHeader("label")).thenReturn("load_label");
+        Mockito.when(request.getHeader("format")).thenReturn("json");
+
+        Map<String, String> headers = RestBaseController.getHeadersForLogging(request);
+
+        Assertions.assertEquals("***MASKED***", headers.get("Authorization"));
+        Assertions.assertEquals("***MASKED***", headers.get("Cookie"));
+        Assertions.assertEquals("***MASKED***", headers.get("Set-Cookie"));
+        Assertions.assertEquals("***MASKED***", headers.get("token"));
+        Assertions.assertEquals("***MASKED***", headers.get("X-Api-Key"));
+        Assertions.assertEquals("load_label", headers.get("label"));
+        Assertions.assertEquals("json", headers.get("format"));
     }
 
     @Test

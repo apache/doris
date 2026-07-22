@@ -56,7 +56,6 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,32 +110,12 @@ public class CopyIntoAction extends RestBaseController {
         return mat.find();
     }
 
-    // Count request headers without exposing any user-controlled header names or values.
-    private static int getHeaderCount(HttpServletRequest request) {
-        int headerCount = 0;
-        try {
-            Enumeration<String> names = request.getHeaderNames();
-            if (names == null) {
-                return 0;
-            }
-            while (names.hasMoreElements()) {
-                names.nextElement();
-                headerCount++;
-            }
-        } catch (Exception ignore) {
-            LOG.warn("get request header info failed.");
-        }
-        return headerCount;
-    }
-
-    // Only log request metadata for COPY APIs to avoid persisting credential-bearing payloads.
+    // Keep safe request metadata while avoiding credential-bearing payloads and arbitrary parameter values.
     private static String buildRequestSummary(HttpServletRequest request, String body) {
-        return "parameterCount=" + request.getParameterMap().size()
-                + ", headerCount=" + getHeaderCount(request)
+        return "parameterKeys=" + request.getParameterMap().keySet()
+                + ", headers=" + getHeadersForLogging(request)
                 + ", bodyLength=" + (body == null ? 0 : body.length())
-                + ", hasAuthorization=" + (request.getHeader("Authorization") != null)
-                + ", hasCookie=" + (request.getHeader("Cookie") != null)
-                + ", hasToken=" + (request.getHeader("token") != null);
+                + ", hasBody=" + (body != null);
     }
 
     private boolean internalEndpoint(String host) throws DdlException {
@@ -193,12 +172,9 @@ public class CopyIntoAction extends RestBaseController {
                 obj.setEndpoint(endpoint);
                 objPb = obj.build();
             }
-            // Keep object store diagnostics metadata-only to avoid leaking credentials.
-            LOG.debug("obj info endpoint={}, bucket={}, isInternal={}",
-                    objPb.getEndpoint(), objPb.getBucket(), isInternal);
-
             // 2. use ObjFileSystem to get pre-signedUrl
             ObjectInfo objectInfo = new ObjectInfo(objPb);
+            LOG.debug("obj info: {}, isInternal {}", objectInfo, isInternal);
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
             ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
             String signedUrl = fs.getPresignedUrl(fileName);

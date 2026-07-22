@@ -730,8 +730,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
+        return getMaskedProperties(customProperties, keyPrefix);
+    }
+
+    private static Map<String, String> getMaskedProperties(Map<String, String> properties, String keyPrefix) {
         Map<String, String> maskedProperties = new HashMap<>();
-        customProperties.forEach((key, value) -> {
+        properties.forEach((key, value) -> {
             String lowerKey = key.toLowerCase(Locale.ROOT);
             boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
                     || KafkaConfiguration.AWS_ACCESS_KEY.equalsIgnoreCase(key)
@@ -881,10 +885,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-        // Only log property keys here because values may carry Kafka or AWS credentials.
-        LOG.info("modify the properties of kafka routine load job: {}, jobPropertyKeys: {}, dataSourcePropertyKeys: {}",
-                this.id, jobProperties.keySet(),
-                dataSourceProperties == null ? "[]" : dataSourceProperties.getOriginalDataSourceProperties().keySet());
+        LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, "
+                        + "dataSourceProperties: {}",
+                this.id, new DatasourcePrintableMap<>(jobProperties, "=", true, false, true),
+                dataSourceProperties == null ? "{}"
+                        : getMaskedProperties(dataSourceProperties.getOriginalDataSourceProperties(), ""));
     }
 
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {

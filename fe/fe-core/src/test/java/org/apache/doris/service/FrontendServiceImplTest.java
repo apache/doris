@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -726,6 +727,36 @@ public class FrontendServiceImplTest {
         } finally {
             closeTransactionValidationMock();
         }
+    }
+
+    @Test
+    public void testGetBinlogRequestSummaryKeepsDiagnosticsWithoutCredentials() throws Exception {
+        TGetBinlogRequest request = new TGetBinlogRequest();
+        request.setUser("replication-user");
+        request.setPasswd("secret-password");
+        request.setToken("secret-token");
+        request.setDb("db1");
+        request.setTable("tbl1");
+        request.setTableId(10L);
+        request.setPrevCommitSeq(20L);
+        request.setNumAcquired(30L);
+        request.setAllowFollowerRead(true);
+
+        Method method = FrontendServiceImpl.class.getDeclaredMethod(
+                "buildGetBinlogRequestSummary", TGetBinlogRequest.class);
+        method.setAccessible(true);
+        String summary = (String) method.invoke(null, request);
+
+        Assert.assertTrue(summary.contains("user=replication-user"));
+        Assert.assertTrue(summary.contains("db=db1"));
+        Assert.assertTrue(summary.contains("table=tbl1"));
+        Assert.assertTrue(summary.contains("tableId=10"));
+        Assert.assertTrue(summary.contains("prevCommitSeq=20"));
+        Assert.assertTrue(summary.contains("numAcquired=30"));
+        Assert.assertTrue(summary.contains("allowFollowerRead=true"));
+        Assert.assertTrue(summary.contains("hasToken=true"));
+        Assert.assertFalse(summary.contains("secret-password"));
+        Assert.assertFalse(summary.contains("secret-token"));
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;

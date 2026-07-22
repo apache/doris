@@ -90,8 +90,7 @@ public class StreamingJobAction extends RestBaseController {
 
         StreamingInsertJob streamingJob = (StreamingInsertJob) job;
         try {
-            // Only log request metadata here because the request body may carry detailed offsets.
-            LOG.info("Committing offset for job {}", offsetRequest.getJobId());
+            LOG.info("Committing offset with {}", offsetRequest);
             streamingJob.commitOffset(offsetRequest);
             return ResponseEntityBuilder.ok("Offset committed successfully");
         } catch (Exception e) {

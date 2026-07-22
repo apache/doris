@@ -31,6 +31,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -661,8 +662,12 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
+        return getMaskedProperties(customProperties, keyPrefix);
+    }
+
+    private static Map<String, String> getMaskedProperties(Map<String, String> properties, String keyPrefix) {
         Map<String, String> maskedProperties = new HashMap<>();
-        customProperties.forEach((key, value) -> {
+        properties.forEach((key, value) -> {
             if (KinesisConfiguration.KINESIS_ACCESS_KEY.getName().equalsIgnoreCase(key)
                     || KinesisConfiguration.KINESIS_SECRET_KEY.getName().equalsIgnoreCase(key)
                     || KinesisConfiguration.KINESIS_SESSION_TOKEN.getName().equalsIgnoreCase(key)) {
@@ -774,11 +779,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-        // Only log property keys here because values may carry AWS credentials.
-        LOG.info("modify the properties of kinesis routine load job: {}, jobPropertyKeys: {}, "
-                        + "dataSourcePropertyKeys: {}",
-                this.id, jobProperties.keySet(), dataSourceProperties == null ? "[]"
-                        : dataSourceProperties.getOriginalDataSourceProperties().keySet());
+        LOG.info("modify the properties of kinesis routine load job: {}, jobProperties: {}, "
+                        + "dataSourceProperties: {}",
+                this.id, new DatasourcePrintableMap<>(jobProperties, "=", true, false, true),
+                dataSourceProperties == null ? "{}"
+                        : getMaskedProperties(dataSourceProperties.getOriginalDataSourceProperties(), ""));
     }
 
     @Override

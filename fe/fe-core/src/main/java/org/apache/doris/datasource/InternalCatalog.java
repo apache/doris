@@ -104,6 +104,7 @@ import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -3069,8 +3070,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
                     // here, all properties should be checked
-                    // Only expose unknown property keys to avoid leaking sensitive values in errors.
-                    throw new DdlException("Unknown properties: " + properties.keySet());
+                    throw new DdlException("Unknown properties: "
+                            + new DatasourcePrintableMap<>(properties, "=", true, false, true));
                 }
                 // this is a 1-level partitioned table
                 // use table name as partition name
@@ -3115,8 +3116,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
                     if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
-                        // Only expose unknown property keys to avoid leaking sensitive values in errors.
-                        throw new DdlException("Unknown properties: " + propertiesCheck.keySet());
+                        throw new DdlException("Unknown properties: "
+                                + new DatasourcePrintableMap<>(propertiesCheck, "=", true, false, true));
                     }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
@@ -4002,8 +4003,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (properties != null && !properties.isEmpty()) {
                     // before here, all properties should be checked
-                    // Only expose unknown property keys to avoid leaking sensitive values in errors.
-                    throw new DdlException("Unknown properties: " + properties.keySet());
+                    throw new DdlException("Unknown properties: "
+                            + new DatasourcePrintableMap<>(properties, "=", true, false, true));
                 }
                 newStream.setId((Env.getCurrentEnv().getNextId()));
             } finally {

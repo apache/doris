@@ -1054,6 +1054,77 @@ public class CloudSystemInfoServiceTest {
         Assert.assertFalse(infoService.containsCloudCluster("cluster_2"));
     }
 
+    @Test
+    public void testAlterClusterLogCopyKeepsDiagnosticsAndClearsAuthIdentifier() {
+        Cloud.NodeInfoPB node = Cloud.NodeInfoPB.newBuilder()
+                .setCloudUniqueId("node-auth-id")
+                .setIp("10.0.0.1")
+                .setHeartbeatPort(9050)
+                .build();
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setCloudUniqueId("request-auth-id")
+                .setInstanceId("instance-1")
+                .setOp(Cloud.AlterClusterRequest.Operation.ADD_NODE)
+                .setCluster(Cloud.ClusterPB.newBuilder()
+                        .setClusterId("cluster-1")
+                        .setClusterName("compute-1")
+                        .addNodes(node))
+                .build();
+
+        Cloud.AlterClusterRequest printed = CloudSystemInfoService.getAlterClusterRequestForLogging(request);
+
+        Assert.assertFalse(printed.hasCloudUniqueId());
+        Assert.assertFalse(printed.getCluster().getNodes(0).hasCloudUniqueId());
+        Assert.assertEquals("instance-1", printed.getInstanceId());
+        Assert.assertEquals("cluster-1", printed.getCluster().getClusterId());
+        Assert.assertEquals("10.0.0.1", printed.getCluster().getNodes(0).getIp());
+        Assert.assertEquals(9050, printed.getCluster().getNodes(0).getHeartbeatPort());
+    }
+
+    @Test
+    public void testInstanceLogCopyClearsCredentialsAndKeepsDiagnostics() {
+        Cloud.ObjectStoreInfoPB objectInfo = Cloud.ObjectStoreInfoPB.newBuilder()
+                .setAk("access-key")
+                .setSk("secret-key")
+                .setBucket("bucket-1")
+                .setEndpoint("s3.example.com")
+                .setExternalId("external-id")
+                .build();
+        Cloud.StagePB stage = Cloud.StagePB.newBuilder()
+                .setStageId("stage-1")
+                .setName("stage-name")
+                .setObjInfo(objectInfo)
+                .build();
+        Cloud.InstanceInfoPB instance = Cloud.InstanceInfoPB.newBuilder()
+                .setInstanceId("instance-1")
+                .addObjInfo(objectInfo)
+                .addStages(stage)
+                .setRamUser(Cloud.RamUserPB.newBuilder()
+                        .setAk("ram-access-key")
+                        .setSk("ram-secret-key")
+                        .setExternalId("ram-external-id"))
+                .build();
+        Cloud.GetInstanceResponse response = Cloud.GetInstanceResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setMsg("success"))
+                .setInstance(instance)
+                .build();
+
+        Cloud.GetInstanceResponse printed = CloudSystemInfoService.getInstanceResponseForLogging(response);
+
+        Assert.assertFalse(printed.getInstance().getObjInfo(0).hasAk());
+        Assert.assertFalse(printed.getInstance().getObjInfo(0).hasSk());
+        Assert.assertFalse(printed.getInstance().getStages(0).getObjInfo().hasAk());
+        Assert.assertFalse(printed.getInstance().getStages(0).getObjInfo().hasSk());
+        Assert.assertFalse(printed.getInstance().getRamUser().hasAk());
+        Assert.assertFalse(printed.getInstance().getRamUser().hasSk());
+        Assert.assertEquals("external-id", printed.getInstance().getObjInfo(0).getExternalId());
+        Assert.assertEquals("ram-external-id", printed.getInstance().getRamUser().getExternalId());
+        Assert.assertEquals("bucket-1", printed.getInstance().getObjInfo(0).getBucket());
+        Assert.assertEquals("success", printed.getStatus().getMsg());
+    }
+
     /**
      * Helper method to create a test ConnectContext with specific cluster name
      */

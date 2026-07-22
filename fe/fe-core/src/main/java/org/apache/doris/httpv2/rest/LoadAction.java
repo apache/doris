@@ -63,7 +63,6 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
 
@@ -103,9 +102,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        // Only log request metadata here because stream load headers may carry credentials.
-        LOG.info("streamload action, db: {}, tbl: {}, headerCount: {}, hasToken: {}",
-                db, table, getHeaderCount(request), !Strings.isNullOrEmpty(request.getHeader("token")));
+        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getHeadersForLogging(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
@@ -240,9 +237,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad2PC(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db) {
-        // Only log request metadata here because stream load headers may carry credentials.
-        LOG.info("streamload action 2PC, db: {}, headerCount: {}, hasTxnOperation: {}",
-                db, getHeaderCount(request), request.getHeader(TXN_OPERATION_KEY) != null);
+        LOG.info("streamload action 2PC, db: {}, headers: {}", db, getHeadersForLogging(request));
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -252,9 +247,8 @@ public class LoadAction extends RestBaseController {
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db,
             @PathVariable(value = TABLE_KEY) String table) {
-        // Only log request metadata here because stream load headers may carry credentials.
-        LOG.info("streamload action 2PC, db: {}, tbl: {}, headerCount: {}, hasTxnOperation: {}",
-                db, table, getHeaderCount(request), request.getHeader(TXN_OPERATION_KEY) != null);
+        LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}",
+                db, table, getHeadersForLogging(request));
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -664,17 +658,6 @@ public class LoadAction extends RestBaseController {
         } finally {
             ConnectContext.remove();
         }
-    }
-
-    // Count headers without materializing their values in logs.
-    private int getHeaderCount(HttpServletRequest request) {
-        int count = 0;
-        Enumeration<String> headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            headerNames.nextElement();
-            count++;
-        }
-        return count;
     }
 
     private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
