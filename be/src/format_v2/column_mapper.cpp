@@ -395,7 +395,7 @@ std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
-        << "}";
+        << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
     return out.str();
 }
 
@@ -2031,7 +2031,12 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
-    const auto row_lineage_type = row_lineage_virtual_column_type(table_column, _options.mode);
+    // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
+    // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
+    const auto row_lineage_type =
+            _options.enable_row_lineage_virtual_columns
+                    ? row_lineage_virtual_column_type(table_column, _options.mode)
+                    : TableVirtualColumnType::INVALID;
     if (const auto* partition_value = find_partition_value(table_column, _partition_values);
         table_column.is_partition_key && partition_value != nullptr) {
         // Partition values are split constants and must take precedence over defaults.

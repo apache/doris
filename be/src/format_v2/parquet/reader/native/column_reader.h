@@ -300,6 +300,9 @@ public:
 #ifdef BE_TEST
     void reserve_batch_scratch_for_test(size_t elements);
     size_t retained_batch_scratch_bytes_for_test() const;
+    size_t dictionary_materialization_count_for_test() const {
+        return _dictionary_materialization_count;
+    }
 #endif
 
     void reset_filter_map_index() override {
@@ -311,6 +314,9 @@ private:
     const tparquet::OffsetIndex* _offset_index = nullptr;
     std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
     std::unique_ptr<ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>> _chunk_reader;
+#ifdef BE_TEST
+    size_t _dictionary_materialization_count = 0;
+#endif
     // rep def levels buffer.
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;

@@ -70,7 +70,14 @@ Status build_native_schema_node(const DataTypePtr& projected_type,
         const auto* struct_type = assert_cast<const DataTypeStruct*>(type.get());
         std::map<std::string, const ParquetColumnSchema*> file_children;
         for (const auto& child : file_schema.children) {
-            file_children.emplace(to_lower(child->name), child.get());
+            const auto [_, inserted] = file_children.emplace(to_lower(child->name), child.get());
+            if (UNLIKELY(!inserted)) {
+                // Case-insensitive projection has no field-id input at this layer, so choosing one
+                // of two case-distinct siblings would silently bind the other physical column.
+                return Status::Corruption(
+                        "Parquet STRUCT {} has ambiguous case-insensitive child name {}",
+                        file_schema.name, child->name);
+            }
         }
         auto node = std::make_shared<NativeStructSchemaNode>();
         for (size_t i = 0; i < struct_type->get_elements().size(); ++i) {

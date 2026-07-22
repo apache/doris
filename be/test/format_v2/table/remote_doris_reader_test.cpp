@@ -467,4 +467,32 @@ TEST(RemoteDorisV2ReaderTest, RejectsInvalidRemoteDorisRange) {
     EXPECT_FALSE(reader->init(&state).ok());
 }
 
+TEST(RemoteDorisV2ReaderTest, CancellationStopsBeforeFlightNext) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("remote_doris_v2_reader_cancel_test");
+    auto close_count = std::make_shared<int>(0);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader(&profile, remote_doris_range(), slots, {make_batch({"id"})},
+                                close_count, io_ctx);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    io_ctx->should_stop = true;
+    auto block = make_request_block(schema, {0});
+    size_t rows = 99;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(*close_count, 1);
+}
+
 } // namespace doris::format::remote_doris

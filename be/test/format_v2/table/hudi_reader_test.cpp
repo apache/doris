@@ -409,6 +409,13 @@ TEST(HudiHybridReaderTest, ScannerStatefulResidualSurvivesNativeJniNativeSwitch)
     EXPECT_EQ(observed_invocations, std::vector<int>({0, 1, 2}));
 }
 
+TEST(HudiHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {
+    hudi::HudiHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader.TEST_set_child_condition_cache_hits(2, 7);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 9);
+}
+
 TEST(HudiHybridReaderTest, NativeCountStarReportsMetadataRowsThroughHybridReader) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_hudi_hybrid_count_star_test";

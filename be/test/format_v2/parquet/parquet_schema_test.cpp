@@ -606,4 +606,58 @@ TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingM
     }
 }
 
+TEST(ParquetSchemaTest, NativeProjectionRejectsCaseAmbiguousStructChildren) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement group;
+    group.__set_name("s");
+    group.__set_num_children(2);
+    group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement upper;
+    upper.__set_name("Value");
+    upper.__set_type(tparquet::Type::INT32);
+    upper.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    upper.__set_field_id(1);
+    tparquet::SchemaElement lower = upper;
+    lower.__set_name("value");
+    lower.__set_field_id(2);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, group, upper, lower}).ok());
+    descriptor.assign_ids();
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    std::shared_ptr<NativeSchemaNode> mapping;
+    EXPECT_TRUE(build_native_schema_node(fields[0]->type, *fields[0], &mapping)
+                        .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetSchemaTest, NativeSetMapKeyValueWrapperRemainsSingleListElement) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement set;
+    set.__set_name("tags");
+    set.__set_num_children(1);
+    set.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    set.__set_converted_type(tparquet::ConvertedType::MAP);
+    tparquet::SchemaElement wrapper;
+    wrapper.__set_name("key_value");
+    wrapper.__set_num_children(1);
+    wrapper.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    wrapper.__set_converted_type(tparquet::ConvertedType::MAP_KEY_VALUE);
+    tparquet::SchemaElement key;
+    key.__set_name("key");
+    key.__set_type(tparquet::Type::INT32);
+    key.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, set, wrapper, key}).ok());
+    const auto* column = descriptor.get_column(0);
+    EXPECT_EQ(remove_nullable(column->data_type)->get_primitive_type(), TYPE_ARRAY);
+    ASSERT_EQ(column->children.size(), 1);
+    EXPECT_EQ(remove_nullable(column->children[0].data_type)->get_primitive_type(), TYPE_INT);
+}
+
 } // namespace doris::format::parquet

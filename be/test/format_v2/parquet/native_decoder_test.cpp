@@ -1279,6 +1279,80 @@ TEST(ParquetV2NativeDecoderTest, DictionaryMaterializationUsesCacheAwareExecutio
     verify_strategy(true, ParquetDictionaryMaterializationStrategy::INDICES, 0, 1);
 }
 
+TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce) {
+    const std::array<int32_t, 2> dictionary {10, 20};
+    std::vector<uint8_t> dictionary_payload(sizeof(dictionary));
+    memcpy(dictionary_payload.data(), dictionary.data(), dictionary_payload.size());
+    tparquet::PageHeader dictionary_header;
+    dictionary_header.type = tparquet::PageType::DICTIONARY_PAGE;
+    dictionary_header.__set_compressed_page_size(dictionary_payload.size());
+    dictionary_header.__set_uncompressed_page_size(dictionary_payload.size());
+    dictionary_header.__isset.dictionary_page_header = true;
+    dictionary_header.dictionary_page_header.__set_num_values(dictionary.size());
+    dictionary_header.dictionary_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    std::vector<uint8_t> bytes(1, 0);
+    const auto dictionary_page = serialize_page(dictionary_header, dictionary_payload);
+    bytes.insert(bytes.end(), dictionary_page.begin(), dictionary_page.end());
+    const size_t data_page_offset = bytes.size();
+
+    faststring encoded_ids;
+    RleEncoder<uint32_t> encoder(&encoded_ids, 1);
+    for (const uint32_t id : {1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}) {
+        encoder.Put(id);
+    }
+    encoder.Flush();
+    std::vector<uint8_t> data_payload(encoded_ids.size() + 1);
+    data_payload[0] = 1;
+    memcpy(data_payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+    tparquet::PageHeader data_header;
+    data_header.type = tparquet::PageType::DATA_PAGE;
+    data_header.__set_compressed_page_size(data_payload.size());
+    data_header.__set_uncompressed_page_size(data_payload.size());
+    data_header.__isset.data_page_header = true;
+    data_header.data_page_header.__set_num_values(2);
+    data_header.data_page_header.__set_encoding(tparquet::Encoding::RLE_DICTIONARY);
+    data_header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    data_header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    const auto data_page = serialize_page(data_header, data_payload);
+    bytes.insert(bytes.end(), data_page.begin(), data_page.end());
+
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(2);
+    chunk.meta_data.__set_total_compressed_size(bytes.size() - 1);
+    chunk.meta_data.__set_dictionary_page_offset(1);
+    chunk.meta_data.__set_data_page_offset(data_page_offset);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.data_type = std::make_shared<DataTypeInt32>();
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
+    const auto row_ranges = ::doris::RowRanges::create_single(2);
+    ScalarColumnReader<false, false> reader(row_ranges, 2, chunk, nullptr, nullptr, nullptr);
+    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+                        .ok());
+    auto dictionary_result = reader.dictionary_values(field.data_type);
+    ASSERT_TRUE(dictionary_result.has_value()) << dictionary_result.error();
+    EXPECT_EQ(reader.dictionary_materialization_count_for_test(), 1);
+
+    FilterMap filter;
+    ASSERT_TRUE(filter.init(nullptr, 2, false).ok());
+    ColumnPtr ids = ColumnInt32::create();
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader.read_column_data(ids, field.data_type, nullptr, filter, 2, &rows, &eof, true)
+                        .ok());
+    ASSERT_EQ(rows, 2);
+    auto matched_values = reader.materialize_dictionary_values(
+            &assert_cast<const ColumnInt32&>(*ids), field.data_type);
+    ASSERT_TRUE(matched_values.has_value()) << matched_values.error();
+    EXPECT_EQ(reader.dictionary_materialization_count_for_test(), 1);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(**matched_values).get_data(),
+              (ColumnInt32::Container {20, 10}));
+}
+
 TEST(ParquetV2NativeDecoderTest, DictionaryRepeatedRunsGatherDirectlyIntoDestination) {
     const std::array<int32_t, 2> dictionary_values {10, 20};
     auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
@@ -2009,6 +2083,24 @@ TEST(ParquetV2NativeDecoderTest, DeltaEncodingsExposeValuesAfterSkip) {
     }
 }
 
+TEST(ParquetV2NativeDecoderTest, DeltaBinaryPackedRejectsNonIntegralBlockGeometry) {
+    std::vector<uint8_t> encoded(32);
+    uint8_t* cursor = encoded.data();
+    cursor = encode_varint32(cursor, 3200);
+    cursor = encode_varint32(cursor, 33);
+    cursor = encode_varint32(cursor, 1);
+    cursor = encode_varint32(cursor, 0);
+    encoded.resize(cursor - encoded.data());
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::DELTA_BINARY_PACKED,
+                                     decoder)
+                        .ok());
+    decoder->set_expected_values(1);
+    Slice slice(encoded.data(), encoded.size());
+    EXPECT_FALSE(decoder->set_data(&slice).ok());
+}
+
 TEST(ParquetV2NativeDecoderTest, SparseStatefulEncodingsBatchDecodeAndCompact) {
     const ParquetSelection selection {
             .total_values = 3,
@@ -2699,6 +2791,66 @@ TEST(ParquetV2NativeDecoderTest, DecoderOwnedHighWaterScratchIsReleased) {
     EXPECT_LE(decoder->retained_scratch_bytes(), 64UL << 10);
 }
 
+TEST(ParquetV2NativeDecoderTest, DecompressionScratchStaysActiveUntilPageExhaustion) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(tparquet::CompressionCodec::SNAPPY, &codec).ok());
+    auto compressed_page = [&](uint32_t value_count) {
+        std::vector<uint8_t> encoded_levels(8);
+        uint8_t* level_end = encode_varint32(encoded_levels.data(), value_count << 1);
+        *level_end++ = 1;
+        encoded_levels.resize(level_end - encoded_levels.data());
+        std::vector<uint8_t> payload(sizeof(uint32_t));
+        encode_fixed32_le(payload.data(), encoded_levels.size());
+        payload.insert(payload.end(), encoded_levels.begin(), encoded_levels.end());
+        payload.resize(payload.size() + static_cast<size_t>(value_count) * sizeof(int32_t));
+
+        faststring compressed;
+        DORIS_CHECK(codec->compress(Slice(payload.data(), payload.size()), &compressed).ok());
+        tparquet::PageHeader header;
+        header.type = tparquet::PageType::DATA_PAGE;
+        header.__set_compressed_page_size(compressed.size());
+        header.__set_uncompressed_page_size(payload.size());
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(value_count);
+        header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+        return serialize_page(header, std::vector<uint8_t>(compressed.data(),
+                                                           compressed.data() + compressed.size()));
+    };
+
+    constexpr uint32_t LARGE_VALUE_COUNT = 1U << 20;
+    auto bytes = compressed_page(LARGE_VALUE_COUNT);
+    const auto ordinary_page = compressed_page(1);
+    bytes.insert(bytes.end(), ordinary_page.begin(), ordinary_page.end());
+    MemoryBufferedReader stream(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::SNAPPY);
+    chunk.meta_data.__set_num_values(static_cast<int64_t>(LARGE_VALUE_COUNT) + 1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.definition_level = 1;
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<false, false> reader(&stream, &chunk, &field, nullptr,
+                                           static_cast<size_t>(LARGE_VALUE_COUNT) + 1, nullptr,
+                                           context);
+    ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.load_page_data().ok());
+    ASSERT_GT(reader.active_decoder_scratch_bytes(), 1UL << 20);
+    const size_t retained_while_active = reader.retained_decoder_scratch_bytes();
+    reader.release_decoder_scratch(64UL << 10);
+    EXPECT_EQ(reader.retained_decoder_scratch_bytes(), retained_while_active);
+
+    ASSERT_TRUE(reader.skip_values(LARGE_VALUE_COUNT).ok());
+    ASSERT_TRUE(reader.next_page().ok());
+    reader.release_decoder_scratch(64UL << 10);
+    EXPECT_LE(reader.retained_decoder_scratch_bytes(), 64UL << 10);
+}
+
 TEST(ParquetV2NativeDecoderTest, DeltaByteArrayScratchReleasePreservesPrefixState) {
     const std::vector<std::string> values {std::string(4096, 'x'), "shared-prefix-a",
                                            "shared-prefix-b", "shared-prefix-c"};
@@ -3384,6 +3536,28 @@ TEST(ParquetV2NativeDecoderTest, UncompressedDictionaryRequiresEqualPhysicalAndL
     EXPECT_TRUE(load_scripted_page(header, std::vector<uint8_t>(8),
                                    tparquet::CompressionCodec::UNCOMPRESSED)
                         .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, EmptyDictionaryRejectsDeclaredPayloadBeforeAllocation) {
+    tparquet::PageHeader header;
+    header.__set_uncompressed_page_size(std::numeric_limits<int32_t>::max());
+    header.__isset.dictionary_page_header = true;
+    header.dictionary_page_header.__set_num_values(0);
+    EXPECT_TRUE(validate_dictionary_page_size(header).is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, RequiredFixedWidthPageRejectsImpossibleExtentBeforeAllocation) {
+    for (const auto encoding : {tparquet::Encoding::PLAIN, tparquet::Encoding::BYTE_STREAM_SPLIT}) {
+        tparquet::PageHeader header;
+        header.__set_uncompressed_page_size(std::numeric_limits<int32_t>::max());
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(1);
+        header.data_page_header.__set_encoding(encoding);
+        EXPECT_TRUE(validate_fixed_width_page_size(header, sizeof(int32_t), 0, 0)
+                            .is<ErrorCode::CORRUPTION>());
+        header.__set_uncompressed_page_size(sizeof(int32_t));
+        EXPECT_TRUE(validate_fixed_width_page_size(header, sizeof(int32_t), 0, 0).ok());
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, UncompressedDataPagesRequireEqualPhysicalAndLogicalSizes) {

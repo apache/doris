@@ -86,6 +86,50 @@ Status validate_uncompressed_page_sizes(const tparquet::PageHeader& header,
     return Status::OK();
 }
 
+Status validate_fixed_width_page_size(const tparquet::PageHeader& header, int32_t type_length,
+                                      level_t max_rep_level, level_t max_def_level,
+                                      bool schema_is_required) {
+    if (type_length <= 0 || max_rep_level != 0 || max_def_level != 0 || !schema_is_required) {
+        return Status::OK();
+    }
+    const bool is_v2 = header.__isset.data_page_header_v2;
+    if (!is_v2 && !header.__isset.data_page_header) {
+        return Status::OK();
+    }
+    const auto encoding =
+            is_v2 ? header.data_page_header_v2.encoding : header.data_page_header.encoding;
+    if (encoding != tparquet::Encoding::PLAIN &&
+        encoding != tparquet::Encoding::BYTE_STREAM_SPLIT) {
+        return Status::OK();
+    }
+    const int32_t num_values =
+            is_v2 ? header.data_page_header_v2.num_values : header.data_page_header.num_values;
+    if (num_values < 0 || static_cast<uint64_t>(num_values) >
+                                  static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) /
+                                          static_cast<uint32_t>(type_length)) {
+        return Status::Corruption("Parquet fixed-width PLAIN page byte size overflows");
+    }
+    const int64_t expected = static_cast<int64_t>(num_values) * type_length;
+    if (UNLIKELY(header.uncompressed_page_size != expected)) {
+        // Required fixed-width PLAIN/BYTE_STREAM_SPLIT pages have no level bytes, so their exact
+        // extent is known before decompression and must gate attacker-controlled allocation.
+        return Status::Corruption("Parquet fixed-width page has {} uncompressed bytes, expected {}",
+                                  header.uncompressed_page_size, expected);
+    }
+    return Status::OK();
+}
+
+Status validate_dictionary_page_size(const tparquet::PageHeader& header) {
+    DORIS_CHECK(header.__isset.dictionary_page_header);
+    const int32_t num_values = header.dictionary_page_header.num_values;
+    if (UNLIKELY(num_values < 0 || (num_values == 0 && header.uncompressed_page_size != 0))) {
+        // An empty dictionary owns no payload; validate before allocating from its untrusted size.
+        return Status::Corruption("Parquet dictionary has {} values and {} uncompressed bytes",
+                                  num_values, header.uncompressed_page_size);
+    }
+    return Status::OK();
+}
+
 ParquetReaderCompat parquet_reader_compat(const std::string& created_by) {
     if (created_by.empty()) {
         return {};
@@ -905,6 +949,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
+    // Level parsing advances _page_data past the allocation base, so retain explicit ownership
+    // state instead of inferring whether current decoders still reference decompressed storage.
+    _page_uses_decompress_buf = false;
     _state = INITIALIZED;
     RETURN_IF_ERROR(_page_reader->next_page());
     return Status::OK();
@@ -939,8 +986,16 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
     RETURN_IF_ERROR(_page_reader->get_page_header(&header));
     RETURN_IF_ERROR(validate_uncompressed_page_sizes(
             *header, _metadata.codec, _page_read_ctx.data_page_v2_always_compressed));
+    // Zero levels alone are insufficient: test/protocol adapters can leave repetition unset, so
+    // only an explicitly REQUIRED schema proves that every logical value has fixed-width bytes.
+    const bool schema_is_required = _field_schema->parquet_schema.__isset.repetition_type &&
+                                    _field_schema->parquet_schema.repetition_type ==
+                                            tparquet::FieldRepetitionType::REQUIRED;
+    RETURN_IF_ERROR(validate_fixed_width_page_size(*header, _get_type_length(), _max_rep_level,
+                                                   _max_def_level, schema_is_required));
     int32_t uncompressed_size = header->uncompressed_page_size;
     bool page_loaded = false;
+    _page_uses_decompress_buf = false;
 
     // First, try to reuse a cache handle previously discovered by PageReader
     // (header-only lookup) to avoid a second lookup here.
@@ -994,6 +1049,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                                 : static_cast<size_t>(header->uncompressed_page_size);
                 _reserve_decompress_buf(uncompressed_payload_size);
                 _page_data = Slice(_decompress_buf.get(), uncompressed_payload_size);
+                _page_uses_decompress_buf = true;
                 SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
                 _chunk_statistics.decompress_cnt++;
                 RETURN_IF_ERROR(_block_compress_codec->decompress(payload_slice, &_page_data));
@@ -1042,6 +1098,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                 // Decompress payload for immediate decoding
                 _reserve_decompress_buf(uncompressed_size);
                 _page_data = Slice(_decompress_buf.get(), uncompressed_size);
+                _page_uses_decompress_buf = true;
                 SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
                 _chunk_statistics.decompress_cnt++;
                 RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
@@ -1186,6 +1243,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     int32_t uncompressed_size = header->uncompressed_page_size;
     RETURN_IF_ERROR(validate_uncompressed_page_sizes(
             *header, _metadata.codec, _page_read_ctx.data_page_v2_always_compressed));
+    RETURN_IF_ERROR(validate_dictionary_page_size(*header));
     auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
     bool dict_loaded = false;
 
@@ -1239,11 +1297,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
         // Load and decompress dictionary page from file
         if (_block_compress_codec != nullptr) {
             auto dict_num = header->dictionary_page_header.num_values;
-            if (dict_num == 0 && uncompressed_size != 0) {
-                return Status::IOError(
-                        "Dictionary page's num_values is {} but uncompressed_size is {}", dict_num,
-                        uncompressed_size);
-            }
             Slice compressed_data;
             Slice dict_slice(dict_data.get(), uncompressed_size);
             if (dict_num != 0) {

@@ -146,6 +146,7 @@ protected:
     }
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
+        options->enable_row_lineage_virtual_columns = true;
         // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
         // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
         options->allow_idless_complex_wrapper_projection =

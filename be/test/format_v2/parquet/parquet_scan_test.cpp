@@ -928,6 +928,14 @@ TEST(ParquetScanAdaptivePredicateTest, SamplesWarmupThenAtLowFrequency) {
     EXPECT_TRUE(should_sample_adaptive_predicate(9, 32));
 }
 
+TEST(ParquetScanDeleteConjunctTest, RejectsInputColumnAsEphemeralResult) {
+    EXPECT_TRUE(format::parquet::detail::validate_ephemeral_expr_result_column(2, 0, 2)
+                        .is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_TRUE(format::parquet::detail::validate_ephemeral_expr_result_column(2, 2, 3).ok());
+    EXPECT_TRUE(format::parquet::detail::validate_ephemeral_expr_result_column(2, 3, 3)
+                        .is<ErrorCode::INTERNAL_ERROR>());
+}
+
 TEST(ParquetScanAdaptivePredicateTest, ThrowingNestedFunctionDisablesSelectedRowReordering) {
     using format::parquet::detail::AdaptivePredicateStats;
     std::unordered_map<size_t, AdaptivePredicateStats> first_batch_stats;
