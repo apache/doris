@@ -85,6 +85,19 @@ under the License.
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <!-- rocksdbjni (54MB, ~1/4 of the plugin) is only used by Hudi's OPT-IN
+                     RocksDbBasedFileSystemView and RocksDbDiskMap. This connector builds an in-memory
+                     file-system view (HudiScanPlanProvider ->
+                     FileSystemViewManager.createInMemoryFileSystemView) and never selects the RocksDB
+                     view; the metadata-table external spillable map defaults to BITCASK (pure-Java), not
+                     ROCKSDB. The createInMemory path has no static reference to the RocksDB classes, so
+                     there is no class-init hazard — the jar is dead weight on the FE metadata read path. -->
+                <exclusion>
+                    <groupId>org.rocksdb</groupId>
+                    <artifactId>rocksdbjni</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- HadoopStorageConfiguration for building MetaClient -->
