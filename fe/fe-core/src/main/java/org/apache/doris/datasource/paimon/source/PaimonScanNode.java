@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
@@ -59,7 +58,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.predicate.Predicate;
@@ -115,6 +113,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
     private static final String PAIMON_FILES_SYSTEM_TABLE_TYPE = "files";
     private static final String PAIMON_FILE_CREATION_TIME_COLUMN = "creation_time";
+    @VisibleForTesting
+    static final String DORIS_FILE_CREATION_TIME_LOCAL_MILLIS =
+            "doris.scan.file-creation-time-local-millis";
 
     private enum SplitReadType {
         JNI,
@@ -169,6 +170,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
+    private OptionalLong fileCreationTimeLowerBound = OptionalLong.empty();
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -235,8 +237,13 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     private void setScanLevelPaimonOptions() {
-        if (!backendPaimonOptions.isEmpty()) {
-            params.setPaimonOptions(backendPaimonOptions);
+        Map<String, String> options = new HashMap<>(backendPaimonOptions);
+        if (fileCreationTimeLowerBound.isPresent()) {
+            options.put(DORIS_FILE_CREATION_TIME_LOCAL_MILLIS,
+                    String.valueOf(fileCreationTimeLowerBound.getAsLong()));
+        }
+        if (!options.isEmpty()) {
+            params.setPaimonOptions(options);
         }
     }
 
@@ -934,14 +941,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
             if (PAIMON_FILES_SYSTEM_TABLE_TYPE.equalsIgnoreCase(systemTable.getSysTableType())) {
-                OptionalLong creationTimeMillis = extractFileCreationTimeLowerBound(conjuncts);
-                if (creationTimeMillis.isPresent()) {
-                    // Keep the Doris predicate as a residual: this option may only remove files
-                    // that cannot satisfy the same creation_time lower bound.
-                    return baseTable.copy(Collections.singletonMap(
-                            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(),
-                            String.valueOf(creationTimeMillis.getAsLong())));
-                }
+                fileCreationTimeLowerBound = extractFileCreationTimeLowerBound(conjuncts);
             }
         }
         if (theScanParams != null && getQueryTableSnapshot() != null) {
@@ -978,10 +978,10 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         BinaryPredicate predicate = (BinaryPredicate) expr;
         BinaryPredicate.Operator operator = predicate.getOp();
-        SlotRef slot = PaimonPredicateConverter.convertDorisExprToSlotRef(predicate.getChild(0));
+        SlotRef slot = convertToDirectSlotRef(predicate.getChild(0));
         LiteralExpr literal = convertToLiteral(predicate.getChild(1));
         if (slot == null || literal == null) {
-            slot = PaimonPredicateConverter.convertDorisExprToSlotRef(predicate.getChild(1));
+            slot = convertToDirectSlotRef(predicate.getChild(1));
             literal = convertToLiteral(predicate.getChild(0));
             operator = operator.commutative();
         }
@@ -1007,13 +1007,13 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     private static LiteralExpr convertToLiteral(Expr expr) {
-        if (expr instanceof LiteralExpr) {
-            return (LiteralExpr) expr;
-        }
-        if (expr instanceof CastExpr && expr.getChild(0) instanceof LiteralExpr) {
-            return (LiteralExpr) expr.getChild(0);
-        }
-        return null;
+        return expr instanceof LiteralExpr ? (LiteralExpr) expr : null;
+    }
+
+    private static SlotRef convertToDirectSlotRef(Expr expr) {
+        // DATETIMEV2 casts can round values, so unwrapping one could make the Paimon cutoff
+        // stronger than the residual Doris predicate and incorrectly prune matching files.
+        return expr instanceof SlotRef ? (SlotRef) expr : null;
     }
 
     private static OptionalLong maxLowerBound(OptionalLong left, OptionalLong right) {

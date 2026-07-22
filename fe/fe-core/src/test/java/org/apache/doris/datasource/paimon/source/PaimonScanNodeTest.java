@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -61,7 +63,6 @@ import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -87,16 +88,14 @@ public class PaimonScanNodeTest {
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
 
     @Test
-    public void testFilesCreationTimeLowerBoundBecomesPaimonScanOption() throws Exception {
+    public void testFilesCreationTimeLowerBoundBecomesBackendLocalMillisOption() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
         PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
-        Table table = Mockito.mock(Table.class);
-        Table filteredTable = Mockito.mock(Table.class);
+        Table table = Mockito.mock(Table.class, Mockito.withSettings().serializable());
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(table);
         Mockito.when(systemTable.getSysTableType()).thenReturn("files");
-        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(filteredTable);
         node.setSource(source);
         node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.GE,
                 new SlotRef(null, "creation_time"),
@@ -104,35 +103,32 @@ public class PaimonScanNodeTest {
 
         Table processedTable = (Table) invokePrivateMethod(node, "getProcessedTable");
 
-        Assert.assertSame(filteredTable, processedTable);
-        ArgumentCaptor<Map<String, String>> optionsCaptor = ArgumentCaptor.forClass(Map.class);
-        Mockito.verify(table).copy(optionsCaptor.capture());
+        Assert.assertSame(table, processedTable);
+        setField(FileQueryScanNode.class, node, "params", new TFileScanRangeParams());
+        invokePrivateMethod(node, "setScanLevelPaimonOptions");
+        Mockito.verify(table, Mockito.never()).copy(ArgumentMatchers.anyMap());
         Assert.assertEquals("1784595723456",
-                optionsCaptor.getValue().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+                node.getFileScanRangeParams().getPaimonOptions()
+                        .get(PaimonScanNode.DORIS_FILE_CREATION_TIME_LOCAL_MILLIS));
     }
 
     @Test
-    public void testFilesCreationTimeOptionIsSerializedForBackendReader() throws Exception {
+    public void testFilesCreationTimeOptionIsConvertedOnlyByBackendReader() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
         PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
-        Table table = Mockito.mock(Table.class);
-        Table filteredTable = Mockito.mock(Table.class, Mockito.withSettings().serializable());
+        Table table = Mockito.mock(Table.class, Mockito.withSettings().serializable());
         ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class, Mockito.withSettings().serializable());
         TableScan scan = Mockito.mock(TableScan.class, Mockito.withSettings().serializable());
         TableScan.Plan plan = Mockito.mock(TableScan.Plan.class, Mockito.withSettings().serializable());
-        Map<String, String> filteredOptions = Collections.singletonMap(
-                CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), "1784595723456");
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(table);
         Mockito.when(systemTable.getSysTableType()).thenReturn("files");
-        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(filteredTable);
-        // The invocation happens on the deserialized copy, so Mockito does not record it on the
-        // original mock even though this serialized stub is the behavior under test.
-        Mockito.lenient().when(filteredTable.options()).thenReturn(filteredOptions);
-        Mockito.when(filteredTable.rowType()).thenReturn(RowType.of());
-        Mockito.when(filteredTable.newReadBuilder()).thenReturn(readBuilder);
-        Mockito.when(filteredTable.name()).thenReturn("test$files");
+        Mockito.when(table.rowType()).thenReturn(RowType.of());
+        // The options call happens on the deserialized mock, so Mockito cannot record it here.
+        Mockito.lenient().when(table.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(table.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(table.name()).thenReturn("test$files");
         Mockito.when(readBuilder.withFilter(ArgumentMatchers.<Predicate>anyList())).thenReturn(readBuilder);
         Mockito.when(readBuilder.withProjection(ArgumentMatchers.any(int[].class))).thenReturn(readBuilder);
         Mockito.when(readBuilder.newScan()).thenReturn(scan);
@@ -150,8 +146,11 @@ public class PaimonScanNodeTest {
         Assert.assertNotNull(serializedTable);
         Table backendTable = InstantiationUtil.deserializeObject(
                 Base64.getUrlDecoder().decode(serializedTable), PaimonUtil.class.getClassLoader());
-        Assert.assertEquals("1784595723456",
-                backendTable.options().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+        Assert.assertNull(backendTable.options().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+        setField(FileQueryScanNode.class, node, "params", new TFileScanRangeParams());
+        invokePrivateMethod(node, "setScanLevelPaimonOptions");
+        Assert.assertEquals("1784595723456", node.getFileScanRangeParams().getPaimonOptions()
+                .get(PaimonScanNode.DORIS_FILE_CREATION_TIME_LOCAL_MILLIS));
     }
 
     @Test
@@ -183,6 +182,19 @@ public class PaimonScanNodeTest {
 
         Assert.assertFalse(PaimonScanNode.extractFileCreationTimeLowerBound(
                 Collections.singletonList(disjunction)).isPresent());
+    }
+
+    @Test
+    public void testExtractFilesCreationTimeDoesNotPushThroughPrecisionChangingCast() throws Exception {
+        Expr roundedCreationTime = new CastExpr(ScalarType.createDatetimeV2Type(0),
+                new SlotRef(null, "creation_time"), false);
+        Expr lowerBound = new BinaryPredicate(BinaryPredicate.Operator.GE,
+                roundedCreationTime,
+                new DateLiteral(2026, 7, 21, 1, 2, 57, 0,
+                        ScalarType.createDatetimeV2Type(0)));
+
+        Assert.assertFalse(PaimonScanNode.extractFileCreationTimeLowerBound(
+                Collections.singletonList(lowerBound)).isPresent());
     }
 
     @Test

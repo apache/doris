@@ -17,6 +17,7 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
@@ -33,11 +34,13 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -50,6 +53,28 @@ public class PaimonJniScannerTest {
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundUsesBackendSystemTimeZone() throws Exception {
+        Map<String, String> params = createBaseParams();
+        params.put("paimon.doris.scan.file-creation-time-local-millis", "1784595723456");
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        Method buildTableOptions = PaimonJniScanner.class.getDeclaredMethod("buildTableOptions", Map.class);
+        buildTableOptions.setAccessible(true);
+
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
+            @SuppressWarnings("unchecked")
+            Map<String, String> options = (Map<String, String>) buildTableOptions.invoke(
+                    scanner, Collections.emptyMap());
+
+            Assert.assertEquals("1784566923456",
+                    options.get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+        } finally {
+            TimeZone.setDefault(original);
+        }
     }
 
     @Test

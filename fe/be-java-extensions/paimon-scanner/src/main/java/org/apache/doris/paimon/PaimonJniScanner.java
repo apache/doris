@@ -26,6 +26,7 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.predicate.Predicate;
@@ -49,6 +50,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -70,6 +72,8 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
     static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.jni.enable_file_reader_async";
+    static final String DORIS_FILE_CREATION_TIME_LOCAL_MILLIS =
+            "doris.scan.file-creation-time-local-millis";
     static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
 
     private final Map<String, String> params;
@@ -588,6 +592,15 @@ public class PaimonJniScanner extends JniScanner {
     private Map<String, String> buildTableOptions(Map<String, String> tableOptions) {
         Map<String, String> options = new HashMap<>(tableOptions);
         options.put(CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize));
+        String localMillis = params.get(PAIMON_OPTION_PREFIX + DORIS_FILE_CREATION_TIME_LOCAL_MILLIS);
+        if (localMillis != null) {
+            long lowerBound = Long.parseLong(localMillis);
+            // Paimon converts every file creation timestamp with the BE JVM's default zone.
+            // Convert the cutoff in this same JVM so mixed FE/BE zones cannot strengthen it.
+            long epochMillis = Timestamp.fromEpochMillis(lowerBound).toLocalDateTime()
+                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            options.put(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), String.valueOf(epochMillis));
+        }
         if (Boolean.parseBoolean(params.getOrDefault(DORIS_ENABLE_FILE_READER_ASYNC, "true")) == false) {
             options.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), MAX_ASYNC_READ_THRESHOLD);
         }
