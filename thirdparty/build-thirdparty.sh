@@ -2229,16 +2229,27 @@ build_paimon_rust() {
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
 
-    local cargo_args=(build --release -p paimon-c --features paimon/storage-hdfs)
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
     if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
         cargo_args+=(--offline)
     fi
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # Auto-install cbindgen if it's not already on PATH.
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-cbindgen}"
+    if ! command -v "${cbindgen_bin}" >/dev/null 2>&1; then
+        echo "cbindgen not found; installing via cargo install ..."
+        env "${cargo_env[@]}" "${cargo_bin}" install cbindgen --locked
+        cbindgen_bin="cbindgen"
+    fi
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c --lang c --cpp-compat \
+        --output "${BUILD_DIR}/release/paimon.h"
+
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
     rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
     mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
-    cp -v bindings/c/include/paimon.h "${TP_INSTALL_DIR}/include/paimon_rust/"
+    cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
     cp -v "${BUILD_DIR}/release/libpaimon_c.a" "${TP_INSTALL_DIR}/lib64/"
 
     if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
