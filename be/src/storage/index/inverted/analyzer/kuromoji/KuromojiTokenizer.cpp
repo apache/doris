@@ -61,6 +61,30 @@ void ascii_lower(std::string& s) {
         }
     }
 }
+
+// Decode the first UTF-8 code point of text[start, start+len].
+char32_t first_codepoint(std::string_view text, uint32_t start, uint32_t len) {
+    if (len == 0 || start >= text.size()) {
+        return 0;
+    }
+    const auto b0 = static_cast<unsigned char>(text[start]);
+    const std::size_t avail = std::min<std::size_t>(len, text.size() - start);
+    auto cont = [&](uint32_t i) { return static_cast<unsigned char>(text[start + i]) & 0x3FU; };
+    if (b0 < 0x80) {
+        return b0;
+    }
+    if ((b0 >> 5) == 0x6 && avail >= 2) {
+        return static_cast<char32_t>(((b0 & 0x1FU) << 6) | cont(1));
+    }
+    if ((b0 >> 4) == 0xE && avail >= 3) {
+        return static_cast<char32_t>(((b0 & 0x0FU) << 12) | (cont(1) << 6) | cont(2));
+    }
+    if ((b0 >> 3) == 0x1E && avail >= 4) {
+        return static_cast<char32_t>(((b0 & 0x07U) << 18) | (cont(1) << 12) | (cont(2) << 6) |
+                                     cont(3));
+    }
+    return b0;
+}
 } // namespace
 
 KuromojiTokenizer::KuromojiTokenizer(KuromojiMode mode, bool lower_case, bool own_reader,
@@ -97,6 +121,13 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
     viterbi.segment(text, &morphemes);
     tokens_text_.reserve(morphemes.size());
     for (const auto& m : morphemes) {
+        if (!m.known) {
+            const auto cat = dict_->char_category(first_codepoint(text, m.byte_start, m.byte_len));
+            if (cat == inverted_index::kuromoji::CAT_SPACE ||
+                cat == inverted_index::kuromoji::CAT_SYMBOL) {
+                continue;
+            }
+        }
         const std::string_view feat =
                 m.known ? dict_->feature(dict_->word(m.word_id))
                         : dict_->unknown_feature(dict_->unknown_word(m.word_id));
