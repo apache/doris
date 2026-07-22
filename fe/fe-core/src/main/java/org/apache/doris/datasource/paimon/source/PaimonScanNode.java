@@ -186,7 +186,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         long startTime = System.currentTimeMillis();
-        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         // Todo: Get the current schema id of the table, instead of using -1.
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
@@ -619,6 +618,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         try {
             Table paimonTable = getProcessedTable();
+            // System-table splits can expand files in BE, so send the same option-processed table
+            // that FE used for split planning.
+            serializedTable = PaimonUtil.encodeObjectToString(paimonTable);
             List<String> fieldNames = paimonTable.rowType().getFieldNames();
             int[] projected = desc.getSlots().stream().mapToInt(
                     slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))

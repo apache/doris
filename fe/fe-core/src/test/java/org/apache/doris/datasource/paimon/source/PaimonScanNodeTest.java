@@ -35,6 +35,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.planner.PlanNodeId;
@@ -48,10 +49,15 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -64,6 +70,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -102,6 +109,49 @@ public class PaimonScanNodeTest {
         Mockito.verify(table).copy(optionsCaptor.capture());
         Assert.assertEquals("1784595723456",
                 optionsCaptor.getValue().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+    }
+
+    @Test
+    public void testFilesCreationTimeOptionIsSerializedForBackendReader() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table table = Mockito.mock(Table.class);
+        Table filteredTable = Mockito.mock(Table.class, Mockito.withSettings().serializable());
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class, Mockito.withSettings().serializable());
+        TableScan scan = Mockito.mock(TableScan.class, Mockito.withSettings().serializable());
+        TableScan.Plan plan = Mockito.mock(TableScan.Plan.class, Mockito.withSettings().serializable());
+        Map<String, String> filteredOptions = Collections.singletonMap(
+                CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), "1784595723456");
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(systemTable.getSysTableType()).thenReturn("files");
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(filteredTable);
+        // The invocation happens on the deserialized copy, so Mockito does not record it on the
+        // original mock even though this serialized stub is the behavior under test.
+        Mockito.lenient().when(filteredTable.options()).thenReturn(filteredOptions);
+        Mockito.when(filteredTable.rowType()).thenReturn(RowType.of());
+        Mockito.when(filteredTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(filteredTable.name()).thenReturn("test$files");
+        Mockito.when(readBuilder.withFilter(ArgumentMatchers.<Predicate>anyList())).thenReturn(readBuilder);
+        Mockito.when(readBuilder.withProjection(ArgumentMatchers.any(int[].class))).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan()).thenReturn(scan);
+        Mockito.when(scan.plan()).thenReturn(plan);
+        Mockito.when(plan.splits()).thenReturn(Collections.emptyList());
+        node.setSource(source);
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.GE,
+                new SlotRef(null, "creation_time"),
+                new DateLiteral(2026, 7, 21, 1, 2, 3, 456000, Type.DATETIMEV2)));
+        setField(PaimonScanNode.class, node, "predicates", Collections.emptyList());
+
+        node.getPaimonSplitFromAPI();
+
+        String serializedTable = (String) getField(PaimonScanNode.class, node, "serializedTable");
+        Assert.assertNotNull(serializedTable);
+        Table backendTable = InstantiationUtil.deserializeObject(
+                Base64.getUrlDecoder().decode(serializedTable), PaimonUtil.class.getClassLoader());
+        Assert.assertEquals("1784595723456",
+                backendTable.options().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
     }
 
     @Test
@@ -766,6 +816,12 @@ public class PaimonScanNodeTest {
         java.lang.reflect.Field field = clazz.getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private Object getField(Class<?> clazz, Object target, String fieldName) throws Exception {
+        java.lang.reflect.Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     private Object invokePrivateMethod(Object target, String methodName, Class<?>[] parameterTypes, Object... args)
