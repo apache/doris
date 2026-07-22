@@ -107,6 +107,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(binlog_compaction_task_running_total, Metri
                                      compaction_task_state_total, Labels({{"type", "binlog"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(binlog_compaction_task_pending_total, MetricUnit::ROWSETS, "",
                                      compaction_task_state_total, Labels({{"type", "binlog"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(binlog_ingest_redundant_rowset_cleanup_success_total,
+                                     MetricUnit::OPERATIONS, "",
+                                     binlog_ingest_redundant_rowset_cleanup_success_total,
+                                     Labels());
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(binlog_ingest_redundant_rowset_cleanup_failed_total,
+                                     MetricUnit::OPERATIONS, "",
+                                     binlog_ingest_redundant_rowset_cleanup_failed_total, Labels());
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_running_total, MetricUnit::ROWSETS,
                                      "", compaction_task_state_total,
                                      Labels({{"type", "cumulative"}}));
@@ -347,6 +354,10 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_task_pending_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, binlog_compaction_task_running_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, binlog_compaction_task_pending_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity,
+                                binlog_ingest_redundant_rowset_cleanup_success_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity,
+                                binlog_ingest_redundant_rowset_cleanup_failed_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_running_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 

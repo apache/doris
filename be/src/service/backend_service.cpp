@@ -36,6 +36,7 @@
 #include <time.h>
 
 #include <cstdint>
+#include <future>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -49,6 +50,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/arrow/arrow_row_batch.h"
@@ -62,6 +64,8 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_profile.h"
+#include "service/backend_options.h"
+#include "service/backend_service_ingest_helper.h"
 #include "service/http/http_client.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -75,8 +79,11 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/txn/txn_manager.h"
 #include "udf/python/python_env.h"
+#include "util/client_cache.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
@@ -93,6 +100,128 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
+
+IngestCommitResult::IngestCommitResult(Code c) : code(c) {}
+IngestCommitResult::IngestCommitResult(Code c, Status s) : code(c), status(std::move(s)) {}
+bool IngestCommitResult::operator==(Code c) const {
+    return code == c;
+}
+
+IngestCommitResult commit_ingested_rowset(
+        StorageEngine& engine, const TabletSharedPtr& local_tablet, int64_t txn_id,
+        int64_t partition_id, const RowsetMetaSharedPtr& rowset_meta,
+        PendingRowsetGuard pending_rs_guard, MonotonicStopWatch& watch,
+        std::unordered_map<std::string_view, uint64_t>& elapsed_time_map) {
+    // Step 7.1: create rowset
+    RowsetSharedPtr rowset;
+    auto status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
+                                               local_tablet->tablet_path(), rowset_meta, &rowset);
+    if (!status) {
+        LOG(WARNING) << "failed to create rowset from rowset meta for remote tablet"
+                     << ". rowset_id: " << rowset_meta->rowset_id()
+                     << ", rowset_type: " << rowset_meta->rowset_type()
+                     << ", tablet_id=" << rowset_meta->tablet_id() << ", txn_id=" << txn_id
+                     << ", status=" << status.to_string();
+        return {IngestCommitResult::kError, std::move(status)};
+    }
+
+    // Step 7.2 calculate delete bitmap before commit
+    auto calc_delete_bitmap_token = engine.calc_delete_bitmap_executor()->create_token();
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(rowset_meta->tablet_id());
+    RowsetIdUnorderedSet pre_rowset_ids;
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        status = beta_rowset->load_segments(&segments);
+        if (!status) {
+            LOG(WARNING) << "failed to load segments from rowset"
+                         << ". rowset_id: " << beta_rowset->rowset_id() << ", txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            return {IngestCommitResult::kError, std::move(status)};
+        }
+        elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            status = local_tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap);
+            if (!status) {
+                LOG(WARNING) << "failed to calculate delete bitmap"
+                             << ". tablet_id: " << local_tablet->tablet_id()
+                             << ". rowset_id: " << rowset->rowset_id() << ", txn_id=" << txn_id
+                             << ", status=" << status.to_string();
+                return {IngestCommitResult::kError, std::move(status)};
+            }
+            elapsed_time_map.emplace("calc_delete_bitmap", watch.elapsed_time_microseconds());
+        }
+
+        static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
+                local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+                calc_delete_bitmap_token.get(), nullptr));
+        elapsed_time_map.emplace("commit_phase_update_delete_bitmap",
+                                 watch.elapsed_time_microseconds());
+        static_cast<void>(calc_delete_bitmap_token->wait());
+        elapsed_time_map.emplace("wait_delete_bitmap", watch.elapsed_time_microseconds());
+    }
+
+    // Step 7.3: commit txn
+    Status commit_txn_status = engine.txn_manager()->commit_txn(
+            local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
+            rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
+            rowset_meta->load_id(), rowset, std::move(pending_rs_guard), false);
+    elapsed_time_map.emplace("commit_txn", watch.elapsed_time_microseconds());
+
+    if (!commit_txn_status) {
+        if (commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
+            LOG(INFO) << "find transaction already exist when commit ingested rowset, skip commit."
+                      << " rowset_id: " << rowset_meta->rowset_id().to_string()
+                      << ", tablet_id=" << rowset_meta->tablet_id()
+                      << ", txn_id=" << rowset_meta->txn_id();
+            return IngestCommitResult::kAlreadyExist;
+        }
+        auto err_msg = fmt::format(
+                "failed to commit txn for remote tablet. rowset_id: {}, tablet_id={}, "
+                "txn_id={}, status={}",
+                rowset_meta->rowset_id().to_string(), rowset_meta->tablet_id(),
+                rowset_meta->txn_id(), commit_txn_status.to_string());
+        LOG(WARNING) << err_msg;
+        return {IngestCommitResult::kError, std::move(commit_txn_status)};
+    }
+
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        engine.txn_manager()->set_txn_related_delete_bitmap(
+                partition_id, txn_id, rowset_meta->tablet_id(), local_tablet->tablet_uid(), true,
+                delete_bitmap, pre_rowset_ids, nullptr);
+        elapsed_time_map.emplace("set_txn_related_delete_bitmap",
+                                 watch.elapsed_time_microseconds());
+    }
+
+    return IngestCommitResult::kCommitted;
+}
+
+// Delete files downloaded during ingest. Returns the deletion status so callers can
+// update metrics or decide whether additional action is needed. Does not change the
+// caller's transaction result; failures are logged so orphan-file issues remain visible.
+Status _delete_downloaded_files(const std::vector<std::string>& files, std::string_view reason,
+                                int64_t txn_id) {
+    if (files.empty()) {
+        return Status::OK();
+    }
+    std::vector<io::Path> paths;
+    paths.reserve(files.size());
+    for (const auto& file : files) {
+        paths.emplace_back(file);
+    }
+    auto st = io::global_local_filesystem()->batch_delete(paths);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to delete " << files.size() << " downloaded files (" << reason
+                     << "), txn_id=" << txn_id << ", status=" << st.to_string();
+    } else {
+        LOG(INFO) << "done delete " << files.size() << " downloaded files (" << reason
+                  << "), txn_id=" << txn_id;
+    }
+    return st;
+}
+
 namespace {
 
 bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
@@ -104,6 +233,9 @@ struct IngestBinlogArg {
     TabletSharedPtr local_tablet;
     TIngestBinlogRequest request;
     TStatus* tstatus;
+    std::vector<int64_t>* success_replica_backend_ids = nullptr;
+    std::vector<int64_t>* failed_replica_backend_ids = nullptr;
+    ThreadPool* follower_distribute_pool = nullptr;
 };
 
 Status _exec_http_req(std::optional<HttpClient>& client, int retry_times, int sleep_time,
@@ -118,7 +250,8 @@ Status _exec_http_req(std::optional<HttpClient>& client, int retry_times, int sl
 Status _download_binlog_segment_file(HttpClient* client, const std::string& get_segment_file_url,
                                      const std::string& segment_path, uint64_t segment_file_size,
                                      uint64_t estimate_timeout,
-                                     std::vector<std::string>& download_success_files) {
+                                     std::vector<std::string>& download_success_files,
+                                     std::string* file_md5 = nullptr) {
     RETURN_IF_ERROR(client->init(get_segment_file_url));
     client->set_timeout_ms(estimate_timeout * 1000);
     RETURN_IF_ERROR(client->download(segment_path));
@@ -160,6 +293,14 @@ Status _download_binlog_segment_file(HttpClient* client, const std::string& get_
         }
     }
 
+    if (file_md5 != nullptr) {
+        if (remote_file_md5.empty()) {
+            RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(segment_path, file_md5));
+        } else {
+            *file_md5 = remote_file_md5;
+        }
+    }
+
     return io::global_local_filesystem()->permission(segment_path,
                                                      io::LocalFileSystem::PERMS_OWNER_RW);
 }
@@ -168,7 +309,8 @@ Status _download_binlog_index_file(HttpClient* client,
                                    const std::string& get_segment_index_file_url,
                                    const std::string& local_segment_index_path,
                                    uint64_t segment_index_file_size, uint64_t estimate_timeout,
-                                   std::vector<std::string>& download_success_files) {
+                                   std::vector<std::string>& download_success_files,
+                                   std::string* file_md5 = nullptr) {
     RETURN_IF_ERROR(client->init(get_segment_index_file_url));
     client->set_timeout_ms(estimate_timeout * 1000);
     RETURN_IF_ERROR(client->download(local_segment_index_path));
@@ -212,8 +354,430 @@ Status _download_binlog_index_file(HttpClient* client,
         }
     }
 
+    if (file_md5 != nullptr) {
+        if (remote_file_md5.empty()) {
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->md5sum(local_segment_index_path, file_md5));
+        } else {
+            *file_md5 = remote_file_md5;
+        }
+    }
+
     return io::global_local_filesystem()->permission(local_segment_index_path,
                                                      io::LocalFileSystem::PERMS_OWNER_RW);
+}
+
+Status _download_file_from_peer(const std::string& peer_host, const std::string& peer_http_port,
+                                const std::string& peer_token, const std::string& remote_path,
+                                const std::string& local_path, uint64_t file_size,
+                                const std::string& expected_md5, uint64_t estimate_timeout,
+                                std::vector<std::string>& download_success_files) {
+    auto remote_file_url =
+            fmt::format("http://{}:{}/api/_tablet/_download?token={}&file={}&channel=ingest_binlog",
+                        peer_host, peer_http_port, peer_token, remote_path);
+    auto download_cb = [&remote_file_url, &local_path, &peer_host, &remote_path, file_size,
+                        estimate_timeout, &expected_md5,
+                        &download_success_files](HttpClient* client) {
+        RETURN_IF_ERROR(client->init(remote_file_url));
+        client->set_timeout_ms(estimate_timeout * 1000);
+        RETURN_IF_ERROR(client->download(local_path));
+        download_success_files.push_back(local_path);
+
+        LOG(INFO) << "download file from peer host=" << peer_host << " path=" << remote_path
+                  << " to " << local_path << ", expected md5: " << expected_md5
+                  << ", size: " << file_size;
+
+        std::error_code ec;
+        uint64_t local_file_size = std::filesystem::file_size(local_path, ec);
+        if (ec) {
+            LOG(WARNING) << "download file from peer error " << ec.message();
+            return Status::IOError("can't retrieve file_size of {}, due to {}", local_path,
+                                   ec.message());
+        }
+        if (local_file_size != file_size) {
+            LOG(WARNING) << "download file from peer length error"
+                         << ", peer_host=" << peer_host << ", remote_path=" << remote_path
+                         << ", file_size=" << file_size << ", local_file_size=" << local_file_size;
+            return Status::RuntimeError("downloaded file size is not equal, local={}, remote={}",
+                                        local_file_size, file_size);
+        }
+
+        if (!expected_md5.empty()) {
+            std::string local_file_md5;
+            RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_path, &local_file_md5));
+            if (local_file_md5 != expected_md5) {
+                LOG(WARNING) << "download file from peer md5 error"
+                             << ", peer_host=" << peer_host << ", remote_path=" << remote_path
+                             << ", expected_md5=" << expected_md5
+                             << ", local_file_md5=" << local_file_md5;
+                return Status::RuntimeError("downloaded file md5 is not equal, local={}, remote={}",
+                                            local_file_md5, expected_md5);
+            }
+        }
+
+        return io::global_local_filesystem()->permission(local_path,
+                                                         io::LocalFileSystem::PERMS_OWNER_RW);
+    };
+    return HttpClient::execute_with_retry(3, 1, download_cb);
+}
+
+void _ingest_binlog_from_peer_impl(StorageEngine& engine, const TIngestBinlogRequest& request,
+                                   const TabletSharedPtr& local_tablet, int64_t txn_id,
+                                   int64_t partition_id, TStatus& tstatus) {
+    auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
+        tstatus.__set_status_code(code);
+        tstatus.__isset.error_msgs = true;
+        tstatus.error_msgs.push_back(std::move(error_msg));
+    };
+
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlogFromPeer#TxnId={}", txn_id));
+    SCOPED_ATTACH_TASK(mem_tracker);
+
+    auto estimate_download_timeout = [](int64_t file_size) {
+        uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+        if (estimate_timeout < config::download_low_speed_time) {
+            estimate_timeout = config::download_low_speed_time;
+        }
+        return estimate_timeout;
+    };
+
+    MonotonicStopWatch watch(true);
+    std::unordered_map<std::string_view, uint64_t> elapsed_time_map;
+    std::vector<std::string> download_success_files;
+    bool commit_already_exist = false;
+    Defer defer {[&engine, &tstatus, txn_id, partition_id, &local_tablet, &download_success_files,
+                  &commit_already_exist]() {
+        if (tstatus.status_code != TStatusCode::OK) {
+            engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet->tablet_id(),
+                                            local_tablet->tablet_uid());
+            LOG(WARNING) << "will delete downloaded peer files due to error " << tstatus;
+            static_cast<void>(
+                    _delete_downloaded_files(download_success_files, "peer error cleanup", txn_id));
+            return;
+        }
+
+        // Follower path has no distribution step. If the transaction was already committed,
+        // the rowset files downloaded in this round are redundant and can be deleted immediately.
+        if (commit_already_exist && !download_success_files.empty()) {
+            LOG(INFO) << "will delete redundant peer files for already-committed txn " << txn_id
+                      << ", count=" << download_success_files.size();
+            auto cleanup_st = _delete_downloaded_files(download_success_files,
+                                                       "redundant peer cleanup", txn_id);
+            if (cleanup_st.ok()) {
+                DorisMetrics::instance()
+                        ->binlog_ingest_redundant_rowset_cleanup_success_total->increment(1);
+            } else {
+                DorisMetrics::instance()
+                        ->binlog_ingest_redundant_rowset_cleanup_failed_total->increment(1);
+            }
+        }
+    }};
+
+    // Check required fields
+    if (!request.__isset.rowset_meta || request.rowset_meta.empty()) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "rowset_meta is empty for fetch_from_peer");
+        return;
+    }
+    if (!request.__isset.files) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "files is not set for fetch_from_peer");
+        return;
+    }
+    if (!request.__isset.peer_host || request.peer_host.empty()) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "peer_host is empty for fetch_from_peer");
+        return;
+    }
+    if (!request.__isset.peer_http_port || request.peer_http_port.empty()) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "peer_http_port is empty for fetch_from_peer");
+        return;
+    }
+    if (!request.__isset.peer_token || request.peer_token.empty()) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "peer_token is empty for fetch_from_peer");
+        return;
+    }
+
+    // Parse rowset meta from leader
+    RowsetMetaPB rowset_meta_pb;
+    if (!rowset_meta_pb.ParseFromString(request.rowset_meta)) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "failed to parse rowset_meta from peer");
+        return;
+    }
+
+    // Generate local rowset id and localize tablet uid
+    RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
+    if (!rowset_meta->init_from_pb(rowset_meta_pb)) {
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, "failed to init rowset meta from peer");
+        return;
+    }
+    RowsetId new_rowset_id = engine.next_rowset_id();
+    auto pending_rs_guard = engine.pending_local_rowsets().add(new_rowset_id);
+    rowset_meta->set_rowset_id(new_rowset_id);
+    rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
+    rowset_meta->set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
+
+    // Empty rowset (no segments/data files) is valid: skip download and commit directly.
+    if (request.files.empty()) {
+        if (rowset_meta->num_segments() != 0) {
+            set_tstatus(TStatusCode::ANALYSIS_ERROR,
+                        "files is empty for fetch_from_peer but rowset has segments");
+            return;
+        }
+        auto commit_result =
+                commit_ingested_rowset(engine, local_tablet, txn_id, partition_id, rowset_meta,
+                                       std::move(pending_rs_guard), watch, elapsed_time_map);
+        if (commit_result == IngestCommitResult::kError) {
+            set_tstatus(TStatusCode::RUNTIME_ERROR,
+                        fmt::format("failed to commit empty rowset from peer, status={}",
+                                    commit_result.status.to_string()));
+            return;
+        }
+        if (commit_result == IngestCommitResult::kAlreadyExist) {
+            commit_already_exist = true;
+            LOG(INFO) << "ingest binlog from peer empty rowset already committed, txn_id="
+                      << txn_id;
+        }
+        tstatus.__set_status_code(TStatusCode::OK);
+        return;
+    }
+
+    // Check capacity
+    uint64_t total_size = 0;
+    for (const auto& file : request.files) {
+        if (!file.__isset.size) {
+            set_tstatus(TStatusCode::ANALYSIS_ERROR,
+                        fmt::format("file size is missing for {}", file.remote_path));
+            return;
+        }
+        total_size += file.size;
+    }
+    if (!local_tablet->can_add_binlog(total_size)) {
+        set_tstatus(TStatusCode::INTERNAL_ERROR,
+                    fmt::format("failed to add binlog from peer, no enough space, total_size={}",
+                                total_size));
+        return;
+    }
+
+    // Download files from peer
+    for (const auto& file : request.files) {
+        if (!file.__isset.remote_path || file.remote_path.empty()) {
+            set_tstatus(TStatusCode::ANALYSIS_ERROR, "remote_path is empty in peer file info");
+            return;
+        }
+        if (!file.__isset.segment_index) {
+            set_tstatus(TStatusCode::ANALYSIS_ERROR,
+                        fmt::format("segment_index is missing for {}", file.remote_path));
+            return;
+        }
+
+        std::string local_path;
+        if (file.__isset.is_index_file && file.is_index_file) {
+            auto segment_path =
+                    local_segment_path(local_tablet->tablet_path(),
+                                       rowset_meta->rowset_id().to_string(), file.segment_index);
+            if (file.__isset.index_id && file.index_id != -1) {
+                // V1 format
+                std::string suffix_path = file.__isset.suffix_path ? file.suffix_path : "";
+                local_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
+                        file.index_id, suffix_path);
+            } else {
+                // V2 format
+                local_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
+            }
+        } else {
+            local_path =
+                    local_segment_path(local_tablet->tablet_path(),
+                                       rowset_meta->rowset_id().to_string(), file.segment_index);
+        }
+
+        uint64_t estimate_timeout = estimate_download_timeout(file.size);
+        std::string expected_md5 = file.__isset.md5 ? file.md5 : "";
+        auto status = _download_file_from_peer(
+                request.peer_host, request.peer_http_port, request.peer_token, file.remote_path,
+                local_path, file.size, expected_md5, estimate_timeout, download_success_files);
+        if (!status.ok()) {
+            set_tstatus(TStatusCode::RUNTIME_ERROR, status.to_string());
+            return;
+        }
+    }
+    elapsed_time_map.emplace("download_files_from_peer", watch.elapsed_time_microseconds());
+
+    // Commit rowset
+    auto commit_result =
+            commit_ingested_rowset(engine, local_tablet, txn_id, partition_id, rowset_meta,
+                                   std::move(pending_rs_guard), watch, elapsed_time_map);
+    if (commit_result == IngestCommitResult::kError) {
+        set_tstatus(TStatusCode::RUNTIME_ERROR,
+                    fmt::format("failed to commit ingested rowset from peer, status={}",
+                                commit_result.status.to_string()));
+        return;
+    }
+    if (commit_result == IngestCommitResult::kAlreadyExist) {
+        commit_already_exist = true;
+        LOG(INFO) << "ingest binlog from peer txn already committed, will clean up redundant "
+                     "files, txn_id="
+                  << txn_id << ", file_count=" << download_success_files.size();
+    }
+
+    tstatus.__set_status_code(TStatusCode::OK);
+}
+
+Status _distribute_ingested_rowset_to_followers(
+        StorageEngine& engine, const TIngestBinlogRequest& request,
+        const RowsetMetaSharedPtr& rowset_meta,
+        const std::vector<TIngestedFileInfo>& ingested_files,
+        std::vector<int64_t>& success_backend_ids, std::vector<int64_t>& failed_backend_ids,
+        ThreadPool* distribute_pool, const std::shared_ptr<MemTrackerLimiter>& parent_mem_tracker) {
+    if (!request.__isset.follower_replicas || request.follower_replicas.empty()) {
+        return Status::OK();
+    }
+
+    std::string rowset_meta_str;
+    if (!rowset_meta->serialize(&rowset_meta_str)) {
+        return Status::InternalError("failed to serialize rowset meta for followers");
+    }
+
+    std::string peer_host = BackendOptions::get_localhost();
+    std::string peer_http_port = std::to_string(config::webserver_port);
+    std::string peer_token = ExecEnv::GetInstance()->token();
+
+    uint64_t total_file_size = 0;
+    for (const auto& file : ingested_files) {
+        if (file.__isset.size) {
+            total_file_size += file.size;
+        }
+    }
+    uint64_t estimate_timeout_s = total_file_size / config::download_low_speed_limit_kbps / 1024;
+    if (estimate_timeout_s < config::download_low_speed_time) {
+        estimate_timeout_s = config::download_low_speed_time;
+    }
+    estimate_timeout_s = estimate_timeout_s * 3 / 2; // 1.5x margin
+    int timeout_ms = static_cast<int>(std::min(estimate_timeout_s, static_cast<uint64_t>(7200)) *
+                                      1000); // cap 2h
+
+    // Validate all follower infos before launching any RPC. Invalid ones are recorded as failed
+    // so that the caller can decide to fallback instead of aborting the already-committed leader.
+    struct FollowerTask {
+        int64_t backend_id;
+        std::string host;
+        int32_t be_port;
+    };
+    std::vector<FollowerTask> valid_followers;
+    valid_followers.reserve(request.follower_replicas.size());
+    for (const auto& follower : request.follower_replicas) {
+        if (!follower.__isset.backend_id || !follower.__isset.host || !follower.__isset.be_port) {
+            int64_t bad_id = follower.__isset.backend_id ? follower.backend_id : -1;
+            LOG(WARNING) << "invalid follower replica info, backend_id=" << bad_id;
+            failed_backend_ids.push_back(bad_id);
+            continue;
+        }
+        valid_followers.push_back({follower.backend_id, follower.host, follower.be_port});
+    }
+
+    std::vector<std::future<std::pair<int64_t, Status>>> futures;
+    futures.reserve(valid_followers.size());
+
+    for (const auto& task : valid_followers) {
+        int64_t backend_id = task.backend_id;
+        std::string host = task.host;
+        int32_t be_port = task.be_port;
+
+        auto promise_ptr = std::make_shared<std::promise<std::pair<int64_t, Status>>>();
+        futures.push_back(promise_ptr->get_future());
+
+        auto worker = [promise_ptr, backend_id, host, be_port, timeout_ms, &request,
+                       &rowset_meta_str, &ingested_files, &peer_host, &peer_http_port, &peer_token,
+                       parent_mem_tracker]() {
+            SCOPED_ATTACH_TASK(parent_mem_tracker);
+            try {
+                TIngestBinlogResult follower_result;
+                TIngestBinlogRequest follower_request;
+                follower_request.__set_txn_id(request.txn_id);
+                follower_request.__set_partition_id(request.partition_id);
+                follower_request.__set_local_tablet_id(request.local_tablet_id);
+                follower_request.__set_load_id(request.load_id);
+                follower_request.__set_fetch_from_peer(true);
+                follower_request.__set_peer_host(peer_host);
+                follower_request.__set_peer_http_port(peer_http_port);
+                follower_request.__set_peer_token(peer_token);
+                follower_request.__set_rowset_meta(rowset_meta_str);
+                follower_request.__set_files(ingested_files);
+
+                DBUG_EXECUTE_IF("ingest_binlog.follower.force_fail", {
+                    auto target_backend_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int64_t>(
+                                    "ingest_binlog.follower.force_fail", "backend_id", -1);
+                    if (target_backend_id == -1 || target_backend_id == backend_id) {
+                        LOG(WARNING) << "debug point force follower ingest_binlog fail, "
+                                     << "backend_id=" << backend_id;
+                        promise_ptr->set_value(std::make_pair(
+                                backend_id,
+                                Status::InternalError("debug point force follower fail")));
+                        return;
+                    }
+                });
+
+                Status status = ThriftRpcHelper::rpc<BackendServiceClient>(
+                        host, be_port,
+                        [&follower_request,
+                         &follower_result](ClientConnection<BackendServiceClient>& client) {
+                            client->ingest_binlog(follower_result, follower_request);
+                        },
+                        timeout_ms);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to send ingest_binlog to follower " << host << ":"
+                                 << be_port << ", backend_id=" << backend_id
+                                 << ", status=" << status.to_string();
+                    promise_ptr->set_value(std::make_pair(backend_id, status));
+                    return;
+                }
+                if (follower_result.status.status_code != TStatusCode::OK) {
+                    status = Status::create(follower_result.status);
+                    LOG(WARNING) << "follower ingest_binlog failed, backend_id=" << backend_id
+                                 << ", status=" << status.to_string();
+                    promise_ptr->set_value(std::make_pair(backend_id, status));
+                    return;
+                }
+                promise_ptr->set_value(std::make_pair(backend_id, Status::OK()));
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "follower ingest_binlog task threw exception, backend_id="
+                             << backend_id << ", exception=" << e.what();
+                promise_ptr->set_value(std::make_pair(backend_id, Status::InternalError(e.what())));
+            }
+        };
+
+        if (distribute_pool != nullptr) {
+            Status st = distribute_pool->submit_func(worker);
+            if (st.ok()) {
+                continue;
+            }
+            // The pool queue is full. Fall back to inline execution in the thrift
+            // handler thread instead of failing the follower: this transfers
+            // backpressure to the caller (CCR acquires a per-backend concurrency
+            // window for every ingest) and avoids spurious whole-txn retries that
+            // would waste the cross-cluster download this feature saves.
+            LOG(WARNING) << "ingest binlog follower distribute pool is full, run follower "
+                            "distribution inline, backend_id="
+                         << backend_id << ", status=" << st.to_string();
+        }
+        worker();
+    }
+
+    for (auto& future : futures) {
+        auto [backend_id, status] = future.get();
+        if (status.ok()) {
+            success_backend_ids.push_back(backend_id);
+        } else {
+            failed_backend_ids.push_back(backend_id);
+        }
+    }
+
+    if (!failed_backend_ids.empty()) {
+        return Status::RuntimeError("{} follower(s) failed to ingest from peer",
+                                    failed_backend_ids.size());
+    }
+    return Status::OK();
 }
 
 void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
@@ -241,8 +805,17 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     TStatus tstatus;
     std::vector<std::string> download_success_files;
     std::unordered_map<std::string_view, uint64_t> elapsed_time_map;
+    bool is_single_replica_download =
+            request.__isset.single_replica_download && request.single_replica_download;
+    std::vector<TIngestedFileInfo> ingested_files;
+    bool committed = false;
+    bool commit_already_exist = false;
+    bool distribution_done = false;
+    std::vector<std::string> redundant_files_to_delete;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
-                  &total_download_bytes, &total_download_files, &elapsed_time_map]() {
+                  &total_download_bytes, &total_download_files, &elapsed_time_map,
+                  &download_success_files, &committed, &commit_already_exist, &distribution_done,
+                  &redundant_files_to_delete]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
         auto elapsed_time_ms = watch.elapsed_time_milliseconds();
         double copy_rate = 0.0;
@@ -263,31 +836,38 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             LOG(WARNING) << "ingest binlog elapsed " << elapsed_time_ms << " ms, "
                          << elapsed_details;
         }
-        if (tstatus.status_code != TStatusCode::OK) {
+        if (tstatus.status_code != TStatusCode::OK && !committed) {
             // abort txn
             engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet_id,
                                             local_tablet_uid);
             // delete all successfully downloaded files
             LOG(WARNING) << "will delete downloaded success files due to error " << tstatus;
-            std::vector<io::Path> paths;
-            for (const auto& file : download_success_files) {
-                paths.emplace_back(file);
-                LOG(WARNING) << "will delete downloaded success file " << file << " due to error";
+            static_cast<void>(_delete_downloaded_files(download_success_files,
+                                                       "leader error cleanup", txn_id));
+        }
+
+        // When the transaction was already committed by a previous attempt, the rowset files
+        // downloaded in this round (R2) are redundant after follower distribution completes.
+        // Delete them to avoid orphan files, but only after distribution is done because
+        // followers may still be fetching these files via HTTP.
+        if (commit_already_exist && distribution_done && !redundant_files_to_delete.empty()) {
+            LOG(INFO) << "will delete redundant rowset files downloaded for already-committed txn "
+                      << txn_id << ", count=" << redundant_files_to_delete.size();
+            auto cleanup_st = _delete_downloaded_files(redundant_files_to_delete,
+                                                       "leader redundant cleanup", txn_id);
+            if (cleanup_st.ok()) {
+                DorisMetrics::instance()
+                        ->binlog_ingest_redundant_rowset_cleanup_success_total->increment(1);
+            } else {
+                DorisMetrics::instance()
+                        ->binlog_ingest_redundant_rowset_cleanup_failed_total->increment(1);
             }
-            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
-            LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
         }
 
         if (ingest_binlog_tstatus) {
             *ingest_binlog_tstatus = std::move(tstatus);
         }
     }};
-
-    auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
-        tstatus.__set_status_code(code);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.push_back(std::move(error_msg));
-    };
 
     auto estimate_download_timeout = [](int64_t file_size) {
         uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
@@ -376,6 +956,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     rowset_meta_pb.set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
     rowset_meta_pb.set_txn_id(txn_id);
     rowset_meta_pb.set_rowset_state(RowsetStatePB::COMMITTED);
+    // Unify load id: both prepare_txn and commit_txn use the load id from the ingest request,
+    // so retries of the same transaction hit the idempotent short-circuit instead of replacing
+    // the already-committed rowset.
+    rowset_meta_pb.mutable_load_id()->set_hi(request.load_id.hi);
+    rowset_meta_pb.mutable_load_id()->set_lo(request.load_id.lo);
     auto rowset_meta = std::make_shared<RowsetMeta>();
     if (!rowset_meta->init_from_pb(rowset_meta_pb)) {
         LOG(WARNING) << "failed to init rowset meta from " << get_rowset_meta_url;
@@ -446,11 +1031,15 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         LOG(INFO) << "download segment file from " << get_segment_file_url << " to "
                   << segment_path;
         uint64_t estimate_timeout = estimate_download_timeout(segment_file_size);
+        std::string segment_file_md5;
+        std::string* segment_file_md5_ptr =
+                is_single_replica_download ? &segment_file_md5 : nullptr;
         auto get_segment_file_cb = [&get_segment_file_url, &segment_path, segment_file_size,
-                                    estimate_timeout, &download_success_files](HttpClient* client) {
+                                    estimate_timeout, &download_success_files,
+                                    segment_file_md5_ptr](HttpClient* client) {
             return _download_binlog_segment_file(client, get_segment_file_url, segment_path,
                                                  segment_file_size, estimate_timeout,
-                                                 download_success_files);
+                                                 download_success_files, segment_file_md5_ptr);
         };
 
         status = _exec_http_req(client, max_retry, 1, get_segment_file_cb);
@@ -460,6 +1049,19 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             status.to_thrift(&tstatus);
             return;
         }
+
+        if (is_single_replica_download) {
+            TIngestedFileInfo file_info;
+            file_info.__set_remote_path(segment_path);
+            file_info.__set_size(segment_file_size);
+            file_info.__set_segment_index(static_cast<int32_t>(segment_index));
+            file_info.__set_index_id(-1);
+            file_info.__set_is_index_file(false);
+            if (!segment_file_md5.empty()) {
+                file_info.__set_md5(segment_file_md5);
+            }
+            ingested_files.push_back(std::move(file_info));
+        }
     }
     elapsed_time_map.emplace("get_segment_files", watch.elapsed_time_microseconds());
 
@@ -468,6 +1070,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<std::string> segment_index_file_urls;
     std::vector<uint64_t> segment_index_file_sizes;
     std::vector<std::string> segment_index_file_names;
+    std::vector<int32_t> segment_index_file_segment_indices;
+    std::vector<int64_t> segment_index_file_index_ids;
+    std::vector<std::string> segment_index_file_suffix_paths;
     auto tablet_schema = rowset_meta->tablet_schema();
     if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         for (const auto& index : tablet_schema->inverted_indexes()) {
@@ -494,6 +1099,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v1(
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), index_id,
                         index->get_index_suffix()));
+                segment_index_file_segment_indices.push_back(static_cast<int32_t>(segment_index));
+                segment_index_file_index_ids.push_back(index_id);
+                segment_index_file_suffix_paths.push_back(index->get_index_suffix());
 
                 status = _exec_http_req(client, max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
@@ -530,6 +1138,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                            rowset_meta->rowset_id().to_string(), segment_index);
                 segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)));
+                segment_index_file_segment_indices.push_back(static_cast<int32_t>(segment_index));
+                segment_index_file_index_ids.push_back(-1);
+                segment_index_file_suffix_paths.emplace_back();
 
                 status = _exec_http_req(client, max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
@@ -564,6 +1175,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     // Step 6.3: get all segment index files
     DCHECK(segment_index_file_sizes.size() == segment_index_file_names.size());
     DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
+    DCHECK(segment_index_file_names.size() == segment_index_file_segment_indices.size());
+    DCHECK(segment_index_file_names.size() == segment_index_file_index_ids.size());
+    DCHECK(segment_index_file_names.size() == segment_index_file_suffix_paths.size());
     for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
         auto segment_index_file_size = segment_index_file_sizes[i];
         auto get_segment_index_file_url = segment_index_file_urls[i];
@@ -576,12 +1190,16 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         auto local_segment_index_path = segment_index_file_names[i];
         LOG(INFO) << fmt::format("download segment index file from {} to {}",
                                  get_segment_index_file_url, local_segment_index_path);
+        std::string index_file_md5;
+        std::string* index_file_md5_ptr = is_single_replica_download ? &index_file_md5 : nullptr;
         auto get_segment_index_file_cb = [&get_segment_index_file_url, &local_segment_index_path,
                                           segment_index_file_size, estimate_timeout,
-                                          &download_success_files](HttpClient* client) {
+                                          &download_success_files,
+                                          index_file_md5_ptr](HttpClient* client) {
             return _download_binlog_index_file(client, get_segment_index_file_url,
                                                local_segment_index_path, segment_index_file_size,
-                                               estimate_timeout, download_success_files);
+                                               estimate_timeout, download_success_files,
+                                               index_file_md5_ptr);
         };
 
         status = _exec_http_req(client, max_retry, 1, get_segment_index_file_cb);
@@ -591,88 +1209,65 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             status.to_thrift(&tstatus);
             return;
         }
+
+        if (is_single_replica_download) {
+            TIngestedFileInfo file_info;
+            file_info.__set_remote_path(local_segment_index_path);
+            file_info.__set_size(segment_index_file_size);
+            file_info.__set_segment_index(segment_index_file_segment_indices[i]);
+            file_info.__set_index_id(segment_index_file_index_ids[i]);
+            file_info.__set_suffix_path(segment_index_file_suffix_paths[i]);
+            file_info.__set_is_index_file(true);
+            if (!index_file_md5.empty()) {
+                file_info.__set_md5(index_file_md5);
+            }
+            ingested_files.push_back(std::move(file_info));
+        }
     }
     elapsed_time_map.emplace("get_segment_index_files", watch.elapsed_time_microseconds());
 
     // Step 7: create rowset && calculate delete bitmap && commit
-    // Step 7.1: create rowset
-    RowsetSharedPtr rowset;
-    status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
-                                          local_tablet->tablet_path(), rowset_meta, &rowset);
-    if (!status) {
-        LOG(WARNING) << "failed to create rowset from rowset meta for remote tablet"
-                     << ". rowset_id: " << rowset_meta_pb.rowset_id()
-                     << ", rowset_type: " << rowset_meta_pb.rowset_type()
-                     << ", remote_tablet_id=" << rowset_meta_pb.tablet_id() << ", txn_id=" << txn_id
-                     << ", status=" << status.to_string();
+    auto commit_result =
+            commit_ingested_rowset(engine, local_tablet, txn_id, partition_id, rowset_meta,
+                                   std::move(pending_rs_guard), watch, elapsed_time_map);
+    if (commit_result == IngestCommitResult::kError) {
+        status = Status::RuntimeError("failed to commit ingested rowset, status={}",
+                                      commit_result.status.to_string());
         status.to_thrift(&tstatus);
         return;
     }
+    if (commit_result == IngestCommitResult::kAlreadyExist) {
+        commit_already_exist = true;
+        // The current round files (R2) are redundant on the leader because a previous attempt
+        // already committed R1. We still need them for follower distribution below; schedule
+        // cleanup after distribution completes.
+        redundant_files_to_delete.assign(download_success_files.begin(),
+                                         download_success_files.end());
+        LOG(INFO) << "ingest binlog txn already committed, will distribute current files to "
+                     "followers and then clean up redundant files, txn_id="
+                  << txn_id << ", file_count=" << redundant_files_to_delete.size();
+    } else {
+        committed = true;
+    }
 
-    // Step 7.2 calculate delete bitmap before commit
-    auto calc_delete_bitmap_token = engine.calc_delete_bitmap_executor()->create_token();
-    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
-    RowsetIdUnorderedSet pre_rowset_ids;
-    if (local_tablet->enable_unique_key_merge_on_write()) {
-        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        status = beta_rowset->load_segments(&segments);
+    // Step 8: distribute to followers if single replica download
+    if (is_single_replica_download) {
+        DCHECK(arg->success_replica_backend_ids != nullptr);
+        DCHECK(arg->failed_replica_backend_ids != nullptr);
+        status = _distribute_ingested_rowset_to_followers(
+                engine, request, rowset_meta, ingested_files, *arg->success_replica_backend_ids,
+                *arg->failed_replica_backend_ids, arg->follower_distribute_pool, mem_tracker);
         if (!status) {
-            LOG(WARNING) << "failed to load segments from rowset"
-                         << ". rowset_id: " << beta_rowset->rowset_id() << ", txn_id=" << txn_id
+            LOG(WARNING) << "distribute ingested rowset to followers partially failed, success="
+                         << arg->success_replica_backend_ids->size()
+                         << ", failed=" << arg->failed_replica_backend_ids->size()
                          << ", status=" << status.to_string();
-            status.to_thrift(&tstatus);
-            return;
+            // Do NOT set tstatus to error and do NOT delete files. The rowset is already
+            // committed on the leader; downstream syncer will retry/fallback based on the
+            // success/failed replica backend id lists.
         }
-        elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
-        if (segments.size() > 1) {
-            // calculate delete bitmap between segments
-            status = local_tablet->calc_delete_bitmap_between_segments(
-                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap);
-            if (!status) {
-                LOG(WARNING) << "failed to calculate delete bitmap"
-                             << ". tablet_id: " << local_tablet->tablet_id()
-                             << ". rowset_id: " << rowset->rowset_id() << ", txn_id=" << txn_id
-                             << ", status=" << status.to_string();
-                status.to_thrift(&tstatus);
-                return;
-            }
-            elapsed_time_map.emplace("calc_delete_bitmap", watch.elapsed_time_microseconds());
-        }
-
-        static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
-                local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
-                calc_delete_bitmap_token.get(), nullptr));
-        elapsed_time_map.emplace("commit_phase_update_delete_bitmap",
-                                 watch.elapsed_time_microseconds());
-        static_cast<void>(calc_delete_bitmap_token->wait());
-        elapsed_time_map.emplace("wait_delete_bitmap", watch.elapsed_time_microseconds());
     }
-
-    // Step 7.3: commit txn
-    Status commit_txn_status = engine.txn_manager()->commit_txn(
-            local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
-            rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
-            rowset_meta->load_id(), rowset, std::move(pending_rs_guard), false);
-    if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
-        auto err_msg = fmt::format(
-                "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
-                "txn_id={}, status={}",
-                rowset_meta->rowset_id().to_string(), rowset_meta->tablet_id(),
-                rowset_meta->txn_id(), commit_txn_status.to_string());
-        LOG(WARNING) << err_msg;
-        set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
-        return;
-    }
-    elapsed_time_map.emplace("commit_txn", watch.elapsed_time_microseconds());
-
-    if (local_tablet->enable_unique_key_merge_on_write()) {
-        engine.txn_manager()->set_txn_related_delete_bitmap(partition_id, txn_id, local_tablet_id,
-                                                            local_tablet->tablet_uid(), true,
-                                                            delete_bitmap, pre_rowset_ids, nullptr);
-        elapsed_time_map.emplace("set_txn_related_delete_bitmap",
-                                 watch.elapsed_time_microseconds());
-    }
+    distribution_done = true;
 
     tstatus.__set_status_code(TStatusCode::OK);
 }
@@ -693,19 +1288,41 @@ Status BackendService::start_thrift_dependencies() {
 
     auto thread_num = config::ingest_binlog_work_pool_size;
     if (thread_num < 0) {
-        LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, so we will in sync mode",
+        LOG(INFO) << fmt::format("ingest binlog work pool size is {}, so we will in sync mode",
                                  thread_num);
-        return Status::OK();
+    } else {
+        if (thread_num == 0) {
+            thread_num = std::thread::hardware_concurrency();
+        }
+        RETURN_IF_ERROR(doris::ThreadPoolBuilder("IngestBinlog")
+                                .set_min_threads(thread_num)
+                                .set_max_threads(thread_num * 2)
+                                .build(&_ingest_binlog_workers));
+        LOG(INFO) << fmt::format("ingest binlog work pool size is {}, in async mode", thread_num);
     }
 
-    if (thread_num == 0) {
-        thread_num = std::thread::hardware_concurrency();
+    // Always create the follower distribution pool for single-replica ingest binlog,
+    // regardless of whether the legacy async ingest pool is enabled. This turns follower
+    // fan-out from serial RPC execution into parallel execution bounded by the pool size.
+    // When the pool queue is full, the follower task falls back to inline execution
+    // instead of being rejected, so a busy pool never fails an ingest by itself.
+    auto distribute_thread_num = config::ingest_binlog_distribute_work_pool_size;
+    if (distribute_thread_num < 0) {
+        return Status::InvalidArgument(
+                "ingest_binlog_distribute_work_pool_size must be non-negative, got {}",
+                distribute_thread_num);
     }
-    static_cast<void>(doris::ThreadPoolBuilder("IngestBinlog")
-                              .set_min_threads(thread_num)
-                              .set_max_threads(thread_num * 2)
-                              .build(&_ingest_binlog_workers));
-    LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
+    if (distribute_thread_num == 0) {
+        auto hc = static_cast<int>(std::thread::hardware_concurrency());
+        distribute_thread_num = hc > 0 ? hc : 1;
+    }
+    RETURN_IF_ERROR(doris::ThreadPoolBuilder("IngestBinlogDistribute")
+                            .set_min_threads(0)
+                            .set_max_threads(distribute_thread_num)
+                            .set_max_queue_size(distribute_thread_num * 4)
+                            .build(&_ingest_binlog_distribute_workers));
+    LOG(INFO) << fmt::format("ingest binlog distribute work pool size is {}",
+                             distribute_thread_num);
     return Status::OK();
 }
 
@@ -936,7 +1553,13 @@ void BackendService::release_snapshot(TAgentResult& return_value,
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
-    LOG(INFO) << "ingest binlog. request: " << apache::thrift::ThriftDebugString(request);
+    LOG(INFO) << "ingest binlog. txn_id=" << (request.__isset.txn_id ? request.txn_id : -1)
+              << ", tablet_id=" << (request.__isset.local_tablet_id ? request.local_tablet_id : -1)
+              << ", load_id=" << (request.__isset.load_id ? print_id(request.load_id) : "not_set")
+              << ", fetch_from_peer="
+              << (request.__isset.fetch_from_peer && request.fetch_from_peer)
+              << ", single_replica_download="
+              << (request.__isset.single_replica_download && request.single_replica_download);
 
     TStatus tstatus;
     Defer defer {[&result, &tstatus]() {
@@ -955,33 +1578,11 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         return;
     }
 
-    /// Check args: txn_id, remote_tablet_id, binlog_version, remote_host, remote_port, partition_id, load_id
+    bool is_fetch_from_peer = request.__isset.fetch_from_peer && request.fetch_from_peer;
+
+    /// Check common args: txn_id, partition_id, local_tablet_id, load_id
     if (!request.__isset.txn_id) {
         auto error_msg = "txn_id is empty";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
-        return;
-    }
-    if (!request.__isset.remote_tablet_id) {
-        auto error_msg = "remote_tablet_id is empty";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
-        return;
-    }
-    if (!request.__isset.binlog_version) {
-        auto error_msg = "binlog_version is empty";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
-        return;
-    }
-    if (!request.__isset.remote_host) {
-        auto error_msg = "remote_host is empty";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
-        return;
-    }
-    if (!request.__isset.remote_port) {
-        auto error_msg = "remote_port is empty";
         LOG(WARNING) << error_msg;
         set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
@@ -1003,6 +1604,34 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         LOG(WARNING) << error_msg;
         set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
+    }
+
+    // For leader/old path, remote info is required
+    if (!is_fetch_from_peer) {
+        if (!request.__isset.remote_tablet_id) {
+            auto error_msg = "remote_tablet_id is empty";
+            LOG(WARNING) << error_msg;
+            set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
+            return;
+        }
+        if (!request.__isset.binlog_version) {
+            auto error_msg = "binlog_version is empty";
+            LOG(WARNING) << error_msg;
+            set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
+            return;
+        }
+        if (!request.__isset.remote_host) {
+            auto error_msg = "remote_host is empty";
+            LOG(WARNING) << error_msg;
+            set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
+            return;
+        }
+        if (!request.__isset.remote_port) {
+            auto error_msg = "remote_port is empty";
+            LOG(WARNING) << error_msg;
+            set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
+            return;
+        }
     }
 
     auto txn_id = request.txn_id;
@@ -1035,7 +1664,47 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         }
     }
 
+    // Dispatch by mode
+    if (is_fetch_from_peer) {
+        // Follower mode: always synchronous
+        _ingest_binlog_from_peer_impl(_engine, request, local_tablet, txn_id, partition_id,
+                                      tstatus);
+        return;
+    }
+
+    bool is_single_replica_download =
+            request.__isset.single_replica_download && request.single_replica_download;
     bool is_async = (_ingest_binlog_workers != nullptr);
+
+    if (is_single_replica_download) {
+        if (is_async) {
+            set_tstatus(TStatusCode::RUNTIME_ERROR,
+                        "single_replica_download is not supported in async ingest mode");
+            return;
+        }
+        // Leader mode: synchronous, collect follower results
+        std::vector<int64_t> success_backend_ids;
+        std::vector<int64_t> failed_backend_ids;
+        IngestBinlogArg ingest_binlog_arg = {
+                .txn_id = txn_id,
+                .partition_id = partition_id,
+                .local_tablet_id = local_tablet_id,
+                .local_tablet = local_tablet,
+                .request = request,
+                .tstatus = &tstatus,
+                .success_replica_backend_ids = &success_backend_ids,
+                .failed_replica_backend_ids = &failed_backend_ids,
+                .follower_distribute_pool = _ingest_binlog_distribute_workers.get(),
+        };
+        _ingest_binlog(_engine, &ingest_binlog_arg);
+        // Always return the per-replica result lists so that syncer can decide whether
+        // to retry / fallback, even when some followers failed after leader commit.
+        result.__set_success_replica_backend_ids(success_backend_ids);
+        result.__set_failed_replica_backend_ids(failed_backend_ids);
+        return;
+    }
+
+    // Old path
     result.__set_is_async(is_async);
 
     auto ingest_binlog_func = [=, this, tstatus = &tstatus]() {
@@ -1312,6 +1981,14 @@ void BaseBackendService::get_python_packages(std::vector<TPythonPackageInfo>& re
     std::vector<std::pair<std::string, std::string>> packages;
     THROW_IF_ERROR(list_installed_packages(version, &packages));
     result = manager.package_infos_to_thrift(packages);
+}
+
+// Exposed wrapper for unit tests. The implementation lives in the unnamed namespace
+// and is not directly visible to other translation units.
+void _ingest_binlog_from_peer(StorageEngine& engine, const TIngestBinlogRequest& request,
+                              const TabletSharedPtr& local_tablet, int64_t txn_id,
+                              int64_t partition_id, TStatus& tstatus) {
+    _ingest_binlog_from_peer_impl(engine, request, local_tablet, txn_id, partition_id, tstatus);
 }
 
 } // namespace doris

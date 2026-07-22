@@ -109,6 +109,8 @@ public:
     IntCounter* base_compaction_task_pending_total = nullptr;
     IntCounter* binlog_compaction_task_running_total = nullptr;
     IntCounter* binlog_compaction_task_pending_total = nullptr;
+    IntCounter* binlog_ingest_redundant_rowset_cleanup_success_total = nullptr;
+    IntCounter* binlog_ingest_redundant_rowset_cleanup_failed_total = nullptr;
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
 

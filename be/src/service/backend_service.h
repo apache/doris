@@ -160,6 +160,7 @@ protected:
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;
     std::unique_ptr<ThreadPool> _ingest_binlog_workers;
+    std::unique_ptr<ThreadPool> _ingest_binlog_distribute_workers;
 };
 
 // `StorageEngine` mixin for `BaseBackendService`

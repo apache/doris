@@ -176,6 +176,23 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     // not found load id
     // case 1: user start a new txn, rowset = null
     // case 2: loading txn from meta env
+    // Defensive: if we are about to overwrite an existing entry with a different load id,
+    // something may be wrong with the caller's idempotency. Log it but keep the existing
+    // overwrite behavior to avoid breaking other paths.
+    if (auto key_it = txn_tablet_map.find(key); key_it != txn_tablet_map.end()) {
+        if (auto tablet_it = key_it->second.find(tablet_info); tablet_it != key_it->second.end()) {
+            const auto& old_load_id = tablet_it->second->load_id;
+            if (old_load_id.hi() != load_id.hi() || old_load_id.lo() != load_id.lo()) {
+                LOG(WARNING)
+                        << "prepare_txn overwriting existing txn entry with different load id, "
+                        << "partition_id=" << key.first << ", txn_id=" << key.second
+                        << ", tablet=" << tablet_info.to_string()
+                        << ", old_load_id=" << old_load_id.hi() << ":" << old_load_id.lo()
+                        << ", new_load_id=" << load_id.hi() << ":" << load_id.lo();
+            }
+        }
+    }
+
     auto load_info = std::make_shared<TabletTxnInfo>(load_id, nullptr, ingest);
     load_info->prepare();
     if (!txn_tablet_map.contains(key)) {

@@ -234,6 +234,22 @@ struct TWarmUpTabletsResponse {
     5: optional i64 finish_job_size
 }
 
+struct TReplicaDistributionInfo {
+    1: optional i64 backend_id;
+    2: optional string host;
+    3: optional i32 be_port;
+}
+
+struct TIngestedFileInfo {
+    1: optional string remote_path;
+    2: optional i64 size;
+    3: optional i32 segment_index;
+    4: optional i64 index_id;
+    5: optional string suffix_path;
+    6: optional bool is_index_file;
+    7: optional string md5;
+}
+
 struct TIngestBinlogRequest {
     1: optional i64 txn_id;
     2: optional i64 remote_tablet_id;
@@ -243,11 +259,23 @@ struct TIngestBinlogRequest {
     6: optional i64 partition_id;
     7: optional i64 local_tablet_id;
     8: optional Types.TUniqueId load_id;
+    // ---- single replica ingest binlog ----
+    9: optional bool single_replica_download;
+    10: optional list<TReplicaDistributionInfo> follower_replicas;
+    11: optional bool fetch_from_peer;
+    12: optional string peer_host;
+    13: optional string peer_http_port;
+    14: optional string peer_token;
+    15: optional binary rowset_meta;
+    16: optional list<TIngestedFileInfo> files;
 }
 
 struct TIngestBinlogResult {
     1: optional Status.TStatus status;
     2: optional bool is_async;
+    // ---- single replica ingest binlog ----
+    3: optional list<i64> success_replica_backend_ids;
+    4: optional list<i64> failed_replica_backend_ids;
 }
 
 struct TQueryIngestBinlogRequest {
