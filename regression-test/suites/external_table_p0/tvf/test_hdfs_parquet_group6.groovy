@@ -427,7 +427,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
+                exception "The column type of 'time_millis' is not supported"
             }
 
 
