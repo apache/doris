@@ -907,8 +907,13 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
-    public void testNotMatchWhenOuterOnlyRelationOutputIsPruned() throws Exception {
-        createTable("CREATE TABLE tpch.fact_window_pruned (\n"
+    public void testOuterOnlyRelationOutputPreserved() throws Exception {
+        // When the outer query references the dim table directly (no
+        // SubQueryAlias wrapping it), the Apply's correlation slot
+        // ExprId IS the scan's original.  checkRelation() finds it
+        // in the outer-only table's output, so the rewrite can proceed
+        // when other guards (uniqueness, filters) pass.
+        createTable("CREATE TABLE fact_oor (\n"
                 + "  id INT,\n"
                 + "  k INT,\n"
                 + "  v INT\n"
@@ -916,25 +921,25 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 + "DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')");
-        createTable("CREATE TABLE tpch.dim_window_pruned (\n"
+        createTable("CREATE TABLE dim_oor (\n"
                 + "  did INT,\n"
-                + "  k INT,\n"
+                + "  k INT NOT NULL,\n"
                 + "  tag INT\n"
                 + ") ENGINE=OLAP\n"
                 + "DUPLICATE KEY(did)\n"
                 + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_oor add constraint uq_dim_oor_k unique (k)");
 
-        String sql = "SELECT t.id, t.k, t.v "
-                + "FROM ("
-                + "    SELECT f.id, d.k, f.v "
-                + "    FROM fact_window_pruned f, dim_window_pruned d "
-                + "    WHERE f.k = d.k"
-                + ") t "
-                + "WHERE t.v * 2 > ("
+        // Direct table reference — no SubQueryAlias wrapping dim_oor.
+        // The Apply's correlation slot ExprId matches the scan output.
+        String sql = "SELECT d.did, d.k, d.tag, f.id, f.v "
+                + "FROM fact_oor f, dim_oor d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
                 + "    SELECT SUM(f2.v) "
-                + "    FROM fact_window_pruned f2 "
-                + "    WHERE f2.k = t.k"
+                + "    FROM fact_oor f2 "
+                + "    WHERE f2.k = d.k"
                 + "  )";
 
         Plan plan = PlanChecker.from(createCascadesContext(sql))
@@ -945,7 +950,67 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 .customRewrite(new AggScalarSubQueryToWindowFunction())
                 .getPlan();
 
-        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance));
+        // With the scan's original ExprId preserved, the rewrite should fire.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must succeed when the correlated slot ExprId "
+                + "is the scan's original (direct table reference)");
+    }
+
+    @Test
+    public void testNotMatchWhenOuterOnlyRelationOutputIsPruned() throws Exception {
+        // An aliased projection (d.k AS new_k) creates a new ExprId in
+        // the outer scope that is NOT present in the outer-only table's
+        // scan output.  checkRelation() compares each correlated slot's
+        // ExprId against the scan's output ExprIdSet — the aliased slot
+        // is genuinely missing, so the rewrite must be rejected for this
+        // reason alone (not because of a missing uniqueness constraint).
+        createTable("CREATE TABLE fact_oor2 (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_oor2 (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_oor2 add constraint uq_dim_oor2_k unique (k)");
+
+        // d.k AS new_k creates an Alias with a new ExprId.  The inner
+        // query references t.new_k, so the Apply's correlation slot is
+        // this new ExprId.  The scan of dim_oor2 outputs d.k with its
+        // original ExprId — the check in checkRelation() fails.
+        String sql = "SELECT t.id, t.new_k, t.v "
+                + "FROM ("
+                + "    SELECT f.id, d.k AS new_k, f.v "
+                + "    FROM fact_oor2 f, dim_oor2 d "
+                + "    WHERE f.k = d.k"
+                + ") t "
+                + "WHERE t.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_oor2 f2 "
+                + "    WHERE f2.k = t.new_k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // The aliased ExprId is not in the scan's output — must reject.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when the correlated slot ExprId "
+                + "is not in the outer-only relation's scan output "
+                + "(e.g. d.k AS new_k creates a new ExprId)");
     }
 
     @Test
@@ -998,7 +1063,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 "Rule should produce a window when nested outer filter is present");
 
         // The nested shared-table predicate (v > 6) must be hoisted ABOVE the
-        // window.  Verify no shared-table-only predicate is below the window.
+        // window.  Verify it is both absent below AND preserved above.
         List<CatalogRelation> rels = plan.collectToList(CatalogRelation.class::isInstance);
         Set<ExprId> factExprIds = rels.stream()
                 .filter(r -> r.getTable().getName().equals("fact_nested"))
@@ -1019,6 +1084,26 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 }
             }
         }
+
+        // Preservation: the hoisted predicate must appear exactly once in
+        // a filter ABOVE the window (not just absent below).
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        int sharedOnlyAboveCount = 0;
+        for (LogicalFilter<Plan> f : aboveFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (!conjExprIds.isEmpty() && factExprIds.containsAll(conjExprIds)) {
+                    sharedOnlyAboveCount++;
+                }
+            }
+        }
+        Assertions.assertEquals(1, sharedOnlyAboveCount,
+                "Hoisted shared-table predicate (v > 6) must be preserved "
+                + "exactly once above the window, not silently dropped");
     }
 
     @Test
@@ -1082,6 +1167,25 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                         "Volatile predicate should stay above window: " + conj.toSql());
             }
         }
+
+        // Preservation: the volatile predicate must appear exactly once in
+        // a filter ABOVE the window (not just absent below).
+        List<LogicalFilter<Plan>> allFilters = plan
+                .collectToList(LogicalFilter.class::isInstance);
+        List<LogicalFilter<Plan>> aboveFilters = allFilters.stream()
+                .filter(f -> !belowFilters.contains(f))
+                .collect(Collectors.toList());
+        int volatileAboveCount = 0;
+        for (LogicalFilter<Plan> f : aboveFilters) {
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.containsVolatileExpression()) {
+                    volatileAboveCount++;
+                }
+            }
+        }
+        Assertions.assertEquals(1, volatileAboveCount,
+                "Volatile predicate (random() > 0.5) must be preserved "
+                + "exactly once above the window, not silently dropped");
     }
 
     @Test
