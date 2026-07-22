@@ -21,6 +21,7 @@
 
 #include <functional>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -40,8 +41,11 @@
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/partial_update_info.h"
+#include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/historical_row_retriever.h"
@@ -413,6 +417,76 @@ protected:
         EXPECT_TRUE(writer->build(rowset).ok());
         EXPECT_TRUE(rowset != nullptr);
         return rowset;
+    }
+
+    Status flush_partial_rowset_segments(
+            const TabletSchemaSPtr& schema, int64_t rowset_numeric_id, int64_t version,
+            const TabletSharedPtr& tablet, const std::shared_ptr<MowContext>& mow_context,
+            const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
+            const std::vector<Block*>& blocks, RowsetSharedPtr* rowset) {
+        RowsetWriterContext context;
+        TabletSharedPtr unused_tablet;
+        make_rowset_ctx(schema, rowset_numeric_id, version, &context, &unused_tablet);
+        context.tablet = tablet;
+        context.data_dir = tablet->data_dir();
+        context.mow_context = mow_context;
+        context.partial_update_info = partial_update_info;
+        context.is_transient_rowset_writer = false;
+        context.segments_overlap = NONOVERLAPPING;
+        context.max_rows_per_segment = 1024;
+        context.enable_segcompaction = false;
+
+        auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, false);
+        if (!writer_result.has_value()) {
+            return writer_result.error();
+        }
+        auto writer = std::move(writer_result).value();
+        int32_t segment_id = 0;
+        for (Block* block : blocks) {
+            RETURN_IF_ERROR(writer->flush_memtable(block, segment_id++, nullptr));
+        }
+        RETURN_IF_ERROR(writer->flush());
+        return writer->build(*rowset);
+    }
+
+    Status flush_partial_rowset(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id,
+                                int64_t version, const TabletSharedPtr& tablet,
+                                const std::shared_ptr<MowContext>& mow_context,
+                                const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
+                                Block* block, RowsetSharedPtr* rowset) {
+        return flush_partial_rowset_segments(schema, rowset_numeric_id, version, tablet,
+                                             mow_context, partial_update_info, {block}, rowset);
+    }
+
+    Status read_rowset(const RowsetSharedPtr& rowset, const TabletSchemaSPtr& schema,
+                       Block* output) {
+        std::vector<uint32_t> return_columns(schema->num_columns());
+        std::iota(return_columns.begin(), return_columns.end(), 0);
+        RowsetReaderContext context;
+        context.tablet_schema = schema;
+        context.return_columns = &return_columns;
+        context.need_ordered_result = true;
+        OlapReaderStatistics statistics;
+        context.stats = &statistics;
+
+        RowsetReaderSharedPtr reader;
+        RETURN_IF_ERROR(rowset->create_reader(&reader));
+        RETURN_IF_ERROR(reader->init(&context));
+        *output = schema->create_block_by_cids(return_columns);
+        while (true) {
+            Block batch = schema->create_block_by_cids(return_columns);
+            auto status = reader->next_batch(&batch);
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(status);
+            auto guard = output->mutate_columns_scoped();
+            auto& output_columns = guard.mutable_columns();
+            for (size_t cid = 0; cid < output_columns.size(); ++cid) {
+                output_columns[cid]->insert_range_from(*batch.get_by_position(cid).column, 0,
+                                                       batch.rows());
+            }
+        }
     }
 
     // Generic committed-rowset writer: `fill(block)` populates every column of a

@@ -29,9 +29,12 @@
 
 #include <gtest/gtest.h>
 
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
+#include "core/column/column_string.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
 #include "storage/tablet/tablet_meta.h"
@@ -604,6 +607,122 @@ TEST_F(FixedPartialUpdateTest, FixedRowStoreReadPath) {
         ASSERT_TRUE(cs_st.ok()) << cs_st;
         EXPECT_EQ(read_int(cs_block, 1, 0), read_int(block, 1, 0)); // 11 both paths
         EXPECT_EQ(read_int(cs_block, 1, 1), read_int(block, 1, 1)); // 22 both paths
+    }
+}
+
+// End-to-end writer coverage: the transform chain expands the narrow fixed-update block, the
+// generic VerticalSegmentWriter persists it, and RowsetReader must recover the same logical rows.
+// Physical column/page order is intentionally not asserted.
+TEST_F(FixedPartialUpdateTest, VerticalWriterPersistsFilledRows) {
+    auto schema = create_mow_schema(/*has_seq=*/true);
+    TabletSharedPtr tablet;
+    auto history = write_rowset(schema, 3701, 2, {{1, 11, 5, 0}}, &tablet);
+    auto mow = make_mow_context(100, {history});
+
+    auto pui = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(pui->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                          PartialUpdateNewRowPolicyPB::APPEND, {"k", SEQUENCE_COL}, false, 0, 0,
+                          "UTC", "")
+                        .ok());
+
+    Block block = schema->create_block_by_cids({0, 2});
+    {
+        auto guard = block.mutate_columns_scoped();
+        auto& columns = guard.mutable_columns();
+        for (const auto& [key, sequence] :
+             std::vector<std::pair<int32_t, int32_t>> {{1, 10}, {99, 7}}) {
+            columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+            columns[1]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
+        }
+    }
+
+    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
+    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
+    config::enable_vertical_segment_writer = true;
+    config::enable_merge_on_write_correctness_check = false;
+    RowsetSharedPtr output;
+    const auto flush_status =
+            flush_partial_rowset(schema, 3702, 3, tablet, mow, pui, &block, &output);
+    config::enable_vertical_segment_writer = saved_vertical_writer;
+    config::enable_merge_on_write_correctness_check = saved_correctness_check;
+    ASSERT_TRUE(flush_status.ok()) << flush_status;
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->rowset_meta()->num_rows(), 2);
+
+    Block persisted;
+    ASSERT_TRUE(read_rowset(output, schema, &persisted).ok());
+    ASSERT_EQ(persisted.rows(), 2);
+    ASSERT_EQ(persisted.columns(), schema->num_columns());
+    EXPECT_EQ(read_int(persisted, 0, 0), 1);
+    EXPECT_EQ(read_int(persisted, 1, 0), 11); // restored from history
+    EXPECT_EQ(read_int(persisted, 2, 0), 10); // provided sequence
+    EXPECT_EQ(read_tinyint(persisted, 3, 0), 0);
+    EXPECT_EQ(read_int(persisted, 0, 1), 99);
+    EXPECT_EQ(read_int(persisted, 1, 1), 0); // default for a new key
+    EXPECT_EQ(read_int(persisted, 2, 1), 7);
+    EXPECT_EQ(read_tinyint(persisted, 3, 1), 0);
+
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(output);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(segments.size(), 1);
+    RowKeyEncoder encoder(*schema, true);
+    for (const auto& [row_id, key, sequence] :
+         std::vector<std::tuple<uint32_t, int32_t, int32_t>> {{0, 1, 10}, {1, 99, 7}}) {
+        std::string persisted_key;
+        ASSERT_TRUE(segments[0]->read_key_by_rowid(row_id, &persisted_key).ok());
+        EXPECT_EQ(persisted_key, encode_key_with_seq(schema, encoder, key, sequence));
+    }
+}
+
+// The hidden RowStore column is streamed through DerivedColumnGenerator rather than the normal
+// schema-column loop. Verify that the generic Vertical writer persists exactly the rebuilt cells.
+TEST_F(FixedPartialUpdateTest, VerticalWriterPersistsRebuiltRowStore) {
+    auto schema = create_row_store_schema();
+    TabletSharedPtr tablet;
+    auto history = write_rowset(schema, 3731, 2, {{1, 11}, {2, 22}}, &tablet);
+    auto mow = make_mow_context(100, {history});
+
+    Block historical_rows;
+    ASSERT_TRUE(read_rowset(history, schema, &historical_rows).ok());
+    ASSERT_EQ(historical_rows.rows(), 2);
+
+    auto pui = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(pui->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                          PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0, "UTC", "")
+                        .ok());
+    Block block = schema->create_block_by_cids({0});
+    auto* keys = block.get_by_position(0).column->assert_mutable().get();
+    for (const int32_t key : {1, 2}) {
+        keys->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+    }
+
+    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
+    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
+    config::enable_vertical_segment_writer = true;
+    config::enable_merge_on_write_correctness_check = false;
+    RowsetSharedPtr output;
+    const auto flush_status =
+            flush_partial_rowset(schema, 3732, 3, tablet, mow, pui, &block, &output);
+    config::enable_vertical_segment_writer = saved_vertical_writer;
+    config::enable_merge_on_write_correctness_check = saved_correctness_check;
+    ASSERT_TRUE(flush_status.ok()) << flush_status;
+    ASSERT_NE(output, nullptr);
+
+    Block persisted;
+    ASSERT_TRUE(read_rowset(output, schema, &persisted).ok());
+    ASSERT_EQ(persisted.rows(), 2);
+    const auto& historical_row_store =
+            assert_cast<const ColumnString&>(*historical_rows.get_by_position(3).column);
+    const auto& persisted_row_store =
+            assert_cast<const ColumnString&>(*persisted.get_by_position(3).column);
+    for (size_t row = 0; row < 2; ++row) {
+        EXPECT_EQ(read_int(persisted, 0, row), static_cast<int32_t>(row + 1));
+        EXPECT_EQ(read_int(persisted, 1, row), static_cast<int32_t>((row + 1) * 11));
+        EXPECT_EQ(read_tinyint(persisted, 2, row), 0);
+        EXPECT_EQ(persisted_row_store.get_data_at(row).to_string(),
+                  historical_row_store.get_data_at(row).to_string());
     }
 }
 

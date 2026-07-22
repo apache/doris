@@ -32,6 +32,8 @@
 #include <gtest/gtest.h>
 
 #include <map>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -1077,6 +1079,235 @@ TEST_F(FlexiblePartialUpdateTest, FlexibleRowStoreReadPath) {
             {rowset->rowset_id(), 0, DeleteBitmap::TEMP_VERSION_COMMON}, 0));
     EXPECT_TRUE(mow->delete_bitmap->contains(
             {rowset->rowset_id(), 0, DeleteBitmap::TEMP_VERSION_COMMON}, 1));
+}
+
+// End-to-end writer coverage for flexible updates. The segment's physical ordering may differ
+// from the legacy writer, but all filled values and sequence semantics must survive a read-back.
+TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsFilledRows) {
+    auto schema = create_flexible_seq_mow_schema();
+    TabletSharedPtr tablet;
+    auto history = write_rowset(schema, 3711, 2, {{1, 11, 5, 0}}, &tablet);
+    auto mow = make_mow_context(100, {history});
+    auto pui = make_flexible_pui(schema);
+
+    const auto value_uid = static_cast<uint64_t>(schema->column(1).unique_id());
+    const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
+    Block block = schema->create_block();
+    {
+        auto guard = block.mutate_columns_scoped();
+        auto& columns = guard.mutable_columns();
+        const std::vector<std::tuple<int32_t, int32_t, int32_t, bool>> rows {{1, 999, 10, true},
+                                                                             {99, 909, 7, false}};
+        for (const auto& [key, value, sequence, skip_value] : rows) {
+            const int8_t delete_sign = 0;
+            columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+            columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+            columns[2]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
+            columns[3]->insert_data(reinterpret_cast<const char*>(&delete_sign),
+                                    sizeof(delete_sign));
+            BitmapValue skip;
+            if (skip_value) {
+                skip.add(value_uid);
+            }
+            skip.add(delete_sign_uid);
+            assert_cast<ColumnBitmap*>(columns[4].get())->insert_value(std::move(skip));
+        }
+    }
+
+    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
+    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
+    config::enable_vertical_segment_writer = true;
+    config::enable_merge_on_write_correctness_check = false;
+    RowsetSharedPtr output;
+    const auto flush_status =
+            flush_partial_rowset(schema, 3712, 3, tablet, mow, pui, &block, &output);
+    config::enable_vertical_segment_writer = saved_vertical_writer;
+    config::enable_merge_on_write_correctness_check = saved_correctness_check;
+    ASSERT_TRUE(flush_status.ok()) << flush_status;
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->rowset_meta()->num_rows(), 2);
+
+    Block persisted;
+    ASSERT_TRUE(read_rowset(output, schema, &persisted).ok());
+    ASSERT_EQ(persisted.rows(), 2);
+    ASSERT_EQ(persisted.columns(), schema->num_columns());
+    EXPECT_EQ(read_int(persisted, 0, 0), 1);
+    EXPECT_EQ(read_int(persisted, 1, 0), 11); // skipped value restored from history
+    EXPECT_EQ(read_int(persisted, 2, 0), 10);
+    EXPECT_EQ(read_tinyint(persisted, 3, 0), 0);
+    EXPECT_EQ(read_int(persisted, 0, 1), 99);
+    EXPECT_EQ(read_int(persisted, 1, 1), 909); // provided value kept
+    EXPECT_EQ(read_int(persisted, 2, 1), 7);
+    EXPECT_EQ(read_tinyint(persisted, 3, 1), 0);
+
+    const auto& persisted_skip_bitmaps =
+            assert_cast<const ColumnBitmap&>(*persisted.get_by_position(4).column).get_data();
+    ASSERT_EQ(persisted_skip_bitmaps.size(), 2);
+    EXPECT_TRUE(persisted_skip_bitmaps[0].contains(value_uid));
+    EXPECT_TRUE(persisted_skip_bitmaps[0].contains(delete_sign_uid));
+    EXPECT_FALSE(persisted_skip_bitmaps[1].contains(value_uid));
+    EXPECT_TRUE(persisted_skip_bitmaps[1].contains(delete_sign_uid));
+
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(output);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(segments.size(), 1);
+    RowKeyEncoder encoder(*schema, true);
+    for (const auto& [row_id, key, sequence] :
+         std::vector<std::tuple<uint32_t, int32_t, int32_t>> {{0, 1, 10}, {1, 99, 7}}) {
+        std::string persisted_key;
+        ASSERT_TRUE(segments[0]->read_key_by_rowid(row_id, &persisted_key).ok());
+        EXPECT_EQ(persisted_key, encode_key_with_seq(schema, encoder, key, sequence));
+    }
+}
+
+// An all-stale flexible update has no logical row to persist. SegmentFlusher must stop after the
+// transform instead of sending a zero-row batch to either segment writer.
+TEST_F(FlexiblePartialUpdateTest, VerticalWriterSkipsAllStaleBlock) {
+    auto schema = create_flexible_seq_mow_schema();
+    TabletSharedPtr tablet;
+    auto history = write_rowset(schema, 3721, 2, {{1, 11, 20, 0}}, &tablet);
+    auto mow = make_mow_context(100, {history});
+    auto pui = make_flexible_pui(schema);
+
+    const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
+    Block block = schema->create_block();
+    {
+        auto guard = block.mutate_columns_scoped();
+        auto& columns = guard.mutable_columns();
+        for (const auto& [value, sequence] :
+             std::vector<std::pair<int32_t, int32_t>> {{30, 3}, {40, 4}}) {
+            const int32_t key = 1;
+            const int8_t delete_sign = 0;
+            columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+            columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+            columns[2]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
+            columns[3]->insert_data(reinterpret_cast<const char*>(&delete_sign),
+                                    sizeof(delete_sign));
+            BitmapValue skip;
+            skip.add(delete_sign_uid);
+            assert_cast<ColumnBitmap*>(columns[4].get())->insert_value(std::move(skip));
+        }
+    }
+
+    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
+    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
+    config::enable_vertical_segment_writer = true;
+    config::enable_merge_on_write_correctness_check = false;
+    RowsetSharedPtr output;
+    const auto flush_status =
+            flush_partial_rowset(schema, 3722, 3, tablet, mow, pui, &block, &output);
+    config::enable_vertical_segment_writer = saved_vertical_writer;
+    config::enable_merge_on_write_correctness_check = saved_correctness_check;
+    ASSERT_TRUE(flush_status.ok()) << flush_status;
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(output->rowset_meta()->num_rows(), 0);
+    EXPECT_EQ(output->rowset_meta()->num_segments(), 0);
+
+    Block persisted;
+    ASSERT_TRUE(read_rowset(output, schema, &persisted).ok());
+    EXPECT_EQ(persisted.rows(), 0);
+}
+
+// Multiple memtable flushes use independent segment writers. Read all segments back together and
+// then use that rowset as history for another partial update.
+TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {
+    auto schema = create_flexible_seq_mow_schema();
+    TabletSharedPtr tablet;
+    auto history = write_rowset(schema, 3741, 2, {{1, 11, 5, 0}}, &tablet);
+    auto mow = make_mow_context(100, {history});
+    auto pui = make_flexible_pui(schema);
+
+    const auto value_uid = static_cast<uint64_t>(schema->column(1).unique_id());
+    const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
+    auto make_block = [&](const std::vector<std::tuple<int32_t, int32_t, int32_t>>& rows,
+                          bool skip_value = false) {
+        Block block = schema->create_block();
+        {
+            auto guard = block.mutate_columns_scoped();
+            auto& columns = guard.mutable_columns();
+            for (const auto& [key, value, sequence] : rows) {
+                const int8_t delete_sign = 0;
+                columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+                columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+                columns[2]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
+                columns[3]->insert_data(reinterpret_cast<const char*>(&delete_sign),
+                                        sizeof(delete_sign));
+                BitmapValue skip;
+                if (skip_value) {
+                    skip.add(value_uid);
+                }
+                skip.add(delete_sign_uid);
+                assert_cast<ColumnBitmap*>(columns[4].get())->insert_value(std::move(skip));
+            }
+        }
+        return block;
+    };
+    Block first_segment = make_block({{1, 999, 10}}, true);
+    Block second_segment = make_block({{2, 22, 7}});
+    Block third_segment = make_block({{3, 33, 8}});
+
+    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
+    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
+    config::enable_vertical_segment_writer = true;
+    config::enable_merge_on_write_correctness_check = false;
+    RowsetSharedPtr output;
+    const auto flush_status = flush_partial_rowset_segments(
+            schema, 3742, 3, tablet, mow, pui, {&first_segment, &second_segment, &third_segment},
+            &output);
+    config::enable_vertical_segment_writer = saved_vertical_writer;
+    config::enable_merge_on_write_correctness_check = saved_correctness_check;
+    ASSERT_TRUE(flush_status.ok()) << flush_status;
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(output->rowset_meta()->num_rows(), 3);
+
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(output);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(segments.size(), 3);
+    size_t persisted_segment_rows = 0;
+    for (const auto& segment : segments) {
+        persisted_segment_rows += segment->num_rows();
+    }
+    EXPECT_EQ(persisted_segment_rows, 3);
+
+    Block persisted;
+    const auto read_status = read_rowset(output, schema, &persisted);
+    ASSERT_TRUE(read_status.ok()) << read_status;
+    ASSERT_EQ(persisted.rows(), 3);
+    ASSERT_EQ(persisted.columns(), schema->num_columns());
+    const auto& persisted_skip_bitmaps =
+            assert_cast<const ColumnBitmap&>(*persisted.get_by_position(4).column).get_data();
+    const std::map<int32_t, int32_t> expected_sequence {{1, 10}, {2, 7}, {3, 8}};
+    for (size_t row = 0; row < persisted.rows(); ++row) {
+        const int32_t key = read_int(persisted, 0, row);
+        EXPECT_EQ(key, static_cast<int32_t>(row + 1));
+        EXPECT_EQ(read_int(persisted, 1, row), key * 11);
+        ASSERT_TRUE(expected_sequence.contains(key));
+        EXPECT_EQ(read_int(persisted, 2, row), expected_sequence.at(key));
+        EXPECT_EQ(read_tinyint(persisted, 3, row), 0);
+        EXPECT_EQ(persisted_skip_bitmaps[row].contains(value_uid), row == 0);
+        EXPECT_TRUE(persisted_skip_bitmaps[row].contains(delete_sign_uid));
+    }
+
+    // Probe the rowset again as partial-update history. SegmentLoader opens every segment PK index
+    // before finding key 2 and restoring its skipped value.
+    auto next_mow = make_mow_context(101, {output});
+    auto next_pui = make_flexible_pui(schema);
+    RowsetId next_rsid;
+    next_rsid.init(3743);
+    RowsetWriterContext next_rwc;
+    fill_rowset_ctx(&next_rwc, schema, tablet, next_pui, next_rsid);
+    TransformExecContext next_ctx =
+            make_exec_ctx(schema, tablet, next_mow, next_pui, &next_rwc, next_rsid);
+    Block next_update = make_block({{2, 999, 9}}, true);
+    ASSERT_TRUE(run_flexible_fill(next_ctx, &next_update).ok());
+    ASSERT_EQ(next_update.rows(), 1);
+    EXPECT_EQ(read_int(next_update, 0, 0), 2);
+    EXPECT_EQ(read_int(next_update, 1, 0), 22);
+    EXPECT_EQ(read_int(next_update, 2, 0), 9);
 }
 
 } // namespace doris

@@ -156,13 +156,6 @@ private:
     void _set_max_key(const Slice& key);
     Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
                                     size_t row_pos, size_t num_rows, uint32_t cid);
-    bool _is_partial_update_load() const;
-    Status _write_partial_update_batch();
-    Status _write_fixed_partial_update_batch(const RowsInBlock& data);
-    Status _write_flexible_partial_update_batch(const RowsInBlock& data);
-    Status _precreate_flexible_partial_update_writers(uint32_t num_key_columns);
-    Status _write_partial_update_column(const RowsInBlock& data, uint32_t cid,
-                                        IOlapColumnDataAccessor*& retained_column);
     Status _generate_key_index(RowsInBlock& data,
                                std::vector<IOlapColumnDataAccessor*>& key_columns,
                                IOlapColumnDataAccessor* seq_column,

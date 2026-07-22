@@ -99,6 +99,12 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     _num_rows_deleted += transform_ctx.partial_update_stats.num_rows_deleted;
     _num_rows_new_added += transform_ctx.partial_update_stats.num_rows_new_added;
     _num_rows_filtered += transform_ctx.partial_update_stats.num_rows_filtered;
+    if (flush_block.rows() == 0) {
+        // Flexible partial-update aggregation can discard every input row. Segment writers do not
+        // accept an empty batch, and there is no segment content to persist in this case.
+        _num_rows_written += input_rows;
+        return Status::OK();
+    }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     bool use_vertical_segment_writer = config::enable_vertical_segment_writer;
     if (use_vertical_segment_writer) {
