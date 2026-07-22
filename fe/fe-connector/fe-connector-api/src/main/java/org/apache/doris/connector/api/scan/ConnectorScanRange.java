@@ -143,14 +143,6 @@ public interface ConnectorScanRange extends Serializable {
     }
 
     /**
-     * Returns delete files associated with this scan range.
-     * Used by Iceberg merge-on-read tables for positional/equality deletes.
-     */
-    default List<ConnectorDeleteFile> getDeleteFiles() {
-        return Collections.emptyList();
-    }
-
-    /**
      * Returns the precomputed pushed-down COUNT(*) row count this range carries, or {@code -1} when
      * the range carries no precomputed count.
      *
