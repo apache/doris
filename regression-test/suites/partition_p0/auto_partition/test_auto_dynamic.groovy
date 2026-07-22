@@ -116,38 +116,45 @@ suite("test_auto_dynamic", "nonConcurrent") {
     part_result = sql " show partitions from auto_dynamic "
     assertEquals(part_result.size(), 1)
 
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
-    // The interval is global, so a preceding short-interval scheduler cycle may still be in flight.
-    sleep(8000)
-
-    def insertException = null
-    test {
-        sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
-        check { result, exception, startTime, endTime ->
-            insertException = exception
-        }
-    }
-    if (insertException != null) {
-        part_result = sql " show partitions from auto_dynamic "
-        def partitionNames = part_result.collect { it[1] }
-        def expectedSurvivingPartitions = ["p20240101000000", "p29000101000000", "p30000101000000"]
-        // A stale short-interval run can only delete the out-of-range p1900 partition before commit.
-        assertTrue(!partitionNames.contains("p19000101000000")
-            && partitionNames.containsAll(expectedSurvivingPartitions),
-            "Unexpected insert failure: ${insertException}, partitions: ${partitionNames}")
-        return true
-    }
-
+    def oldCheckInterval = getFeConfig("dynamic_partition_check_interval_seconds")
     try {
-        sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
-        sleep(10000)
-        part_result = sql " show partitions from auto_dynamic "
+        def insertException = null
+        test {
+            sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
+            check { result, exception, startTime, endTime ->
+                insertException = exception
+            }
+        }
+        if (insertException != null) {
+            part_result = sql " show partitions from auto_dynamic "
+            def partitionNames = part_result.collect { it[1] }
+            def expectedSurvivingPartitions = ["p20240101000000", "p29000101000000", "p30000101000000"]
+            // A stale short-interval run can only delete the out-of-range p1900 partition before commit.
+            assertTrue(!partitionNames.contains("p19000101000000")
+                && partitionNames.containsAll(expectedSurvivingPartitions),
+                "Unexpected insert failure: ${insertException}, partitions: ${partitionNames}")
+            return true
+        }
+
+        setFeConfig("dynamic_partition_check_interval_seconds", 1)
+        def partitionNames = []
+        for (int retry = 0; retry < 1200; retry++) {
+            part_result = sql " show partitions from auto_dynamic "
+            partitionNames = part_result.collect { it[1] }
+            if (!partitionNames.contains("p19000101000000")) {
+                break
+            }
+            sleep(1000)
+        }
+        // Changing the interval does not wake a scheduler that is already sleeping.
+        assertTrue(!partitionNames.contains("p19000101000000"),
+            "Dynamic partition scheduler did not recycle p1900 within 1200 seconds, partitions: ${partitionNames}")
         log.info("${part_result}".toString())
         assertTrue(part_result.size() == 3 || part_result.size() == 4,
             "The partition size should be 3 or 4, but got ${part_result.size()}")
 
         qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
     } finally {
-        sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+        setFeConfig("dynamic_partition_check_interval_seconds", oldCheckInterval)
     }
 }
