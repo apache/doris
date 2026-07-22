@@ -999,20 +999,36 @@ public class CacheHotspotManagerTableFilterTest {
                 new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00003"),
                 new TableFilterRule(RuleType.EXCLUDE, "*.tbl_00004"));
 
-        long start = System.nanoTime();
-        int matched = 0;
-        for (String[] pair : names) {
-            if (filter.shouldWarmUp(pair[0], pair[1])) {
-                matched++;
-            }
+        // Warm up the stream/lambda and regex paths before measuring. FE UT runs with coverage
+        // and multiple forked JVMs, so a single cold wall-clock sample can include JIT compilation
+        // or an unrelated scheduling pause. Keep the best of several full-size samples so a
+        // persistent throughput regression still fails the original absolute performance guard.
+        for (String[] pair : names.subList(0, 20000)) {
+            filter.shouldWarmUp(pair[0], pair[1]);
         }
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
-        // 10 dbs × 2000 tables = 20000 included, minus 10 × 5 excluded = 19950
-        Assertions.assertEquals(19950, matched);
-        System.out.println("[Perf] 200K tables, 15 rules (10 incl + 5 excl): " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 3000,
-                "200K regex matches with 15 rules should complete within 3s, took " + elapsedMs + " ms");
+        long bestElapsedMs = Long.MAX_VALUE;
+        int samples = 3;
+        for (int sample = 0; sample < samples; sample++) {
+            long start = System.nanoTime();
+            int matched = 0;
+            for (String[] pair : names) {
+                if (filter.shouldWarmUp(pair[0], pair[1])) {
+                    matched++;
+                }
+            }
+            long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+            // 10 dbs × 2000 tables = 20000 included, minus 10 × 5 excluded = 19950
+            Assertions.assertEquals(19950, matched);
+            bestElapsedMs = Math.min(bestElapsedMs, elapsedMs);
+        }
+
+        System.out.println("[Perf] 200K tables, 15 rules (10 incl + 5 excl), best of "
+                + samples + ": " + bestElapsedMs + " ms");
+        Assertions.assertTrue(bestElapsedMs < 3000,
+                "200K regex matches with 15 rules should complete within 3s, best="
+                        + bestElapsedMs + " ms");
     }
 
     @Test
