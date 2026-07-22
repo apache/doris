@@ -1148,7 +1148,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Rendered spec fed to PartitionPathUtils.generatePartitionPath so the partition NAME escapes
             // path-special characters (/ = [ ] * ...) exactly like the Paimon SDK. Without escaping, two
             // distinct specs whose values contain '/' or '=' would concat to the same Hive-style name and
-            // collide (one partition item silently lost). Parity with fe-core #65904.
+            // collide (one partition item silently lost). Parity with fe-core #65904. This same rendered map
+            // is also handed to ConnectorPartitionInfo as the partition VALUE map (below), so the active
+            // partition_values() TVF feeder (PluginDrivenExternalTable.getNameToPartitionValues) reads the
+            // Hive-canonical rendered form (DATE formatted, genuine-null → HIVE_DEFAULT_PARTITION) instead of
+            // paimon's raw spec (DATE=epoch-day, null=__DEFAULT_PARTITION__), which would fail the TVF
+            // (convertStringToDateV2 throws) and mis-render null. Mirrors hive/iceberg, whose value maps
+            // already hold decoded canonical strings.
             LinkedHashMap<String, String> renderedSpec = new LinkedHashMap<>();
             for (String partitionColumnName : partitionKeys) {
                 String value = spec.get(partitionColumnName);
@@ -1181,10 +1187,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             if (!seenPartitionNames.add(partitionName)) {
                 throw new IllegalStateException("Duplicate Paimon partition name: " + partitionName);
             }
-            // partitionValues = RAW spec (un-rendered): downstream indexes by raw remote keys.
+            // partitionValues = renderedSpec (rendered/normalized), keyed by the remote column name:
+            // downstream indexes by raw remote keys but reads the Hive-canonical rendered value (see the
+            // renderedSpec comment above for why the raw spec would break the partition_values() TVF).
             result.add(new ConnectorPartitionInfo(
                     partitionName,
-                    spec,
+                    renderedSpec,
                     Collections.emptyMap(),
                     partition.recordCount(),
                     partition.fileSizeInBytes(),

@@ -23,7 +23,7 @@
 |---|---|---|---|---|
 | 2  | B1 | CONFIRMED | ⬜ | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash** |
 | 1  | B2 | PARTIAL | ✅ | hudi decimal 分区谓词走 String.valueOf，未同步 hive 已修分支 → 潜在误剪（已镜像 hive BigDecimal 分支 + 单测）|
-| 14 | B2 | PARTIAL | ⬜ | paimon `partition_values()` TVF 读 raw spec → DATE 显 epoch-day、null 显 `__DEFAULT_PARTITION__` |
+| 14 | B2 | PARTIAL | ✅ | paimon `partition_values()` TVF 读 raw spec → DATE 显 epoch-day、null 显 `__DEFAULT_PARTITION__`（已在连接器渲染值 map + 单测）|
 | 21 | B3 | CONFIRMED | ⬜ | `ConnectorDeleteFile` 欠建模且零 caller = 死代码，删 |
 | 23 | B3 | CONFIRMED | ⬜ | `ConnectorDomain`/`ConnectorRange` 死抽象（columnDomains 恒空），删 |
 | 25 | B3 | CONFIRMED | ⬜ | `ConnectorMvccSnapshot` 独缺 equals/hashCode，补一致性 |
@@ -78,7 +78,8 @@
 - **目标代码**：`HudiConnectorMetadata.extractLiteralValue`（**HEAD `~:1063`**）。
 - **架构备注**：根治分叉（在 `ConnectorLiteral` 加 canonical 渲染入口 / 边界透传 `DateLiteral` canonical 文本）属独立设计任务、碰铁律，不在本条范围。
 
-### #14 — paimon partition_values() TVF 读 raw spec 产错 ⬜
+### #14 — paimon partition_values() TVF 读 raw spec 产错 ✅
+- **完成**：连接器侧修（零 fe-core 改动）——`PaimonConnectorMetadata.collectPartitions` 把 `ConnectorPartitionInfo` 的值 map 改为**渲染值**（DATE 经 `DateTimeUtils.formatDate`、null 归一 `HIVE_DEFAULT_PARTITION`），键仍为远端列名，对齐 hive/iceberg 已规范化的 map。**否决**方案 1（改 fe-core 通用取值方法读 orderedValues）——会把 iceberg 空分区渲染成字面 `"null"`、并使 maxcompute 空掉。翻转两个固化"raw 契约"的旧单测 + 新增 `partitionValueMapCarriesRenderedValuesForTvf`（DATE 渲染 + 空值 → `HIVE_DEFAULT_PARTITION`）。4 个分区相关测试类 35 测试全绿。见 `fix-paimon-partition-values-tvf-{design,summary}.md`。
 - **核实**：PARTIAL（high，报告低估为"休眠"，实为**活跃产错**）｜文档 [C](analysis-C-partition.md#14)
 - **现象**：paimon `collectPartitions` 同时产 rendered `orderedValues`（格式化日期+归一 null）与 raw `partition.spec()`（DATE=epoch-day `19723`、null=`__DEFAULT_PARTITION__`）。`ConnectorPartitionInfo.getPartitionValues()` 暴露 **raw**。活跃路径 `partition_values()` TVF → `getNameToPartitionValues` 读同一 raw map：DATE 经 `convertStringToDateV2` 把 epoch-day 当日期串解析 → 报错/错值；null 因 `__DEFAULT_PARTITION__` ≠ `__HIVE_DEFAULT_PARTITION__` → 渲染成字面量而非 SQL NULL。
 - **建议动作（择一）**：
