@@ -20,6 +20,7 @@
 //   usage: kuromoji_build_dict <ipadic_src_dir> <out_dir>
 // Built on demand via `ninja kuromoji_dict`; never linked into doris_be.
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -85,28 +86,62 @@ int main(int argc, char** argv) {
     fs::create_directories(out, ec);
 
     // --- system dictionary: group all *.csv lexicon rows by surface (homographs) ---
+    std::vector<std::string> csv_paths;
+    for (const auto& entry : fs::directory_iterator(src)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".csv") {
+            csv_paths.push_back(entry.path().string());
+        }
+    }
+    std::sort(csv_paths.begin(), csv_paths.end());
+
     std::unordered_map<std::string, std::vector<BuilderWord>> by_surface;
     std::size_t lexicon_rows = 0;
-    for (const auto& entry : fs::directory_iterator(src)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".csv") {
-            continue;
-        }
+    for (const auto& path : csv_paths) {
         std::string content;
-        if (!read_file(entry.path().string(), &content)) {
+        if (!read_file(path, &content)) {
             return 1;
         }
+        Status line_st = Status::OK();
         for_each_line(content, [&](std::string_view line) {
+            if (!line_st.ok()) {
+                return;
+            }
             std::string surface;
             BuilderWord w;
-            if (parse_lexicon_line(line, &surface, &w).ok()) {
-                by_surface[surface].push_back(std::move(w));
-                ++lexicon_rows;
+            line_st = parse_lexicon_line(line, &surface, &w);
+            if (!line_st.ok()) {
+                return;
             }
+            by_surface[surface].push_back(std::move(w));
+            ++lexicon_rows;
         });
+        if (!line_st.ok()) {
+            std::fprintf(stderr, "lexicon parse failed in %s: %s\n", path.c_str(),
+                         line_st.to_string().c_str());
+            return 1;
+        }
+    }
+    if (lexicon_rows == 0) {
+        std::fprintf(stderr, "no lexicon rows parsed from %s; source missing or truncated?\n",
+                     src.c_str());
+        return 1;
     }
     SystemDictInput sys;
     sys.surfaces.reserve(by_surface.size());
     for (auto& kv : by_surface) {
+        std::sort(kv.second.begin(), kv.second.end(),
+                  [](const BuilderWord& a, const BuilderWord& b) {
+                      if (a.word_cost != b.word_cost) {
+                          return a.word_cost < b.word_cost;
+                      }
+                      if (a.left_id != b.left_id) {
+                          return a.left_id < b.left_id;
+                      }
+                      if (a.right_id != b.right_id) {
+                          return a.right_id < b.right_id;
+                      }
+                      return a.feature < b.feature;
+                  });
         sys.surfaces.emplace_back(kv.first, std::move(kv.second));
     }
     if (Status st = KuromojiDictionaryBuilder::write_system(out + "/system.bin", sys); !st.ok()) {
