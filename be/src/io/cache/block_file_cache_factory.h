@@ -95,6 +95,15 @@ public:
 
     std::vector<std::string> get_base_paths();
 
+    /// Explicitly replace async-write service settings on every initialized cache disk.
+    /// @param options Complete settings snapshot produced by the configuration adapter.
+    /// @return OK after every service is updated; otherwise the first service update error.
+    Status update_async_write_options(const AsyncCacheWriteServiceOptions& options);
+
+    /// Start async-write workers for every initialized cache disk. Repeated calls are idempotent.
+    /// @return OK after every service is ready; otherwise the first startup error.
+    Status start_async_write_services();
+
     /**
      * Clears data of all file cache instances
      *

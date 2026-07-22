@@ -70,6 +70,22 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
+Status FileCacheFactory::update_async_write_options(const AsyncCacheWriteServiceOptions& options) {
+    std::lock_guard lock(_mtx);
+    for (const auto& cache : _caches) {
+        RETURN_IF_ERROR(cache->async_write_service()->update_options(options));
+    }
+    return Status::OK();
+}
+
+Status FileCacheFactory::start_async_write_services() {
+    std::lock_guard lock(_mtx);
+    for (const auto& cache : _caches) {
+        RETURN_IF_ERROR(cache->async_write_service()->start());
+    }
+    return Status::OK();
+}
+
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
     if (file_cache_settings.storage == "memory") {
@@ -394,3 +410,78 @@ void FileCacheFactory::get_cache_stats_block(Block* block) {
 
 } // namespace io
 } // namespace doris
+
+namespace doris::config {
+
+namespace {
+
+/// Capture all mutable async-write fields after a config update. Returning one complete value
+/// keeps every per-disk service on a coherent set of queue, worker, batch, and watchdog settings.
+io::AsyncCacheWriteServiceOptions load_async_write_options_from_config() {
+    return io::AsyncCacheWriteServiceOptions {
+            .worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk),
+            .max_pending_tasks =
+                    static_cast<size_t>(async_file_cache_write_max_pending_tasks_per_disk),
+            .batch_size = static_cast<size_t>(async_file_cache_write_batch_size),
+            .watchdog_warn_secs = async_file_cache_write_watchdog_warn_secs,
+            .watchdog_drop_secs = async_file_cache_write_watchdog_drop_secs,
+    };
+}
+
+/// Forward one changed config field through the explicit factory/service update interface.
+/// @param config_name Name used only to identify failures in the log.
+/// @param old_value Previous config value; equal values require no service update.
+/// @param new_value Newly accepted config value.
+template <typename T>
+void update_async_write_options(const char* config_name, T old_value, T new_value) {
+    if (old_value == new_value) {
+        return;
+    }
+    auto* factory = ExecEnv::GetInstance()->file_cache_factory();
+    if (factory == nullptr) {
+        return;
+    }
+    Status status = factory->update_async_write_options(load_async_write_options_from_config());
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to apply async file cache write option " << config_name << " from "
+                     << old_value << " to " << new_value << ": " << status.to_string();
+    }
+}
+
+} // namespace
+
+DEFINE_ON_UPDATE(enable_async_file_cache_write, [](bool old_value, bool new_value) {
+    if (old_value == new_value || !new_value) {
+        return;
+    }
+    auto* factory = io::FileCacheFactory::instance();
+    if (factory == nullptr) {
+        return;
+    }
+    Status status = factory->start_async_write_services();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to start async file cache write services: " << status.to_string();
+    }
+});
+
+DEFINE_ON_UPDATE(async_file_cache_write_workers_per_disk, [](int32_t old_value, int32_t new_value) {
+    update_async_write_options("async_file_cache_write_workers_per_disk", old_value, new_value);
+});
+DEFINE_ON_UPDATE(async_file_cache_write_max_pending_tasks_per_disk,
+                 [](int64_t old_value, int64_t new_value) {
+                     update_async_write_options("async_file_cache_write_max_pending_tasks_per_disk",
+                                                old_value, new_value);
+                 });
+DEFINE_ON_UPDATE(async_file_cache_write_batch_size, [](int32_t old_value, int32_t new_value) {
+    update_async_write_options("async_file_cache_write_batch_size", old_value, new_value);
+});
+DEFINE_ON_UPDATE(async_file_cache_write_watchdog_warn_secs, [](int64_t old_value,
+                                                               int64_t new_value) {
+    update_async_write_options("async_file_cache_write_watchdog_warn_secs", old_value, new_value);
+});
+DEFINE_ON_UPDATE(async_file_cache_write_watchdog_drop_secs, [](int64_t old_value,
+                                                               int64_t new_value) {
+    update_async_write_options("async_file_cache_write_watchdog_drop_secs", old_value, new_value);
+});
+
+} // namespace doris::config

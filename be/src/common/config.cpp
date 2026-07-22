@@ -1207,6 +1207,10 @@ DEFINE_Validator(variant_storage_parse_mode,
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
+// Whether S3 storage write paths populate file cache while writing data to object storage.
+// Disable this for tests that need load and compaction output to bypass file cache while keeping
+// query-side file cache writes enabled.
+DEFINE_mBool(enable_file_cache_write_from_s3_file_writer, "true");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
@@ -1282,6 +1286,28 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// async file cache write
+DEFINE_mBool(enable_async_file_cache_write, "true");
+DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
+DEFINE_mInt64(async_file_cache_write_max_pending_tasks_per_disk, "256");
+DEFINE_mInt32(async_file_cache_write_batch_size, "16");
+DEFINE_mInt64(async_file_cache_write_watchdog_warn_secs, "30");
+DEFINE_mInt64(async_file_cache_write_watchdog_drop_secs, "120");
+DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
+DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
+DEFINE_Validator(async_file_cache_write_workers_per_disk,
+                 [](int32_t value) { return value > 0 && value <= 128; });
+DEFINE_Validator(async_file_cache_write_max_pending_tasks_per_disk,
+                 [](int64_t value) { return value > 0; });
+DEFINE_Validator(async_file_cache_write_batch_size, [](int32_t value) { return value > 0; });
+DEFINE_Validator(async_file_cache_write_watchdog_warn_secs, [](int64_t value) {
+    return value >= 0 && value < async_file_cache_write_watchdog_drop_secs;
+});
+DEFINE_Validator(async_file_cache_write_watchdog_drop_secs,
+                 [](int64_t value) { return value > async_file_cache_write_watchdog_warn_secs; });
+DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
+                 [](int32_t value) { return value > 0; });
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");

@@ -26,6 +26,7 @@
 #include <boost/lockfree/spsc_queue.hpp>
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -33,11 +34,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "io/cache/async_cache_write_service.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "runtime/runtime_profile.h"
 #include "util/threadpool.h"
@@ -79,6 +82,22 @@ private:
     LockScopedTimer cache_lock_timer;
 
 class FSFileCacheStorage;
+
+struct FileBlocksProbeResult {
+    explicit FileBlocksProbeResult(std::vector<FileBlockSPtr> file_blocks_)
+            : file_blocks(std::move(file_blocks_)) {}
+    FileBlocksProbeResult(FileBlocksProbeResult&&) noexcept = default;
+    FileBlocksProbeResult& operator=(FileBlocksProbeResult&&) noexcept = delete;
+    FileBlocksProbeResult(const FileBlocksProbeResult&) = delete;
+    FileBlocksProbeResult& operator=(const FileBlocksProbeResult&) = delete;
+    ~FileBlocksProbeResult();
+
+    /// One entry per cache-block-sized input slot, in offset order. A null entry is a cache miss;
+    /// a non-null entry covers the whole slot. Its right boundary can exceed the final short slot
+    /// while a file writer still owns a full-size preallocated tail block. Retaining and releasing
+    /// a probe result never acquires or completes downloader ownership.
+    std::vector<FileBlockSPtr> file_blocks;
+};
 
 // NeedUpdateLRUBlocks keeps FileBlockSPtr entries that require LRU updates in a
 // deduplicated, sharded container. Entries are keyed by the raw FileBlock
@@ -180,6 +199,9 @@ public:
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
     virtual ~BlockFileCache() {
+        if (_async_write_service) {
+            _async_write_service->shutdown();
+        }
         {
             std::lock_guard lock(_close_mtx);
             _close = true;
@@ -236,6 +258,29 @@ public:
          */
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 CacheContext& context);
+
+    /// Probe the block-aligned `[offset, offset + size)` range without creating cache cells or
+    /// touching LRU state. The result contains one ordered slot per cache block; each slot is null
+    /// on miss or owns an existing block that starts at and covers the slot. A final short slot can
+    /// be covered by a full-size block preallocated by a file writer. `context` supplies cache
+    /// metadata when lazy loading is required.
+    FileBlocksProbeResult probe(const UInt128Wrapper& hash, size_t offset, size_t size,
+                                const CacheContext& context);
+
+    /// Touch `block` after a successful local read, provided it is still the cached cell. The
+    /// supplied `context` controls the target LRU queue and query-level accounting.
+    void touch_probe_block_if_cached(const FileBlockSPtr& block, const CacheContext& context);
+
+    /// Check whether `block` is being deleted while taking cache/block locks in canonical order.
+    bool is_block_deleting(const FileBlockSPtr& block) const;
+
+    /// Return this cache disk's async-write service.
+    AsyncCacheWriteService* async_write_service() const { return _async_write_service.get(); }
+
+    /// Return this cache disk's inflight payload index.
+    InflightWriteBufferIndex* inflight_write_buffer_index() const {
+        return _inflight_write_buffer_index.get();
+    }
 
     /**
      * Return existing downloaded blocks only if they fully cover [offset, offset + size).
@@ -570,6 +615,9 @@ private:
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
     std::unique_ptr<BlockFileCacheTtlMgr> _ttl_mgr;
 
+    std::unique_ptr<InflightWriteBufferIndex> _inflight_write_buffer_index;
+    std::unique_ptr<AsyncCacheWriteService> _async_write_service;
+
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
@@ -622,6 +670,7 @@ private:
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _probe_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_retry_sync_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;

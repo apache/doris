@@ -53,6 +53,10 @@ add_executable(file_cache_microbench
     ${PROTO_SRCS}
 )
 
+add_executable(async_file_cache_write_microbench
+    async_file_cache_write_microbench.cpp
+)
+
 # 添加proto生成文件的包含路径
 target_include_directories(file_cache_microbench PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/build/proto
@@ -64,5 +68,10 @@ target_link_libraries(file_cache_microbench
     protobuf
 )
 
+target_link_libraries(async_file_cache_write_microbench
+    ${DORIS_LINK_LIBS}
+)
+
 # 安装规则
 install(TARGETS file_cache_microbench DESTINATION ${OUTPUT_DIR}/lib/)
+install(TARGETS async_file_cache_write_microbench DESTINATION ${OUTPUT_DIR}/lib/)

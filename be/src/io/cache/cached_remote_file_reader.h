@@ -118,6 +118,9 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    struct AsyncReadBlock;
+    struct AsyncReadPlan;
+
     enum class FileCacheReadType {
         DATA,
         INVERTED_INDEX,
@@ -141,6 +144,107 @@ private:
     /// @param[in] io_ctx IO context for warmup and request-mode checks.
     /// @return true if peer read is enabled for this request; otherwise false.
     bool _should_read_from_peer(const IOContext* io_ctx) const;
+
+    /// Resolve the write policy for the current read instead of freezing a global setting in the
+    /// reader constructor. Explicit cache-population reads always remain synchronous.
+    /// @param[in] io_ctx Per-read flags and an optional write-mode override.
+    /// @return The effective synchronous or asynchronous cache-write mode for this read.
+    CacheWriteMode _resolve_cache_write_mode(const IOContext* io_ctx) const;
+
+    /// Serve a normal read while moving cache-miss writes off the query thread. The method uses
+    /// the first and last remotely covered blocks as one range, matching the synchronous path's
+    /// preference for a single remote operation over fine-grained hole processing.
+    /// @param[in] offset Original user read offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] bytes_req Requested user bytes.
+    /// @param[in] already_read Prefix bytes already filled by the direct-cache path.
+    /// @param[out] bytes_read Total completed user bytes.
+    /// @param[in,out] stats Per-read cache statistics.
+    /// @param[in,out] source_read_breakdown Local/remote byte attribution for query profiles.
+    /// @param[in] io_ctx Context passed to cache lookup and remote IO.
+    /// @return OK on success; otherwise the remote-read error.
+    Status _read_async_write_path(size_t offset, Slice result, size_t bytes_req,
+                                  size_t already_read, size_t* bytes_read, ReadStatistics& stats,
+                                  SourceReadBreakdown& source_read_breakdown,
+                                  const IOContext* io_ctx);
+
+    /// Build block-aligned source coverage for the unread suffix. It first performs one inflight
+    /// batch lookup; a fully covered request returns without taking the BlockFileCache lock, while
+    /// incomplete coverage triggers one read-only whole-range probe with one result per aligned
+    /// block.
+    /// @param[in] remaining_offset First user byte not filled by the direct-cache path.
+    /// @param[in] remaining_size Number of unread user bytes.
+    /// @param[in] write_epoch Epoch captured before any lookup or remote IO.
+    /// @param[in] io_ctx Context used to build the cache admission/probe context.
+    /// @param[in,out] stats Lookup and probe counters updated during planning.
+    /// @return Plan that owns any retained probe blocks and first-to-last remote range.
+    AsyncReadPlan _build_async_read_plan(size_t remaining_offset, size_t remaining_size,
+                                         uint64_t write_epoch, const IOContext* io_ctx,
+                                         ReadStatistics& stats);
+
+    /// Copy one block already available from an inflight buffer or downloaded cache file. Cache
+    /// state is revalidated before IO; a race is reported to the caller as a simple full-range
+    /// remote fallback.
+    /// @param[in] plan Plan owning the probed blocks and user boundaries.
+    /// @param[in] block_index Index of the aligned block and its matching probe result.
+    /// @param[in] user_offset Original user request offset used to locate the destination slice.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] cache_context Context used only when a successful local read touches LRU.
+    /// @param[in,out] stats Local-read timing counters.
+    /// @param[in,out] materialized_bytes User bytes copied from cache or inflight memory.
+    /// @param[in,out] need_self_heal Set when a cache file disappears during a local read.
+    /// @return true when the block was copied; false when the caller should use remote fallback.
+    bool _materialize_async_block(const AsyncReadPlan& plan, size_t block_index, size_t user_offset,
+                                  Slice result, const CacheContext& cache_context,
+                                  ReadStatistics& stats, size_t* materialized_bytes,
+                                  bool* need_self_heal);
+
+    /// Copy only blocks before the first and after the last REMOTE block. When no REMOTE block
+    /// exists, copy the entire request. DOWNLOADING blocks outside the remote span keep the
+    /// existing wait behavior; blocks inside the span are covered by the same remote read.
+    /// @param[in] plan Classified block list and remote boundaries.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for side data.
+    /// @param[in] cache_context Context used for successful local-cache touches.
+    /// @param[in,out] stats Local-read statistics.
+    /// @param[in,out] source_read_breakdown Local bytes copied from the covered sides.
+    /// @param[in,out] indirect_read_bytes User bytes copied from the covered sides.
+    /// @param[in,out] need_self_heal Whether a missing local cache file requires async cleanup.
+    /// @return true when all selected cache/inflight blocks were copied; false on a race/read error.
+    bool _materialize_async_cached_sides(const AsyncReadPlan& plan, size_t user_offset,
+                                         Slice result, const CacheContext& cache_context,
+                                         ReadStatistics& stats,
+                                         SourceReadBreakdown& source_read_breakdown,
+                                         size_t* indirect_read_bytes, bool* need_self_heal);
+
+    /// Read the planned middle span once and copy only its overlap with the unread user range.
+    /// @param[in] plan Source plan containing user boundaries.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] need_self_heal Whether stale cache metadata should be removed before remote IO.
+    /// @param[in] io_ctx Context passed to remote storage.
+    /// @param[in,out] stats Remote-read timing and source flags.
+    /// @param[in,out] source_read_breakdown Remote user bytes copied from this span.
+    /// @param[in,out] indirect_read_bytes User bytes copied by the indirect path.
+    /// @param[out] remote_buffer Full aligned middle-span payload retained for async tasks.
+    /// @return OK on success; otherwise the remote-read error.
+    Status _read_async_remote_range(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                    bool need_self_heal, const IOContext* io_ctx,
+                                    ReadStatistics& stats,
+                                    SourceReadBreakdown& source_read_breakdown,
+                                    size_t* indirect_read_bytes,
+                                    std::unique_ptr<char[]>* remote_buffer);
+
+    /// Copy each real cache-miss block from the remote span into tracked memory and enqueue a
+    /// per-block write task. A final insert-if-absent prevents duplicate ownership after IO.
+    /// @param[in] plan Classified blocks, remote boundaries, and the epoch captured before IO.
+    /// @param[in] remote_buffer Full payload for the plan's first-to-last remote span.
+    /// @param[in] io_ctx Context converted to the worker's admission context.
+    /// @param[in,out] stats Submission, rejection, allocation, and dedup counters.
+    /// @return None.
+    void _submit_async_write_tasks(const AsyncReadPlan& plan,
+                                   const std::unique_ptr<char[]>& remote_buffer,
+                                   const IOContext* io_ctx, ReadStatistics& stats);
 
     /// Register a downloaded block in the direct-read map owned by this reader.
     /// @param[in] file_block Downloaded cache block to insert.
@@ -320,6 +424,8 @@ private:
                        FileCacheReadType read_type) const;
 
     bool _is_doris_table = false;
+    CacheAlignMode _cache_align_mode {CacheAlignMode::ALIGN_TO_BLOCK};
+    CacheWriteMode _cache_write_mode {CacheWriteMode::DEFAULT};
     int64_t _tablet_id = -1;
     std::string _storage_resource_id;
     FileReaderSPtr _remote_file_reader;
