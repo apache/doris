@@ -29,7 +29,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -162,23 +161,25 @@ public class PaimonUtil {
         List<Type> types = partitionColumns.stream()
                 .map(Column::getType)
                 .collect(Collectors.toList());
-        Map<String, Type> columnNameToType = partitionColumns.stream()
-                .collect(Collectors.toMap(Column::getName, Column::getType));
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
             StringBuilder sb = new StringBuilder();
-            for (Map.Entry<String, String> entry : spec.entrySet()) {
-                sb.append(entry.getKey()).append("=");
+            // Paimon partition specs contain logical values, which may include path separators.
+            // Build partition values directly instead of parsing them as a Hive partition path.
+            List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
+            for (Column partitionColumn : partitionColumns) {
+                String partitionColumnName = partitionColumn.getName();
+                String partitionValue = spec.get(partitionColumnName);
+                sb.append(partitionColumnName).append("=");
                 // When partition.legacy-name = true (default), Paimon stores DATE type as days since
                 // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
                 // When partition.legacy-name = false, the value is already a human read date string.
-                if (legacyPartitionName
-                        && columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
-                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
-                } else {
-                    sb.append(entry.getValue()).append("/");
+                if (legacyPartitionName && partitionColumn.getType().isDateV2()) {
+                    partitionValue = DateTimeUtils.formatDate(Integer.parseInt(partitionValue));
                 }
+                partitionValues.add(partitionValue);
+                sb.append(partitionValue).append("/");
             }
             if (sb.length() > 0) {
                 sb.deleteCharAt(sb.length() - 1);
@@ -188,7 +189,7 @@ public class PaimonUtil {
             try {
                 // partition values return by paimon api, may have problem,
                 // to avoid affecting the query, we catch exceptions here
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionValues, types));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
                         partitionColumns, partition.spec(), e);
@@ -197,12 +198,9 @@ public class PaimonUtil {
         return partitionInfo;
     }
 
-    public static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
+    public static ListPartitionItem toListPartitionItem(List<String> partitionValues, List<Type> types)
             throws AnalysisException {
-        // Partition name will be in format: nation=cn/city=beijing
-        // parse it to get values "cn" and "beijing"
-        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
-        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        Preconditions.checkState(partitionValues.size() == types.size(), partitionValues + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
             // null  will in partition 'null'
