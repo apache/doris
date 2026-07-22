@@ -754,6 +754,61 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
+    public void testCompositeUniqueConstraintTriggersRewrite() throws Exception {
+        // A table with a composite UNIQUE(a, b) constraint guarantees that
+        // (a, b) pairs are unique and non-null.  When both columns are used
+        // as correlated slots, the window-rewrite is safe: PARTITION BY a, b
+        // produces exactly one row per outer row, matching the scalar
+        // subquery semantics.
+        //
+        // This also validates findSlotsByColumn() in LogicalCatalogRelation:
+        // only declared constraints whose FULL column set is present in the
+        // scan output are propagated as uniqueness slots.  A rollup that
+        // drops column b from UNIQUE(a, b) would NOT see {a} as unique.
+        createTable("CREATE TABLE fact_comp (\n"
+                + "  id INT,\n"
+                + "  a INT,\n"
+                + "  b INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_comp (\n"
+                + "  did INT,\n"
+                + "  a INT NOT NULL,\n"
+                + "  b INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_comp add constraint uq_dim_comp_ab unique (a, b)");
+
+        // Correlate on both columns of the composite constraint.
+        String sql = "SELECT d.did, d.a, d.b, d.tag, f.id, f.v "
+                + "FROM fact_comp f, dim_comp d "
+                + "WHERE f.a = d.a AND f.b = d.b "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_comp f2 "
+                + "    WHERE f2.a = d.a AND f2.b = d.b"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Composite UNIQUE(a,b) -- both columns correlated -- should match.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Composite UNIQUE(a,b) with both columns correlated must trigger the rewrite");
+    }
+
+    @Test
     public void testNotMatchWhenCorrelatedKeyIsNullableUnique() throws Exception {
         // A nullable column with a UNIQUE constraint is still unsafe for
         // the window rewrite when the correlation uses null-safe equality
@@ -1359,6 +1414,70 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 "Rewrite must be rejected when volatile predicate is on the "
                 + "shared table (fact), otherwise the window would compute "
                 + "over fewer rows than the original scalar subquery");
+    }
+
+    @Test
+    public void testVolatileSplitFromOuterOnlySiblingRejected() throws Exception {
+        // When the top-level filter (the filter on top of the Apply) contains
+        // both a volatile/NoneMovableFunction conjunct AND another deterministic
+        // conjunct that would go below the window (outer-only columns), the
+        // rewrite must be rejected.  Splitting conjuncts from the same filter
+        // operator changes which rows reach the side-effecting predicate.
+        //
+        // In the original plan:
+        //   Filter(d.tag > 0 AND random() > 0.5 AND f.v * 2 > (...))
+        // BE evaluates both d.tag > 0 and random() > 0.5 against the full
+        // input block.  After the rewrite:
+        //   Filter(random() > 0.5)      ← above window
+        //     Window(...)
+        //       Filter(d.tag > 0)       ← below window
+        // Rows rejected by d.tag > 0 never reach random() above the window,
+        // changing evaluation context and potentially suppressing errors.
+        createTable("CREATE TABLE fact_split_vol (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_split_vol (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_split_vol add constraint uq_dim_split_vol_k unique (k)");
+
+        // The top-level filter contains both d.tag > 0 (outer-only → below
+        // window) and random() > 0.5 (volatile → above window).  The rewrite
+        // would split them — must reject.
+        String sql = "SELECT d.did, f.id, f.k, f.v "
+                + "FROM fact_split_vol f, dim_split_vol d "
+                + "WHERE f.k = d.k "
+                + "  AND d.tag > 0"
+                + "  AND random() > 0.5"
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_split_vol f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — volatile and outer-only conjuncts from the
+        // same filter would be split across the window.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when the same filter contains both "
+                + "a volatile predicate and an outer-only predicate, because "
+                + "splitting them changes which rows reach the volatile expr");
     }
 
     @Test
@@ -2867,6 +2986,52 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 "Mismatched scan domains on shared table must be rejected: "
                 + "the outer scan has @incr params but the inner scan "
                 + "reads the full base table");
+    }
+
+    @Test
+    public void testTvfRelationRejected() throws Exception {
+        // TVF (table-valued function) relations like numbers() are
+        // LogicalTVFRelation, not CatalogRelation.  checkRelation() and
+        // isSameScanDomain() only inspect CatalogRelation, so TVF relations
+        // are invisible to the relation accounting.  The rewrite would
+        // incorrectly substitute the outer TVF rows for the inner TVF rows
+        // when they produce different row counts (e.g. numbers(2) vs 3).
+        // checkPlanType() must reject non-catalog relations.
+        createTable("CREATE TABLE dim_tvf (\n"
+                + "  id INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_tvf add constraint uq_dim_tvf_id unique (id)");
+
+        // Outer: numbers("number"="2") produces 2 rows per dim row.
+        // Inner: numbers("number"="3") produces 3 rows.
+        // Post-rewrite COUNT(*) OVER (PARTITION BY d.id) sees only 2 rows.
+        String sql = "SELECT d.id, n.number "
+                + "FROM numbers(\"number\"=\"2\") n, dim_tvf d "
+                + "WHERE d.id > 0 "
+                + "  AND 3 = ("
+                + "    SELECT COUNT(*) "
+                + "    FROM numbers(\"number\"=\"3\") n2 "
+                + "    WHERE d.id > 0"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — TVF relations are not CatalogRelation
+        // and cannot be proven row-domain equivalent.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "TVF relations must be rejected because they are not "
+                + "CatalogRelation and their row-domain equivalence "
+                + "cannot be proven");
     }
 
     private void check(String sql) {

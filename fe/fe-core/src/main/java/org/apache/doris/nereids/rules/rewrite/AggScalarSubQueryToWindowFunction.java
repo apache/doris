@@ -172,7 +172,16 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     // check children's nodes because query process will be changed
     private boolean checkPlanType() {
         return outerPlans.stream().allMatch(p -> OUTER_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)))
-                && innerPlans.stream().allMatch(p -> INNER_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)));
+                && innerPlans.stream().allMatch(p -> INNER_SUPPORTED_PLAN.stream().anyMatch(c -> c.isInstance(p)))
+                // Reject non-catalog LogicalRelation leaves (TVF, file scans,
+                // etc.).  These relations are invisible to checkRelation() and
+                // isSameScanDomain(), which only inspect CatalogRelation, so
+                // their row-domain properties cannot be compared between outer
+                // and inner plans.
+                && outerPlans.stream().noneMatch(
+                        p -> p instanceof LogicalRelation && !(p instanceof CatalogRelation))
+                && innerPlans.stream().noneMatch(
+                        p -> p instanceof LogicalRelation && !(p instanceof CatalogRelation));
     }
 
     /**
@@ -633,6 +642,34 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         Set<Expression> belowWindowConjuncts = Sets.newHashSet();
         Set<Expression> aboveWindowConjuncts = Sets.newHashSet();
         if (uncorrelatedConjuncts != null) {
+            // If the outer filter (the filter on top of the Apply) contains
+            // both a volatile/NoneMovableFunction conjunct AND another
+            // deterministic conjunct that would go to a different side of
+            // the window, reject the rewrite.  Splitting conjuncts from the
+            // same filter operator changes which rows reach the
+            // side-effecting predicate and can suppress expected errors.
+            //
+            // Example: a filter with both
+            //   d.tag > 0                          (outer-only → below window)
+            //   assert_true(d.tag > 1, 'bad')      (NoneMovable → above window)
+            // splits the pair: rows filtered by d.tag > 0 never reach
+            // assert_true above the window, whereas the original operator
+            // evaluates assert_true on every row of the input block.
+            boolean hasVolatileInOuterFilter = false;
+            boolean needsBelowFromOuterFilter = false;
+            for (Expression conj : uncorrelatedConjuncts) {
+                if (matchedInnerFilterConjuncts.contains(conj)) {
+                    continue;
+                }
+                if (isVolatileOrNoneMovable(conj)) {
+                    hasVolatileInOuterFilter = true;
+                } else if (!referencesSharedTable(conj, sharedOuterExprIds)) {
+                    needsBelowFromOuterFilter = true;
+                }
+            }
+            if (hasVolatileInOuterFilter && needsBelowFromOuterFilter) {
+                return filter;
+            }
             for (Expression conj : uncorrelatedConjuncts) {
                 // Conjuncts that were matched against inner subquery filter
                 // conjuncts (tracked by checkFilter) must stay BELOW the

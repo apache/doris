@@ -998,6 +998,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 the mv2's agg key citycode * citycode is not unique
 
                 for simplicity, we disable unique compute for mv
+
+                Declared constraints from super.computeUnique(builder) were
+                already filtered by findSlotsByColumn() above: if a rollup
+                does not include ALL columns of a PRIMARY KEY / UNIQUE
+                constraint, the partial-column set is discarded.  Only
+                constraints whose full column set is present in the scan
+                output are propagated.
              */
             return;
         }
