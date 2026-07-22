@@ -170,6 +170,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String ICEBERG_ROW_ID_COL = "_row_id";
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
+    // #65784: version marker (TFileScanRangeParams.iceberg_scan_semantics_version) advertising that this plan
+    // was produced by an FE honoring authoritative iceberg name mappings + logical initial-default
+    // materialization. BE gates the result-changing v1 semantics on it (supports_iceberg_scan_semantics_v1), so
+    // an OLD-FE plan (marker absent) keeps legacy behavior on a NEW BE during a rolling upgrade. Mirrors legacy
+    // IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION / enableCurrentIcebergScanSemantics().
+    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
+
     // FIX-SCHEMA-EVOLUTION (T06): scan-level prop carrying the base64 TBinaryProtocol-serialized schema
     // dictionary (current_schema_id + the single history_schema_info entry). getScanNodeProperties builds it
     // from the live table + requested columns; populateScanLevelParams applies it to the real params.
@@ -1768,6 +1775,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
+        // #65784: advertise v1 iceberg scan semantics for every iceberg scan this connector plans (data AND
+        // system tables), mirroring legacy IcebergScanNode.createScanRangeLocations ->
+        // enableCurrentIcebergScanSemantics(). BE reads it via supports_iceberg_scan_semantics_v1 to opt into
+        // authoritative name mapping + logical initial-default materialization.
+        params.setIcebergScanSemanticsVersion(ICEBERG_SCAN_SEMANTICS_VERSION);
         IcebergSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
     }
 

@@ -53,6 +53,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -144,8 +145,11 @@ public final class IcebergSchemaUtils {
      */
     static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
             boolean appendRowLineage, boolean enableTimestampTz) {
-        Map<Integer, List<String>> nameMapping = extractNameMapping(table);
-        TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames, nameMapping, enableTimestampTz);
+        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping(table);
+        // #65784: it is the PRESENCE of the table-level mapping (not its non-emptiness) that makes it
+        // authoritative for BE, so thread isPresent() through as hasNameMapping.
+        TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames,
+                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), enableTimestampTz);
         if (appendRowLineage) {
             appendRowLineageFields(current.getRootField());
         }
@@ -179,25 +183,31 @@ public final class IcebergSchemaUtils {
 
     /**
      * Extract the iceberg name mapping ({@code schema.name-mapping.default}) as field-id &rarr; alternate
-     * names, recursing into nested mappings. Verbatim port of legacy {@code IcebergScanNode.extractNameMapping}
-     * + {@code extractMappingsFromNameMapping}; fail-soft (a parse error logs + yields an empty map, so a
-     * malformed property never breaks the scan — legacy parity).
+     * names, recursing into nested mappings. Returns {@link Optional#empty()} when the table has NO
+     * name-mapping property, and a present (possibly empty) map when it does — the distinction #65784 relies on
+     * to make a table-level mapping AUTHORITATIVE (an unmapped field then materializes its default/NULL instead
+     * of silently matching a physical column by its current name; see {@link #buildField}). Port of legacy
+     * {@code IcebergScanNode.extractNameMapping} + {@code IcebergUtils.getNameMapping} (#65784); fail-soft (a
+     * parse error logs + yields {@code Optional.empty()}, so a malformed property never breaks the scan).
      */
-    static Map<Integer, List<String>> extractNameMapping(Table table) {
-        Map<Integer, List<String>> result = new HashMap<>();
+    static Optional<Map<Integer, List<String>>> extractNameMapping(Table table) {
+        String nameMappingJson = table.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
+        if (nameMappingJson == null || nameMappingJson.isEmpty()) {
+            return Optional.empty();
+        }
         try {
-            String nameMappingJson = table.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
-            if (nameMappingJson != null && !nameMappingJson.isEmpty()) {
-                NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
-                if (mapping != null) {
-                    collectNameMappings(mapping.asMappedFields(), result);
-                }
+            NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
+            if (mapping == null) {
+                return Optional.empty();
             }
+            Map<Integer, List<String>> result = new HashMap<>();
+            collectNameMappings(mapping.asMappedFields(), result);
+            return Optional.of(result);
         } catch (Exception e) {
             // If name mapping parsing fails, continue without it (legacy parity).
             LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+            return Optional.empty();
         }
-        return result;
     }
 
     private static void collectNameMappings(MappedFields fields, Map<Integer, List<String>> result) {
@@ -205,7 +215,11 @@ public final class IcebergSchemaUtils {
             return;
         }
         for (MappedField field : fields.fields()) {
-            result.put(field.id(), new ArrayList<>(field.names()));
+            // Iceberg permits id-less wrapper entries; only their nested ID-bearing aliases can participate in
+            // Doris field-id lookup (matches #65784 getNameMapping — a null id must not become a map key).
+            if (field.id() != null) {
+                result.put(field.id(), new ArrayList<>(field.names()));
+            }
             collectNameMappings(field.nestedMapping(), result);
         }
     }
@@ -221,24 +235,29 @@ public final class IcebergSchemaUtils {
      */
     static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
             Map<Integer, List<String>> nameMapping) {
-        // Thin overload: default enableTimestampTz=false (pre-#65502 timestamp-default behaviour).
-        return buildCurrentSchema(schema, requestedLowerNames, nameMapping, false);
+        // Thin overload: default enableTimestampTz=false (pre-#65502 timestamp-default behaviour) and derive
+        // hasNameMapping from the map (a non-empty map ⇒ the table carried a mapping — the #65784 default;
+        // the production path threads the precise isPresent() instead).
+        return buildCurrentSchema(schema, requestedLowerNames, nameMapping,
+                nameMapping != null && !nameMapping.isEmpty(), false);
     }
 
     /**
      * The real builder; {@code enableTimestampTz} (#65502) is threaded into every {@link #buildField} call so a
      * TIMESTAMPTZ column's iceberg initial default is serialized to match BE's read of the column (see
-     * {@link #serializeInitialDefault}).
+     * {@link #serializeInitialDefault}). {@code hasNameMapping} (#65784) marks the table-level name mapping
+     * AUTHORITATIVE, so every field carries an explicit (possibly empty) per-field mapping (see
+     * {@link #buildField}).
      */
     static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
-            Map<Integer, List<String>> nameMapping, boolean enableTimestampTz) {
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableTimestampTz) {
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(CURRENT_SCHEMA_ID);
         TStructField root = new TStructField();
         if (requestedLowerNames == null || requestedLowerNames.isEmpty()) {
             for (Types.NestedField field : schema.columns()) {
                 addField(root, buildField(field, field.name().toLowerCase(Locale.ROOT), nameMapping,
-                        enableTimestampTz));
+                        hasNameMapping, enableTimestampTz));
             }
         } else {
             for (String name : requestedLowerNames) {
@@ -247,7 +266,7 @@ public final class IcebergSchemaUtils {
                     throw new RuntimeException("iceberg schema-evolution: requested column '" + name
                             + "' not found in the table schema");
                 }
-                addField(root, buildField(field, name, nameMapping, enableTimestampTz));
+                addField(root, buildField(field, name, nameMapping, hasNameMapping, enableTimestampTz));
             }
         }
         tSchema.setRootField(root);
@@ -270,7 +289,7 @@ public final class IcebergSchemaUtils {
      * (a {@code STRING} placeholder for scalars — BE uses it only as a discriminator).
      */
     private static TField buildField(Types.NestedField field, String nameOverride,
-            Map<Integer, List<String>> nameMapping, boolean enableTimestampTz) {
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping, boolean enableTimestampTz) {
         TField tField = new TField();
         tField.setId(field.fieldId());
         tField.setName(nameOverride != null ? nameOverride : field.name().toLowerCase(Locale.ROOT));
@@ -280,9 +299,15 @@ public final class IcebergSchemaUtils {
         // (table_schema_change_helper / iceberg_reader never reference it), so this is inert there, but we keep
         // legacy parity rather than leak iceberg's required/optional flag into the dictionary.
         tField.setIsOptional(true);
-        if (nameMapping.containsKey(field.fieldId())) {
-            // for iceberg set name mapping (old files without embedded field ids fall back to these names).
-            tField.setNameMapping(new ArrayList<>(nameMapping.get(field.fieldId())));
+        if (hasNameMapping) {
+            // #65784: a table-level name mapping is AUTHORITATIVE. Emit an explicit — possibly EMPTY — per-field
+            // list (every field, not just the mapped ones) and flag it, so BE materializes an unmapped legacy
+            // field (a file without embedded field ids) as its default/NULL instead of silently matching a
+            // physical column by its current name. Absence of the flag keeps the legacy name fallback, which
+            // preserves an old-FE plan's behavior on a new BE during a rolling upgrade.
+            tField.setNameMapping(new ArrayList<>(
+                    nameMapping.getOrDefault(field.fieldId(), Collections.emptyList())));
+            tField.setNameMappingIsAuthoritative(true);
         }
 
         // #65502: carry each field's iceberg initial default so BE can materialize an equality-delete key
@@ -316,8 +341,8 @@ public final class IcebergSchemaUtils {
                 columnType.setType(TPrimitiveType.ARRAY);
                 Types.ListType listType = (Types.ListType) type;
                 TArrayField arrayField = new TArrayField();
-                arrayField.setItemField(
-                        fieldPtr(buildField(listType.fields().get(0), null, nameMapping, enableTimestampTz)));
+                arrayField.setItemField(fieldPtr(
+                        buildField(listType.fields().get(0), null, nameMapping, hasNameMapping, enableTimestampTz)));
                 nestedField.setArrayField(arrayField);
                 break;
             }
@@ -326,8 +351,10 @@ public final class IcebergSchemaUtils {
                 Types.MapType mapType = (Types.MapType) type;
                 List<Types.NestedField> kv = mapType.fields();
                 TMapField mapField = new TMapField();
-                mapField.setKeyField(fieldPtr(buildField(kv.get(0), null, nameMapping, enableTimestampTz)));
-                mapField.setValueField(fieldPtr(buildField(kv.get(1), null, nameMapping, enableTimestampTz)));
+                mapField.setKeyField(fieldPtr(
+                        buildField(kv.get(0), null, nameMapping, hasNameMapping, enableTimestampTz)));
+                mapField.setValueField(fieldPtr(
+                        buildField(kv.get(1), null, nameMapping, hasNameMapping, enableTimestampTz)));
                 nestedField.setMapField(mapField);
                 break;
             }
@@ -336,7 +363,7 @@ public final class IcebergSchemaUtils {
                 Types.StructType structType = (Types.StructType) type;
                 TStructField structField = new TStructField();
                 for (Types.NestedField child : structType.fields()) {
-                    addField(structField, buildField(child, null, nameMapping, enableTimestampTz));
+                    addField(structField, buildField(child, null, nameMapping, hasNameMapping, enableTimestampTz));
                 }
                 nestedField.setStructField(structField);
                 break;
