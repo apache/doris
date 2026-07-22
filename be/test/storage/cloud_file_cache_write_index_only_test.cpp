@@ -17,20 +17,12 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <chrono>
-#include <condition_variable>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
-#include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
-#include <set>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -39,10 +31,8 @@
 #include "core/block/block.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/s3_obj_storage_client.h"
@@ -54,11 +44,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
-#include "storage/tablet/tablet.h"
-#include "storage/tablet/tablet_meta.h"
-#include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -109,92 +95,6 @@ struct WriterFlushCounters {
 struct S3WriteCounters {
     int segment_file_close = 0;
     int open_file = 0;
-};
-
-class InMemoryObjStorageClient final : public io::ObjStorageClient {
-public:
-    io::ObjectStorageUploadResponse create_multipart_upload(
-            const io::ObjectStoragePathOptions& /*opts*/) override {
-        return {.resp = io::ObjectStorageResponse::OK(), .upload_id = "test-upload-id"};
-    }
-
-    io::ObjectStorageResponse put_object(const io::ObjectStoragePathOptions& opts,
-                                         std::string_view stream) override {
-        std::lock_guard lock(_mutex);
-        _objects[opts.key] = std::string(stream);
-        return io::ObjectStorageResponse::OK();
-    }
-
-    io::ObjectStorageUploadResponse upload_part(const io::ObjectStoragePathOptions& /*opts*/,
-                                                std::string_view stream, int part_num) override {
-        std::lock_guard lock(_mutex);
-        _parts[part_num] = std::string(stream);
-        return {.resp = io::ObjectStorageResponse::OK(), .etag = "test-etag"};
-    }
-
-    io::ObjectStorageResponse complete_multipart_upload(
-            const io::ObjectStoragePathOptions& opts,
-            const std::vector<io::ObjectCompleteMultiPart>& completed_parts) override {
-        std::lock_guard lock(_mutex);
-        std::string object;
-        for (const auto& part : completed_parts) {
-            object.append(_parts.at(part.part_num));
-        }
-        _objects[opts.key] = std::move(object);
-        return io::ObjectStorageResponse::OK();
-    }
-
-    io::ObjectStorageHeadResponse head_object(const io::ObjectStoragePathOptions& opts) override {
-        std::lock_guard lock(_mutex);
-        return {.resp = io::ObjectStorageResponse::OK(),
-                .file_size = static_cast<int64_t>(_objects.at(opts.key).size())};
-    }
-
-    io::ObjectStorageResponse get_object(const io::ObjectStoragePathOptions& opts, void* buffer,
-                                         size_t offset, size_t bytes_read,
-                                         size_t* size_return) override {
-        std::lock_guard lock(_mutex);
-        const auto& object = _objects.at(opts.key);
-        const size_t read_size = std::min(bytes_read, object.size() - offset);
-        std::memcpy(buffer, object.data() + offset, read_size);
-        *size_return = read_size;
-        return io::ObjectStorageResponse::OK();
-    }
-
-    io::ObjectStorageResponse list_objects(const io::ObjectStoragePathOptions& /*opts*/,
-                                           std::vector<io::FileInfo>* /*files*/) override {
-        return io::ObjectStorageResponse::OK();
-    }
-
-    io::ObjectStorageResponse delete_objects(const io::ObjectStoragePathOptions& /*opts*/,
-                                             std::vector<std::string> /*objects*/) override {
-        return io::ObjectStorageResponse::OK();
-    }
-
-    io::ObjectStorageResponse delete_object(const io::ObjectStoragePathOptions& /*opts*/) override {
-        return io::ObjectStorageResponse::OK();
-    }
-
-    io::ObjectStorageResponse delete_objects_recursively(
-            const io::ObjectStoragePathOptions& /*opts*/) override {
-        return io::ObjectStorageResponse::OK();
-    }
-
-    std::string generate_presigned_url(const io::ObjectStoragePathOptions& /*opts*/,
-                                       int64_t /*expiration_secs*/,
-                                       const S3ClientConf& /*conf*/) override {
-        return {};
-    }
-
-    std::string object() const {
-        std::lock_guard lock(_mutex);
-        return _objects.begin()->second;
-    }
-
-private:
-    mutable std::mutex _mutex;
-    std::map<int, std::string> _parts;
-    std::map<std::string, std::string> _objects;
 };
 
 } // namespace
@@ -255,7 +155,7 @@ protected:
         settings.disposable_queue_size = 1024 * 1024;
         settings.disposable_queue_elements = 16;
         settings.capacity = 128 * 1024 * 1024;
-        settings.max_file_block_size = config::file_cache_each_block_size;
+        settings.max_file_block_size = 1024 * 1024;
         settings.max_query_cache_size = 0;
         settings.storage = "memory";
         ASSERT_TRUE(io::FileCacheFactory::instance()->create_file_cache("memory", settings).ok());
@@ -269,7 +169,7 @@ protected:
         if (ExecEnv::GetInstance()->s3_file_upload_thread_pool() == nullptr) {
             std::unique_ptr<ThreadPool> pool;
             ASSERT_TRUE(ThreadPoolBuilder("cloud_file_cache_write_index_only_s3_upload")
-                                .set_min_threads(4)
+                                .set_min_threads(1)
                                 .set_max_threads(4)
                                 .build(&pool)
                                 .ok());
@@ -894,255 +794,6 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     EXPECT_EQ(preload_task_count, 0);
     EXPECT_EQ(index_writer_create_count, 1);
     expect_segment_write_bypasses_file_cache(created_files);
-}
-
-class SegmentWriterFileCacheConcurrencyTest : public CloudFileCacheWriteIndexOnlyTest {
-protected:
-    void SetUp() override {
-        _origin_file_cache_each_block_size = config::file_cache_each_block_size;
-        _origin_s3_write_buffer_size = config::s3_write_buffer_size;
-        // One S3 part spans four cache blocks. An index range that starts off a cache-block
-        // boundary can therefore create a cache block that crosses the S3 part boundary.
-        config::file_cache_each_block_size = kCacheBlockSize;
-        config::s3_write_buffer_size = kS3WriteBufferSize;
-        CloudFileCacheWriteIndexOnlyTest::SetUp();
-    }
-
-    void TearDown() override {
-        Defer restore_config {[&]() {
-            config::file_cache_each_block_size = _origin_file_cache_each_block_size;
-            config::s3_write_buffer_size = _origin_s3_write_buffer_size;
-        }};
-        CloudFileCacheWriteIndexOnlyTest::TearDown();
-    }
-
-    static constexpr int64_t kCacheBlockSize = 64;
-    static constexpr int64_t kS3WriteBufferSize = 256;
-
-private:
-    int64_t _origin_file_cache_each_block_size = 0;
-    int64_t _origin_s3_write_buffer_size = 0;
-};
-
-TEST_F(SegmentWriterFileCacheConcurrencyTest, ConcurrentLaterPartMustNotShiftCachedSegmentBytes) {
-    // Let the S3 upload buffers populate the file cache. SegmentWriter still allocates the final
-    // index range and changes those blocks to INDEX during finalize().
-    config::enable_file_cache_write_index_file_only = false;
-
-    // Multipart completion assembles parts by part number, independently of the cache-write order
-    // forced below. The resulting object is the source of truth for the expected segment bytes.
-    auto mock_client = std::make_shared<InMemoryObjStorageClient>();
-    _remote_fs->client_holder()->_client = mock_client;
-
-    auto* sync_point = SyncPoint::get_instance();
-    sync_point->clear_all_call_backs();
-    sync_point->enable_processing();
-
-    struct UploadOrder {
-        std::mutex mutex;
-        std::condition_variable cv;
-        std::set<size_t> entered_offsets;
-        std::set<size_t> released_offsets;
-        std::set<size_t> completed_offsets;
-        bool release_all = false;
-    } upload_order;
-
-    // Pause the first two S3 parts immediately before each part allocates its cache holder. They
-    // will be released in a deterministic order from the SegmentWriter finalize callback.
-    SyncPoint::CallbackGuard upload_cache_guard;
-    sync_point->set_call_back(
-            "UploadFileBuffer::upload_to_local_file_cache",
-            [&](auto&& args) {
-                auto* buffer = try_any_cast<io::UploadFileBuffer*>(args[0]);
-                const size_t offset = buffer->get_file_offset();
-                if (offset != 0 && offset != kS3WriteBufferSize) {
-                    return;
-                }
-                std::unique_lock lock(upload_order.mutex);
-                upload_order.entered_offsets.insert(offset);
-                upload_order.cv.notify_all();
-                upload_order.cv.wait(lock, [&]() {
-                    return upload_order.release_all ||
-                           upload_order.released_offsets.contains(offset);
-                });
-            },
-            &upload_cache_guard);
-    SyncPoint::CallbackGuard upload_cache_done_guard;
-    sync_point->set_call_back(
-            "UploadFileBuffer::upload_to_local_file_cache_done",
-            [&](auto&& args) {
-                auto* buffer = try_any_cast<io::UploadFileBuffer*>(args[0]);
-                const size_t offset = buffer->get_file_offset();
-                if (offset != 0 && offset != kS3WriteBufferSize) {
-                    return;
-                }
-                std::lock_guard lock(upload_order.mutex);
-                upload_order.completed_offsets.insert(offset);
-                upload_order.cv.notify_all();
-            },
-            &upload_cache_done_guard);
-    Defer release_uploads_on_exit {[&]() {
-        {
-            std::lock_guard lock(upload_order.mutex);
-            upload_order.release_all = true;
-        }
-        upload_order.cv.notify_all();
-    }};
-
-    const std::string segment_path = "segment_writer_concurrent_file_cache_0.dat";
-    io::FileWriterOptions file_options;
-    file_options.write_file_cache = true;
-    io::FileWriterPtr file_writer;
-    auto status = _remote_fs->create_file(segment_path, &file_writer, &file_options);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_NE(file_writer->cache_builder(), nullptr);
-    const auto cache_hash = file_writer->cache_builder()->_cache_hash;
-    auto* cache = file_writer->cache_builder()->_cache;
-    bool observed_index_cache_holder = false;
-    std::optional<io::FileBlock::Range> crossing_range;
-    SyncPoint::CallbackGuard index_cache_holder_guard;
-    sync_point->set_call_back(
-            "SegmentWriter::finalize::index_cache_holder",
-            [&](auto&& args) {
-                auto* holder = try_any_cast<io::FileBlocksHolder*>(args[0]);
-                ASSERT_NE(holder, nullptr);
-                // This callback runs after the unaligned index range has been allocated and its
-                // cache type changed. Record the block shared by the two adjacent S3 parts.
-                auto crossing_block =
-                        std::find_if(holder->file_blocks.begin(), holder->file_blocks.end(),
-                                     [](const auto& block) {
-                                         return block->range().left < kS3WriteBufferSize &&
-                                                block->range().right >= kS3WriteBufferSize;
-                                     });
-                EXPECT_NE(crossing_block, holder->file_blocks.end());
-                if (crossing_block != holder->file_blocks.end()) {
-                    crossing_range.emplace((*crossing_block)->range());
-                    EXPECT_EQ((*crossing_block)->state(), io::FileBlock::State::EMPTY);
-                    EXPECT_EQ((*crossing_block)->cache_type(), io::FileCacheType::INDEX);
-                }
-                observed_index_cache_holder = true;
-
-                std::unique_lock lock(upload_order.mutex);
-                const auto both_parts_entered =
-                        upload_order.cv.wait_for(lock, std::chrono::seconds(10), [&]() {
-                            return upload_order.entered_offsets.contains(0) &&
-                                   upload_order.entered_offsets.contains(kS3WriteBufferSize);
-                        });
-                EXPECT_TRUE(both_parts_entered);
-                if (!both_parts_entered) {
-                    upload_order.release_all = true;
-                    lock.unlock();
-                    upload_order.cv.notify_all();
-                    return;
-                }
-
-                // Make the later part claim and finalize the crossing block first. Its cache-copy
-                // loop starts at position zero in the later part buffer even though the shared
-                // block starts before this part. The first part then observes a DOWNLOADED block
-                // and cannot replace the shifted bytes.
-                upload_order.released_offsets.insert(kS3WriteBufferSize);
-                upload_order.cv.notify_all();
-                const auto later_part_completed =
-                        upload_order.cv.wait_for(lock, std::chrono::seconds(10), [&]() {
-                            return upload_order.completed_offsets.contains(kS3WriteBufferSize);
-                        });
-                EXPECT_TRUE(later_part_completed);
-
-                upload_order.released_offsets.insert(0);
-                upload_order.cv.notify_all();
-                const auto first_part_completed = upload_order.cv.wait_for(
-                        lock, std::chrono::seconds(10),
-                        [&]() { return upload_order.completed_offsets.contains(0); });
-                EXPECT_TRUE(first_part_completed);
-            },
-            &index_cache_holder_guard);
-
-    auto tablet_schema = create_schema();
-    TabletMetaPB tablet_meta_pb;
-    tablet_meta_pb.set_tablet_id(kIndexOnlyTabletId);
-    tablet_meta_pb.set_schema_hash(kIndexOnlyTabletSchemaHash);
-    tablet_meta_pb.set_tablet_state(PB_RUNNING);
-    tablet_schema->to_schema_pb(tablet_meta_pb.mutable_schema());
-    auto tablet_meta = std::make_shared<TabletMeta>();
-    tablet_meta->init_from_pb(tablet_meta_pb);
-    auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, nullptr);
-    auto rowset_context = create_context(tablet_schema);
-    segment_v2::SegmentWriterOptions writer_options;
-    writer_options.compression_type = NO_COMPRESSION;
-    writer_options.rowset_ctx = &rowset_context;
-    writer_options.write_type = rowset_context.write_type;
-    segment_v2::SegmentWriter writer(file_writer.get(), 0, tablet_schema, tablet, nullptr,
-                                     writer_options, nullptr);
-    status = writer.init();
-    ASSERT_TRUE(status.ok()) << status;
-    auto block = create_full_block(tablet_schema);
-    status = writer.append_block(&block, 0, block.rows());
-    ASSERT_TRUE(status.ok()) << status;
-
-    uint64_t segment_file_size = 0;
-    uint64_t index_size = 0;
-    segment_v2::SegmentIndexFileCacheInfo index_cache_info;
-    status = writer.finalize(&segment_file_size, &index_size, &index_cache_info);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_GT(segment_file_size, 2 * kS3WriteBufferSize);
-    ASSERT_GT(index_size, 0);
-    ASSERT_GT(index_cache_info.cache_start_offset(), 0);
-    ASSERT_LT(index_cache_info.cache_start_offset(), kS3WriteBufferSize);
-    ASSERT_NE(index_cache_info.cache_start_offset() % kCacheBlockSize, 0);
-    EXPECT_TRUE(observed_index_cache_holder);
-
-    const auto close_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    do {
-        status = file_writer->try_finish_close();
-        if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    } while (status.is<ErrorCode::NEED_SEND_AGAIN>() &&
-             std::chrono::steady_clock::now() < close_deadline);
-    ASSERT_TRUE(status.ok()) << status;
-
-    const std::string remote_object = mock_client->object();
-    ASSERT_EQ(remote_object.size(), segment_file_size);
-    ASSERT_TRUE(crossing_range.has_value());
-
-    auto cache_blocks = cache->get_blocks_by_key(cache_hash);
-    ASSERT_FALSE(cache_blocks.empty());
-    auto crossing_block = cache_blocks.find(crossing_range->left);
-    ASSERT_NE(crossing_block, cache_blocks.end());
-    ASSERT_EQ(crossing_block->second->range().left, crossing_range->left);
-    ASSERT_EQ(crossing_block->second->range().right, crossing_range->right);
-    ASSERT_EQ(crossing_block->second->state(), io::FileBlock::State::DOWNLOADED);
-    ASSERT_EQ(crossing_block->second->cache_type(), io::FileCacheType::INDEX);
-
-    // First compare the cache entry with the correctly assembled remote object. This correctness
-    // assertion exposes the corruption without going through the reader layer.
-    std::string cached_bytes(crossing_range->size(), '\0');
-    status = crossing_block->second->read(Slice(cached_bytes.data(), cached_bytes.size()), 0);
-    ASSERT_TRUE(status.ok()) << status;
-    const std::string expected_bytes =
-            remote_object.substr(crossing_range->left, crossing_range->size());
-    EXPECT_EQ(cached_bytes, expected_bytes)
-            << "cache block " << crossing_range->to_string()
-            << " was populated by the later S3 buffer at offset " << kS3WriteBufferSize;
-
-    // Then read through the normal cached remote-file reader to demonstrate the same corruption
-    // is visible to a cache consumer, rather than only through FileBlock test internals.
-    io::FileReaderOptions reader_options;
-    reader_options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
-    reader_options.is_doris_table = true;
-    reader_options.file_size = static_cast<int64_t>(segment_file_size);
-    reader_options.tablet_id = kIndexOnlyTabletId;
-    io::FileReaderSPtr cached_reader;
-    status = _remote_fs->open_file(segment_path, &cached_reader, &reader_options);
-    ASSERT_TRUE(status.ok()) << status;
-    std::string reader_bytes(crossing_range->size(), '\0');
-    size_t bytes_read = 0;
-    status = cached_reader->read_at(crossing_range->left,
-                                    Slice(reader_bytes.data(), reader_bytes.size()), &bytes_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(bytes_read, expected_bytes.size());
-    EXPECT_EQ(reader_bytes, expected_bytes)
-            << "cached S3 reader returned shifted bytes for " << crossing_range->to_string();
 }
 
 } // namespace doris

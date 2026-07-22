@@ -180,7 +180,7 @@ void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
     if (is_cancelled) {
         return;
     }
-    TEST_INJECTION_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache", this);
+    TEST_INJECTION_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache");
     // the data is already written to S3 in this situation
     // so i didn't handle the file cache write error
     _holder = _alloc_holder();
@@ -217,7 +217,6 @@ void UploadFileBuffer::upload_to_local_file_cache(bool is_cancelled) {
         data_remain_size -= append_size;
         pos += append_size;
     }
-    TEST_INJECTION_POINT_CALLBACK("UploadFileBuffer::upload_to_local_file_cache_done", this);
 }
 
 FileBufferBuilder& FileBufferBuilder::set_type(BufferType type) {
