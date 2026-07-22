@@ -23,6 +23,7 @@ import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Lists;
 import com.google.common.testing.FakeTicker;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -237,8 +238,8 @@ public class CacheFactoryTest {
         // refresh in background, so still get value1
         Assertions.assertTrue(futureValue.isDone());
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
-        // sleep longer to wait for refresh
-        Thread.sleep(2500);
+        // Wait for the refresh triggered above instead of relying on executor scheduling time.
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).until(() -> counter.get() == 2);
         futureValue = loadingCache.get(1);
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
         // refreshed, so counter +1
