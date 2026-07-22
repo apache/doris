@@ -346,8 +346,8 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
         if (config::enable_arrow_input_validation) {
             check_arrow_list_offsets(*concrete_array, start, end);
         }
-        const auto* offsets =
-                dynamic_cast<const arrow::Int32Array*>(concrete_array->offsets().get());
+        const auto offsets =
+                std::dynamic_pointer_cast<arrow::Int32Array>(concrete_array->offsets());
         if (offsets == nullptr) {
             return Status::InvalidArgument("Expected Arrow Int32Array offsets, got {}",
                                            arrow_array->type()->name());
@@ -367,8 +367,8 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
         if (config::enable_arrow_input_validation) {
             check_arrow_large_list_offsets(*concrete_array, start, end);
         }
-        const auto* offsets =
-                dynamic_cast<const arrow::Int64Array*>(concrete_array->offsets().get());
+        const auto offsets =
+                std::dynamic_pointer_cast<arrow::Int64Array>(concrete_array->offsets());
         if (offsets == nullptr) {
             return Status::InvalidArgument("Expected Arrow Int64Array offsets, got {}",
                                            arrow_array->type()->name());
