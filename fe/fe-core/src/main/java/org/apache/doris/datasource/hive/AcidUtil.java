@@ -20,7 +20,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemTransferUtil;
@@ -221,7 +222,7 @@ public class AcidUtil {
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
     public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
-            Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+            Map<String, String> txnValidIds, Map<StorageTypeId, StorageAdapter> storagePropertiesMap,
                                               boolean isFullAcid) throws Exception {
         return getAcidState(fileSystem, partition, txnValidIds, storagePropertiesMap, isFullAcid,
                 partition.getPath());
@@ -236,7 +237,7 @@ public class AcidUtil {
      * consistent with the non-transactional listing path.
      */
     public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
-            Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+            Map<String, String> txnValidIds, Map<StorageTypeId, StorageAdapter> storagePropertiesMap,
             boolean isFullAcid, String partitionPath) throws Exception {
 
         // Ref: https://issues.apache.org/jira/browse/HIVE-18192
@@ -410,7 +411,7 @@ public class AcidUtil {
                 continue;
             }
             entries.stream().filter(e -> fileFilter.accept(locationName(e.location()))).forEach(entry -> {
-                LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                LocationPath path = LocationPath.ofAdapters(entry.location().uri(), storagePropertiesMap);
                 fileCacheValue.addFile(entry, path);
             });
         }
@@ -420,7 +421,7 @@ public class AcidUtil {
             List<FileEntry> entries = FileSystemTransferUtil.globList(fileSystem, bestBasePath, false);
             entries.stream().filter(e -> fileFilter.accept(locationName(e.location())))
                     .forEach(entry -> {
-                        LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                        LocationPath path = LocationPath.ofAdapters(entry.location().uri(), storagePropertiesMap);
                         fileCacheValue.addFile(entry, path);
                     });
         }

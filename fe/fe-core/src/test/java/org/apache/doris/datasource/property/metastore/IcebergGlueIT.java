@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.catalog.SupportsNamespaces;
@@ -43,7 +43,7 @@ public class IcebergGlueIT {
         System.setProperty("aws.accessKeyId", "acc");
         System.setProperty("aws.secretAccessKey", "heyhey");
         IcebergGlueMetaStoreProperties properties = (IcebergGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
-        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(baseProps);
+        List<StorageAdapter> storagePropertiesList = StorageAdapter.ofAll(baseProps);
         SupportsNamespaces catalog = (SupportsNamespaces) properties.initializeCatalog("iceberg_glue_test", storagePropertiesList);
         catalog.listNamespaces().forEach(System.out::println);
 

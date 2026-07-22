@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableList;
@@ -58,7 +58,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         super(Type.PAIMON, props);
     }
 
-    public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
+    public abstract Catalog initializeCatalog(String catalogName, List<StorageAdapter> storageAdapters);
 
     protected void appendCatalogOptions() {
         if (StringUtils.isNotBlank(warehouse)) {

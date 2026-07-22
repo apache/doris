@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.apache.iceberg.catalog.Catalog;
@@ -59,7 +59,7 @@ public class IcebergAliyunDLFMetaStorePropertiesTest {
                 new IcebergAliyunDLFMetaStoreProperties(props);
         // Replace DLFCatalog with a mock
         Catalog catalog = properties.initCatalog("test_catalog", props,
-                Collections.singletonList(StorageProperties.createPrimary(props)));
+                Collections.singletonList(StorageAdapter.of(props)));
         Assertions.assertEquals(DLFCatalog.class, catalog.getClass());
     }
 

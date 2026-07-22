@@ -20,7 +20,6 @@ package org.apache.doris.filesystem.jfs;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.DFSFileSystem;
 import org.apache.doris.filesystem.jfs.properties.JfsProperties;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -33,7 +32,7 @@ import java.util.Set;
  * Routing is by URI scheme only; fe-core marks jfs as the generic "HDFS" storage type, so scheme
  * is what keeps this disjoint from {@code HdfsFileSystemProvider}.
  */
-public class JfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class JfsFileSystemProvider implements FileSystemProvider<JfsProperties> {
 
     private static final Set<String> SUPPORTED_SCHEMES = Set.of("jfs");
 
@@ -54,10 +53,43 @@ public class JfsFileSystemProvider implements FileSystemProvider<FileSystemPrope
     }
 
     @Override
-    public FileSystem create(Map<String, String> properties) throws IOException {
+    public JfsProperties bind(Map<String, String> properties) {
         JfsProperties jfsProperties = new JfsProperties(properties);
         jfsProperties.initNormalizeAndCheckProps();
-        return new DFSFileSystem(jfsProperties.getBackendConfigProperties());
+        return jfsProperties;
+    }
+
+    @Override
+    public FileSystem create(JfsProperties properties) throws IOException {
+        return new DFSFileSystem(properties.getBackendConfigProperties());
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // fe-core routes jfs:// through HdfsProperties; the plugin split gives jfs its own
+        // provider, claimed by uri scheme on the raw map (plus fs.defaultFS). No explicit
+        // fs.jfs.support flag exists in fe-core, so supportsExplicit stays false.
+        String uri = null;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if ("uri".equalsIgnoreCase(entry.getKey())) {
+                uri = entry.getValue();
+                break;
+            }
+        }
+        if (uri == null) {
+            uri = properties.get("fs.defaultFS");
+        }
+        if (uri == null) {
+            return false;
+        }
+        int schemeEnd = uri.indexOf("://");
+        return schemeEnd > 0
+                && SUPPORTED_SCHEMES.contains(uri.substring(0, schemeEnd).toLowerCase(Locale.ROOT));
+    }
+
+    @Override
+    public FileSystem create(Map<String, String> properties) throws IOException {
+        return create(bind(properties));
     }
 
     @Override

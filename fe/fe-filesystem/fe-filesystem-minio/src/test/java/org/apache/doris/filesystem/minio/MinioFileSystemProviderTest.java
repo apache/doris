@@ -109,6 +109,51 @@ class MinioFileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_yieldsToAzureSovereignCloudHostSuffixes() {
+        // The Azure claim is host-suffix based (all sovereign clouds, blob AND dfs), not a
+        // static marker list: a US-Government dfs endpoint must never be claimed by MinIO or
+        // bindAll would create both an AZURE and a MINIO binding.
+        for (String endpoint : new String[] {
+                "https://acct.dfs.core.usgovcloudapi.net",
+                "https://acct.blob.core.usgovcloudapi.net",
+                "https://acct.dfs.core.chinacloudapi.cn",
+                "acct.dfs.core.cloudapi.de:443/container"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put("minio.access_key", "ak");
+            props.put("s3.endpoint", endpoint);
+            Assertions.assertFalse(provider.supportsGuess(props), "must yield to Azure for " + endpoint);
+        }
+    }
+
+    @Test
+    void supportsGuess_honoursProbeInjectedAzureSuffixOverride() {
+        // fe-core injects the live (admin-extensible) Config.azure_blob_host_suffixes into the
+        // guess probe view under _AZURE_HOST_SUFFIXES_; MinIO must consult the SAME list as the
+        // Azure provider, so an admin-added suffix excludes MinIO too.
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.access_key", "ak");
+        props.put("s3.endpoint", "https://acct.blob.private.contoso.example");
+
+        Assertions.assertTrue(provider.supportsGuess(props),
+                "unknown suffix without override stays MinIO's");
+
+        props.put("_AZURE_HOST_SUFFIXES_", ".blob.core.windows.net,.blob.private.contoso.example");
+        Assertions.assertFalse(provider.supportsGuess(props),
+                "probe-injected suffix must exclude MinIO exactly like it makes Azure claim");
+    }
+
+    @Test
+    void supportsGuess_stillClaimsPlainPrivateEndpoint() {
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.access_key", "ak");
+        props.put("minio.endpoint", "http://127.0.0.1:9000");
+        // probe key present (as in real routing) must not disturb the private-endpoint claim
+        props.put("_AZURE_HOST_SUFFIXES_", ".blob.core.windows.net,.dfs.core.usgovcloudapi.net");
+
+        Assertions.assertTrue(provider.supportsGuess(props));
+    }
+
+    @Test
     void create_delegatesToS3FileSystem() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put("minio.endpoint", "http://127.0.0.1:9000");

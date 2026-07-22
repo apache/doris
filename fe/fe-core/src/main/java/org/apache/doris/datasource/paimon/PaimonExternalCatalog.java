@@ -145,7 +145,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     protected Catalog createCatalog() {
         try {
             return paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
-                    .getOrderedStoragePropertiesList()));
+                    .getOrderedStorageAdapters()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to create catalog, catalog name: " + getName() + ", exception: "
                     + ExceptionUtils.getRootCauseMessage(e), e);

@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.ozone;
 
 import org.apache.doris.filesystem.s3.AbstractDelegatingS3Properties;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import java.util.Map;
@@ -111,6 +112,17 @@ public final class OzoneFileSystemProperties extends AbstractDelegatingS3Propert
     public static OzoneFileSystemProperties of(Map<String, String> properties) {
         OzoneFileSystemProperties props = new OzoneFileSystemProperties(properties);
         props.bindAndCollect();
+        // Legacy fe-core OzoneProperties inherited the uri leg of
+        // AbstractS3CompatibleProperties.setEndpointIfPossible: a missing ozone.endpoint is
+        // derived from the raw "uri" property (errors swallowed, path-style by default) before
+        // the endpoint-required check fires in validate().
+        if (props.endpoint == null || props.endpoint.isBlank()) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(properties, props.usePathStyle,
+                    props.forceParsingByStandardUrl);
+            if (derived != null && !derived.isBlank()) {
+                props.endpoint = derived;
+            }
+        }
         props.validate();
         return props;
     }
@@ -178,4 +190,10 @@ public final class OzoneFileSystemProperties extends AbstractDelegatingS3Propert
     public String getForceParsingByStandardUrl() {
         return forceParsingByStandardUrl;
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("s3", "s3a", "s3n");
+    }
+
 }

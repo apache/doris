@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -179,5 +180,50 @@ class OssFileSystemPropertiesTest {
         for (Method method : OssObjStorage.class.getDeclaredMethods()) {
             Assertions.assertNotEquals("toS3Props", method.getName());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_virtualHostedAliyuncsUri_derivesEndpointAndRegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.oss-cn-hangzhou.aliyuncs.com/data/file.csv");
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
+
+        OssFileSystemProperties properties = OssFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-hangzhou", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.oss-cn-hangzhou.aliyuncs.com/data/file.csv");
+        raw.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
+
+        OssFileSystemProperties properties = OssFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-beijing", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenRegionNotSetFires() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "oss-cn-hangzhou.aliyuncs.com/bucket/file.csv"); // no scheme
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> OssFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set"), exception.getMessage());
     }
 }

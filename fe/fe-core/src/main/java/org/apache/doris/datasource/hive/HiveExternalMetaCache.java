@@ -385,7 +385,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         FileCacheValue result = new FileCacheValue();
 
         FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
-                path.getFsIdentifier(), path.getStorageProperties());
+                path.getFsIdentifier(), path.getStorageAdapter());
 
         boolean isRecursiveDirectories = Boolean.valueOf(
                 catalog.getProperties().getOrDefault("hive.recursive_directories", "true"));
@@ -405,7 +405,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 if (isLzoInputFormat && !HiveUtil.isLzoDataFile(srcPath)) {
                     continue;
                 }
-                LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
+                LocationPath locationPath = LocationPath.of(srcPath, path.getStorageAdapter());
                 result.addFile(entry, locationPath);
             }
         } catch (FileSystemIOException e) {
@@ -431,8 +431,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         HMSExternalCatalog catalog = hmsCatalog(key.catalogId);
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            LocationPath finalLocation = LocationPath.of(
-                    key.getLocation(), catalog.getCatalogProperty().getStoragePropertiesMap());
+            LocationPath finalLocation = LocationPath.ofAdapters(
+                    key.getLocation(), catalog.getCatalogProperty().getStorageAdaptersMap());
             try {
                 FileCacheValue result = getFileCache(catalog, finalLocation, key.inputFormat,
                         key.getPartitionValues(), directoryLister, table);
@@ -805,12 +805,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
             for (HivePartition partition : partitions) {
                 HMSExternalCatalog catalog = hmsCatalog(partition.getNameMapping().getCtlId());
-                LocationPath locationPath = LocationPath.of(partition.getPath(),
-                        catalog.getCatalogProperty().getStoragePropertiesMap());
+                LocationPath locationPath = LocationPath.ofAdapters(partition.getPath(),
+                        catalog.getCatalogProperty().getStorageAdaptersMap());
                 FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
-                        locationPath.getNormalizedLocation(), locationPath.getStorageProperties());
+                        locationPath.getNormalizedLocation(), locationPath.getStorageAdapter());
                 AuthenticationConfig authenticationConfig = AuthenticationConfig
-                        .getKerberosConfig(locationPath.getStorageProperties().getBackendConfigProperties());
+                        .getKerberosConfig(locationPath.getStorageAdapter().getBackendConfigProperties());
                 HadoopAuthenticator hadoopAuthenticator =
                         HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
 
@@ -822,7 +822,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                                     fileSystem,
                                     partition,
                                     txnValidIds,
-                                    catalog.getCatalogProperty().getStoragePropertiesMap(),
+                                    catalog.getCatalogProperty().getStorageAdaptersMap(),
                                     isFullAcid,
                                     locationPath.getNormalizedLocation())));
                 }

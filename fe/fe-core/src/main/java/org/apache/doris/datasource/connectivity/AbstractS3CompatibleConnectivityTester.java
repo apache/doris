@@ -18,7 +18,8 @@
 package org.apache.doris.datasource.connectivity;
 
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import software.amazon.awssdk.services.s3.S3Client;
@@ -29,11 +30,13 @@ import java.util.Map;
 
 public abstract class AbstractS3CompatibleConnectivityTester implements StorageConnectivityTester {
     private static final String TEST_LOCATION = "test_location";
-    protected final AbstractS3CompatibleProperties properties;
+    protected final StorageAdapter adapter;
+    protected final S3CompatibleFileSystemProperties properties;
     protected final String testLocation;
 
-    public AbstractS3CompatibleConnectivityTester(AbstractS3CompatibleProperties properties, String testLocation) {
-        this.properties = properties;
+    public AbstractS3CompatibleConnectivityTester(StorageAdapter adapter, String testLocation) {
+        this.adapter = adapter;
+        this.properties = (S3CompatibleFileSystemProperties) adapter.getSpiProperties();
         // Normalize s3a:// and s3n:// schemes to s3://
         String normalized = testLocation.replaceFirst("^s3[an]://", "s3://");
         // If the path is just a bucket (e.g., s3://bucket or s3://bucket/), add a test key
@@ -51,7 +54,7 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
 
     @Override
     public Map<String, String> getBackendProperties() {
-        Map<String, String> props = new HashMap<>(properties.getBackendConfigProperties());
+        Map<String, String> props = new HashMap<>(adapter.getBackendConfigProperties());
         props.put(TEST_LOCATION, testLocation);
         return props;
     }
@@ -65,7 +68,7 @@ public abstract class AbstractS3CompatibleConnectivityTester implements StorageC
                 URI.create(endpoint),
                 properties.getRegion(),
                 Boolean.parseBoolean(properties.getUsePathStyle()),
-                properties.getAwsCredentialsProvider())) {
+                adapter.getAwsCredentialsProvider())) {
             client.headBucket(b -> b.bucket(bucket));
         }
     }

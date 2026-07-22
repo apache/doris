@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.apache.paimon.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
@@ -43,7 +43,7 @@ public class AbstractPaimonPropertiesTest {
         }
 
         @Override
-        public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+        public Catalog initializeCatalog(String catalogName, List<StorageAdapter> storagePropertiesList) {
             return null;
         }
 
