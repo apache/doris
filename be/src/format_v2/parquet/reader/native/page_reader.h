@@ -229,6 +229,19 @@ public:
 
     size_t end_row() const { return _end_row; }
 
+    bool has_active_offset_index() const {
+        if constexpr (OFFSET_INDEX) {
+            return _offset_index != nullptr;
+        }
+        return false;
+    }
+
+    void discard_offset_index() {
+        if constexpr (OFFSET_INDEX) {
+            _offset_index = nullptr;
+        }
+    }
+
     // Accessors for cache handle
     bool has_page_cache_handle() const { return _page_cache_handle.cache() != nullptr; }
     const doris::PageCacheHandle& page_cache_handle() const { return _page_cache_handle; }

@@ -755,6 +755,20 @@ TEST_F(CsvV2ReaderTest, CountAggregateScansRows) {
     EXPECT_EQ(aggregate_result.count, 2);
 }
 
+TEST_F(CsvV2ReaderTest, CountNullableColumnFallsBackToRowMaterialization) {
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    auto request = std::make_shared<FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+
+    FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::COUNT;
+    aggregate_request.columns.push_back(
+            {.projection = LocalColumnIndex::top_level(LocalColumnId(1))});
+    FileAggregateResult aggregate_result;
+    EXPECT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+}
+
 // Scenario: CSV v2 parses enclosed fields itself instead of delegating to the old CsvReader. A
 // separator inside an enclosed string must stay inside the same CSV field.
 TEST_F(CsvV2ReaderTest, EnclosedFieldKeepsSeparatorInsideStringValue) {

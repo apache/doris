@@ -373,6 +373,12 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
         return Status::NotSupported("{} v2 reader only supports COUNT aggregate pushdown",
                                     _reader_name);
     }
+    if (!request.columns.empty()) {
+        // Text files expose no NULL-count metadata, and this fast path intentionally skips field
+        // parsing. Returning the physical row count for COUNT(nullable_col) would be incorrect.
+        return Status::NotSupported("{} v2 reader cannot push down COUNT with a column argument",
+                                    _reader_name);
+    }
     if (_line_reader == nullptr) {
         return Status::InternalError("{} v2 reader is not open", _reader_name);
     }

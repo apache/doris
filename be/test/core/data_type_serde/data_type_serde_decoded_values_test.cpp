@@ -365,7 +365,7 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadIntegersFromUnsignedSources) {
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadUnsignedLogicalIntegersCastsPhysicalValues) {
     {
-        std::vector<int32_t> values = {0, 127, 255, 32767, 65535, -1};
+        std::vector<int32_t> values = {0, 127, 255};
         auto view =
                 with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, false);
         auto result = read_column(std::make_shared<DataTypeInt16>(), view);
@@ -375,12 +375,9 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadUnsignedLogicalIntegersCastsPhysicalVal
         EXPECT_EQ(0, column.get_element(0));
         EXPECT_EQ(127, column.get_element(1));
         EXPECT_EQ(255, column.get_element(2));
-        EXPECT_EQ(255, column.get_element(3));
-        EXPECT_EQ(255, column.get_element(4));
-        EXPECT_EQ(255, column.get_element(5));
     }
     {
-        std::vector<int32_t> values = {32767, 65535, -1};
+        std::vector<int32_t> values = {32767, 65535};
         auto view =
                 with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 16, false);
         auto result = read_column(std::make_shared<DataTypeInt32>(), view);
@@ -389,7 +386,6 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadUnsignedLogicalIntegersCastsPhysicalVal
         ASSERT_EQ(values.size(), column.size());
         EXPECT_EQ(32767, column.get_element(0));
         EXPECT_EQ(65535, column.get_element(1));
-        EXPECT_EQ(65535, column.get_element(2));
     }
     {
         std::vector<int32_t> values = {-1};
@@ -414,17 +410,35 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadUnsignedLogicalIntegersCastsPhysicalVal
     }
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, ReadSignedLogicalIntegersCastsPhysicalValues) {
+TEST(DataTypeSerDeDecodedValuesTest, SignedLogicalIntegersRejectOutOfRangePhysicalCarrier) {
     std::vector<int32_t> values = {127, 128, 255, -1};
     auto view = with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, true);
     auto result = read_column(std::make_shared<DataTypeInt8>(), view);
+    expect_data_quality_error(result.status);
+    EXPECT_EQ(result.column->size(), 0);
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, UnsignedLogicalIntegersRejectOutOfRangePhysicalCarrier) {
+    std::vector<int32_t> values = {255, 256};
+    auto view = with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, false);
+    auto result = read_column(std::make_shared<DataTypeInt16>(), view);
+    expect_data_quality_error(result.status);
+    EXPECT_EQ(result.column->size(), 0);
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, NullableLogicalIntegerCarrierOverflowBecomesNull) {
+    auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+    std::vector<int32_t> values = {127, 1000, -128};
+    std::vector<uint8_t> null_map(values.size(), 0);
+    auto view = with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values, &null_map), 8,
+                                     true);
+    auto result = read_column(type, view);
+
     ASSERT_TRUE(result.status.ok()) << result.status;
-    const auto& column = assert_cast<const ColumnInt8&>(*result.column);
-    ASSERT_EQ(values.size(), column.size());
-    EXPECT_EQ(static_cast<Int8>(127), column.get_element(0));
-    EXPECT_EQ(static_cast<Int8>(-128), column.get_element(1));
-    EXPECT_EQ(static_cast<Int8>(-1), column.get_element(2));
-    EXPECT_EQ(static_cast<Int8>(-1), column.get_element(3));
+    const auto& nullable = assert_cast<const ColumnNullable&>(*result.column);
+    EXPECT_FALSE(nullable.is_null_at(0));
+    EXPECT_TRUE(nullable.is_null_at(1));
+    EXPECT_FALSE(nullable.is_null_at(2));
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadFloatAndDouble) {
@@ -1633,7 +1647,7 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadFieldPrimitiveValues) {
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadFieldLogicalIntegerCastsPhysicalValue) {
     {
-        std::vector<int32_t> values = {32767};
+        std::vector<int32_t> values = {255};
         auto view =
                 with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, false);
         auto field = read_field(std::make_shared<DataTypeInt16>(), view);

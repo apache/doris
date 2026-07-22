@@ -748,9 +748,9 @@ Status TableReader::_build_table_filters_from_conjuncts() {
         // `_table_filters` omits expressions without slot references, but such an expression still
         // occupies a position in the row-level conjunct order. Record how many localized filters
         // precede the first unsafe original conjunct so constant pruning cannot jump over a
-        // slotless non-deterministic/error-preserving barrier. Unsafe predicates must still reach
-        // the file reader: it evaluates them on the complete batch instead of pre-executing them or
-        // running them after selected-row compaction.
+        // slotless non-deterministic/error-preserving barrier. Unsafe predicates remain solely on
+        // Scanner's original row-level path because localizing a clone would execute their state
+        // twice with independent state.
         if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }

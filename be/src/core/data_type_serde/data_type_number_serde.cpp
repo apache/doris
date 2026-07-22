@@ -114,6 +114,27 @@ constexpr bool parquet_number_conversion_always_fits() {
     }
 }
 
+template <typename SourceType, typename LogicalType>
+bool parquet_logical_integer_carrier_fits(SourceType value) {
+    if constexpr (sizeof(LogicalType) < sizeof(SourceType)) {
+        // Parquet INT(bitWidth) annotations constrain the physical INT32/INT64 carrier. Validate
+        // before narrowing so malformed values cannot wrap into an apparently valid logical value.
+        if constexpr (std::is_signed_v<SourceType>) {
+            const auto widened = static_cast<Int128>(value);
+            if constexpr (std::is_signed_v<LogicalType>) {
+                return widened >= static_cast<Int128>(std::numeric_limits<LogicalType>::lowest()) &&
+                       widened <= static_cast<Int128>(std::numeric_limits<LogicalType>::max());
+            }
+            return widened >= 0 &&
+                   static_cast<unsigned __int128>(widened) <=
+                           static_cast<unsigned __int128>(std::numeric_limits<LogicalType>::max());
+        }
+        const auto widened = static_cast<unsigned __int128>(value);
+        return widened <= static_cast<unsigned __int128>(std::numeric_limits<LogicalType>::max());
+    }
+    return true;
+}
+
 template <PrimitiveType DorisType, typename SourceType>
 Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view) {
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
@@ -158,7 +179,18 @@ Status read_logical_integer_decoded_values_as(IColumn& column, const DecodedColu
             data.push_back(DorisCppType());
             continue;
         }
-        const auto logical_value = static_cast<LogicalType>(values[row]);
+        const auto physical_value = values[row];
+        if (!parquet_logical_integer_carrier_fits<SourceType, LogicalType>(physical_value)) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError(
+                    "Decoded logical integer carrier is out of range for {} at row {}",
+                    column.get_name(), row);
+        }
+        const auto logical_value = static_cast<LogicalType>(physical_value);
         if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
             if (decoded_column_view_can_null_on_conversion_failure(view)) {
                 decoded_column_view_insert_null_on_conversion_failure(column, view, row);
@@ -258,7 +290,8 @@ Status append_parquet_logical_integers(PaddedPODArray<DorisCppType>& data, const
                                        size_t num_values, ParquetMaterializationState* state) {
     const size_t old_size = data.size();
     data.resize(old_size + num_values);
-    if constexpr (parquet_number_conversion_always_fits<DorisCppType, LogicalType>()) {
+    if constexpr (parquet_number_conversion_always_fits<DorisCppType, LogicalType>() &&
+                  sizeof(LogicalType) >= sizeof(SourceType)) {
         for (size_t row = 0; row < num_values; ++row) {
             const auto physical_value =
                     unaligned_load<SourceType>(values + row * sizeof(SourceType));
@@ -269,6 +302,16 @@ Status append_parquet_logical_integers(PaddedPODArray<DorisCppType>& data, const
     }
     for (size_t row = 0; row < num_values; ++row) {
         const auto physical_value = unaligned_load<SourceType>(values + row * sizeof(SourceType));
+        if (!parquet_logical_integer_carrier_fits<SourceType, LogicalType>(physical_value)) {
+            if (state != nullptr && state->can_insert_null_on_conversion_failure()) {
+                data[old_size + row] = DorisCppType();
+                DORIS_CHECK(state->mark_conversion_failure(old_size + row));
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError(
+                    "Parquet logical integer carrier is out of range at row {}", row);
+        }
         const auto logical_value = static_cast<LogicalType>(physical_value);
         if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
             if (state != nullptr && state->can_insert_null_on_conversion_failure()) {

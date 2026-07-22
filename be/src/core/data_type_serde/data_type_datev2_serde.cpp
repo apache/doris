@@ -43,6 +43,15 @@ static constexpr int32_t date_threshold = 719528;
 
 namespace {
 
+Status decode_parquet_date(int32_t encoded_date, DateV2Value<DateV2ValueType>* value) {
+    DORIS_CHECK(value != nullptr);
+    const int64_t day_number = static_cast<int64_t>(encoded_date) + date_threshold;
+    if (day_number < 0 || !value->get_date_from_daynr(static_cast<uint64_t>(day_number))) {
+        return Status::DataQualityError("Parquet DATE value is out of range");
+    }
+    return Status::OK();
+}
+
 class DateV2ParquetConsumer final : public ParquetFixedValueConsumer {
 public:
     explicit DateV2ParquetConsumer(IColumn& column, ParquetMaterializationState* state = nullptr)
@@ -54,16 +63,15 @@ public:
         _data.resize(old_size + num_values);
         for (size_t row = 0; row < num_values; ++row) {
             DateV2Value<DateV2ValueType> value;
-            const int64_t day_number =
-                    static_cast<int64_t>(unaligned_load<int32_t>(values + row * sizeof(int32_t))) +
-                    date_threshold;
-            if (day_number < 0 || !value.get_date_from_daynr(static_cast<uint64_t>(day_number))) {
+            const auto status = decode_parquet_date(
+                    unaligned_load<int32_t>(values + row * sizeof(int32_t)), &value);
+            if (!status.ok()) {
                 if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
                     _data[old_size + row] = DateV2Value<DateV2ValueType>();
                     continue;
                 }
                 _data.resize(old_size);
-                return Status::DataQualityError("Parquet DATE value is out of range");
+                return status;
             }
             _data[old_size + row] = value;
         }
@@ -184,6 +192,7 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data = assert_cast<ColumnDateV2&>(column).get_data();
+    const auto old_size = data.size();
     const auto* values = reinterpret_cast<const int32_t*>(view.values);
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {
@@ -191,7 +200,17 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
             continue;
         }
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.get_date_from_daynr(values[row] + date_threshold);
+        const auto status = decode_parquet_date(values[row], &date_v2);
+        if (!status.ok()) {
+            // Decoded values back both metadata conversion and native materialization. Preserve
+            // strict errors while allowing nullable non-strict scans to mark only the bad row.
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return status;
+        }
         data.push_back(date_v2);
     }
     return Status::OK();

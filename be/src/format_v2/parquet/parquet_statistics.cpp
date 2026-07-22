@@ -232,8 +232,15 @@ Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColum
     view.fixed_length = column_schema.type_descriptor.fixed_length;
     view.timestamp_is_adjusted_to_utc = column_schema.type_descriptor.timestamp_is_adjusted_to_utc;
     view.timezone = timezone;
-    return column_schema.type->get_serde()->read_field_from_decoded_value(*column_schema.type,
-                                                                          field, view);
+    // Statistics are pruning proofs, not row materialization. A malformed non-NULL bound must
+    // disable pruning instead of being converted to NULL under permissive scan semantics.
+    view.enable_strict_mode = true;
+    RETURN_IF_ERROR(column_schema.type->get_serde()->read_field_from_decoded_value(
+            *column_schema.type, field, view));
+    if (field->is_null()) {
+        return Status::DataQualityError("Non-NULL Parquet statistic decoded as NULL");
+    }
+    return Status::OK();
 }
 
 template <typename NativeType>

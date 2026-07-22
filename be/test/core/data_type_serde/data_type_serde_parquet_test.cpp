@@ -158,6 +158,46 @@ TEST(DataTypeSerDeParquetTest, MaterializesLogicalUnsignedIntegersDirectly) {
     EXPECT_EQ(data[2], 7);
 }
 
+TEST(DataTypeSerDeParquetTest, LogicalIntegerRejectsOutOfRangePhysicalCarrier) {
+    TestParquetDecodeSource source;
+    source.set_fixed_values<int32_t>({1000});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .logical_type = ParquetLogicalType::INTEGER,
+                                  .logical_integer_bit_width = 8,
+                                  .logical_integer_is_signed = true};
+    ParquetMaterializationState state;
+    DataTypeInt8 type;
+    auto column = type.create_column();
+
+    EXPECT_TRUE(type.get_serde()
+                        ->read_column_from_parquet(*column, source, context, 1, state)
+                        .is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_EQ(column->size(), 0);
+}
+
+TEST(DataTypeSerDeParquetTest, LogicalIntegerDictionaryCarrierOverflowBecomesNull) {
+    const int32_t overflow = 1000;
+    std::vector<uint8_t> dictionary(sizeof(overflow));
+    memcpy(dictionary.data(), &overflow, sizeof(overflow));
+    TestParquetDecodeSource source;
+    source.set_dictionary(std::move(dictionary), sizeof(overflow), {0, 0});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .encoding = ParquetValueEncoding::DICTIONARY,
+                                  .logical_type = ParquetLogicalType::INTEGER,
+                                  .logical_integer_bit_width = 8,
+                                  .logical_integer_is_signed = true};
+    IColumn::Filter null_map(2, 0);
+    ParquetMaterializationState state;
+    state.conversion_failure_null_map = &null_map;
+    DataTypeInt8 type;
+    auto column = type.create_column();
+
+    ASSERT_TRUE(
+            type.get_serde()->read_column_from_parquet(*column, source, context, 2, state).ok());
+    EXPECT_EQ(column->size(), 2);
+    EXPECT_EQ(null_map, IColumn::Filter({1, 1}));
+}
+
 TEST(DataTypeSerDeParquetTest, MaterializesFloat16Directly) {
     TestParquetDecodeSource source;
     source.set_fixed_values<uint16_t>({0x3C00, 0xC000, 0x7C00});

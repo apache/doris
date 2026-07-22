@@ -31,6 +31,9 @@
 #include <utility>
 #include <vector>
 
+#include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -179,6 +182,47 @@ format::parquet::ParquetColumnSchema uint32_parquet_bloom_schema() {
     column_schema.type_descriptor.integer_bit_width = 32;
     column_schema.type_descriptor.is_unsigned_integer = true;
     return column_schema;
+}
+
+TEST(NativeParquetStatisticsTest, InvalidNullableDateBoundsDisableMinMax) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = make_nullable(std::make_shared<DataTypeDateV2>());
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
+
+    const int32_t invalid_date = std::numeric_limits<int32_t>::min();
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(
+            std::string(reinterpret_cast<const char*>(&invalid_date), sizeof(invalid_date)));
+    statistics.__set_max_value(
+            std::string(reinterpret_cast<const char*>(&invalid_date), sizeof(invalid_date)));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    EXPECT_FALSE(result.has_min_max);
+}
+
+TEST(NativeParquetStatisticsTest, InvalidNullableDecimalBoundsDisableMinMax) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = make_nullable(std::make_shared<DataTypeDecimal32>(2, 0));
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = tparquet::Type::INT32;
+    column_schema.type_descriptor.is_decimal = true;
+    column_schema.type_descriptor.decimal_precision = 2;
+    column_schema.type_descriptor.decimal_scale = 0;
+
+    const int32_t invalid_decimal = 1000;
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(0);
+    statistics.__set_min_value(
+            std::string(reinterpret_cast<const char*>(&invalid_decimal), sizeof(invalid_decimal)));
+    statistics.__set_max_value(
+            std::string(reinterpret_cast<const char*>(&invalid_decimal), sizeof(invalid_decimal)));
+
+    const auto result = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, 1, nullptr);
+    EXPECT_FALSE(result.has_min_max);
 }
 TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
     const auto column_schema = uint32_parquet_bloom_schema();
