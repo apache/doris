@@ -182,6 +182,11 @@ public class OlapScanNode extends ScanNode {
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
+    private Map<Long, String> selectedPartitionNames = Collections.emptyMap();
+    // Partition boundaries must come from the same planning snapshot as runtime-filter
+    // partition monotonicity. Thrift serialization can happen after query queueing, when
+    // the catalog may already contain replacement partition IDs.
+    private List<TPartitionBoundary> runtimeFilterPartitionBoundaries;
     private long totalBytes = 0;
     // tablet id to single replica bytes
     private Map<Long, Long> tabletBytes = Maps.newLinkedHashMap();
@@ -355,6 +360,7 @@ public class OlapScanNode extends ScanNode {
      */
     public void init() throws UserException {
         selectedPartitionNum = selectedPartitionIds.size();
+        snapshotSelectedPartitionNames();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -802,6 +808,7 @@ public class OlapScanNode extends ScanNode {
                         partition.getName(), "RESTORING");
             }
         }
+        snapshotSelectedPartitionNames();
         if (LOG.isDebugEnabled()) {
             LOG.debug("partition prune cost: {} ms, partitions: {}",
                     (System.currentTimeMillis() - start), selectedPartitionIds);
@@ -1136,9 +1143,7 @@ public class OlapScanNode extends ScanNode {
                     .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
 
-        String selectedPartitions = getSelectedPartitionIds().stream().sorted()
-                .map(id -> olapTable.getPartition(id).getName())
-                .collect(Collectors.joining(","));
+        String selectedPartitions = getSelectedPartitionNamesForExplain();
         output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
                 olapTable.getPartitions().size(), selectedPartitions)).append("\n");
         output.append(prefix).append(String.format("tablets=%s/%s", selectedSplitNum, totalTabletsNum));
@@ -1167,6 +1172,14 @@ public class OlapScanNode extends ScanNode {
         printNestedColumns(output, prefix, getTupleDesc());
 
         return output.toString();
+    }
+
+    @VisibleForTesting
+    String getSelectedPartitionNamesForExplain() {
+        return getSelectedPartitionIds().stream().sorted()
+                .map(id -> Preconditions.checkNotNull(selectedPartitionNames.get(id),
+                        "missing snapshotted name for selected partition %s", id))
+                .collect(Collectors.joining(","));
     }
 
     private String getExtraKeyColumnExplainName(Integer slotId) {
@@ -1355,7 +1368,7 @@ public class OlapScanNode extends ScanNode {
         if (rfPruneCtx != null
                 && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()
                 && hasRfDrivingPartitionPruning()) {
-            setPartitionBoundaries(msg.olap_scan_node);
+            setPartitionBoundariesForRuntimeFilter(msg.olap_scan_node);
         }
 
         super.toThrift(msg);
@@ -1374,15 +1387,48 @@ public class OlapScanNode extends ScanNode {
         return false;
     }
 
-    private void setPartitionBoundaries(TOlapScanNode olapScanNode) {
+    /**
+     * Snapshot partition boundaries while the query plan still owns its catalog snapshot.
+     * RuntimeFilterTranslator calls this when a target is classified as capable of
+     * partition pruning. A scan can be targeted by multiple runtime filters, so retain
+     * the first snapshot.
+     */
+    public void snapshotPartitionBoundariesForRuntimeFilter() {
+        if (runtimeFilterPartitionBoundaries != null) {
+            return;
+        }
+        runtimeFilterPartitionBoundaries = buildPartitionBoundariesForRuntimeFilter();
+    }
+
+    @VisibleForTesting
+    void snapshotSelectedPartitionNames() {
+        Map<Long, String> partitionNames = Maps.newHashMapWithExpectedSize(selectedPartitionIds.size());
+        for (Long partitionId : selectedPartitionIds) {
+            Partition partition = Preconditions.checkNotNull(olapTable.getPartition(partitionId),
+                    "missing selected partition %s during planning", partitionId);
+            partitionNames.put(partitionId, partition.getName());
+        }
+        selectedPartitionNames = partitionNames;
+    }
+
+    @VisibleForTesting
+    void setPartitionBoundariesForRuntimeFilter(TOlapScanNode olapScanNode) {
+        Preconditions.checkNotNull(runtimeFilterPartitionBoundaries,
+                "runtime-filter partition boundaries must be snapshotted during planning");
+        if (!runtimeFilterPartitionBoundaries.isEmpty()) {
+            olapScanNode.setPartitionBoundaries(new ArrayList<>(runtimeFilterPartitionBoundaries));
+        }
+    }
+
+    private List<TPartitionBoundary> buildPartitionBoundariesForRuntimeFilter() {
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         PartitionType partType = partitionInfo.getType();
         if (partType != PartitionType.RANGE && partType != PartitionType.LIST) {
-            return;
+            return Collections.emptyList();
         }
         List<Column> partColumns = partitionInfo.getPartitionColumns();
         if (partColumns.isEmpty()) {
-            return;
+            return Collections.emptyList();
         }
 
         // Build partition column name → slot ID mapping
@@ -1399,7 +1445,7 @@ public class OlapScanNode extends ScanNode {
             }
         }
         if (partColToSlotId.isEmpty()) {
-            return;
+            return Collections.emptyList();
         }
 
         List<TPartitionBoundary> boundaries = new ArrayList<>();
@@ -1416,9 +1462,7 @@ public class OlapScanNode extends ScanNode {
                         partColumns, partColToSlotId);
             }
         }
-        if (!boundaries.isEmpty()) {
-            olapScanNode.setPartitionBoundaries(boundaries);
-        }
+        return boundaries;
     }
 
     private void addRangeBoundaries(List<TPartitionBoundary> boundaries, long partitionId,
