@@ -139,4 +139,35 @@ public class MetastoreProperties extends ConnectionProperties {
     public ExecutionAuthenticator getExecutionAuthenticator() {
         return NOOP_AUTH;
     }
+
+    /**
+     * Bridges the storage facade's foundation-typed authenticator into the legacy fe-common
+     * {@link ExecutionAuthenticator} consumer surface. Temporary migration shim shared by the
+     * Paimon and Iceberg metastore families: once the metastore consumer track re-types
+     * {@code executionAuthenticator} to the foundation interface, facade authenticators can be
+     * assigned directly and this helper disappears.
+     */
+    protected static ExecutionAuthenticator asLegacyAuthenticator(
+            org.apache.doris.foundation.security.ExecutionAuthenticator delegate) {
+        return new StorageAuthenticatorBridge(delegate);
+    }
+
+    /** Named (test-assertable) fe-common view over a foundation authenticator. */
+    public static final class StorageAuthenticatorBridge implements ExecutionAuthenticator {
+        private final org.apache.doris.foundation.security.ExecutionAuthenticator delegate;
+
+        StorageAuthenticatorBridge(org.apache.doris.foundation.security.ExecutionAuthenticator delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public <T> T execute(java.util.concurrent.Callable<T> task) throws Exception {
+            return delegate.execute(task);
+        }
+
+        @Override
+        public void execute(Runnable task) throws Exception {
+            delegate.execute(task);
+        }
+    }
 }

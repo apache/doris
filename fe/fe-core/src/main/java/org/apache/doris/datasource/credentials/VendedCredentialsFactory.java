@@ -20,8 +20,8 @@ package org.apache.doris.datasource.credentials;
 import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
 import org.apache.doris.datasource.paimon.PaimonVendedCredentialsProvider;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import java.util.Map;
 
@@ -30,15 +30,15 @@ public class VendedCredentialsFactory {
      * Core method: Get temporary storage attribute maps containing vendored credentials for Scan/Sink Node
      * This method is called in Scan/Sink Node.doInitialize() to ensure internal consistency
      */
-    public static <T> Map<Type, StorageProperties> getStoragePropertiesMapWithVendedCredentials(
+    public static <T> Map<StorageTypeId, StorageAdapter> getStoragePropertiesMapWithVendedCredentials(
             MetastoreProperties metastoreProperties,
-            Map<StorageProperties.Type, StorageProperties> baseStoragePropertiesMap,
+            Map<StorageTypeId, StorageAdapter> baseStoragePropertiesMap,
             T tableObject) {
 
         AbstractVendedCredentialsProvider provider = getProviderType(metastoreProperties);
         if (provider != null) {
             try {
-                Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+                Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                         metastoreProperties, tableObject);
                 return result != null ? result : baseStoragePropertiesMap;
             } catch (Exception e) {

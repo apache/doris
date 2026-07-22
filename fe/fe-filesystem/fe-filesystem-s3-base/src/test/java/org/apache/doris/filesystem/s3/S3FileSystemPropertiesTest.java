@@ -133,7 +133,7 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
-    void of_rejectsMissingLocationWithParamRulesMessage() {
+    void of_rejectsMissingLocationWithRegionMessage() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.access_key", "ak");
         raw.put("s3.secret_key", "sk");
@@ -141,23 +141,23 @@ class S3FileSystemPropertiesTest {
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
 
-        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
-        Assertions.assertTrue(exception.getMessage().contains("Either s3.endpoint or s3.region must be set"));
+        // Align fe-core (ledger 2.4-4): the region check fires first, with fe-core's message.
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"));
     }
 
     @Test
-    void of_acceptsEndpointOnlyS3CompatibleConfiguration() {
+    void of_rejectsEndpointOnlyConfigurationWithoutDerivableRegion() {
+        // Align fe-core (ledger 2.4-4): non-standard endpoints no longer fall back to
+        // us-east-1 — fe-core AbstractS3CompatibleProperties throws IllegalArgumentException.
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");
         raw.put("s3.access_key", "ak");
         raw.put("s3.secret_key", "sk");
 
-        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
 
-        Assertions.assertEquals("https://minio.local", properties.getEndpoint());
-        Assertions.assertEquals("us-east-1", properties.getRegion());
-        Assertions.assertEquals("https://minio.local", properties.toFileSystemKv().get("AWS_ENDPOINT"));
-        Assertions.assertEquals("us-east-1", properties.toFileSystemKv().get("AWS_REGION"));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"));
     }
 
     @Test
@@ -260,5 +260,102 @@ class S3FileSystemPropertiesTest {
 
         Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
         Assertions.assertTrue(exception.getMessage().contains("Unsupported s3.credentials_provider_type"));
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    private static Map<String, String> uriProps(String uri) {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", uri);
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        return raw;
+    }
+
+    @Test
+    void uriOnly_virtualHostedStyle_derivesEndpointAndRegion() {
+        S3FileSystemProperties properties =
+                S3FileSystemProperties.of(uriProps("https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv"));
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+
+    @Test
+    void uriOnly_pathStyle_derivesEndpointAndRegion() {
+        Map<String, String> raw = uriProps("https://s3.us-west-2.amazonaws.com/mybucket/data/file.csv");
+        raw.put("use_path_style", "true");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+
+    @Test
+    void uriKeyIsMatchedCaseInsensitively() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("URI", "https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+
+    @Test
+    void uriOnly_pathStyleUriParsedVirtualHosted_throwsRegionNotSetLikeLegacy() {
+        // Without use_path_style=true legacy parses this virtual-hosted: the first host label
+        // ("s3") is taken as the bucket, the derived endpoint is "us-east-1.amazonaws.com" and
+        // no region can be extracted from it — legacy throws "Region is not set".
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3FileSystemProperties.of(uriProps("https://s3.us-east-1.amazonaws.com/bucket/x.csv")));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = uriProps("https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv");
+        raw.put("s3.endpoint", "https://s3.eu-west-1.amazonaws.com");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("https://s3.eu-west-1.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("eu-west-1", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusRegion_regionDerivedEndpointWinsOverUri() {
+        // Legacy setEndpointIfPossible tries getEndpointFromRegion() BEFORE the uri leg.
+        Map<String, String> raw = uriProps("https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv");
+        raw.put("s3.region", "eu-central-1");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("https://s3.eu-central-1.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("eu-central-1", properties.getRegion());
+    }
+
+    @Test
+    void uriWithNonStandardHost_throwsRegionNotSetLikeLegacy() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3FileSystemProperties.of(uriProps("https://minio.example.com/bucket/file.csv")));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    @Test
+    void awsCliStyleUri_carriesNoEndpoint_throwsRegionNotSetLikeLegacy() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3FileSystemProperties.of(uriProps("s3://mybucket/data/file.csv")));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    @Test
+    void forceParsingByStandardUri_parsesS3SchemeAsStandardUrl() {
+        // Path AWS-CLI mixed style: s3://<endpoint>/<bucket>/<key> with
+        // use_path_style=true + force_parsing_by_standard_uri=true (legacy S3URI contract).
+        Map<String, String> raw = uriProps("s3://s3.us-west-2.amazonaws.com/mybucket/data/file.csv");
+        raw.put("use_path_style", "true");
+        raw.put("force_parsing_by_standard_uri", "true");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
     }
 }

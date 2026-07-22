@@ -24,7 +24,8 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.foundation.util.PathUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -77,9 +78,9 @@ public class HiveTableSinkTest {
         storageProperties.put("cos.endpoint", "cos.cn-hangzhou.myqcloud.com");
         storageProperties.put("cos.access_key", "access_key");
         storageProperties.put("cos.secret_key", "secret_key");
-        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(storageProperties);
-        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = storagePropertiesList.stream()
-                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+        List<StorageAdapter> storagePropertiesList = StorageAdapter.ofAll(storageProperties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = storagePropertiesList.stream()
+                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
 
         ThriftHMSCachedClient mockClient = Mockito.mock(ThriftHMSCachedClient.class);
         Mockito.when(mockClient.listPartitions(Mockito.anyString(), Mockito.anyString())).thenReturn(partitions);
@@ -100,7 +101,7 @@ public class HiveTableSinkTest {
             HMSExternalDatabase db = new HMSExternalDatabase(hmsExternalCatalog, 10000, "hive_db1", "hive_db1");
             HMSExternalTable tbl = Mockito.spy(new HMSExternalTable(10001, "hive_tbl1", "hive_db1",
                     hmsExternalCatalog, db));
-            Mockito.doReturn(storagePropertiesMap).when(tbl).getStoragePropertiesMap();
+            Mockito.doReturn(storagePropertiesMap).when(tbl).getStorageAdaptersMap();
             mockDifferLocationTable(tbl, location);
 
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);

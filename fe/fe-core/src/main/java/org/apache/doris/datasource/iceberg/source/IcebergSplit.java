@@ -19,7 +19,8 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.thrift.TFileFormatType;
 
 import lombok.Data;
@@ -44,7 +45,7 @@ public class IcebergSplit extends FileSplit {
     private Integer formatVersion;
     private List<DeleteFile> deleteFiles = new ArrayList<>();
     private List<IcebergDeleteFileFilter> deleteFileFilters = new ArrayList<>();
-    private Map<StorageProperties.Type, StorageProperties> config;
+    private Map<StorageTypeId, StorageAdapter> config;
     // tableLevelRowCount will be set only table-level count push down opt is available.
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
@@ -66,7 +67,7 @@ public class IcebergSplit extends FileSplit {
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
-                        Integer formatVersion, Map<StorageProperties.Type, StorageProperties> config,
+                        Integer formatVersion, Map<StorageTypeId, StorageAdapter> config,
                         List<String> partitionList, String originalPath) {
         super(file, start, length, fileLength, 0, hosts, partitionList);
         this.formatVersion = formatVersion;
@@ -91,7 +92,7 @@ public class IcebergSplit extends FileSplit {
     }
 
     public static IcebergSplit newPositionDeleteSysTableSplit(LocationPath file, long start, long length,
-            long fileLength, Map<StorageProperties.Type, StorageProperties> config, String originalPath) {
+            long fileLength, Map<StorageTypeId, StorageAdapter> config, String originalPath) {
         IcebergSplit split = new IcebergSplit(file, start, length, fileLength, null, null, config,
                 Collections.emptyList(), originalPath);
         split.setPositionDeleteSystemTableSplit(true);

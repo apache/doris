@@ -187,6 +187,12 @@ public final class AzureFileSystemProperties
     }
 
     @Override
+    public java.util.Set<String> getSupportedSchemes() {
+        // fe-core parity (AzureProperties.schemas()): wasb/wasbs/abfs/abfss.
+        return java.util.Set.of("wasb", "wasbs", "abfs", "abfss");
+    }
+
+    @Override
     public StorageKind kind() {
         return StorageKind.OBJECT_STORAGE;
     }
@@ -412,4 +418,10 @@ public final class AzureFileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("wasb", "wasbs", "abfs", "abfss");
+    }
+
 }

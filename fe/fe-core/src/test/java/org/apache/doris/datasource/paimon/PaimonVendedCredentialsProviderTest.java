@@ -21,8 +21,8 @@ import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonRestMetaStoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
@@ -204,7 +204,7 @@ public class PaimonVendedCredentialsProviderTest {
         Mockito.when(restToken.token()).thenReturn(tokenMap);
 
         // Test using VendedCredentialsFactory
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), table);
 
         // Should not be null (assuming StorageProperties.createAll works correctly)
@@ -222,7 +222,7 @@ public class PaimonVendedCredentialsProviderTest {
 
         Table table = Mockito.mock(Table.class);
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), table);
 
         // Should return the baseStoragePropertiesMap (empty HashMap)
@@ -236,7 +236,7 @@ public class PaimonVendedCredentialsProviderTest {
         Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
         Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), null);
 
         // Should return the baseStoragePropertiesMap (empty HashMap)
@@ -251,7 +251,7 @@ public class PaimonVendedCredentialsProviderTest {
         Mockito.when(nonRestProperties.getType()).thenReturn(MetastoreProperties.Type.HMS);
         Table table = Mockito.mock(Table.class);
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(nonRestProperties, new HashMap<>(), table);
 
         // Should return the baseStoragePropertiesMap (empty HashMap)
@@ -262,8 +262,8 @@ public class PaimonVendedCredentialsProviderTest {
     @Test
     public void testGetBackendPropertiesFromStorageMapWithOSS() {
         // Create mock storage properties
-        StorageProperties ossProperties = Mockito.mock(StorageProperties.class);
-        StorageProperties hdfsProperties = Mockito.mock(StorageProperties.class);
+        StorageAdapter ossProperties = Mockito.mock(StorageAdapter.class);
+        StorageAdapter hdfsProperties = Mockito.mock(StorageAdapter.class);
 
         Map<String, String> ossBackendProps = new HashMap<>();
         ossBackendProps.put("AWS_ACCESS_KEY", "testOssAccessKey");
@@ -277,9 +277,9 @@ public class PaimonVendedCredentialsProviderTest {
         Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
         Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
 
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.OSS, ossProperties);
-        storagePropertiesMap.put(Type.HDFS, hdfsProperties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.OSS, ossProperties);
+        storagePropertiesMap.put(StorageTypeId.HDFS, hdfsProperties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
@@ -293,7 +293,7 @@ public class PaimonVendedCredentialsProviderTest {
 
     @Test
     public void testGetBackendPropertiesFromStorageMapWithNullValues() {
-        StorageProperties ossProperties = Mockito.mock(StorageProperties.class);
+        StorageAdapter ossProperties = Mockito.mock(StorageAdapter.class);
 
         Map<String, String> ossBackendProps = new HashMap<>();
         ossBackendProps.put("AWS_ACCESS_KEY", "testAccessKey");
@@ -302,8 +302,8 @@ public class PaimonVendedCredentialsProviderTest {
 
         Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
 
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.OSS, ossProperties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.OSS, ossProperties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 

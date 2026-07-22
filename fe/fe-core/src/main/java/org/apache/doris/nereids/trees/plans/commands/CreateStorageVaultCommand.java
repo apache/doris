@@ -27,7 +27,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -125,10 +125,10 @@ public class CreateStorageVaultCommand extends Command implements ForwardWithSyn
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
 
         if (vaultType == StorageVault.StorageVaultType.S3
-                && !properties.containsKey(S3Properties.USE_PATH_STYLE)) {
+                && !properties.containsKey(S3ResourceCompat.USE_PATH_STYLE)) {
             properties = ImmutableMap.<String, String>builder()
                     .putAll(properties)
-                    .put(S3Properties.USE_PATH_STYLE, "true")
+                    .put(S3ResourceCompat.USE_PATH_STYLE, "true")
                     .build();
         }
     }

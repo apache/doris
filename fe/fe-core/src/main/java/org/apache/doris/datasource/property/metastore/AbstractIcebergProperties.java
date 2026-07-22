@@ -22,9 +22,9 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Preconditions;
@@ -38,6 +38,7 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,12 +133,12 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * and deleting Iceberg tables.
      */
     public final Catalog initializeCatalog(String catalogName,
-                                           List<StorageProperties> storagePropertiesList) {
+                                           List<StorageAdapter> storagePropertiesList) {
         return initializeCatalog(catalogName, storagePropertiesList, SessionContext.empty());
     }
 
     public final Catalog initializeCatalog(String catalogName,
-                                           List<StorageProperties> storagePropertiesList,
+                                           List<StorageAdapter> storagePropertiesList,
                                            SessionContext sessionContext) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
@@ -202,13 +203,13 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     protected abstract Catalog initCatalog(
             String catalogName,
             Map<String, String> catalogProps,
-            List<StorageProperties> storagePropertiesList
+            List<StorageAdapter> storagePropertiesList
     );
 
     protected Catalog initCatalog(
             String catalogName,
             Map<String, String> catalogProps,
-            List<StorageProperties> storagePropertiesList,
+            List<StorageAdapter> storagePropertiesList,
             SessionContext sessionContext
     ) {
         return initCatalog(catalogName, catalogProps, storagePropertiesList);
@@ -224,32 +225,32 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * @param fileIOProperties options map to be populated with S3 FileIO properties
      * @return Hadoop Configuration populated with all storage properties
      */
-    public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
+    public void toFileIOProperties(List<StorageAdapter> storagePropertiesList,
             Map<String, String> fileIOProperties, Configuration conf) {
         // We only support one S3-compatible storage property for FileIO configuration.
-        // When multiple AbstractS3CompatibleProperties exist, prefer the first non-S3Properties one,
-        // because a non-S3 type (e.g. OSSProperties, COSProperties) indicates the user has explicitly
-        // specified a concrete S3-compatible storage, which should take priority over the generic S3Properties.
-        AbstractS3CompatibleProperties s3Fallback = null;
-        AbstractS3CompatibleProperties s3Target = null;
-        for (StorageProperties storageProperties : storagePropertiesList) {
+        // When multiple S3-compatible bindings exist, prefer the first non-generic-S3 one,
+        // because a non-S3 type (e.g. OSS, COS) indicates the user has explicitly
+        // specified a concrete S3-compatible storage, which should take priority over the generic S3 binding.
+        StorageAdapter s3Fallback = null;
+        StorageAdapter s3Target = null;
+        for (StorageAdapter storageProperties : storagePropertiesList) {
             if (conf != null && storageProperties.getHadoopStorageConfig() != null) {
                 conf.addResource(storageProperties.getHadoopStorageConfig());
             }
-            if (storageProperties instanceof AbstractS3CompatibleProperties) {
+            if (storageProperties.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
                 if (s3Fallback == null) {
-                    s3Fallback = (AbstractS3CompatibleProperties) storageProperties;
+                    s3Fallback = storageProperties;
                 }
-                if (s3Target == null && !(storageProperties instanceof S3Properties)) {
-                    s3Target = (AbstractS3CompatibleProperties) storageProperties;
+                if (s3Target == null && storageProperties.getType() != StorageTypeId.S3) {
+                    s3Target = storageProperties;
                 }
             }
         }
-        AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
+        StorageAdapter chosen = s3Target != null ? s3Target : s3Fallback;
         if (chosen != null) {
             toS3FileIOProperties(chosen, fileIOProperties);
         } else {
-            String region = AbstractS3CompatibleProperties.getRegionFromProperties(fileIOProperties);
+            String region = getRegionFromProperties(fileIOProperties);
             if (!Strings.isNullOrEmpty(region)) {
                 fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
             }
@@ -257,13 +258,45 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     }
 
     /**
+     * Ordered probe of every region-property alias declared by the legacy S3-compatible typed
+     * classes. Verbatim port of the legacy {@code AbstractS3CompatibleProperties
+     * .getRegionFromProperties(Map)}, which scanned the {@code isRegionField} annotation of
+     * S3Properties, OSSProperties, COSProperties, OBSProperties and MinioProperties in that
+     * class order; the alias lists below reproduce that reflection scan's effective probe order.
+     */
+    private static final List<String> REGION_PROPERTY_ALIASES = Arrays.asList(
+            // S3Properties region aliases
+            "s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region",
+            // OSSProperties additions
+            "oss.region", "dlf.region",
+            // COSProperties addition
+            "cos.region",
+            // OBSProperties addition
+            "obs.region",
+            // MinioProperties addition
+            "minio.region");
+
+    private static String getRegionFromProperties(Map<String, String> props) {
+        for (String name : REGION_PROPERTY_ALIASES) {
+            String value = props.get(name);
+            if (StringUtils.isNotBlank(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Configure S3 FileIO properties for all S3-compatible storage types (S3, MinIO, etc.)
      * This method provides a unified way to convert S3-compatible properties to Iceberg S3FileIO format.
      *
-     * @param s3Properties S3-compatible properties
+     * @param s3Adapter facade over an S3-compatible SPI binding
      * @param options Options map to be populated with S3 FileIO properties
      */
-    private void toS3FileIOProperties(AbstractS3CompatibleProperties s3Properties, Map<String, String> options) {
+    private void toS3FileIOProperties(StorageAdapter s3Adapter, Map<String, String> options) {
+        S3CompatibleFileSystemProperties s3Properties =
+                (S3CompatibleFileSystemProperties) s3Adapter.getSpiProperties();
         // Common properties - only set if not blank
         if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
             options.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
@@ -283,9 +316,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
             options.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
         }
-        if (s3Properties instanceof S3Properties) {
-            S3Properties awsProperties = (S3Properties) s3Properties;
-            IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(options, awsProperties);
+        if (s3Adapter.getType() == StorageTypeId.S3) {
+            IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(options, s3Adapter);
         }
     }
 

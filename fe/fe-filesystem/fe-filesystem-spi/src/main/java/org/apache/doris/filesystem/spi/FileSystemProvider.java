@@ -54,6 +54,33 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
     boolean supports(Map<String, String> properties);
 
     /**
+     * Returns true if the raw user properties explicitly declare this provider via its
+     * {@code fs.<x>.support=true} flag (or a provider-specific legacy alias such as
+     * {@code oss.hdfs.enabled}).
+     *
+     * <p>Part of the raw-props binding contract used by registry-level {@code bindPrimary/bindAll}
+     * selection: when ANY explicit flag is present in the map, heuristic {@link #supportsGuess}
+     * detection is disabled globally, so an ambiguous endpoint (e.g. {@code aliyuncs.com}
+     * matching both OSS and S3 heuristics) can never override an explicit declaration.
+     * Unlike {@link #supports(Map)}, this must not depend on converter-injected markers
+     * ({@code _STORAGE_TYPE_}, {@code HDFS_URI}) — the input is the user's raw map.</p>
+     */
+    default boolean supportsExplicit(Map<String, String> properties) {
+        return false;
+    }
+
+    /**
+     * Returns true if this provider heuristically recognizes the raw user properties
+     * (endpoint patterns, uri schemes, identifying keys) — the port of fe-core's
+     * per-type {@code guessIsMe}. Only consulted when no explicit {@code fs.<x>.support}
+     * flag is present anywhere in the map. Must be cheap and deterministic, and must not
+     * depend on converter-injected markers.
+     */
+    default boolean supportsGuess(Map<String, String> properties) {
+        return false;
+    }
+
+    /**
      * Binds raw key-value storage configuration into a provider-owned typed properties model.
      *
      * <p>Providers that have been migrated to typed properties should override this method and

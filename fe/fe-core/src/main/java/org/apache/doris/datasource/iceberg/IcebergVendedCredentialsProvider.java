@@ -59,7 +59,7 @@ public class IcebergVendedCredentialsProvider extends AbstractVendedCredentialsP
             return Maps.newHashMap();
         }
 
-        // Return table.io().properties() directly, and let StorageProperties.createAll() to convert the format
+        // Return table.io().properties() directly, and let StorageAdapter.ofAll() to convert the format
         FileIO fileIO = table.io();
         Map<String, String> ioProps = Maps.newHashMap(fileIO.properties());
         if (fileIO instanceof SupportsStorageCredentials) {

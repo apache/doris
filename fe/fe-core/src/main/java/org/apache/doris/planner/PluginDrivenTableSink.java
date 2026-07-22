@@ -222,8 +222,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             locationParams.setOriginalWritePath(
                     props.getOrDefault(PROP_ORIGINAL_WRITE_PATH, writePath));
             locationParams.setTargetPath(targetPath);
-            LocationPath locationPath = LocationPath.of(targetPath,
-                    targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+            LocationPath locationPath = LocationPath.ofAdapters(targetPath,
+                    targetTable.getCatalog().getCatalogProperty().getStorageAdaptersMap());
             TFileType fileType = locationPath.getTFileTypeForBE();
             locationParams.setFileType(fileType);
             tSink.setLocation(locationParams);

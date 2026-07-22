@@ -17,9 +17,8 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.apache.paimon.catalog.FileSystemCatalogFactory;
 import org.junit.jupiter.api.Assertions;
@@ -43,7 +42,7 @@ public class PaimonFileSystemMetaStorePropertiesTest {
         props.put("warehouse", "hdfs://mycluster_test/paimon");
         PaimonFileSystemMetaStoreProperties paimonProps = (PaimonFileSystemMetaStoreProperties) MetastoreProperties.create(props);
         //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
-        Assertions.assertThrows(RuntimeException.class, () -> paimonProps.initializeCatalog("paimon", StorageProperties.createAll(props))
+        Assertions.assertThrows(RuntimeException.class, () -> paimonProps.initializeCatalog("paimon", StorageAdapter.ofAll(props))
         );
     }
 
@@ -57,7 +56,10 @@ public class PaimonFileSystemMetaStorePropertiesTest {
         PaimonFileSystemMetaStoreProperties paimonProps = (PaimonFileSystemMetaStoreProperties) MetastoreProperties.create(props);
         Assertions.assertEquals(FileSystemCatalogFactory.IDENTIFIER, paimonProps.getMetastoreType());
         Assertions.assertEquals("filesystem", paimonProps.getPaimonCatalogType());
-        Assertions.assertDoesNotThrow(() -> paimonProps.initializeCatalog("paimon", StorageProperties.createAll(props)));
-        Assertions.assertEquals(HadoopExecutionAuthenticator.class, paimonProps.getExecutionAuthenticator().getClass());
+        Assertions.assertDoesNotThrow(() -> paimonProps.initializeCatalog("paimon", StorageAdapter.ofAll(props)));
+        // The HDFS storage adapter installs its authenticator through the named bridge class
+        // (previously HadoopExecutionAuthenticator on the legacy typed track).
+        Assertions.assertEquals(MetastoreProperties.StorageAuthenticatorBridge.class,
+                paimonProps.getExecutionAuthenticator().getClass());
     }
 }

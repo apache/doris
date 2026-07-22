@@ -18,7 +18,6 @@
 package org.apache.doris.filesystem.broker;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -36,7 +35,7 @@ import java.util.Map;
  * <p>Registered via:
  * META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider
  */
-public class BrokerFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class BrokerFileSystemProvider implements FileSystemProvider<BrokerFileSystemProperties> {
 
     static final String KEY_TYPE      = "_STORAGE_TYPE_";
     static final String KEY_HOST      = "BROKER_HOST";
@@ -47,6 +46,27 @@ public class BrokerFileSystemProvider implements FileSystemProvider<FileSystemPr
     public boolean supports(Map<String, String> properties) {
         return "BROKER".equals(properties.get(KEY_TYPE))
                 && properties.containsKey(KEY_HOST);
+    }
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault("fs.broker.support", "false"));
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Port of fe-core BrokerProperties.guessIsMe: a broker.name key, case-insensitive.
+        for (String key : properties.keySet()) {
+            if ("broker.name".equalsIgnoreCase(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public BrokerFileSystemProperties bind(Map<String, String> properties) {
+        return new BrokerFileSystemProperties(properties);
     }
 
     @Override

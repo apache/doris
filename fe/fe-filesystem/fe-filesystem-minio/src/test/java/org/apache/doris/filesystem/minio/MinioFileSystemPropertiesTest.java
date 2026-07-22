@@ -124,4 +124,34 @@ class MinioFileSystemPropertiesTest {
         Assertions.assertFalse(rendered.contains("minio-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("accessKey=minio-ak-plain"), rendered);
     }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2, inherited by fe-core MinioProperties).
+    // Expected values are hardcoded from the legacy fe-core S3URI algorithm.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_pathStyle_derivesEndpointBeforeEndpointRequiredCheck() {
+        MinioFileSystemProperties properties = MinioFileSystemProperties.of(Map.of(
+                "uri", "http://127.0.0.1:9000/warehouse/data.orc",
+                "minio.use_path_style", "true",
+                "minio.access_key", "ak",
+                "minio.secret_key", "sk"));
+
+        Assertions.assertEquals("127.0.0.1:9000", properties.getEndpoint());
+        // Region keeps the legacy MinIO default.
+        Assertions.assertEquals("us-east-1", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenEndpointRequiredFires() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MinioFileSystemProperties.of(Map.of(
+                        "uri", "127.0.0.1:9000/warehouse/data.orc", // no scheme
+                        "minio.access_key", "ak",
+                        "minio.secret_key", "sk")));
+        Assertions.assertTrue(exception.getMessage().contains("Property minio.endpoint is required."),
+                exception.getMessage());
+    }
 }

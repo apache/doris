@@ -147,7 +147,7 @@ public class IcebergDeleteExecutorTest {
 
         CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
         Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(null);
-        Mockito.when(catalogProperty.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
+        Mockito.when(catalogProperty.getStorageAdaptersMap()).thenReturn(Collections.emptyMap());
 
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);

@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -358,10 +359,30 @@ public final class OssFileSystemProperties
     }
 
     private void normalize() {
+        // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2 (inherited by fe-core
+        // OSSProperties): derive the endpoint from the raw "uri" property when no endpoint key is
+        // set; parse failures are swallowed exactly like fe-core. Runs before the endpoint/region
+        // derivation so a uri-derived endpoint feeds region extraction and the standard-endpoint
+        // rewrite below, matching the legacy ordering.
+        if (StringUtils.isBlank(endpoint)) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(rawProperties, usePathStyle,
+                    forceParsingByStandardUrl);
+            if (StringUtils.isNotBlank(derived)) {
+                endpoint = derived;
+            }
+        }
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
         if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
+            endpoint = getOssEndpoint(region, Boolean.parseBoolean(dlfAccessPublic));
+        }
+        // Align fe-core OSSProperties.initNormalizeAndCheckProps: any endpoint that is not a
+        // standard OSS endpoint (e.g. the S3-compatible s3.<region>.aliyuncs.com spelling) is
+        // rewritten to oss-<region>[-internal].aliyuncs.com. Guarded on a non-blank region:
+        // with a blank region validate() throws first, exactly like fe-core.
+        if (StringUtils.isNotBlank(region)
+                && (StringUtils.isBlank(endpoint) || !ENDPOINT_PATTERN.matcher(endpoint).matches())) {
             endpoint = getOssEndpoint(region, Boolean.parseBoolean(dlfAccessPublic));
         }
     }
@@ -403,4 +424,10 @@ public final class OssFileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("oss");
+    }
+
 }

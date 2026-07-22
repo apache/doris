@@ -23,7 +23,8 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -60,7 +61,7 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
         }};
 
     // Store PropertiesMap, including vended credentials or static credentials
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
 
     public IcebergDeleteSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext) {
         super();
@@ -73,7 +74,7 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                catalog.getCatalogProperty().getStorageAdaptersMap(),
                 targetTable.getIcebergTable());
     }
 
@@ -121,14 +122,14 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
 
         // Hadoop config
         Map<String, String> props = new HashMap<>();
-        for (StorageProperties storageProperties : storagePropertiesMap.values()) {
+        for (StorageAdapter storageProperties : storagePropertiesMap.values()) {
             props.putAll(storageProperties.getBackendConfigProperties());
         }
         tSink.setHadoopConfig(props);
 
         // Location for delete files (typically under metadata/)
         String tableLocation = IcebergUtils.dataLocation(icebergTable);
-        LocationPath locationPath = LocationPath.of(tableLocation, storagePropertiesMap);
+        LocationPath locationPath = LocationPath.ofAdapters(tableLocation, storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setTableLocation(tableLocation);
 

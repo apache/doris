@@ -49,7 +49,8 @@ import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.EqualityDelete;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
@@ -156,7 +157,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private TableScan icebergTableScan;
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
     private long manifestCacheHits;
     private long manifestCacheMisses;
@@ -165,7 +166,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // Cached values for LocationPath creation optimization
     // These are lazily initialized on first use to avoid parsing overhead for each file
     private boolean locationPathCacheInitialized = false;
-    private StorageProperties cachedStorageProperties;
+    private StorageAdapter cachedStorageProperties;
     private String cachedSchema;
     private String cachedFsIdPrefix;
     // Cache for path prefix transformation to avoid repeated S3URI parsing
@@ -254,7 +255,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
             storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                     source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
+                    source.getCatalog().getCatalogProperty().getStorageAdaptersMap(),
                     icebergTable
             );
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
@@ -329,7 +330,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                LocationPath locationPath = LocationPath.of(deleteFilePath, icebergSplit.getConfig());
+                LocationPath locationPath = LocationPath.ofAdapters(deleteFilePath, icebergSplit.getConfig());
                 deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
                 setDeleteFileFormat(deleteFileDesc, filter.getFileformat());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
@@ -934,8 +935,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private void initLocationPathCache(String samplePath) {
         try {
             // Create a LocationPath using the full method to get all cached values
-            LocationPath sampleLocationPath = LocationPath.of(samplePath, storagePropertiesMap);
-            cachedStorageProperties = sampleLocationPath.getStorageProperties();
+            LocationPath sampleLocationPath = LocationPath.ofAdapters(samplePath, storagePropertiesMap);
+            cachedStorageProperties = sampleLocationPath.getStorageAdapter();
             cachedSchema = sampleLocationPath.getSchema();
             cachedFsIdentifier = sampleLocationPath.getFsIdentifier();
 
@@ -983,13 +984,13 @@ public class IcebergScanNode extends FileQueryScanNode {
             return LocationPath.ofDirect(normalizedPath, cachedSchema, cachedFsIdentifier, cachedStorageProperties);
         }
 
-        // Medium path: use cached StorageProperties but still need validateAndNormalizeUri
+        // Medium path: use cached StorageAdapter but still need validateAndNormalizeUri
         if (cachedStorageProperties != null) {
             return LocationPath.ofWithCache(path, cachedStorageProperties, cachedSchema, cachedFsIdPrefix);
         }
 
         // Fallback to full parsing
-        return LocationPath.of(path, storagePropertiesMap);
+        return LocationPath.ofAdapters(path, storagePropertiesMap);
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {

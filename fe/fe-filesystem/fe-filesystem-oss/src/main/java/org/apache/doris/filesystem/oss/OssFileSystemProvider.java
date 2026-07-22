@@ -87,6 +87,65 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
         return new OssFileSystem(new OssObjStorage(properties));
     }
 
+    private static final String[] GUESS_ENDPOINT_NAMES = {
+            "oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "fs.oss.accessKeyId"};
+    private static final String[] DLF_TYPE_KEYS = {
+            "hive.metastore.type", "iceberg.catalog.type", "paimon.catalog.type"};
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault(FS_OSS_SUPPORT, "false"));
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Port of fe-core OSSProperties.guessIsMe on raw props.
+        String value = firstNonNull(properties, GUESS_ENDPOINT_NAMES);
+        if (value != null && !value.isBlank()) {
+            if (value.contains("oss-dls.aliyuncs")) {
+                return false;
+            }
+            return value.contains("aliyuncs.com");
+        }
+        String region = properties.get("oss.region");
+        if (region != null && !region.isBlank()) {
+            return true;
+        }
+        for (String key : DLF_TYPE_KEYS) {
+            if ("dlf".equalsIgnoreCase(properties.get(key))) {
+                return true;
+            }
+        }
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (("uri".equalsIgnoreCase(entry.getKey()) || "warehouse".equalsIgnoreCase(entry.getKey()))
+                    && isKnownOssLocation(entry.getValue())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String firstNonNull(Map<String, String> properties, String[] names) {
+        for (String name : names) {
+            String value = properties.get(name);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isKnownOssLocation(String value) {
+        if (value == null || value.contains("oss-dls.aliyuncs")) {
+            return false;
+        }
+        if (value.startsWith("oss://")) {
+            return true;
+        }
+        return value.contains("aliyuncs.com") && (value.contains("oss-") || value.contains("s3."));
+    }
+
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));

@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.spi;
+package org.apache.doris.foundation.security;
 
 import java.io.IOException;
 
 /**
  * IO-throwing variant of {@link java.util.concurrent.Callable}.
- * Used in place of {@code java.security.PrivilegedExceptionAction} to avoid
- * Hadoop API dependency in fe-filesystem-spi.
+ * Used in place of {@code java.security.PrivilegedExceptionAction} so callers of
+ * {@link ExecutionAuthenticator#doAs(IOCallable)} stay free of Hadoop API types.
  *
  * @param <T> the return type of the callable
  */

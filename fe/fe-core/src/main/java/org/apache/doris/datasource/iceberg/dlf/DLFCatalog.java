@@ -21,7 +21,8 @@ import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.iceberg.HiveCompatibleCatalog;
 import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
-import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -49,7 +50,8 @@ public class DLFCatalog extends HiveCompatibleCatalog {
 
     protected FileIO initializeFileIO(Map<String, String> properties, Configuration hadoopConf) {
         // read from converted properties or default by old s3 aws properties
-        OSSProperties ossProperties = OSSProperties.of(properties);
+        S3CompatibleFileSystemProperties ossProperties = (S3CompatibleFileSystemProperties)
+                StorageAdapter.ofProvider("OSS", properties).getSpiProperties();
         String endpoint = ossProperties.getEndpoint();
         CloudCredential credential = new CloudCredential();
         credential.setAccessKey(ossProperties.getAccessKey());

@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -172,5 +173,50 @@ class CosFileSystemPropertiesTest {
 
         Assertions.assertTrue(provider.supports(Map.of(
                 "AWS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com")));
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_virtualHostedMyqcloudUri_derivesEndpointAndRegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.cos.ap-guangzhou.myqcloud.com/data/file.csv");
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        CosFileSystemProperties properties = CosFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("cos.ap-guangzhou.myqcloud.com", properties.getEndpoint());
+        Assertions.assertEquals("ap-guangzhou", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.cos.ap-guangzhou.myqcloud.com/data/file.csv");
+        raw.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        CosFileSystemProperties properties = CosFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", properties.getEndpoint());
+        Assertions.assertEquals("ap-beijing", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenRegionNotSetFires() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "cos.ap-guangzhou.myqcloud.com/bucket/file.csv"); // no scheme
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CosFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set"), exception.getMessage());
     }
 }

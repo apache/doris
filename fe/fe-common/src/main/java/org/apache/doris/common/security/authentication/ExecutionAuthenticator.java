@@ -26,8 +26,15 @@ import java.util.concurrent.Callable;
  * or {@link Runnable}) with authentication logic, for example using Kerberos or other mechanisms.
  * If no authentication is needed, the default implementations simply execute the tasks directly.
  * </p>
+ * <p>
+ * Migration bridge: extends the fe-foundation {@code ExecutionAuthenticator} (the single doAs
+ * abstraction shared with fe-filesystem), so every fe-common authenticator IS-A foundation
+ * authenticator and consumers can be re-typed to the foundation interface incrementally. This
+ * interface keeps the passthrough default that the foundation interface deliberately leaves
+ * abstract, preserving legacy behavior for existing implementors.
+ * </p>
  */
-public interface ExecutionAuthenticator {
+public interface ExecutionAuthenticator extends org.apache.doris.foundation.security.ExecutionAuthenticator {
 
     /**
      * Executes the given task, optionally within an authenticated context.

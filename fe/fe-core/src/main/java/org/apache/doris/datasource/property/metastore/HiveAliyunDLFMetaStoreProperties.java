@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -28,7 +28,8 @@ public class HiveAliyunDLFMetaStoreProperties extends AbstractHiveProperties {
 
     private AliyunDLFBaseProperties baseProperties;
 
-    private OSSProperties ossProperties;
+    /** Facade twin of the former typed OSS field: a forced OSS binding over the raw props. */
+    private StorageAdapter ossAdapter;
 
     public HiveAliyunDLFMetaStoreProperties(Map<String, String> origProps) {
         super(Type.DLF, origProps);
@@ -37,7 +38,7 @@ public class HiveAliyunDLFMetaStoreProperties extends AbstractHiveProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        ossProperties = OSSProperties.of(origProps);
+        ossAdapter = StorageAdapter.ofProvider("OSS", origProps);
         baseProperties = AliyunDLFBaseProperties.of(origProps);
         initHiveConf();
     }
@@ -46,7 +47,7 @@ public class HiveAliyunDLFMetaStoreProperties extends AbstractHiveProperties {
         // @see com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils
         // todo support other parameters
         hiveConf = new HiveConf();
-        hiveConf.addResource(ossProperties.hadoopStorageConfig);
+        hiveConf.addResource(ossAdapter.getHadoopStorageConfig());
         hiveConf.set(DataLakeConfig.CATALOG_ACCESS_KEY_ID, baseProperties.dlfAccessKey);
         hiveConf.set(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, baseProperties.dlfSecretKey);
         hiveConf.set(DataLakeConfig.CATALOG_ENDPOINT, baseProperties.dlfEndpoint);

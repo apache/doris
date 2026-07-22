@@ -34,8 +34,6 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.HdfsPropertiesUtils;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
@@ -47,6 +45,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -613,8 +612,9 @@ public class OutFileClause {
         if (null != brokerDesc.getStorageType() && (brokerDesc.getStorageType()
                 .equals(StorageBackend.StorageType.HDFS)
                 || brokerDesc.getStorageType().equals(StorageBackend.StorageType.JFS))) {
-            String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
-            brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
+            String defaultFs = extractDefaultFsFromPath(filePath);
+            // "fs.defaultFS" is the exact literal of the legacy HdfsProperties.HDFS_DEFAULT_FS_NAME.
+            brokerDesc.getBackendConfigProperties().put("fs.defaultFS", defaultFs);
         }
     }
 
@@ -767,5 +767,14 @@ public class OutFileClause {
             sinkOptions.setOrcSchema(serializeOrcSchema());
         }
         return sinkOptions;
+    }
+
+    /** Direct copy of the legacy {@code HdfsPropertiesUtils.extractDefaultFsFromPath} pure function. */
+    private static String extractDefaultFsFromPath(String filePath) {
+        if (StringUtils.isBlank(filePath)) {
+            return null;
+        }
+        URI uri = URI.create(filePath);
+        return uri.getScheme() + "://" + uri.getAuthority();
     }
 }

@@ -20,8 +20,8 @@ package org.apache.doris.datasource.credentials;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonRestMetaStoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.FileIO;
@@ -53,9 +53,9 @@ public class VendedCredentialsFactoryTest {
         Mockito.when(table.io()).thenReturn(fileIO);
         Mockito.when(fileIO.properties()).thenReturn(ioProperties);
 
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(icebergProperties, baseStorageMap, table);
 
         // Should return the result from IcebergVendedCredentialsProvider or fall back to base map
@@ -72,9 +72,9 @@ public class VendedCredentialsFactoryTest {
         // Mock Paimon table
         org.apache.paimon.table.Table paimonTable = Mockito.mock(org.apache.paimon.table.Table.class);
 
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(paimonProperties, baseStorageMap, paimonTable);
 
         // Should return the result from PaimonVendedCredentialsProvider or fall back to base map
@@ -88,9 +88,9 @@ public class VendedCredentialsFactoryTest {
         Mockito.when(hmsProperties.getType()).thenReturn(MetastoreProperties.Type.HMS);
 
         Object table = new Object();
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(hmsProperties, baseStorageMap, table);
 
         // Should return the base storage map for unsupported types
@@ -100,9 +100,9 @@ public class VendedCredentialsFactoryTest {
     @Test
     public void testGetStoragePropertiesMapWithVendedCredentialsWithNullMetastore() {
         Object table = new Object();
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(null, baseStorageMap, table);
 
         // Should return the base storage map when metastore is null
@@ -115,9 +115,9 @@ public class VendedCredentialsFactoryTest {
         Mockito.when(icebergProperties.getType()).thenReturn(MetastoreProperties.Type.ICEBERG);
         Mockito.when(icebergProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(true);
 
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(icebergProperties, baseStorageMap, null);
 
         // Should return the base storage map when table is null
@@ -131,9 +131,9 @@ public class VendedCredentialsFactoryTest {
         Mockito.when(problematicProperties.getType()).thenReturn(MetastoreProperties.Type.ICEBERG);
 
         Object table = new Object(); // Wrong type will cause ClassCastException
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(problematicProperties, baseStorageMap, table);
 
         // Should return the base storage map when there's an exception
@@ -143,9 +143,9 @@ public class VendedCredentialsFactoryTest {
     @Test
     public void testGetStoragePropertiesMapWithNonEmptyBaseStorageMap() {
         // Create base storage map with some properties
-        StorageProperties baseS3Properties = Mockito.mock(StorageProperties.class);
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
-        baseStorageMap.put(Type.S3, baseS3Properties);
+        StorageAdapter baseS3Properties = Mockito.mock(StorageAdapter.class);
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
+        baseStorageMap.put(StorageTypeId.S3, baseS3Properties);
 
         // Mock unsupported metastore type
         MetastoreProperties hmsProperties = Mockito.mock(MetastoreProperties.class);
@@ -153,13 +153,13 @@ public class VendedCredentialsFactoryTest {
 
         Object table = new Object();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(hmsProperties, baseStorageMap, table);
 
         // Should return the base storage map
         Assertions.assertEquals(baseStorageMap, result);
         Assertions.assertEquals(1, result.size());
-        Assertions.assertEquals(baseS3Properties, result.get(Type.S3));
+        Assertions.assertEquals(baseS3Properties, result.get(StorageTypeId.S3));
     }
 
     @Test
@@ -169,9 +169,9 @@ public class VendedCredentialsFactoryTest {
         Mockito.when(icebergProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(false);
 
         Table table = Mockito.mock(Table.class);
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> baseStorageMap = new HashMap<>();
 
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(icebergProperties, baseStorageMap, table);
 
         // Should return the base storage map when vended credentials are disabled
@@ -192,7 +192,7 @@ public class VendedCredentialsFactoryTest {
         Mockito.when(icebergTable.io()).thenReturn(fileIO);
         Mockito.when(fileIO.properties()).thenReturn(new HashMap<>());
 
-        Map<Type, StorageProperties> result1 = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result1 = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(icebergProperties, new HashMap<>(), icebergTable);
 
         // Should use IcebergVendedCredentialsProvider
@@ -204,7 +204,7 @@ public class VendedCredentialsFactoryTest {
 
         org.apache.paimon.table.Table paimonTable = Mockito.mock(org.apache.paimon.table.Table.class);
 
-        Map<Type, StorageProperties> result2 = VendedCredentialsFactory
+        Map<StorageTypeId, StorageAdapter> result2 = VendedCredentialsFactory
                 .getStoragePropertiesMapWithVendedCredentials(paimonProperties, new HashMap<>(), paimonTable);
 
         // Should use PaimonVendedCredentialsProvider
