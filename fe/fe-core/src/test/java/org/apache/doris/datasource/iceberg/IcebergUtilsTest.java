@@ -79,6 +79,28 @@ import java.util.UUID;
 
 public class IcebergUtilsTest {
     @Test
+    public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(table.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        Assert.assertEquals(org.apache.iceberg.FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
+        // Do not call newScan planFiles()
+        Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testGetFileFormatUsesConfiguredTableFormat() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
+
+        Assert.assertEquals(org.apache.iceberg.FileFormat.ORC, IcebergUtils.getFileFormat(table));
+        // Do not call newScan planFiles()
+        Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
     public void testGetIcebergViewUsesSessionCatalogWithDelegatedCredential() {
         ConnectContext context = new ConnectContext();
         SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
@@ -340,6 +362,20 @@ public class IcebergUtilsTest {
         Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
         Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
         Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
+    }
+
+    @Test
+    public void testParseSchemaPreservesNestedNonBinaryInitialDefault() {
+        Schema schema = new Schema(Types.NestedField.optional(10, "s", Types.StructType.of(
+                Types.NestedField.optional("added_int")
+                        .withId(11)
+                        .ofType(Types.IntegerType.get())
+                        .withInitialDefault(7)
+                        .build())));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+
+        Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
     }
 
     @Test

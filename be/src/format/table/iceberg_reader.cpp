@@ -54,6 +54,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg/iceberg_orc_nested_column_utils.h"
 #include "format/table/iceberg/iceberg_parquet_nested_column_utils.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/nested_column_access_helper.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_state.h"
@@ -75,6 +76,22 @@ class VExprContext;
 
 namespace doris {
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
+
+namespace {
+
+bool orc_subtree_has_iceberg_id(const orc::Type* type, const std::string& attribute) {
+    if (type->hasAttributeKey(attribute)) {
+        return true;
+    }
+    for (uint64_t idx = 0; idx < type->getSubtypeCount(); ++idx) {
+        if (orc_subtree_has_iceberg_id(type->getSubtype(idx), attribute)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 bool IcebergTableReader::_is_fully_dictionary_encoded(
         const tparquet::ColumnMetaData& column_metadata) {
@@ -149,7 +166,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     } else {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
                 get_scan_params().history_schema_info.front().root_field, *field_desc,
-                ctx->table_info_node));
+                ctx->table_info_node, supports_iceberg_scan_semantics_v1(&get_scan_params())));
     }
 
     std::unordered_set<std::string> partition_col_names;
@@ -243,15 +260,22 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
     std::unordered_map<int, const FieldSchema*> field_id_to_file_column;
     bool all_file_columns_have_field_ids = true;
+    bool any_file_column_has_field_id = false;
     for (int i = 0; i < field_desc->size(); ++i) {
         const auto* field_schema = field_desc->get_column(i);
         if (field_schema) {
-            field_id_to_file_column[field_schema->field_id] = field_schema;
             if (field_schema->field_id < 0) {
                 all_file_columns_have_field_ids = false;
+            } else {
+                any_file_column_has_field_id = true;
+                field_id_to_file_column[field_schema->field_id] = field_schema;
             }
         }
     }
+    const bool use_field_ids_for_hidden_keys =
+            supports_iceberg_scan_semantics_v1(&get_scan_params())
+                    ? any_file_column_has_field_id
+                    : all_file_columns_have_field_ids;
     const auto struct_node =
             std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(ctx->table_info_node);
     DORIS_CHECK(struct_node != nullptr);
@@ -270,25 +294,30 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
 
         const FieldSchema* file_column = nullptr;
-        if (!all_file_columns_have_field_ids && struct_node->get_children().contains(old_name) &&
-            struct_node->children_column_exists(old_name)) {
-            // Iceberg files written without field ids must use schema.name-mapping.default. The
-            // root schema mapper deliberately switches the whole file to BY_NAME when even one
-            // top-level field id is absent. Hidden equality keys must make the same choice: a
-            // different physical column may still carry this key's stale id after migration.
-            const auto& mapped_name = struct_node->children_file_column_name(old_name);
-            for (int j = 0; j < field_desc->size(); ++j) {
-                const auto* candidate = field_desc->get_column(j);
-                if (candidate != nullptr && candidate->name == mapped_name) {
-                    file_column = candidate;
-                    break;
-                }
-            }
-            DORIS_CHECK(file_column != nullptr);
-        } else if (all_file_columns_have_field_ids) {
+        if (use_field_ids_for_hidden_keys) {
             auto id_it = field_id_to_file_column.find(field_id);
             if (id_it != field_id_to_file_column.end()) {
                 file_column = id_it->second;
+            }
+        } else {
+            std::string table_column_name = old_name;
+            if (const auto* table_field = _find_current_schema_field(field_id);
+                table_field != nullptr && table_field->__isset.name) {
+                table_column_name = table_field->name;
+            }
+            // Delete files may retain a pre-rename key name, while StructNode is keyed by the
+            // current table name. Resolve that name by stable field ID before following BY_NAME.
+            if (struct_node->get_children().contains(table_column_name) &&
+                struct_node->children_column_exists(table_column_name)) {
+                const auto& mapped_name = struct_node->children_file_column_name(table_column_name);
+                for (int j = 0; j < field_desc->size(); ++j) {
+                    const auto* candidate = field_desc->get_column(j);
+                    if (candidate != nullptr && candidate->name == mapped_name) {
+                        file_column = candidate;
+                        break;
+                    }
+                }
+                DORIS_CHECK(file_column != nullptr);
             }
         }
 
@@ -364,15 +393,27 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(
                 IcebergParquetNestedColumnUtils::extract_nested_column_ids);
     };
 
+    // The Iceberg schema-mapping root is a StructNode whose registered children are the real
+    // table columns. When present, resolve each column by name through it so the column-id set
+    // stays consistent with the schema-mapping decision (BY_ID or BY_NAME/name-mapping);
+    // otherwise fall back to matching by Iceberg field id.
+    const auto* struct_node =
+            dynamic_cast<const TableSchemaChangeHelper::StructNode*>(table_info_node.get());
+
     for (const auto* slot : tuple_descriptor->slots()) {
         const FieldSchema* field_schema = nullptr;
-        if (table_info_node != nullptr) {
-            if (table_info_node->children_column_exists(slot->col_name())) {
+        if (struct_node != nullptr) {
+            // Synthesized/metadata slots (e.g. the TopN global row-id or the $row_id column) are
+            // never registered as children, so check membership before querying: calling
+            // children_column_exists() on an unregistered name DCHECK-aborts in debug builds and
+            // throws std::out_of_range from .at() in release builds.
+            if (struct_node->get_children().contains(slot->col_name()) &&
+                struct_node->children_column_exists(slot->col_name())) {
                 // Use the physical child selected by the schema-mapping pass. This keeps partial-id
                 // files in BY_NAME mode from binding a projected column through an unrelated stale
                 // field id.
                 const auto& file_column_name =
-                        table_info_node->children_file_column_name(slot->col_name());
+                        struct_node->children_file_column_name(slot->col_name());
                 for (int i = 0; i < field_desc->size(); ++i) {
                     const auto* candidate = field_desc->get_column(i);
                     if (candidate != nullptr && candidate->name == file_column_name) {
@@ -485,7 +526,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     } else {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
                 get_scan_params().history_schema_info.front().root_field, orc_type_ptr,
-                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node));
+                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node,
+                supports_iceberg_scan_semantics_v1(&get_scan_params())));
     }
 
     std::unordered_set<std::string> partition_col_names;
@@ -581,6 +623,10 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             all_file_columns_have_field_ids = false;
         }
     }
+    const bool use_field_ids_for_hidden_keys =
+            supports_iceberg_scan_semantics_v1(&get_scan_params())
+                    ? orc_subtree_has_iceberg_id(orc_type_ptr, ICEBERG_ORC_ATTRIBUTE)
+                    : all_file_columns_have_field_ids;
     const auto struct_node =
             std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(ctx->table_info_node);
     DORIS_CHECK(struct_node != nullptr);
@@ -597,23 +643,28 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
 
         const orc::Type* file_column = nullptr;
-        if (!all_file_columns_have_field_ids && struct_node->get_children().contains(old_name) &&
-            struct_node->children_column_exists(old_name)) {
-            // Match the root ORC schema mapper's all-or-nothing BY_NAME decision. Accepting a
-            // matching id in a partial-id file could bind this hidden key to an unrelated stale
-            // column instead of the current name or historical alias selected by table_info_node.
-            const auto& mapped_name = struct_node->children_file_column_name(old_name);
-            for (uint64_t j = 0; j < orc_type_ptr->getSubtypeCount(); ++j) {
-                if (orc_type_ptr->getFieldName(j) == mapped_name) {
-                    file_column = orc_type_ptr->getSubtype(j);
-                    break;
-                }
-            }
-            DORIS_CHECK(file_column != nullptr);
-        } else if (all_file_columns_have_field_ids) {
+        if (use_field_ids_for_hidden_keys) {
             auto id_it = field_id_to_file_column.find(field_id);
             if (id_it != field_id_to_file_column.end()) {
                 file_column = id_it->second;
+            }
+        } else {
+            std::string table_column_name = old_name;
+            if (const auto* table_field = _find_current_schema_field(field_id);
+                table_field != nullptr && table_field->__isset.name) {
+                table_column_name = table_field->name;
+            }
+            // The mapping node uses current names even when an older delete file does not.
+            if (struct_node->get_children().contains(table_column_name) &&
+                struct_node->children_column_exists(table_column_name)) {
+                const auto& mapped_name = struct_node->children_file_column_name(table_column_name);
+                for (uint64_t j = 0; j < orc_type_ptr->getSubtypeCount(); ++j) {
+                    if (orc_type_ptr->getFieldName(j) == mapped_name) {
+                        file_column = orc_type_ptr->getSubtype(j);
+                        break;
+                    }
+                }
+                DORIS_CHECK(file_column != nullptr);
             }
         }
 
@@ -691,15 +742,27 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(
                 IcebergOrcNestedColumnUtils::extract_nested_column_ids);
     };
 
+    // The Iceberg schema-mapping root is a StructNode whose registered children are the real
+    // table columns. When present, resolve each column by name through it so the column-id set
+    // stays consistent with the schema-mapping decision (BY_ID or BY_NAME/name-mapping);
+    // otherwise fall back to matching by Iceberg field id.
+    const auto* struct_node =
+            dynamic_cast<const TableSchemaChangeHelper::StructNode*>(table_info_node.get());
+
     for (const auto* slot : tuple_descriptor->slots()) {
         const orc::Type* orc_field = nullptr;
-        if (table_info_node != nullptr) {
-            if (table_info_node->children_column_exists(slot->col_name())) {
+        if (struct_node != nullptr) {
+            // Synthesized/metadata slots (e.g. the TopN global row-id or the $row_id column) are
+            // never registered as children, so check membership before querying: calling
+            // children_column_exists() on an unregistered name DCHECK-aborts in debug builds and
+            // throws std::out_of_range from .at() in release builds.
+            if (struct_node->get_children().contains(slot->col_name()) &&
+                struct_node->children_column_exists(slot->col_name())) {
                 // Select the physical child resolved by the shared schema-mapping pass. Hidden
                 // equality keys and projected columns must obey the same BY_NAME decision for
                 // partial-id ORC files.
                 const auto& file_column_name =
-                        table_info_node->children_file_column_name(slot->col_name());
+                        struct_node->children_file_column_name(slot->col_name());
                 for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
                     if (orc_type->getFieldName(i) == file_column_name) {
                         orc_field = orc_type->getSubtype(i);

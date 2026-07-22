@@ -39,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
@@ -962,12 +963,15 @@ Status select_row_groups_by_metadata_impl(
     selected_row_groups->clear();
 
     const int num_row_groups = metadata.num_row_groups();
-    if (pruning_stats != nullptr) {
-        pruning_stats->total_row_groups = num_row_groups;
-    }
     const auto candidate_size = candidate_row_groups == nullptr
                                         ? static_cast<size_t>(num_row_groups)
                                         : candidate_row_groups->size();
+    if (pruning_stats != nullptr) {
+        // Scan-range ownership is decided before metadata pruning. Count only row groups owned by
+        // this split so a file divided into multiple splits does not report the full-file total and
+        // out-of-split groups once per split.
+        pruning_stats->total_row_groups = cast_set<int64_t>(candidate_size);
+    }
     selected_row_groups->reserve(candidate_size);
     RowGroupBloomFilterCache bloom_filter_cache;
     init_bloom_filter_cache(file_reader, enable_bloom_filter, &bloom_filter_cache);
@@ -1042,8 +1046,8 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
         page_idx >= typed_index->max_values().size()) {
         return false;
     }
-    const auto& min_value = typed_index->min_values()[page_idx];
-    const auto& max_value = typed_index->max_values()[page_idx];
+    const typename ParquetDType::c_type min_value = typed_index->min_values()[page_idx];
+    const typename ParquetDType::c_type max_value = typed_index->max_values()[page_idx];
     if constexpr (std::is_same_v<ParquetDType, ::parquet::Int64Type>) {
         if (!timestamp_min_max_is_safe(column_schema, min_value, max_value, timezone)) {
             return false;

@@ -536,6 +536,7 @@ DECLARE_mInt64(vertical_compaction_max_segment_size);
 DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 // Enable RLE batch Put optimization for compaction
 DECLARE_mBool(enable_rle_batch_put_optimization);
+DECLARE_Bool(enable_bmi2_optimizations);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -1759,6 +1760,9 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+// Max incremental merges on one query cache entry before forcing a full
+// recompute to compact the entry (see query_cache.h QueryCacheRuntime).
+DECLARE_mInt32(query_cache_max_incremental_merge_count);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 // Enable validation to check the correctness of table size.

@@ -99,6 +99,29 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     return range;
 }
 
+TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
+    EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
+                                               TPushAggOp::type::COUNT, std::vector<int32_t> {}));
+
+    // A missing field is an old FE plan with unknown COUNT semantics, not COUNT(*).
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::nullopt));
+    // V1 cannot evaluate COUNT(col) NULL/CAST semantics before replacing the reader with
+    // CountReader, so an explicit argument must use the normal scan path.
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::vector<int32_t> {7}));
+
+    // The COUNT argument field must not affect other storage-layer aggregate operations.
+    EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
+                                                TPushAggOp::type::MINMAX, std::nullopt));
+}
+
+TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };
@@ -707,6 +730,16 @@ TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
 }
 
+TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("empty file"), false));
+    // Deletion-vector and Parquet readers also use EOF to unwind an interrupted read. Once either
+    // scanner stop flag is visible, the same status is no longer evidence of an empty file.
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("stop read."), true));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed"), false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
+}
+
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.
@@ -772,8 +805,8 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to
-// TableReader. Explicit slot-id mappings use the required_slots order; missing mappings fall back
-// to the slot id itself for legacy descriptors.
+// TableReader. Explicit slot-id mappings use the required_slots order; missing mappings are an
+// error because a scanner slot id is not a table-global ordinal.
 TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     {
@@ -789,11 +822,8 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     {
         auto expr = slot_ref(7, 99, int_type, "legacy_value");
         const auto status = FileScannerV2::TEST_rewrite_slot_refs_to_global_index(&expr, {});
-        ASSERT_TRUE(status.ok()) << status;
-        const auto* rewritten = assert_cast<const VSlotRef*>(expr.get());
-        EXPECT_EQ(rewritten->slot_id(), 7);
-        EXPECT_EQ(rewritten->column_id(), 7);
-        EXPECT_EQ(rewritten->column_name(), "legacy_value");
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Can not resolve source slot id 7"), std::string::npos);
     }
     {
         auto cast_expr = format::Cast::create_shared(int_type);

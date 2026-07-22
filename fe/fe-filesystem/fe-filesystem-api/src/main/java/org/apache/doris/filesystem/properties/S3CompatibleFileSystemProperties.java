@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.properties;
 
+import java.util.Set;
+
 /**
  * Shared typed accessors for S3-compatible object storage properties.
  *
@@ -64,6 +66,16 @@ public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
 
     /** Returns whether path-style bucket addressing is enabled, as a raw provider property value. */
     String getUsePathStyle();
+
+    /**
+     * Returns the URI schemes this provider accepts, lower-cased (e.g. {@code {s3, s3a, oss}}).
+     *
+     * <p>This is the single source of truth for the provider's scheme identity: URI parsing
+     * rejects any scheme not in this set (so a COS provider refuses {@code oss://}), and
+     * scheme-to-storage routing can read the same set. Every S3-compatible provider accepts the
+     * historically normalized {@code s3}/{@code s3a} form in addition to its native scheme(s).
+     */
+    Set<String> getSupportedSchemes();
 
     /**
      * Returns path-style bucket addressing as a parsed boolean (single conversion point).

@@ -19,7 +19,7 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 --------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_dow = 1) and d_year IN (1998, 1999, 2000))
+----------------------------------filter((date_dim.d_dow = 1) and date_dim.d_year IN (1998, 1999, 2000))
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter((store.s_number_employees <= 295) and (store.s_number_employees >= 200))

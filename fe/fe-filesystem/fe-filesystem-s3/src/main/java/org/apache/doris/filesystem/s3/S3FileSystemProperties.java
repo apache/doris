@@ -36,6 +36,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -211,6 +212,11 @@ public final class S3FileSystemProperties
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid S3 filesystem properties");
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return Set.of("s3", "s3a", "s3n");
     }
 
     @Override

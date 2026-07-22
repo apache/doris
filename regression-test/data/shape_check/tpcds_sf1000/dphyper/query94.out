@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------hashAgg[GLOBAL]
 ------------PhysicalProject
---------------hashJoin[RIGHT_SEMI_JOIN shuffleBucket] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF4 ws_order_number->ws_order_number
+--------------hashJoin[RIGHT_SEMI_JOIN shuffleBucket] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws1.ws_warehouse_sk = ws2.ws_warehouse_sk))) build RFs:RF4 ws_order_number->ws_order_number
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF4
 ----------------hashJoin[RIGHT_ANTI_JOIN shuffle] hashCondition=((ws1.ws_order_number = wr1.wr_order_number)) otherCondition=() build RFs:RF3 ws_order_number->wr_order_number

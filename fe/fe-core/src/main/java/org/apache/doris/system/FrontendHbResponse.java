@@ -44,6 +44,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private long feStartTime;
     private long processUUID;
     private List<FeDiskInfo> diskInfos;
+    private String localResourceGroup;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
@@ -52,7 +53,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     public FrontendHbResponse(String name, int queryPort, int rpcPort, int arrowFlightSqlPort,
             long replayedJournalId, long hbTime, String version,
             long feStartTime, List<FeDiskInfo> diskInfos,
-            long processUUID) {
+            long processUUID, String localResourceGroup) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -65,6 +66,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.feStartTime = feStartTime;
         this.diskInfos = diskInfos;
         this.processUUID = processUUID;
+        this.localResourceGroup = localResourceGroup;
     }
 
     public FrontendHbResponse(String name, String errMsg) {
@@ -111,6 +113,10 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         return diskInfos;
     }
 
+    public String getLocalResourceGroup() {
+        return localResourceGroup;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -123,6 +129,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", replayedJournalId: ").append(replayedJournalId);
         sb.append(", feStartTime: ").append(feStartTime);
         sb.append(", processUUID: ").append(processUUID);
+        sb.append(", localResourceGroup: ").append(localResourceGroup);
         return sb.toString();
     }
 

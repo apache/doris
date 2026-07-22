@@ -70,6 +70,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateSchema;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog;
@@ -80,7 +81,6 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
-import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -138,7 +138,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         // properties. For any other catalog type this is null (session disabled).
         this.userSessionCatalog = dorisCatalog instanceof IcebergUserSessionCatalog
                 ? (IcebergUserSessionCatalog) dorisCatalog : null;
-        RESTSessionCatalog restSessionCatalog =
+        BaseViewSessionCatalog restSessionCatalog =
                 userSessionCatalog == null ? null : userSessionCatalog.getRestSessionCatalog();
         IcebergRestProperties.DelegatedTokenMode delegatedTokenMode =
                 userSessionCatalog == null ? IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN
@@ -1969,7 +1969,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return defaultViewCatalog;
     }
 
-    private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, RESTSessionCatalog restSessionCatalog,
+    private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, BaseViewSessionCatalog restSessionCatalog,
             boolean viewEnabled) {
         // Branch on whether this is a REST (session-aware) catalog, not on whether restSessionCatalog happens to
         // be built: for REST the default Catalog (asCatalog) is not a ViewCatalog, so views must come from the

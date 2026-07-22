@@ -35,6 +35,7 @@
 #include "core/types.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/parquet_utils.h"
+#include "format_v2/table/iceberg_schema_utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
@@ -132,24 +133,24 @@ void set_iceberg_delete_field_id(ColumnDefinition* column) {
     }
 }
 
-bool has_field_id(const std::vector<ColumnDefinition>& schema) {
-    for (const auto& field : schema) {
-        if (!field.has_identifier_field_id()) {
-            return false;
-        }
-        if (!has_field_id(field.children)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 class PositionDeleteFileTableReader final : public format::TableReader {
 protected:
     format::TableColumnMappingMode mapping_mode() const override {
-        return !_data_reader.file_schema.empty() && has_field_id(_data_reader.file_schema)
-                       ? format::TableColumnMappingMode::BY_FIELD_ID
-                       : format::TableColumnMappingMode::BY_NAME;
+        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
+                                           ? schema_has_any_field_id(_data_reader.file_schema)
+                                           : schema_has_all_field_ids(_data_reader.file_schema);
+        if (!_data_reader.file_schema.empty() && has_field_ids) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        return format::TableColumnMappingMode::BY_NAME;
+    }
+
+    void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
+        // Parquet may preserve a selected complex wrapper without its own ID; position-delete row
+        // projection must use the same descendant-ID fallback as ordinary Iceberg data scans.
+        options->allow_idless_complex_wrapper_projection =
+                supports_iceberg_scan_semantics_v1(_scan_params) &&
+                _format == format::FileFormat::PARQUET;
     }
 };
 

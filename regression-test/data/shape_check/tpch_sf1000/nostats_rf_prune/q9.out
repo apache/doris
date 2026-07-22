@@ -20,7 +20,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[orders]
 --------------------------PhysicalProject
-----------------------------filter((p_name like '%green%'))
+----------------------------filter((part.p_name like '%green%'))
 ------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[partsupp]

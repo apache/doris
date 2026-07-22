@@ -45,6 +45,12 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
 
     sql """set enable_file_cache=true"""
     sql """set disable_file_cache=false"""
+    // This case validates BlockFileCache counters. Keep upper-layer caches and scan scheduling
+    // from serving or cancelling the repeated read before it reaches BlockFileCache.
+    sql """set enable_sql_cache=false"""
+    sql """set enable_hive_sql_cache=false"""
+    sql """set enable_parquet_file_page_cache=false"""
+    sql """set parallel_pipeline_task_num=1"""
 
     // Check backend configuration prerequisites
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent 
@@ -82,8 +88,10 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
 
     sql """switch ${catalog_name}"""
 
+    // Pin the query to one partition file instead of racing all six file scan ranges under LIMIT 1.
     String querySql = """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
-            where l_orderkey=1 and l_partkey=1534 limit 1;"""
+            where nation='cn' and city='beijing'
+            and l_orderkey=1 and l_partkey=1534 limit 1;"""
 
     // load the table into file cache
     sql querySql
