@@ -4,6 +4,9 @@ These benchmarks separate native page decoding from the complete local-file read
 deterministic data and verify the physical encoding recorded in each generated Parquet footer before
 running a measurement.
 
+Agents and maintainers must read [AGENTS.md](AGENTS.md) for the exact timing boundaries, synthetic
+data rules, result interpretation, current coverage limitations, and prioritized follow-up work.
+
 ## Build
 
 Build the Release benchmark binary from the repository root:
