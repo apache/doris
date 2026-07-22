@@ -59,6 +59,7 @@
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
 namespace cctz {
 class time_zone;
@@ -276,22 +277,23 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             supports_iceberg_scan_semantics_v1(&get_scan_params())
                     ? any_file_column_has_field_id
                     : all_file_columns_have_field_ids;
-    const auto struct_node =
-            std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(ctx->table_info_node);
-    DORIS_CHECK(struct_node != nullptr);
+    const auto find_file_column_by_name = [&](const std::string& name) -> const FieldSchema* {
+        for (int j = 0; j < field_desc->size(); ++j) {
+            const auto* candidate = field_desc->get_column(j);
+            if (candidate != nullptr && iequal(candidate->name, name)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
 
     // Rebuild _expand_col_names with proper file-column-based names
     std::vector<std::string> new_expand_col_names;
+    DORIS_CHECK(_expand_col_names.size() == _expand_col_field_ids.size());
+    DORIS_CHECK(_expand_col_names.size() == _expand_columns.size());
     for (size_t i = 0; i < _expand_col_names.size(); ++i) {
         const auto& old_name = _expand_col_names[i];
-        // Find the field_id for this expand column
-        int field_id = -1;
-        for (auto& [fid, name] : _id_to_block_column_name) {
-            if (name == old_name) {
-                field_id = fid;
-                break;
-            }
-        }
+        const int32_t field_id = _expand_col_field_ids[i];
 
         const FieldSchema* file_column = nullptr;
         if (use_field_ids_for_hidden_keys) {
@@ -300,29 +302,33 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                 file_column = id_it->second;
             }
         } else {
-            std::string table_column_name = old_name;
-            if (const auto* table_field = _find_current_schema_field(field_id);
-                table_field != nullptr && table_field->__isset.name) {
-                table_column_name = table_field->name;
-            }
-            // Delete files may retain a pre-rename key name, while StructNode is keyed by the
-            // current table name. Resolve that name by stable field ID before following BY_NAME.
-            if (struct_node->get_children().contains(table_column_name) &&
-                struct_node->children_column_exists(table_column_name)) {
-                const auto& mapped_name = struct_node->children_file_column_name(table_column_name);
-                for (int j = 0; j < field_desc->size(); ++j) {
-                    const auto* candidate = field_desc->get_column(j);
-                    if (candidate != nullptr && candidate->name == mapped_name) {
-                        file_column = candidate;
+            const auto* table_field = _find_schema_field(field_id);
+            const bool authoritative_name_mapping =
+                    table_field != nullptr && table_field->__isset.name_mapping &&
+                    table_field->__isset.name_mapping_is_authoritative &&
+                    table_field->name_mapping_is_authoritative;
+            if (table_field != nullptr && table_field->__isset.name_mapping) {
+                for (const auto& mapped_name : table_field->name_mapping) {
+                    file_column = find_file_column_by_name(mapped_name);
+                    if (file_column != nullptr) {
                         break;
                     }
                 }
-                DORIS_CHECK(file_column != nullptr);
+            }
+            if (file_column == nullptr && !authoritative_name_mapping && table_field != nullptr &&
+                table_field->__isset.name) {
+                file_column = find_file_column_by_name(table_field->name);
+            }
+            if (file_column == nullptr && !authoritative_name_mapping) {
+                // A schema-history fallback may carry a name from after the target snapshot. The
+                // delete-file key name is target-relative, but it must never override an explicit
+                // authoritative Iceberg name mapping.
+                file_column = find_file_column_by_name(old_name);
             }
         }
 
         const std::string file_col_name = file_column == nullptr ? old_name : file_column->name;
-        std::string table_col_name = EQ_DELETE_PRE + file_col_name;
+        std::string table_col_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + file_col_name;
 
         // Update _id_to_block_column_name
         if (field_id >= 0) {
@@ -330,12 +336,9 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
 
         // Update _expand_columns name
-        if (i < _expand_columns.size()) {
-            _expand_columns[i].name = table_col_name;
-        }
+        _expand_columns[i].name = table_col_name;
 
         if (file_column == nullptr) {
-            DORIS_CHECK(i < _expand_columns.size());
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, table_col_name,
                                                                      _expand_columns[i].type));
             // The old data file predates this equality key. Keep it in the expand block so the
@@ -627,20 +630,21 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             supports_iceberg_scan_semantics_v1(&get_scan_params())
                     ? orc_subtree_has_iceberg_id(orc_type_ptr, ICEBERG_ORC_ATTRIBUTE)
                     : all_file_columns_have_field_ids;
-    const auto struct_node =
-            std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(ctx->table_info_node);
-    DORIS_CHECK(struct_node != nullptr);
-
-    std::vector<std::string> new_expand_col_names;
-    for (size_t i = 0; i < _expand_col_names.size(); ++i) {
-        const auto& old_name = _expand_col_names[i];
-        int field_id = -1;
-        for (auto& [fid, name] : _id_to_block_column_name) {
-            if (name == old_name) {
-                field_id = fid;
-                break;
+    const auto find_file_column_by_name = [&](const std::string& name) -> const orc::Type* {
+        for (uint64_t j = 0; j < orc_type_ptr->getSubtypeCount(); ++j) {
+            if (iequal(orc_type_ptr->getFieldName(j), name)) {
+                return orc_type_ptr->getSubtype(j);
             }
         }
+        return nullptr;
+    };
+
+    std::vector<std::string> new_expand_col_names;
+    DORIS_CHECK(_expand_col_names.size() == _expand_col_field_ids.size());
+    DORIS_CHECK(_expand_col_names.size() == _expand_columns.size());
+    for (size_t i = 0; i < _expand_col_names.size(); ++i) {
+        const auto& old_name = _expand_col_names[i];
+        const int32_t field_id = _expand_col_field_ids[i];
 
         const orc::Type* file_column = nullptr;
         if (use_field_ids_for_hidden_keys) {
@@ -649,22 +653,25 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                 file_column = id_it->second;
             }
         } else {
-            std::string table_column_name = old_name;
-            if (const auto* table_field = _find_current_schema_field(field_id);
-                table_field != nullptr && table_field->__isset.name) {
-                table_column_name = table_field->name;
-            }
-            // The mapping node uses current names even when an older delete file does not.
-            if (struct_node->get_children().contains(table_column_name) &&
-                struct_node->children_column_exists(table_column_name)) {
-                const auto& mapped_name = struct_node->children_file_column_name(table_column_name);
-                for (uint64_t j = 0; j < orc_type_ptr->getSubtypeCount(); ++j) {
-                    if (orc_type_ptr->getFieldName(j) == mapped_name) {
-                        file_column = orc_type_ptr->getSubtype(j);
+            const auto* table_field = _find_schema_field(field_id);
+            const bool authoritative_name_mapping =
+                    table_field != nullptr && table_field->__isset.name_mapping &&
+                    table_field->__isset.name_mapping_is_authoritative &&
+                    table_field->name_mapping_is_authoritative;
+            if (table_field != nullptr && table_field->__isset.name_mapping) {
+                for (const auto& mapped_name : table_field->name_mapping) {
+                    file_column = find_file_column_by_name(mapped_name);
+                    if (file_column != nullptr) {
                         break;
                     }
                 }
-                DORIS_CHECK(file_column != nullptr);
+            }
+            if (file_column == nullptr && !authoritative_name_mapping && table_field != nullptr &&
+                table_field->__isset.name) {
+                file_column = find_file_column_by_name(table_field->name);
+            }
+            if (file_column == nullptr && !authoritative_name_mapping) {
+                file_column = find_file_column_by_name(old_name);
             }
         }
 
@@ -677,16 +684,13 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                 }
             }
         }
-        std::string table_col_name = EQ_DELETE_PRE + file_col_name;
+        std::string table_col_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + file_col_name;
 
         if (field_id >= 0) {
             _id_to_block_column_name[field_id] = table_col_name;
         }
-        if (i < _expand_columns.size()) {
-            _expand_columns[i].name = table_col_name;
-        }
+        _expand_columns[i].name = table_col_name;
         if (file_column == nullptr) {
-            DORIS_CHECK(i < _expand_columns.size());
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, table_col_name,
                                                                      _expand_columns[i].type));
             // The old data file predates this equality key. Keep it in the expand block so the

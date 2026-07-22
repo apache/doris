@@ -457,6 +457,9 @@ public:
 private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
     std::vector<std::string> _read_column_names;
+    // Hold the resolved type with the one-row value so equivalent complex types reconstructed for
+    // later Blocks reuse the same Iceberg field-ID entry outside the batch path.
+    std::unordered_map<int32_t, std::pair<DataTypePtr, ColumnPtr>> _nested_initial_default_values;
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
 

@@ -618,10 +618,12 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetNestedMixedFieldIdsPreferExistin
               "        ScalarNode\n"
               "      b (not exists)\n");
     const auto nested_node = ans_node->get_children_node("s");
-    const auto default_value = nested_node->children_initial_default_value("b");
-    ASSERT_TRUE(default_value.has_value());
-    EXPECT_EQ(default_value->value, "AAEC/w==");
-    EXPECT_TRUE(default_value->is_base64);
+    const auto* default_field = nested_node->get_missing_column_field("b");
+    ASSERT_NE(default_field, nullptr);
+    ASSERT_TRUE(default_field->__isset.initial_default_value);
+    EXPECT_EQ(default_field->initial_default_value, "AAEC/w==");
+    ASSERT_TRUE(default_field->__isset.initial_default_value_is_base64);
+    EXPECT_TRUE(default_field->initial_default_value_is_base64);
 }
 
 TEST(MockTableSchemaChangeHelper, IcebergParquetLegacyPlanFallsBackForNestedMixedFieldIds) {
@@ -971,10 +973,12 @@ TEST(MockTableSchemaChangeHelper, IcebergOrcNestedMixedFieldIdsPreferExistingIds
               "        ScalarNode\n"
               "      b (not exists)\n");
     const auto nested_node = ans_node->get_children_node("s");
-    const auto default_value = nested_node->children_initial_default_value("b");
-    ASSERT_TRUE(default_value.has_value());
-    EXPECT_EQ(default_value->value, "AAEC/w==");
-    EXPECT_TRUE(default_value->is_base64);
+    const auto* default_field = nested_node->get_missing_column_field("b");
+    ASSERT_NE(default_field, nullptr);
+    ASSERT_TRUE(default_field->__isset.initial_default_value);
+    EXPECT_EQ(default_field->initial_default_value, "AAEC/w==");
+    ASSERT_TRUE(default_field->__isset.initial_default_value_is_base64);
+    EXPECT_TRUE(default_field->initial_default_value_is_base64);
 }
 
 TEST(MockTableSchemaChangeHelper, IcebergOrcDoesNotBindIdlessWrapperByName) {

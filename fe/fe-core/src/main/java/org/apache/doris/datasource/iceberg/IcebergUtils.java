@@ -95,6 +95,7 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
@@ -1122,18 +1123,9 @@ public class IcebergUtils {
         return epochSecond * 1_000_000L + microSecond;
     }
 
-    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField,
-            boolean enableMappingTimestampTz) {
+    private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField) {
         column.setUniqueId(icebergField.fieldId());
-        if (icebergField.initialDefault() != null) {
-            String serializedDefault = serializeInitialDefault(
-                    icebergField.type(), icebergField.initialDefault(), enableMappingTimestampTz);
-            // Column constructs complex children without Iceberg field metadata. Copy through the
-            // public default-info API so recursive fields retain their logical pre-add value.
-            Column defaultCarrier = new Column(column.getName(), column.getType(), false, null,
-                    column.isAllowNull(), serializedDefault, "");
-            column.setDefaultValueInfo(defaultCarrier);
-        }
+        column.setIsAllowNull(icebergField.isOptional());
         List<NestedField> icebergFields = Lists.newArrayList();
         switch (icebergField.type().typeId()) {
             case LIST:
@@ -1152,8 +1144,7 @@ public class IcebergUtils {
         if (column.getChildren() != null) {
             List<Column> childColumns = column.getChildren();
             for (int idx = 0; idx < childColumns.size(); idx++) {
-                updateIcebergColumnMetadata(
-                        childColumns.get(idx), icebergFields.get(idx), enableMappingTimestampTz);
+                updateIcebergColumnMetadata(childColumns.get(idx), icebergFields.get(idx));
             }
         }
     }
@@ -1202,28 +1193,34 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            String initialDefault = null;
-            if (field.initialDefault() != null) {
-                initialDefault = serializeInitialDefault(field.type(), field.initialDefault(),
-                        enableMappingTimestampTz);
-            }
-            Column column = new Column(field.name(),
-                    IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                    true, null, true, initialDefault, field.doc(), true, -1);
-            updateIcebergColumnMetadata(column, field, enableMappingTimestampTz);
-            if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
-                Types.TimestampType timestampType = (Types.TimestampType) field.type();
-                if (timestampType.shouldAdjustToUTC()) {
-                    column.setWithTZExtraInfo();
-                }
-            }
-            resSchema.add(column);
+            resSchema.add(parseField(field, enableMappingVarbinary, enableMappingTimestampTz));
         }
         return resSchema;
     }
 
+    /** Convert one Iceberg field to a Doris column without using the generic Doris default-value channel. */
+    public static Column parseField(Types.NestedField field, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
+        Column column = new Column(field.name(),
+                IcebergUtils.icebergTypeToDorisType(
+                        field.type(), enableMappingVarbinary, enableMappingTimestampTz),
+                true, null, true, null, field.doc(), true, -1);
+        updateIcebergColumnMetadata(column, field);
+        if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP
+                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()) {
+            column.setWithTZExtraInfo();
+        }
+        return column;
+    }
+
     private static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
             boolean enableMappingTimestampTz) {
+        if (type.isNestedType()) {
+            // Keep Iceberg's type-directed JSON representation for struct/list/map values. In
+            // particular, struct members are keyed by field id and an empty object is the V3
+            // non-null struct sentinel whose children are resolved from their own defaults.
+            return SingleValueParser.toJson(type, value);
+        }
         String humanValue = Transforms.identity(type).toHumanString(type, value);
         if (type.typeId() == TypeID.TIMESTAMP) {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
@@ -1246,6 +1243,13 @@ public class IcebergUtils {
         return humanValue;
     }
 
+    public static String getSerializedInitialDefault(Types.NestedField field,
+            boolean enableMappingTimestampTz) {
+        Preconditions.checkArgument(field.initialDefault() != null,
+                "Iceberg field %s has no initial default", field.fieldId());
+        return serializeInitialDefault(field.type(), field.initialDefault(), enableMappingTimestampTz);
+    }
+
     /**
      * Return binary-like initial defaults in a lossless transport representation. These defaults
      * cannot be carried as raw Java strings and their Doris type is insufficient to identify them
@@ -1262,7 +1266,54 @@ public class IcebergUtils {
         return result;
     }
 
-    private static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
+    /**
+     * Serialize every non-null initial default in a schema, keyed by Iceberg field id.
+     *
+     * <p>The map is recursive because defaults are attached to Iceberg struct fields, including
+     * fields nested below structs, list elements, and map values. Binary-like values use the same
+     * lossless Base64 carrier as {@link #getBase64EncodedInitialDefaults(Schema)}.
+     */
+    public static Map<Integer, String> getSerializedInitialDefaults(Schema schema,
+            boolean enableMappingTimestampTz) {
+        return getSerializedInitialDefaults(schema.columns(), enableMappingTimestampTz);
+    }
+
+    public static Map<Integer, String> getSerializedInitialDefaults(
+            Iterable<Types.NestedField> fields, boolean enableMappingTimestampTz) {
+        Map<Integer, String> result = Maps.newHashMap();
+        for (Types.NestedField root : fields) {
+            for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
+                if (field.initialDefault() != null) {
+                    result.put(field.fieldId(), getSerializedInitialDefault(field, enableMappingTimestampTz));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Return every binary-like field id, including list elements and map keys/values without a
+     * field-level default. BE needs this type identity while decoding binary values nested inside
+     * a complex initial-default JSON value because Iceberg STRING, UUID, FIXED, and BINARY can all
+     * map to a Doris string type.
+     */
+    public static Set<Integer> getBinaryLikeFieldIds(Schema schema) {
+        return getBinaryLikeFieldIds(schema.columns());
+    }
+
+    public static Set<Integer> getBinaryLikeFieldIds(Iterable<Types.NestedField> fields) {
+        Set<Integer> result = Sets.newHashSet();
+        for (Types.NestedField root : fields) {
+            for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
+                if (isBinaryLike(field.type())) {
+                    result.add(field.fieldId());
+                }
+            }
+        }
+        return result;
+    }
+
+    public static boolean isBinaryLike(org.apache.iceberg.types.Type type) {
         return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY
                 || type.typeId() == TypeID.FIXED;
     }

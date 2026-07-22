@@ -288,14 +288,10 @@ public abstract class FileScanNode extends ExternalScanNode {
         for (Column column : desc.getTable().getFullSchema()) {
             Expr expr;
             Expression expression;
-            if (column.getDefaultValue() != null) {
-                expression = new NereidsParser().parseExpression(
-                        column.getDefaultValueSql());
-                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
-                        null, new Scope(ImmutableList.of()), null, true, true);
-                expression = analyzer.analyze(expression);
+            if (hasDefaultValue(column)) {
+                expression = getDefaultValueExpression(column);
             } else {
-                if (column.isAllowNull()) {
+                if (isColumnAllowNull(column)) {
                     // For load, use Varchar as Null, for query, use column type.
                     if (useVarcharAsNull) {
                         expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
@@ -345,6 +341,28 @@ public abstract class FileScanNode extends ExternalScanNode {
                 }
             }
         }
+    }
+
+    /**
+     * Build the expression used when a file does not contain a table column.
+     *
+     * <p>Table formats may override this method when their metadata uses a lossless carrier that
+     * cannot be represented by the generic SQL literal parser, for example Iceberg binary
+     * initial-default values.
+     */
+    protected Expression getDefaultValueExpression(Column column) throws UserException {
+        Expression expression = new NereidsParser().parseExpression(column.getDefaultValueSql());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                null, new Scope(ImmutableList.of()), null, true, true);
+        return analyzer.analyze(expression);
+    }
+
+    protected boolean hasDefaultValue(Column column) throws UserException {
+        return column.getDefaultValue() != null;
+    }
+
+    protected boolean isColumnAllowNull(Column column) throws UserException {
+        return column.isAllowNull();
     }
 
 
