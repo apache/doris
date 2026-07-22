@@ -2161,6 +2161,7 @@ Status TableColumnMapper::create_scan_request(
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
     file_request->non_predicate_columns.clear();
+    file_request->predicate_only_columns.clear();
     file_request->local_positions.clear();
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
@@ -2192,6 +2193,30 @@ Status TableColumnMapper::create_scan_request(
     // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
     RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state));
+    for (const auto& mapping : _hidden_mappings) {
+        if (!mapping.file_local_id.has_value()) {
+            continue;
+        }
+        const auto local_id = LocalColumnId(*mapping.file_local_id);
+        const bool is_visible_output =
+                std::ranges::any_of(_mappings, [local_id](const ColumnMapping& visible_mapping) {
+                    return visible_mapping.file_local_id.has_value() &&
+                           LocalColumnId(*visible_mapping.file_local_id) == local_id;
+                });
+        if (is_visible_output) {
+            continue;
+        }
+        // File-local filtering is an optimization; Scanner still evaluates the original
+        // table-level conjunct after TableReader returns. Only truly hidden mappings are absent
+        // from that scanner-visible block and may safely discard their payload here.
+        if (std::ranges::any_of(file_request->predicate_columns,
+                                [local_id](const LocalColumnIndex& projection) {
+                                    return projection.column_id() == local_id;
+                                }) &&
+            !file_request->is_predicate_only(local_id)) {
+            file_request->predicate_only_columns.push_back(local_id);
+        }
+    }
     // 3. Rebuild output projection expressions for projected columns. localize_filters() has
     // already applied the final scan projection to mapping.file_type/projected_file_children before
     // rewriting filter expressions.
@@ -2271,8 +2296,16 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     filter_mappings = _filter_visible_mappings();
     const auto global_to_file_slot = build_file_slot_rewrite_map(filter_mappings, _filter_entries);
     for (const auto& table_filter : table_filters) {
-        if (table_filter.conjunct != nullptr &&
-            table_filter_has_only_local_entries(table_filter, _filter_entries)) {
+        if (table_filter.conjunct != nullptr && table_filter.conjunct->root() != nullptr) {
+            const auto root = table_filter.conjunct->root();
+            const auto impl = root->get_impl();
+            const auto predicate = impl != nullptr ? impl : root;
+            if (!predicate->is_deterministic() ||
+                !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
+                continue;
+            }
+            // Scanner evaluates the original conjunct after final materialization. Only predicates
+            // whose result is stable across repeated execution may also run as a file-local copy.
             RewriteContext rewrite_context {.runtime_state = runtime_state};
             VExprSPtr rewrite_root;
             Status clone_status;

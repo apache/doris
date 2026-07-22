@@ -37,6 +37,7 @@
 #include "format/arrow/arrow_utils.h"
 #include "format_v2/materialized_reader_util.h"
 #include "runtime/descriptors.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
 
@@ -177,7 +178,27 @@ RemoteDorisFileReader::~RemoteDorisFileReader() {
     static_cast<void>(close());
 }
 
+void RemoteDorisFileReader::_init_profile() {
+    if (_profile == nullptr) {
+        return;
+    }
+    const auto hierarchy = file_scan_profile::ensure_hierarchy(_profile);
+    _io_time = hierarchy.io;
+    static const char* remote_profile = "RemoteDorisFileReader";
+    _total_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, remote_profile, file_scan_profile::FILE_READER, 1);
+    _open_stream_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RemoteDorisOpenStreamTime", remote_profile, 1);
+    _next_batch_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RemoteDorisNextBatchTime", remote_profile, 1);
+    _materialize_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RemoteDorisMaterializeTime", remote_profile, 1);
+    _filter_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RemoteDorisFilterTime", remote_profile, 1);
+}
+
 Status RemoteDorisFileReader::init(RuntimeState* state) {
+    _init_profile();
+    SCOPED_TIMER(_total_time);
     (void)state;
     RETURN_IF_ERROR(validate_remote_doris_range(_range));
     RETURN_IF_ERROR(_build_col_name_to_file_id());
@@ -186,6 +207,7 @@ Status RemoteDorisFileReader::init(RuntimeState* state) {
 }
 
 Status RemoteDorisFileReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
+    SCOPED_TIMER(_total_time);
     DORIS_CHECK(file_schema != nullptr);
     file_schema->clear();
     file_schema->reserve(_file_slot_descs.size());
@@ -206,6 +228,8 @@ Status RemoteDorisFileReader::get_schema(std::vector<ColumnDefinition>* file_sch
 }
 
 Status RemoteDorisFileReader::open(std::shared_ptr<FileScanRequest> request) {
+    SCOPED_TIMER(_total_time);
+    SCOPED_TIMER(_open_stream_time);
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
     RETURN_IF_ERROR(_open_stream());
     _eof = false;
@@ -213,6 +237,7 @@ Status RemoteDorisFileReader::open(std::shared_ptr<FileScanRequest> request) {
 }
 
 Status RemoteDorisFileReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_total_time);
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -223,21 +248,32 @@ Status RemoteDorisFileReader::get_block(Block* file_block, size_t* rows, bool* e
     *rows = 0;
     *eof = false;
     std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(_stream->next(&batch));
+    {
+        SCOPED_TIMER(_io_time);
+        SCOPED_TIMER(_next_batch_time);
+        RETURN_IF_ERROR(_stream->next(&batch));
+    }
     if (batch == nullptr) {
         *eof = true;
         _eof = true;
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(_materialize_record_batch(*batch, file_block, rows));
+    {
+        SCOPED_TIMER(_materialize_time);
+        RETURN_IF_ERROR(_materialize_record_batch(*batch, file_block, rows));
+    }
     _record_scan_rows(cast_set<int64_t>(*rows));
-    RETURN_IF_ERROR(
-            apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows));
+    {
+        SCOPED_TIMER(_filter_time);
+        RETURN_IF_ERROR(
+                apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows));
+    }
     return Status::OK();
 }
 
 Status RemoteDorisFileReader::close() {
+    SCOPED_TIMER(_total_time);
     if (_stream != nullptr) {
         RETURN_IF_ERROR(_stream->close());
         _stream.reset();
@@ -349,7 +385,12 @@ Status RemoteDorisReader::init(TableReadOptions&& options) {
 }
 
 Status RemoteDorisReader::prepare_split(const SplitReadOptions& options) {
-    RETURN_IF_ERROR(validate_remote_doris_range(options.current_range));
+    {
+        // Keep protocol validation visible while avoiding overlap with TableReader's own scopes.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        RETURN_IF_ERROR(validate_remote_doris_range(options.current_range));
+    }
     return TableReader::prepare_split(options);
 }
 
