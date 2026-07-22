@@ -236,9 +236,6 @@ public:
     /// Cache capacity in bytes.
     [[nodiscard]] size_t capacity() const { return _capacity; }
 
-    /// Canonical size used to partition a cached file into blocks.
-    [[nodiscard]] size_t max_file_block_size() const { return _max_file_block_size; }
-
     // try to release all releasable block
     // it maybe hang the io/system
     size_t try_release();
