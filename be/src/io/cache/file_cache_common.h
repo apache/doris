@@ -102,7 +102,14 @@ struct FileCacheRange {
 /// @param size Length of the requested byte range.
 /// @param block_size Canonical cache block size.
 /// @return Block-aligned offset and size covering the requested range.
-FileCacheRange align_file_cache_range(size_t offset, size_t size, size_t block_size);
+inline FileCacheRange align_file_cache_range(size_t offset, size_t size, size_t block_size) {
+    const size_t range_end = offset + size;
+    const size_t aligned_offset = offset - offset % block_size;
+    const size_t end_remainder = range_end % block_size;
+    const size_t aligned_end =
+            end_remainder == 0 ? range_end : range_end + block_size - end_remainder;
+    return {.offset = aligned_offset, .size = aligned_end - aligned_offset};
+}
 
 struct FileCacheAllocatorBuilder {
     bool _is_cold_data;

@@ -133,15 +133,6 @@ std::string UInt128Wrapper::to_string() const {
     return get_hex_uint_lowercase(value_);
 }
 
-FileCacheRange align_file_cache_range(size_t offset, size_t size, size_t block_size) {
-    const size_t range_end = offset + size;
-    const size_t aligned_offset = offset - offset % block_size;
-    const size_t end_remainder = range_end % block_size;
-    const size_t aligned_end =
-            end_remainder == 0 ? range_end : range_end + block_size - end_remainder;
-    return {.offset = aligned_offset, .size = aligned_end - aligned_offset};
-}
-
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size,
                                                                      int64_t tablet_id) const {
     const auto aligned_range = align_file_cache_range(offset, size, _cache->max_file_block_size());
