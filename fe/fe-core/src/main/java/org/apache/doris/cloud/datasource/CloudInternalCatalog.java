@@ -98,6 +98,11 @@ public class CloudInternalCatalog extends InternalCatalog {
         super();
     }
 
+    // Build a compact status string without dumping full cloud response objects.
+    private String buildCloudStatusLog(String action, MetaServiceCode status) {
+        return String.format("%s status=%s", action, status);
+    }
+
     // BEGIN CREATE TABLE
     @Override
     protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
@@ -583,7 +588,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("preparePartition response: {} ", response);
+            LOG.warn("{}, tableId={}, partitionCount={}",
+                    buildCloudStatusLog("prepare partition", response.getStatus().getCode()),
+                    tableId, partitionIds == null ? 0 : partitionIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -627,7 +634,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("commitPartition response: {} ", response);
+            LOG.warn("{}, tableId={}, partitionCount={}",
+                    buildCloudStatusLog("commit partition", response.getStatus().getCode()),
+                    tableId, partitionIds == null ? 0 : partitionIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
         if (response.hasTableVersion()) {
@@ -669,7 +678,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("prepareIndex response: {} ", response);
+            LOG.warn("{}, tableId={}, indexCount={}",
+                    buildCloudStatusLog("prepare index", response.getStatus().getCode()),
+                    tableId, indexIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -717,7 +728,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("commitIndex response: {} ", response);
+            LOG.warn("{}, tableId={}, indexCount={}",
+                    buildCloudStatusLog("commit index", response.getStatus().getCode()),
+                    tableId, indexIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
         if (isCreateTable && response.hasTableVersion()) {
@@ -762,7 +775,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("checkPartition response: {} ", response);
+            LOG.warn("{}, tableId={}, partitionCount={}",
+                    buildCloudStatusLog("check partition", response.getStatus().getCode()),
+                    tableId, partitionIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -803,7 +818,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("checkIndex response: {} ", response);
+            LOG.warn("{}, tableId={}, indexCount={}",
+                    buildCloudStatusLog("check index", response.getStatus().getCode()),
+                    tableId, indexIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -832,7 +849,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
             sleepSeveralMs();
         }
-        LOG.info("create tablets response: {}", response);
+        LOG.info("{}, dbId={}", buildCloudStatusLog("create tablets", response.getStatus().getCode()),
+                createTabletsReq.getDbId());
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             throw new DdlException(response.getStatus().getMsg());
@@ -973,7 +991,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("dropPartition response: {} ", response);
+            LOG.warn("{}, tableId={}, partitionCount={}",
+                    buildCloudStatusLog("drop partition", response.getStatus().getCode()),
+                    tableId, partitionIds.size());
             throw new DdlException(response.getStatus().getMsg());
         } else if (needUpdateTableVersion && response.hasTableVersion() && response.getTableVersion() > 0) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -1050,7 +1070,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("finishTabletJob response: {} ", response);
+            LOG.warn("{}, jobId={}, tableId={}, indexId={}, newIndexId={}",
+                    buildCloudStatusLog("finish tablet job", response.getStatus().getCode()),
+                    jobId, tableId, indexId, newIndexId);
         }
     }
 
@@ -1087,7 +1109,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("dropIndex response: {} ", response);
+            LOG.warn("{}, tableId={}, indexCount={}",
+                    buildCloudStatusLog("drop index", response.getStatus().getCode()),
+                    tableId, indexIds.size());
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -1239,7 +1263,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         while (retryTime++ < 3) {
             try {
                 response = MetaServiceProxy.getInstance().createStage(createStageRequest);
-                LOG.debug("create stage, stage: {}, {}, response: {}", stagePB, ifNotExists, response);
+                // Only log stage metadata here because StagePB/response may carry object store credentials.
+                LOG.debug("create stage, stageId={}, stageName={}, stageType={}, ifNotExists={}, status={}",
+                        stagePB.getStageId(), stagePB.getName(), stagePB.getType(), ifNotExists,
+                        response.getStatus().getCode());
                 if (ifNotExists && response.getStatus().getCode() == MetaServiceCode.ALREADY_EXISTED) {
                     LOG.info("stage already exists, stage_name: {}", stagePB.getName());
                     return;
@@ -1249,7 +1276,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                     break;
                 }
             } catch (RpcException e) {
-                LOG.warn("createStage response: {} ", response);
+                LOG.warn("create stage rpc exception, stageId={}, stageName={}, status={}",
+                        stagePB.getStageId(), stagePB.getName(),
+                        response == null ? "null" : response.getStatus().getCode());
             }
             // sleep random millis [20, 200] ms, avoid txn conflict
             int randomMillis = 20 + (int) (Math.random() * (200 - 20));
@@ -1267,7 +1296,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != MetaServiceCode.OK) {
-            LOG.warn("createStage response: {} ", response);
+            LOG.warn("create stage failed, stageId={}, stageName={}, status={}",
+                    stagePB.getStageId(), stagePB.getName(), response.getStatus().getCode());
             throw new DdlException(response.getStatus().getMsg());
         }
     }
@@ -1353,8 +1383,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         Cloud.GetStageResponse response = null;
         try {
             response = MetaServiceProxy.getInstance().getStage(builder.build());
-            LOG.debug("get stage, stageType={}, userName={}, userId= {}, stageName:{}, response: {}",
-                    stageType, userName, userId, stageName, response);
+            // Only log stage lookup metadata here because the response may contain object store credentials.
+            LOG.debug("get stage, stageType={}, userName={}, userId={}, stageName={}, status={}, stageCount={}",
+                    stageType, userName, userId, stageName, response.getStatus().getCode(),
+                    response.getStageCount());
         } catch (RpcException e) {
             LOG.warn("getStage rpc exception: {} ", e.getMessage(), e);
             throw new DdlException("internal error, try later");
@@ -1392,15 +1424,15 @@ public class CloudInternalCatalog extends InternalCatalog {
         while (retryTime++ < 3) {
             try {
                 response = MetaServiceProxy.getInstance().dropStage(builder.build());
-                LOG.info("drop stage, stageType:{}, userName:{}, userId:{}, stageName:{}, reason:{}, "
-                        + "retry:{}, response: {}", stageType, userName, userId, stageName, reason, retryTime,
-                        response);
+                LOG.info("drop stage, stageType:{}, userName:{}, userId:{}, stageName:{}, retry:{}, status:{}",
+                        stageType, userName, userId, stageName, retryTime, response.getStatus().getCode());
                 // just retry kv conflict
                 if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
             } catch (RpcException e) {
-                LOG.warn("dropStage response: {} ", response);
+                LOG.warn("drop stage rpc exception, stageType={}, stageName={}, status={}",
+                        stageType, stageName, response == null ? "null" : response.getStatus().getCode());
             }
             // sleep random millis [20, 200] ms, avoid txn conflict
             int randomMillis = 20 + (int) (Math.random() * (200 - 20));
@@ -1417,7 +1449,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         if (response.getStatus().getCode() != MetaServiceCode.OK) {
-            LOG.warn("dropStage response: {} ", response);
+            LOG.warn("drop stage failed, stageType={}, stageName={}, status={}",
+                    stageType, stageName, response.getStatus().getCode());
             if (response.getStatus().getCode() == MetaServiceCode.STAGE_NOT_FOUND) {
                 if (ifExists) {
                     return;
@@ -1454,11 +1487,13 @@ public class CloudInternalCatalog extends InternalCatalog {
                     retry++;
                     continue;
                 }
-                LOG.warn("beginCopy response: {} ", response);
+                LOG.warn("begin copy failed, tableId={}, stageId={}, copyId={}, status={}",
+                        tableId, stageId, copyJobId, response.getStatus().getCode());
                 throw new DdlException(response.getStatus().getMsg());
             }
         } catch (RpcException e) {
-            LOG.warn("beginCopy response: {} ", response);
+            LOG.warn("begin copy rpc exception, tableId={}, stageId={}, copyId={}, status={}",
+                    tableId, stageId, copyJobId, response == null ? "null" : response.getStatus().getCode());
             throw new DdlException(e.getMessage());
         }
     }
@@ -1508,11 +1543,13 @@ public class CloudInternalCatalog extends InternalCatalog {
                     retry++;
                     continue;
                 }
-                LOG.warn("finishCopy response: {} ", response);
+                LOG.warn("finish copy failed, tableId={}, stageId={}, copyId={}, status={}",
+                        tableId, stageId, copyJobId, response.getStatus().getCode());
                 throw new DdlException(response.getStatus().getMsg());
             }
         } catch (RpcException e) {
-            LOG.warn("finishCopy response: {} ", response);
+            LOG.warn("finish copy rpc exception, tableId={}, stageId={}, copyId={}, status={}",
+                    tableId, stageId, copyJobId, response == null ? "null" : response.getStatus().getCode());
             throw new DdlException(e.getMessage());
         }
     }
@@ -1527,12 +1564,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         try {
             response = MetaServiceProxy.getInstance().getCopyJob(request);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("getCopyJob response: {} ", response);
+                LOG.warn("get copy job failed, tableId={}, stageId={}, copyId={}, status={}",
+                        tableId, stageId, copyJobId, response.getStatus().getCode());
                 throw new DdlException(response.getStatus().getMsg());
             }
             return response.hasCopyJob() ? response.getCopyJob() : null;
         } catch (RpcException e) {
-            LOG.warn("getCopyJob response: {} ", response);
+            LOG.warn("get copy job rpc exception, tableId={}, stageId={}, copyId={}, status={}",
+                    tableId, stageId, copyJobId, response == null ? "null" : response.getStatus().getCode());
             throw new DdlException(e.getMessage());
         }
     }
@@ -1546,12 +1585,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         try {
             response = MetaServiceProxy.getInstance().getCopyFiles(builder.build());
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("getCopyFiles response: {} ", response);
+                LOG.warn("get copy files failed, tableId={}, stageId={}, status={}",
+                        tableId, stageId, response.getStatus().getCode());
                 throw new DdlException(response.getStatus().getMsg());
             }
             return response.getObjectFilesList();
         } catch (RpcException e) {
-            LOG.warn("getCopyFiles response: {} ", response);
+            LOG.warn("get copy files rpc exception, tableId={}, stageId={}, status={}",
+                    tableId, stageId, response == null ? "null" : response.getStatus().getCode());
             throw new DdlException(e.getMessage());
         }
     }
@@ -1571,12 +1612,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         try {
             response = MetaServiceProxy.getInstance().filterCopyFiles(builder.build());
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("filterCopyFiles response: {} ", response);
+                LOG.warn("filter copy files failed, tableId={}, stageId={}, status={}",
+                        tableId, stageId, response.getStatus().getCode());
                 throw new DdlException(response.getStatus().getMsg());
             }
             return response.getObjectFilesList();
         } catch (RpcException e) {
-            LOG.warn("filterCopyFiles response: {} ", response);
+            LOG.warn("filter copy files rpc exception, tableId={}, stageId={}, status={}",
+                    tableId, stageId, response == null ? "null" : response.getStatus().getCode());
             throw new DdlException(e.getMessage());
         }
     }

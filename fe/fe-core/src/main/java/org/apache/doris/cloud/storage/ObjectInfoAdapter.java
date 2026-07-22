@@ -111,7 +111,9 @@ public class ObjectInfoAdapter {
         try {
             ObjectStoreInfoPB infoPB = stagePB.getObjInfo();
             String encodedExternalId = encodeExternalId(stagePB.getExternalId());
-            LOG.info("Before parse object storage info={}, encodedExternalId={}", stagePB, encodedExternalId);
+            // Only log stage metadata here because stage/object info may carry credentials.
+            LOG.info("Before parse object storage info, stageId={}, stageName={}, provider={}, encodedExternalIdSet={}",
+                    stagePB.getStageId(), stagePB.getName(), infoPB.getProvider(), !encodedExternalId.isEmpty());
             ObjectInfo arnObj = new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null);
             StorageProperties props = toStorageProperties(arnObj);
@@ -121,11 +123,12 @@ public class ObjectInfoAdapter {
                         stsToken.getSecretKey(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
                         infoPB.getPrefix(), stagePB.getRoleName(), stagePB.getArn(), encodedExternalId,
                         stsToken.getSecurityToken());
-                LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
+                LOG.info("Parse object storage info, stageId={}, provider={}, bucket={}, endpoint={}",
+                        stagePB.getStageId(), infoPB.getProvider(), infoPB.getBucket(), infoPB.getEndpoint());
                 return objInfo;
             }
         } catch (Throwable e) {
-            LOG.warn("Failed analyze stagePB={}", stagePB, e);
+            LOG.warn("Failed analyze stage, stageId={}, stageName={}", stagePB.getStageId(), stagePB.getName(), e);
             throw new AnalysisException("Failed analyze object info of stagePB, " + e.getMessage());
         }
     }

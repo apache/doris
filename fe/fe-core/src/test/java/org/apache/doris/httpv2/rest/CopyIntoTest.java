@@ -41,6 +41,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -178,5 +180,38 @@ public class CopyIntoTest extends DorisHttpTestCase {
         JSONObject result = (JSONObject) data.get("result");
         String copyId = (String) result.get("copyId");
         Assert.assertEquals(copyId, "copy_1296997def6d4887_9e7ff31a7f3842cc");
+    }
+
+    @Test
+    public void testBuildRequestSummaryUsesAllowlistOnly() throws Exception {
+        jakarta.servlet.http.HttpServletRequest request = Mockito.mock(jakarta.servlet.http.HttpServletRequest.class);
+        Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(
+                java.util.Arrays.asList("Authorization", "Cookie", "token", "X-Secret-Header")));
+        Mockito.when(request.getHeader("Authorization")).thenReturn("Basic secret-auth");
+        Mockito.when(request.getHeader("Cookie")).thenReturn("session=secret-cookie");
+        Mockito.when(request.getHeader("token")).thenReturn("secret-token");
+        Mockito.when(request.getHeader("X-Secret-Header")).thenReturn("secret-header-value");
+        Map<String, String[]> parameterMap = new HashMap<>();
+        parameterMap.put("cluster", new String[] {"default_cluster"});
+        parameterMap.put("secret_param_name", new String[] {"secret-param-value"});
+        Mockito.when(request.getParameterMap()).thenReturn(parameterMap);
+        String body = "{\"sql\":\"copy into tbl from @~('{file.csv}')\",\"secret\":\"body-secret\"}";
+
+        Method buildRequestSummary = CopyIntoAction.class.getDeclaredMethod(
+                "buildRequestSummary", jakarta.servlet.http.HttpServletRequest.class, String.class);
+        buildRequestSummary.setAccessible(true);
+        String summary = (String) buildRequestSummary.invoke(null, request, body);
+
+        Assert.assertTrue(summary.contains("parameterCount=2"));
+        Assert.assertTrue(summary.contains("headerCount=4"));
+        Assert.assertTrue(summary.contains("bodyLength=" + body.length()));
+        Assert.assertTrue(summary.contains("hasAuthorization=true"));
+        Assert.assertTrue(summary.contains("hasCookie=true"));
+        Assert.assertTrue(summary.contains("hasToken=true"));
+        Assert.assertFalse(summary.contains("X-Secret-Header"));
+        Assert.assertFalse(summary.contains("secret_param_name"));
+        Assert.assertFalse(summary.contains("secret-header-value"));
+        Assert.assertFalse(summary.contains("secret-param-value"));
+        Assert.assertFalse(summary.contains("body-secret"));
     }
 }

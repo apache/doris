@@ -330,7 +330,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             execConfig.setTimerDefinition(timerDefinition);
             recomputeDerivedFields();
         } catch (AnalysisException ae) {
-            log.warn("parse streaming insert job failed, props: {}", properties, ae);
+            // Only log property names here because the configuration can contain credentials.
+            log.warn("parse streaming insert job failed, propertyKeys: {}", properties.keySet(), ae);
             throw new RuntimeException(ae.getMessage());
         }
     }
@@ -527,7 +528,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         // update properties
         if (!alterJobCommand.getProperties().isEmpty()) {
             modifyPropertiesInternal(alterJobCommand.getProperties());
-            logParts.add("properties: " + alterJobCommand.getProperties());
+            logParts.add("property keys: " + alterJobCommand.getProperties().keySet());
         }
 
         // update source properties
@@ -540,13 +541,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     buildConvertedSourceProperties(mergedSourceProperties);
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
-            logParts.add("source properties: " + alterJobCommand.getSourceProperties());
+            logParts.add("source property keys: " + alterJobCommand.getSourceProperties().keySet());
         }
 
         // update target properties
         if (!alterJobCommand.getTargetProperties().isEmpty()) {
             this.targetProperties.putAll(alterJobCommand.getTargetProperties());
-            logParts.add("target properties: " + alterJobCommand.getTargetProperties());
+            logParts.add("target property keys: " + alterJobCommand.getTargetProperties().keySet());
         }
         log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
     }

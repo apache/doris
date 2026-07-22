@@ -54,4 +54,27 @@ public class ObjectInfoAdapterTest {
                 backendProps.get("AWS_ROLE_ARN"));
         Assert.assertEquals("snapshot-external-id", backendProps.get("AWS_EXTERNAL_ID"));
     }
+
+    @Test
+    public void testObjectInfoToStringMasksCredentials() {
+        ObjectInfo objectInfo = new ObjectInfo(
+                Cloud.ObjectStoreInfoPB.Provider.S3,
+                "ak-value",
+                "sk-value",
+                "snapshot-bucket",
+                "s3.us-west-2.amazonaws.com",
+                "us-west-2",
+                "snapshot/prefix",
+                "snapshot-session",
+                "arn:aws:iam::123456789012:role/snapshot-role",
+                "snapshot-external-id",
+                "session-token");
+
+        String printed = objectInfo.toString();
+        Assert.assertFalse(printed.contains("ak-value"));
+        Assert.assertFalse(printed.contains("sk-value"));
+        Assert.assertFalse(printed.contains("snapshot-external-id"));
+        Assert.assertFalse(printed.contains("session-token"));
+        Assert.assertTrue(printed.contains("******"));
+    }
 }

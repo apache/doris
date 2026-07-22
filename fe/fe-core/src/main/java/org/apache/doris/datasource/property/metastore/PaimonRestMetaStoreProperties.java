@@ -49,6 +49,7 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
     @ConnectorProperty(
             names = {"paimon.rest.dlf.access-key-id"},
             required = false,
+            sensitive = true,
             description = "The access key ID for DLF, required when using DLF as token provider."
     )
     protected String paimonRestDlfAccessKey = "";
@@ -56,6 +57,7 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
     @ConnectorProperty(
             names = {"paimon.rest.dlf.access-key-secret"},
             required = false,
+            sensitive = true,
             description = "The secret key secret for DLF, required when using DLF as token provider."
     )
     protected String paimonRestDlfSecretKey = "";

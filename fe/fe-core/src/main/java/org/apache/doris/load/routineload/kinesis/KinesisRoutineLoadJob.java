@@ -774,8 +774,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-        LOG.info("modify the properties of kinesis routine load job: {}, jobProperties: {}, datasource properties: {}",
-                this.id, jobProperties, dataSourceProperties);
+        // Only log property keys here because values may carry AWS credentials.
+        LOG.info("modify the properties of kinesis routine load job: {}, jobPropertyKeys: {}, "
+                        + "dataSourcePropertyKeys: {}",
+                this.id, jobProperties.keySet(), dataSourceProperties == null ? "[]"
+                        : dataSourceProperties.getOriginalDataSourceProperties().keySet());
     }
 
     @Override

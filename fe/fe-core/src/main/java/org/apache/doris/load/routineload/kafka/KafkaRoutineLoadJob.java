@@ -881,8 +881,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-        LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
-                this.id, jobProperties, dataSourceProperties);
+        // Only log property keys here because values may carry Kafka or AWS credentials.
+        LOG.info("modify the properties of kafka routine load job: {}, jobPropertyKeys: {}, dataSourcePropertyKeys: {}",
+                this.id, jobProperties.keySet(),
+                dataSourceProperties == null ? "[]" : dataSourceProperties.getOriginalDataSourceProperties().keySet());
     }
 
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {

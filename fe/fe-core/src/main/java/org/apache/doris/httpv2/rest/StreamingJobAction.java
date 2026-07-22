@@ -56,7 +56,7 @@ public class StreamingJobAction extends RestBaseController {
             throw new UnauthorizedException("Miss token");
         }
         if (!checkClusterToken(authToken)) {
-            throw new UnauthorizedException("Invalid token: " + authToken);
+            throw new UnauthorizedException("Invalid token");
         }
     }
 
@@ -67,7 +67,8 @@ public class StreamingJobAction extends RestBaseController {
                     .okWithCommonError("Job " + failureRequest.getJobId() + " is not a streaming job");
         }
         try {
-            LOG.info("Reporting task failure with {}", failureRequest.toString());
+            LOG.info("Reporting task failure for job {}, task {}",
+                    failureRequest.getJobId(), failureRequest.getTaskId());
             ((StreamingInsertJob) job).reportTaskFailure(failureRequest);
             return ResponseEntityBuilder.ok("Task failure reported successfully");
         } catch (Exception e) {
@@ -89,7 +90,8 @@ public class StreamingJobAction extends RestBaseController {
 
         StreamingInsertJob streamingJob = (StreamingInsertJob) job;
         try {
-            LOG.info("Committing offset with {}", offsetRequest.toString());
+            // Only log request metadata here because the request body may carry detailed offsets.
+            LOG.info("Committing offset for job {}", offsetRequest.getJobId());
             streamingJob.commitOffset(offsetRequest);
             return ResponseEntityBuilder.ok("Offset committed successfully");
         } catch (Exception e) {

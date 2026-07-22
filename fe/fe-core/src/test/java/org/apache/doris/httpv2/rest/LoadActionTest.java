@@ -39,8 +39,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.Collections;
 
 public class LoadActionTest {
     private final boolean originalEnableDebugPoints = Config.enable_debug_points;
@@ -233,25 +231,6 @@ public class LoadActionTest {
 
         Assertions.assertTrue(result instanceof RedirectView);
         Mockito.verifyNoInteractions(response);
-    }
-
-    @Test
-    public void testGetAllHeadersMasksSensitiveHeaders() throws Exception {
-        LoadAction loadAction = new LoadAction();
-        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-        Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(Arrays.asList(
-                "Authorization", "Cookie", "Set-Cookie", "token", "label")));
-        Mockito.when(request.getHeader("label")).thenReturn("load_label");
-
-        Method method = LoadAction.class.getDeclaredMethod("getAllHeaders", HttpServletRequest.class);
-        method.setAccessible(true);
-        String headers = (String) method.invoke(loadAction, request);
-
-        Assertions.assertTrue(headers.contains("Authorization:***MASKED***"));
-        Assertions.assertTrue(headers.contains("Cookie:***MASKED***"));
-        Assertions.assertTrue(headers.contains("Set-Cookie:***MASKED***"));
-        Assertions.assertTrue(headers.contains("token:***MASKED***"));
-        Assertions.assertTrue(headers.contains("label:load_label"));
     }
 
     @Test

@@ -129,8 +129,8 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
             fs.headObjectWithMeta(objectInfo.getPrefix(), "1");
             fs.listObjectsWithPrefix(objectInfo.getPrefix(), "", null);
         } catch (Exception e) {
-            LOG.warn("Failed to access object storage, proto={}, err={}",
-                    stageProperties.getObjectStoreInfoPB(), e.toString());
+            // Keep object storage access failures metadata-only to avoid logging credentials.
+            LOG.warn("Failed to access object storage, stageName={}, err={}", stageName, e.toString());
             String msg;
             if (e instanceof UserException) {
                 msg = ((UserException) e).getDetailMessage();

@@ -1395,14 +1395,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive txn begin request, label={}, backend={}", request.getLabel(), clientAddr);
         }
         if (request.isSetCertBasedAuth()) {
             TCertBasedAuth certAuth = request.getCertBasedAuth();
-            LOG.info("loadTxnBegin forwarded cert auth: san={}, subject={}, issuer={}",
-                    certAuth.isSetSan() ? certAuth.getSan() : "",
-                    certAuth.isSetSubject() ? certAuth.getSubject() : "",
-                    certAuth.isSetIssuer() ? certAuth.getIssuer() : "");
+            // Only log certificate field presence instead of raw certificate identities.
+            LOG.info("loadTxnBegin forwarded cert auth: sanPresent={}, subjectPresent={}, issuerPresent={}",
+                    certAuth.isSetSan(), certAuth.isSetSubject(), certAuth.isSetIssuer());
         } else {
             LOG.info("loadTxnBegin forwarded cert auth: absent");
         }
@@ -1458,7 +1458,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         }
 
@@ -1510,7 +1510,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TBeginTxnResult beginTxn(TBeginTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn begin request: {}, client: {}", request, clientAddr);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive txn begin request, label={}, client={}", request.getLabel(), clientAddr);
         }
 
         TBeginTxnResult result = new TBeginTxnResult();
@@ -1624,7 +1625,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive txn pre-commit request, txnId={}, backend={}", request.getTxnId(), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -1653,7 +1655,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive getDataKeys request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive getDataKeys request, backend: {}", clientAddr);
         }
 
         TGetEncryptionKeysResult result = new TGetEncryptionKeysResult();
@@ -1670,7 +1672,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             result.setMasterKeys(tKeys);
         } catch (Exception e) {
-            LOG.warn("failed to getDataKeys: {}: {}", request, e.getMessage());
+            // Only log request metadata here because the thrift request may contain credentials.
+            LOG.warn("failed to getDataKeys for backend {}: {}", clientAddr, e.getMessage());
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -1724,7 +1727,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
-                throw new AuthenticationException("Invalid token: " + request.getToken());
+                throw new AuthenticationException("Invalid token");
             }
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -1767,7 +1770,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn 2PC request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn 2PC request, txnId={}, backend={}", request.getTxnId(), clientAddr);
         }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
@@ -1859,7 +1862,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn commit request, txnId={}, backend={}", request.getTxnId(), clientAddr);
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
@@ -1963,7 +1966,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCommitTxnResult commitTxn(TCommitTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn commit request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive txn commit request, txnId={}, client={}", request.getTxnId(), clientAddr);
         }
 
         TCommitTxnResult result = new TCommitTxnResult();
@@ -2101,7 +2104,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive txn rollback request, txnId={}, backend={}", request.getTxnId(), clientAddr);
         }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = checkMaster();
@@ -2185,7 +2188,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TRollbackTxnResult rollbackTxn(TRollbackTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive txn rollback request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive txn rollback request, txnId={}, client={}", request.getTxnId(), clientAddr);
         }
         TRollbackTxnResult result = new TRollbackTxnResult();
         TStatus status = checkMaster();
@@ -2278,7 +2281,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TBeginRemoteTxnResult beginRemoteTxn(TBeginRemoteTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive remote txn begin request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive remote txn begin request, label={}, client={}", request.getLabel(), clientAddr);
         }
 
         TBeginRemoteTxnResult result = new TBeginRemoteTxnResult();
@@ -2287,7 +2290,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2360,7 +2363,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCommitRemoteTxnResult commitRemoteTxn(TCommitRemoteTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive remote txn commit request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive remote txn commit request, txnId={}, client={}", request.getTxnId(), clientAddr);
         }
 
         TCommitRemoteTxnResult result = new TCommitRemoteTxnResult();
@@ -2369,7 +2372,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 checkDbPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), clientAddr,
@@ -2416,7 +2419,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TAbortRemoteTxnResult abortRemoteTxn(TAbortRemoteTxnRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive remote txn abort request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive remote txn abort request, txnId={}, client={}", request.getTxnId(), clientAddr);
         }
 
         TAbortRemoteTxnResult result = new TAbortRemoteTxnResult();
@@ -2425,7 +2428,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 checkDbPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2466,7 +2469,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TMasterAddressResult getMasterAddress(TMasterAddressRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive get master address request, client={}", clientAddr);
         }
         TMasterAddressResult result = new TMasterAddressResult();
         TStatus status = checkMaster();
@@ -2474,7 +2477,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 final String fullUserName = request.getUser();
@@ -2500,7 +2503,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TAddOrDropPartitionsResult addOrDropPartitions(TAddOrDropPartitionsRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive get master address request, client={}", clientAddr);
         }
         TAddOrDropPartitionsResult result = new TAddOrDropPartitionsResult();
         TStatus status = checkMaster();
@@ -2508,7 +2511,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2585,7 +2588,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TReplacePartitionsResult replacePartitions(TReplacePartitionsRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive get master address request, client={}", clientAddr);
         }
         TReplacePartitionsResult result = new TReplacePartitionsResult();
         TStatus status = checkMaster();
@@ -2593,7 +2596,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2661,7 +2664,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive get master address request, client={}", clientAddr);
         }
         TInsertOverwriteRegisterResult result = new TInsertOverwriteRegisterResult();
         TStatus status = checkMaster();
@@ -2669,7 +2672,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 final String fullUserName = request.getUser();
@@ -2742,7 +2745,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master address request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive get master address request, client={}", clientAddr);
         }
         TInsertOverwriteTaskResult result = new TInsertOverwriteTaskResult();
         TStatus status = checkMaster();
@@ -2750,7 +2753,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 final String fullUserName = request.getUser();
@@ -2824,7 +2827,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive add or drop insert overwrite record request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive add or drop insert overwrite record request, client={}", clientAddr);
         }
         TInsertOverwriteRecordResult result = new TInsertOverwriteRecordResult();
         TStatus status = checkMaster();
@@ -2832,7 +2835,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2897,7 +2900,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive add or drop insert overwrite record request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive add or drop insert overwrite record request, client={}", clientAddr);
         }
         TRecordFinishedLoadJobResult result = new TRecordFinishedLoadJobResult();
         TStatus status = checkMaster();
@@ -2906,7 +2909,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             UserIdentity userIdentity = null;
             if (!Strings.isNullOrEmpty(request.getToken())) {
                 if (!checkToken(request.getToken())) {
-                    throw new AuthenticationException("Invalid token: " + request.getToken());
+                    throw new AuthenticationException("Invalid token");
                 }
             } else {
                 userIdentity = checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(),
@@ -3018,7 +3021,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive stream load put request, label={}, backend={}", request.getLabel(), clientAddr);
         }
 
         String groupCommitMode = request.getGroupCommitMode();
@@ -3103,7 +3107,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
             if (LOG.isDebugEnabled()) {
-                LOG.debug("receive stream load multi table put request result: {}", result);
+                // Only log plan metadata here because the thrift result may contain credential-bearing details.
+                LOG.debug("receive stream load multi table put result, txnId={}, fragmentCount={}",
+                        request.getTxnId(), planFragmentParamsList.size());
             }
         }  catch (UserException exception) {
             LOG.warn("failed to get stream load plan: {}", exception.getMessage());
@@ -3129,7 +3135,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setPipelineParams(planFragmentParamsList);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive stream load multi table put request result: {}", result);
+            // Only log plan metadata here because the thrift result may contain credential-bearing details.
+            LOG.debug("receive stream load multi table put result, txnId={}, fragmentCount={}",
+                    request.getTxnId(), planFragmentParamsList.size());
         }
         return result;
     }
@@ -3171,7 +3179,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive http stream put request: {}", request);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive http stream put request, hasLoadSql={}", !Strings.isNullOrEmpty(request.getLoadSql()));
         }
 
         ConnectContext ctx = ConnectContext.get();
@@ -3258,7 +3267,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TFrontendReportAliveSessionResult result = new TFrontendReportAliveSessionResult();
         result.setStatus(TStatusCode.OK);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get alive sessions request: {}", request);
+            LOG.debug("receive get alive sessions request");
         }
 
         Env env = Env.getCurrentEnv();
@@ -3268,7 +3277,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setMsg("invalid cluster id: " + Env.getCurrentEnv().getClusterId());
             } else if (!request.getToken().equals(env.getToken())) {
                 result.setStatus(TStatusCode.INVALID_ARGUMENT);
-                result.setMsg("invalid token: " + Env.getCurrentEnv().getToken());
+                result.setMsg("invalid token");
             } else {
                 result.setMsg("success");
                 result.setSessionIdList(env.getAllAliveSessionIds());
@@ -3495,7 +3504,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive auth request, user={}, backend={}", request.getUser(), clientAddr);
         }
 
         TCheckAuthResult result = new TCheckAuthResult();
@@ -3733,7 +3743,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetTabletReplicaInfosResult getTabletReplicaInfos(TGetTabletReplicaInfosRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get replicas request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive get replicas request, backend: {}", clientAddr);
         }
         TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
         List<Long> tabletIds = request.getTabletIds();
@@ -3833,7 +3843,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.info("[auto-inc] receive getAutoIncrementRange request: {}, backend: {}", request, clientAddr);
+        LOG.info("[auto-inc] receive getAutoIncrementRange request, backend: {}", clientAddr);
 
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
         TStatus status = checkMaster();
@@ -3871,7 +3881,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TMaxComputeBlockIdResult getMaxComputeBlockIdRange(TMaxComputeBlockIdRequest request) {
         String clientAddr = getClientAddrAsString();
-        LOG.info("receive getMaxComputeBlockIdRange request: {}, backend: {}", request, clientAddr);
+        LOG.info("receive getMaxComputeBlockIdRange request, backend: {}", clientAddr);
 
         TMaxComputeBlockIdResult result = new TMaxComputeBlockIdResult();
         TStatus status = checkMaster();
@@ -3915,7 +3925,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog request: {}", request);
+            LOG.debug("receive get binlog request");
         }
 
         TGetBinlogResult result = new TGetBinlogResult();
@@ -4030,10 +4040,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    // Only log safe snapshot request metadata because thrift requests contain passwords and tokens.
+    private static String buildGetSnapshotRequestSummary(TGetSnapshotRequest request) {
+        return String.format("user=%s, db=%s, table=%s, label=%s, snapshot=%s, type=%s, hasToken=%s",
+                request.isSetUser() ? request.getUser() : "",
+                request.isSetDb() ? request.getDb() : "",
+                request.isSetTable() ? request.getTable() : "",
+                request.isSetLabelName() ? request.getLabelName() : "",
+                request.isSetSnapshotName() ? request.getSnapshotName() : "",
+                request.isSetSnapshotType() ? request.getSnapshotType() : "",
+                !Strings.isNullOrEmpty(request.getToken()));
+    }
+
+    // Only log safe restore request metadata because thrift requests contain passwords and tokens.
+    private static String buildRestoreSnapshotRequestSummary(TRestoreSnapshotRequest request) {
+        return String.format("user=%s, db=%s, label=%s, repo=%s, tableRefCount=%d, propertyKeys=%s, hasToken=%s",
+                request.isSetUser() ? request.getUser() : "",
+                request.isSetDb() ? request.getDb() : "",
+                request.isSetLabelName() ? request.getLabelName() : "",
+                request.isSetRepoName() ? request.getRepoName() : "",
+                request.isSetTableRefs() ? request.getTableRefsSize() : 0,
+                request.isSetProperties() ? request.getProperties().keySet() : Collections.emptySet(),
+                !Strings.isNullOrEmpty(request.getToken()));
+    }
+
     // getSnapshot
     public TGetSnapshotResult getSnapshot(TGetSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive get snapshot info request: {}", request);
+        LOG.trace("receive get snapshot info request: {}", buildGetSnapshotRequestSummary(request));
 
         TGetSnapshotResult result = new TGetSnapshotResult();
         TStatus status = checkMaster();
@@ -4147,7 +4181,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // Restore Snapshot
     public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.trace("receive restore snapshot info request: {}", request);
+        LOG.trace("receive restore snapshot info request: {}", buildRestoreSnapshotRequestSummary(request));
 
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
         TStatus status = checkMaster();
@@ -4303,7 +4337,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetMasterTokenResult getMasterToken(TGetMasterTokenRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get master token request: {}", request);
+            // Do not log the full thrift request because it may contain credentials.
+            LOG.debug("receive get master token request, user={}, client={}", request.getUser(), clientAddr);
         }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
@@ -4333,7 +4368,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog lag request: {}", request);
+            LOG.debug("receive get binlog lag request");
         }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
@@ -4435,7 +4470,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TLockBinlogResult lockBinlog(TLockBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive lock binlog request: {}", request);
+            LOG.debug("receive lock binlog request");
         }
 
         TLockBinlogResult result = new TLockBinlogResult();
@@ -4570,7 +4605,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
-        LOG.info("Receive create partition request: {}", request);
+        // Only log request metadata here because the thrift request may contain verbose partition details.
+        LOG.info("Receive create partition request, dbId={}, tableId={}, txnId={}, partitionValueCount={}",
+                request.getDbId(), request.getTableId(), request.getTxnId(),
+                request.partitionValues == null ? 0 : request.partitionValues.size());
         long dbId = request.getDbId();
         long txnId = request.getTxnId();
         long tableId = request.getTableId();
@@ -4891,14 +4929,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setNodes(nodeInfos);
         result.setStatus(new TStatus(TStatusCode.OK));
         if (LOG.isDebugEnabled()) {
-            LOG.debug("send create partition result: {}", result);
+            // Only log result metadata here because the thrift result may contain large replica details.
+            LOG.debug("send create partition result, status={}, tabletCount={}, slaveTabletCount={}",
+                    result.getStatus().getStatusCode(), tablets.size(), slaveTablets.size());
         }
         return result;
     }
 
     @Override
     public TReplacePartitionResult replacePartition(TReplacePartitionRequest request) throws TException {
-        LOG.info("Receive replace partition request: {}", request);
+        // Only log request metadata here because the thrift request may contain verbose partition details.
+        LOG.info("Receive replace partition request, dbId={}, tableId={}, partitionCount={}, overwriteGroupId={}",
+                request.getDbId(), request.getTableId(),
+                request.getPartitionIds() == null ? 0 : request.getPartitionIds().size(),
+                request.getOverwriteGroupId());
         long dbId = request.getDbId();
         long tableId = request.getTableId();
         List<Long> reqPartitionIds = request.getPartitionIds();
@@ -5241,7 +5285,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
                             + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                            partitionTablets.size(), partitionSlaveTablets.size());
+                            partitionTablets.size(),
+                            partitionSlaveTablets.size());
                 }
             }
             assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
@@ -5267,7 +5312,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // successfully return
         result.setStatus(new TStatus(TStatusCode.OK));
         if (LOG.isDebugEnabled()) {
-            LOG.debug("send replace partition result: {}", result);
+            // Only log result metadata here because the thrift result may contain large replica details.
+            LOG.debug("send replace partition result, status={}, partitionCount={}, "
+                            + "tabletCount={}, slaveTabletCount={}",
+                    result.getStatus().getStatusCode(), partitions.size(), tablets.size(),
+                    slaveTablets.size());
         }
         return result;
     }
@@ -5275,7 +5324,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetMetaResult getMeta(TGetMetaRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get meta request: {}", request);
+            LOG.debug("receive get meta request");
         }
 
         TGetMetaResult result = new TGetMetaResult();
@@ -5428,7 +5477,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetBackendMetaResult getBackendMeta(TGetBackendMetaRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get backend meta request: {}", request);
+            LOG.debug("receive get backend meta request");
         }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
@@ -5722,7 +5771,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetTableTDEInfoResult getTableTDEInfo(TGetTableTDEInfoRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive getTableTDEInfo request: {}, backend: {}", request, clientAddr);
+            LOG.debug("receive getTableTDEInfo request, backend: {}", clientAddr);
         }
 
         if (!request.isSetDbId()) {
@@ -5771,7 +5820,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetOlapTableMetaResult getOlapTableMeta(TGetOlapTableMetaRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive getOlapTableMeta request: {}, client: {}", request, clientAddr);
+            LOG.debug("receive getOlapTableMeta request, client={}", clientAddr);
         }
         TGetOlapTableMetaResult result = new TGetOlapTableMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);
