@@ -79,7 +79,7 @@ import java.util.Optional;
  * {@code SPI_READY_TYPES}, so their tables are {@code PluginDrivenExternalTable}s and {@code ALTER TABLE EXECUTE}
  * on them routes through this adapter today. Procedure ops are selected {@link Connector#getProcedureOps(
  * org.apache.doris.connector.api.handle.ConnectorTableHandle) per-handle}: a single-format connector just returns
- * its connector-level ops, but a flipped {@code hms} gateway (still dormant — not yet in {@code SPI_READY_TYPES})
+ * its connector-level ops, but a flipped {@code hms} gateway
  * exposes none at the connector level and diverts a foreign iceberg-on-HMS handle to its iceberg sibling.</p>
  */
 public class ConnectorExecuteAction implements ExecuteAction {

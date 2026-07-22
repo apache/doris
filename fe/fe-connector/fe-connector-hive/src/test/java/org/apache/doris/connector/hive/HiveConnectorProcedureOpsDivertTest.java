@@ -47,8 +47,8 @@ import java.util.Map;
  * procedures, and hudi's delegation is a later substep). The foreign handle is passed through UNMODIFIED (a
  * rewrap would poison the sibling's downstream iceberg cast).</p>
  *
- * <p>Dormant until hms enters {@code SPI_READY_TYPES}: no production path selects procedure ops for this
- * connector yet, so these assertions are a guard, not a live-path test.</p>
+ * <p>Live since the hms flip: procedure-op selection runs for a flipped hms catalog; these assertions are a
+ * Rule-9 guard on the per-handle divert contract.</p>
  */
 public class HiveConnectorProcedureOpsDivertTest {
 

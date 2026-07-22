@@ -34,7 +34,7 @@ import java.util.Optional;
 
 /**
  * Tests {@link HiveTableFormatDetector#detect} format classification and the fail-loud + view short-circuit
- * that {@link HiveConnectorMetadata#getTableHandle} layers on top (HMS cutover §4.2, dormant).
+ * that {@link HiveConnectorMetadata#getTableHandle} layers on top (HMS cutover §4.2).
  *
  * <p>WHY:</p>
  * <ul>
