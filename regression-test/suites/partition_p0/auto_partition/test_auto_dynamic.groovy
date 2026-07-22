@@ -116,31 +116,21 @@ suite("test_auto_dynamic", "nonConcurrent") {
     part_result = sql " show partitions from auto_dynamic "
     assertEquals(part_result.size(), 1)
 
-    def skip_test = false
-    test {
-        sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
-        check { result, exception, startTime, endTime ->
-            if (exception != null) {
-                // the partition of 1900-01-01 directly been recovered before the insert txn finished. let it success
-                part_result = sql " show partitions from auto_dynamic "
-                log.info("${part_result}".toString())
-                assertTrue(exception.getMessage().contains("get partition p19000101000000 failed"))
-                skip_test = true
-            }
-        }
-    }
-    if (skip_test) {
-        return true
-    }
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+    // The interval is global, so a preceding short-interval scheduler cycle may still be in flight.
+    sleep(8000)
+    sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
 
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
-    sleep(10000)
-    part_result = sql " show partitions from auto_dynamic "
-    log.info("${part_result}".toString())
-    assertTrue(part_result.size() == 3 || part_result.size() == 4,
-        "The partition size should be 3 or 4, but got ${part_result.size()}")
+    try {
+        sleep(10000)
+        part_result = sql " show partitions from auto_dynamic "
+        log.info("${part_result}".toString())
+        assertTrue(part_result.size() == 3 || part_result.size() == 4,
+            "The partition size should be 3 or 4, but got ${part_result.size()}")
 
-    qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
-
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+        qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
+    } finally {
+        sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+    }
 }
