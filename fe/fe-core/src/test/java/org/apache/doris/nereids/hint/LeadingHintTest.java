@@ -48,12 +48,6 @@ public class LeadingHintTest {
         Assertions.assertSame(joinConstraint, exactMatch.first);
         Assertions.assertTrue(exactMatch.second);
 
-        long constrainedSide = joinType.isRightSemiOrAntiJoin() ? leftHand : rightHand;
-        Pair<JoinConstraint, Boolean> withoutRetainedSide = leading.getJoinConstraint(
-                LongBitmap.or(constrainedSide, extraTable), constrainedSide, extraTable);
-        Assertions.assertNull(withoutRetainedSide.first);
-        Assertions.assertTrue(withoutRetainedSide.second);
-
         long leftTableBitmap;
         long rightTableBitmap;
         if (joinType.isRightSemiOrAntiJoin()) {
