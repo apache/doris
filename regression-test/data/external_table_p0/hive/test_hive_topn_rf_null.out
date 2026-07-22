@@ -243,6 +243,80 @@ Charlie
 7	\N	Grace
 9	\N	Ivan
 
+-- !sql_test_19 --
+1	100	Alice
+2	200	\N
+3	300	Charlie
+4	400	David
+5	\N	\N
+
+-- !sql_test_20 --
+10	1000	Judy
+6	600	Frank
+7	\N	Grace
+8	800	\N
+9	\N	Ivan
+
+-- !sql_test_21 --
+1	100	Alice
+2	200	\N
+5	\N	\N
+7	\N	Grace
+9	\N	Ivan
+
+-- !sql_test_22 --
+10	1000	Judy
+3	300	Charlie
+4	400	David
+6	600	Frank
+8	800	\N
+
+-- !sql_test_23 --
+1
+
+-- !sql_test_24 --
+1
+
+-- !sql_test_24 --
+1
+
+-- !sql_test_19 --
+1	100	Alice
+2	200	\N
+3	300	Charlie
+4	400	David
+5	\N	\N
+
+-- !sql_test_20 --
+10	1000	Judy
+6	600	Frank
+7	\N	Grace
+8	800	\N
+9	\N	Ivan
+
+-- !sql_test_21 --
+1	100	Alice
+2	200	\N
+5	\N	\N
+7	\N	Grace
+9	\N	Ivan
+
+-- !sql_test_22 --
+10	1000	Judy
+3	300	Charlie
+4	400	David
+6	600	Frank
+8	800	\N
+
+-- !sql_test_23 --
+1
+
+-- !sql_test_24 --
+1
+
+-- !sql_test_24 --
+1
+
 -- !sql_test_1 --
 1	100	Alice
 2	200	\N
@@ -486,4 +560,78 @@ Charlie
 10	1000	Judy
 7	\N	Grace
 9	\N	Ivan
+
+-- !sql_test_19 --
+1	100	Alice
+2	200	\N
+3	300	Charlie
+4	400	David
+5	\N	\N
+
+-- !sql_test_20 --
+10	1000	Judy
+6	600	Frank
+7	\N	Grace
+8	800	\N
+9	\N	Ivan
+
+-- !sql_test_21 --
+1	100	Alice
+2	200	\N
+5	\N	\N
+7	\N	Grace
+9	\N	Ivan
+
+-- !sql_test_22 --
+10	1000	Judy
+3	300	Charlie
+4	400	David
+6	600	Frank
+8	800	\N
+
+-- !sql_test_23 --
+1
+
+-- !sql_test_24 --
+1
+
+-- !sql_test_24 --
+1
+
+-- !sql_test_19 --
+1	100	Alice
+2	200	\N
+3	300	Charlie
+4	400	David
+5	\N	\N
+
+-- !sql_test_20 --
+10	1000	Judy
+6	600	Frank
+7	\N	Grace
+8	800	\N
+9	\N	Ivan
+
+-- !sql_test_21 --
+1	100	Alice
+2	200	\N
+5	\N	\N
+7	\N	Grace
+9	\N	Ivan
+
+-- !sql_test_22 --
+10	1000	Judy
+3	300	Charlie
+4	400	David
+6	600	Frank
+8	800	\N
+
+-- !sql_test_23 --
+1
+
+-- !sql_test_24 --
+1
+
+-- !sql_test_24 --
+1
 
