@@ -462,7 +462,11 @@ public class CacheAnalyzer {
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
-                continue;
+                // Partition dropped mid-flight (concurrent DROP PARTITION): throw so the caller
+                // buildCacheTableList falls back to CacheMode.None rather than caching a partial set.
+                throw new RuntimeException(String.format(
+                        "Partition %d of table %s was dropped during cache building, bypass query cache",
+                        partitionId, olapTable.getName()));
             }
             scanTable.addScanPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {

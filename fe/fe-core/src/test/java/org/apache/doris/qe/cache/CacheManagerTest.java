@@ -39,13 +39,12 @@ import java.util.List;
 public class CacheManagerTest {
 
     @Test
-    public void testBuildCacheTableForOlapScanNode() throws Exception {
+    public void testBuildCacheTableForOlapScanNodeBypassesCacheWhenPartitionDropped() throws Exception {
         OlapScanNode node = Mockito.mock(OlapScanNode.class);
         OlapTable olapTable = Mockito.mock(OlapTable.class);
         DatabaseIf database = Mockito.mock(DatabaseIf.class);
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
         Partition partition1 = Mockito.mock(Partition.class);
-        Partition partition3 = Mockito.mock(Partition.class);
 
         CacheAnalyzer analyzer = new CacheAnalyzer(new ConnectContext(), null, Lists.newArrayList());
         ArrayList<Long> selectedPartitionIds = Lists.newArrayList(1L, 2L, 3L);
@@ -59,27 +58,13 @@ public class CacheManagerTest {
         Mockito.when(olapTable.getName()).thenReturn("test_tbl");
         Mockito.when(olapTable.getPartition(1L)).thenReturn(partition1);
         Mockito.when(olapTable.getPartition(2L)).thenReturn(null);
-        Mockito.when(olapTable.getPartition(3L)).thenReturn(partition3);
         Mockito.when(partition1.getVisibleVersionTime()).thenReturn(1000L);
         Mockito.when(partition1.getId()).thenReturn(1L);
         Mockito.when(partition1.getCachedVisibleVersion()).thenReturn(10L);
-        Mockito.when(partition3.getVisibleVersionTime()).thenReturn(3000L);
-        Mockito.when(partition3.getId()).thenReturn(3L);
-        Mockito.when(partition3.getCachedVisibleVersion()).thenReturn(30L);
 
-        CacheAnalyzer.CacheTable cacheTable = analyzer.buildCacheTableForOlapScanNode(node);
-        Assert.assertEquals(3L, cacheTable.partitionNum);
-        Assert.assertSame(olapTable, cacheTable.table);
-        Assert.assertEquals(3L, cacheTable.latestPartitionId);
-        Assert.assertEquals(3000L, cacheTable.latestPartitionTime);
-        Assert.assertEquals(30L, cacheTable.latestPartitionVersion);
-
-        List<Pair<ScanTable, TableIf>> scanTables = analyzer.getScanTables();
-        Assert.assertEquals(1, scanTables.size());
-        Pair<ScanTable, TableIf> pair = scanTables.get(0);
-        Assert.assertSame(olapTable, pair.second);
-        Assert.assertEquals("internal.testDb.test_tbl", pair.first.getFullTableName().toString());
-        Assert.assertEquals(Lists.newArrayList(1L, 3L), pair.first.getScanPartitions());
+        // A partition dropped between planning and cache building makes the selected set
+        // inconsistent, so building the cache table must fail and the cache is bypassed.
+        Assert.assertThrows(RuntimeException.class, () -> analyzer.buildCacheTableForOlapScanNode(node));
     }
 
     @Test
