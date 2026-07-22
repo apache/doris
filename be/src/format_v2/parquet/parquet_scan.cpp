@@ -155,8 +155,24 @@ bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_sche
         column_schema.max_repetition_level > 0) {
         return false;
     }
-    if (!column_schema.type_descriptor.is_string_like ||
-        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
+    bool is_supported_physical_type = false;
+    switch (column_metadata.type) {
+    case tparquet::Type::BYTE_ARRAY:
+        is_supported_physical_type = column_schema.type_descriptor.is_string_like;
+        break;
+    case tparquet::Type::INT32:
+    case tparquet::Type::INT64:
+    case tparquet::Type::INT96:
+    case tparquet::Type::FLOAT:
+    case tparquet::Type::DOUBLE:
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+        is_supported_physical_type = true;
+        break;
+    case tparquet::Type::BOOLEAN:
+        // Parquet booleans are PLAIN encoded and cannot have a dictionary page.
+        break;
+    }
+    if (!is_supported_physical_type) {
         return false;
     }
     if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_VARBINARY) {
@@ -164,9 +180,9 @@ bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_sche
         // it on dictionary Fields before the mapping expression is neither type-safe nor exact.
         return false;
     }
-    // Row-level dictionary filtering consumes dictionary ids from DATA_PAGE payloads. It is exact
-    // only when every data page is dictionary encoded. Mixed dictionary/plain chunks are left on
-    // the normal decoded-value path, matching the safety rule used by StarRocks and Doris v1.
+    // The row filter consumes dictionary ids rather than decoded values, so a plain data page
+    // cannot resume this reader without changing its output domain. Keep mixed chunks on the
+    // normal decoded-value path to preserve one representation for the complete column chunk.
     return is_fully_dictionary_encoded_chunk(column_metadata);
 }
 
@@ -1404,7 +1420,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         }
 
         // The bitmap is keyed by Parquet dictionary id. Later data-page reads evaluate the
-        // predicate with an integer lookup and only materialize STRING values for surviving rows.
+        // predicate with an integer lookup and materialize typed values only for surviving rows.
         _current_dictionary_filters.emplace(local_id, std::move(dictionary_filter));
         _current_dictionary_residual_conjuncts.emplace(local_id, std::move(residual_conjuncts));
         _current_predicate_columns.emplace(local_id, std::move(column_reader));

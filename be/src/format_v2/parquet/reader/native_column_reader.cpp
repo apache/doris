@@ -578,9 +578,9 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
 
     const auto* matched_id_column = check_and_get_column<ColumnInt32>(*_matched_dictionary_ids);
     DORIS_CHECK(matched_id_column != nullptr);
-    auto string_values = DORIS_TRY(
-            _native_reader->convert_dict_column_to_string_column(matched_id_column, _type));
-    RETURN_IF_ERROR(append_non_null_dictionary_values(column, std::move(string_values)));
+    auto matched_values =
+            DORIS_TRY(_native_reader->materialize_dictionary_values(matched_id_column, _type));
+    RETURN_IF_ERROR(append_non_null_dictionary_values(column, std::move(matched_values)));
     if (_profile.reader_select_rows != nullptr) {
         COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
     }

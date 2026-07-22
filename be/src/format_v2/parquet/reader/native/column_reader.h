@@ -207,10 +207,10 @@ public:
     virtual Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                       bool* eof) = 0;
 
-    virtual Result<MutableColumnPtr> convert_dict_column_to_string_column(
-            const ColumnInt32* dict_column, const DataTypePtr& target_type) {
+    virtual Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
+                                                                   const DataTypePtr& target_type) {
         throw Exception(
-                Status::FatalError("Method convert_dict_column_to_string_column is not supported"));
+                Status::FatalError("Method materialize_dictionary_values is not supported"));
     }
     virtual Result<MutableColumnPtr> dictionary_values(const DataTypePtr& target_type) {
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
@@ -284,8 +284,8 @@ public:
                              bool* eof, bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
-    Result<MutableColumnPtr> convert_dict_column_to_string_column(
-            const ColumnInt32* dict_column, const DataTypePtr& target_type) override;
+    Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
+                                                           const DataTypePtr& target_type) override;
     Result<MutableColumnPtr> dictionary_values(const DataTypePtr& target_type) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }

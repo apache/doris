@@ -279,6 +279,33 @@ Status read_v2_int96_datetime(IColumn& column, ParquetDecodeSource& source,
 Status read_native_or_serde(IColumn& column, const DataTypeSerDe& serde,
                             ParquetDecodeSource& source, const ParquetDecodeContext& context,
                             size_t num_values, ParquetMaterializationState& state) {
+    if (context.dictionary_index_only) {
+        if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+            return Status::IOError("Dictionary filter requested for a non-dictionary page");
+        }
+        auto* output = check_and_get_column<ColumnInt32>(&column);
+        if (output == nullptr) {
+            return Status::InternalError("Dictionary indices require an INT32 output column");
+        }
+        // Dictionary IDs have the same RLE/bit-packed representation for every physical type.
+        // Decode them before dispatching to a typed SerDe; otherwise a fixed-width SerDe treats
+        // the IDs as values and the row filter indexes its bitmap with materialized data.
+        RETURN_IF_ERROR(source.decode_dictionary_indices(num_values, &state.dictionary_indices));
+        DORIS_CHECK_EQ(state.dictionary_indices.size(), num_values);
+        const size_t old_size = output->size();
+        auto& indices = output->get_data();
+        indices.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            if (UNLIKELY(state.dictionary_indices[row] >
+                         static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))) {
+                indices.resize(old_size);
+                return Status::Corruption("Parquet dictionary index {} exceeds INT32",
+                                          state.dictionary_indices[row]);
+            }
+            indices[old_size + row] = static_cast<int32_t>(state.dictionary_indices[row]);
+        }
+        return Status::OK();
+    }
     if (context.physical_type == ParquetPhysicalType::INT96 &&
         check_and_get_column<ColumnDateTimeV2>(&column) != nullptr) {
         return read_v2_int96_datetime(column, source, context, num_values, state);

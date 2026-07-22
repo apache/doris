@@ -1257,14 +1257,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_levels(Filte
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Result<MutableColumnPtr>
-ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_column(
+ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::materialize_dictionary_values(
         const ColumnInt32* dict_column, const DataTypePtr& target_type) {
     DORIS_CHECK(dict_column != nullptr);
     DORIS_CHECK(target_type != nullptr);
     Decoder* dictionary_decoder = _chunk_reader->dictionary_decoder();
     DORIS_CHECK(dictionary_decoder != nullptr);
-    // A Hive STRING can be backed by an unannotated Parquet BYTE_ARRAY that native metadata maps to
-    // VARBINARY. The dictionary must use the projected table type, exactly like normal data pages.
+    // Materialize the dictionary in the file-local logical type once. Both predicate evaluation
+    // and matched-ID gathering must observe the same decimal scale, timestamp unit, and binary
+    // interpretation as ordinary data-page decoding.
     const DataTypePtr dictionary_type = remove_nullable(target_type);
     const DataTypeSerDeSPtr dictionary_serde = dictionary_type->get_serde();
     if (_materialization_state.dictionary_generation !=
@@ -1317,7 +1318,7 @@ Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictio
     }
     // Materialize the typed dictionary once and keep it in _materialization_state. Later row-level
     // filtering decodes only ids and flattens surviving values from this same dictionary.
-    return convert_dict_column_to_string_column(ids.get(), target_type);
+    return materialize_dictionary_values(ids.get(), target_type);
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

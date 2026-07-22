@@ -24,6 +24,7 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/page_index.h>
 
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <map>
@@ -147,6 +148,86 @@ private:
     const int _column_id;
     const int32_t _value;
     const std::string _expr_name = "Int32GreaterThanExpr";
+};
+
+class Int32DictionaryEqualsExpr final : public VExpr {
+public:
+    Int32DictionaryEqualsExpr(int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& input = nullable_nested_column<ColumnInt32>(*block, _column_id);
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = input.get_element(input_row) == _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        const auto* dictionary = ctx.slot(_column_id);
+        if (dictionary == nullptr) {
+            return ZoneMapFilterResult::kUnsupported;
+        }
+        const auto expected = Field::create_field<TYPE_INT>(_value);
+        return std::ranges::any_of(dictionary->values,
+                                   [&](const Field& value) { return value == expected; })
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    const int _column_id;
+    const int32_t _value;
+    const std::string _expr_name = "Int32DictionaryEqualsExpr";
+};
+
+class DictionaryAcceptAllExpr final : public VExpr {
+public:
+    explicit DictionaryAcceptAllExpr(int column_id)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _column_id(column_id) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 1);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        return ctx.slot(_column_id) == nullptr ? ZoneMapFilterResult::kUnsupported
+                                               : ZoneMapFilterResult::kMayMatch;
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    const int _column_id;
+    const std::string _expr_name = "DictionaryAcceptAllExpr";
 };
 
 class Int32SumGreaterThanExpr final : public VExpr {
@@ -383,6 +464,21 @@ VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value
     return ctx;
 }
 
+VExprContextSPtr create_int32_dictionary_equals_conjunct(int column_id, int32_t value) {
+    auto ctx = VExprContext::create_shared(
+            std::make_shared<Int32DictionaryEqualsExpr>(column_id, value));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
+VExprContextSPtr create_dictionary_accept_all_conjunct(int column_id) {
+    auto ctx = VExprContext::create_shared(std::make_shared<DictionaryAcceptAllExpr>(column_id));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
 VExprContextSPtr create_int32_sum_greater_than_conjunct(int left_column_id, int right_column_id,
                                                         int32_t value) {
     auto ctx = VExprContext::create_shared(
@@ -459,6 +555,39 @@ std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
 
 std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& values) {
     arrow::Int32Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_nullable_int32_array(
+        const std::vector<std::optional<int32_t>>& values) {
+    arrow::Int32Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(value.has_value() ? builder.Append(*value).ok() : builder.AppendNull().ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_int64_array(const std::vector<int64_t>& values) {
+    arrow::Int64Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_float_array(const std::vector<float>& values) {
+    arrow::FloatBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_double_array(const std::vector<double>& values) {
+    arrow::DoubleBuilder builder;
     for (const auto value : values) {
         EXPECT_TRUE(builder.Append(value).ok());
     }
@@ -965,6 +1094,71 @@ void write_single_row_group_dictionary_filter_parquet_file(const std::string& fi
     builder.disable_statistics();
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
                                                       builder.build()));
+}
+
+void write_fixed_width_dictionary_filter_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("value", arrow::int32(), true),
+    });
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                     build_nullable_int32_array({10, 20, std::nullopt, 20, 40, 20})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary("id");
+    builder.enable_dictionary("value");
+    builder.disable_statistics();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
+                                                      builder.build()));
+}
+
+void write_all_fixed_width_dictionary_filter_parquet_file(const std::string& file_path) {
+    auto fixed_type = arrow::fixed_size_binary(4);
+    auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("int64_value", arrow::int64(), false),
+            arrow::field("float_value", arrow::float32(), false),
+            arrow::field("double_value", arrow::float64(), false),
+            arrow::field("fixed_value", fixed_type, false),
+            arrow::field("int96_value", timestamp_type, false),
+    });
+    auto table = arrow::Table::Make(
+            schema,
+            {build_int32_array({1, 2, 3, 4, 5, 6}), build_int64_array({10, 20, 10, 30, 20, 10}),
+             build_float_array({1.5F, 2.5F, 1.5F, 3.5F, 2.5F, 1.5F}),
+             build_double_array({10.25, 20.25, 10.25, 30.25, 20.25, 10.25}),
+             build_fixed_binary_array(fixed_type, {"AAAA", "BBBB", "AAAA", "CCCC", "BBBB", "AAAA"}),
+             build_timestamp_array(timestamp_type, {1000, 2000, 1000, 3000, 2000, 1000})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    writer_builder.disable_dictionary("id");
+    writer_builder.enable_dictionary("int64_value");
+    writer_builder.enable_dictionary("float_value");
+    writer_builder.enable_dictionary("double_value");
+    writer_builder.enable_dictionary("fixed_value");
+    writer_builder.enable_dictionary("int96_value");
+    writer_builder.disable_statistics();
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
+                                                      writer_builder.build(),
+                                                      arrow_builder.build()));
 }
 
 void write_dictionary_filter_with_trailing_column_parquet_file(const std::string& file_path) {
@@ -2627,6 +2821,101 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     ASSERT_NE(profile.get_counter("DictFilterBuildTime"), nullptr);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 2);
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
+}
+
+TEST_F(NewParquetReaderTest, FixedWidthDictionaryPredicateFiltersRowsByDictionaryId) {
+    write_fixed_width_dictionary_filter_parquet_file(_file_path);
+
+    RuntimeProfile profile("new_parquet_reader_fixed_width_dictionary_filter_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(create_int32_dictionary_equals_conjunct(1, 20));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnInt32>(block, 1);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 4, 6}));
+    EXPECT_EQ(values, std::vector<int32_t>({20, 20, 20}));
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 3);
+    EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, AllFixedWidthDictionaryTypesDecodeThroughDictionaryIds) {
+    write_all_fixed_width_dictionary_filter_parquet_file(_file_path);
+
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    auto row_group = parquet_file_reader->metadata()->RowGroup(0);
+    ASSERT_NE(row_group, nullptr);
+    ASSERT_EQ(row_group->num_columns(), 6);
+    const std::array<::parquet::Type::type, 5> expected_types {
+            ::parquet::Type::INT64, ::parquet::Type::FLOAT, ::parquet::Type::DOUBLE,
+            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, ::parquet::Type::INT96};
+    for (int column = 1; column < row_group->num_columns(); ++column) {
+        ASSERT_TRUE(row_group->ColumnChunk(column)->has_dictionary_page()) << column;
+        EXPECT_EQ(row_group->ColumnChunk(column)->type(), expected_types[column - 1]) << column;
+    }
+
+    RuntimeProfile profile("new_parquet_reader_all_fixed_width_dictionary_filter_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 6);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    for (int column = 1; column < 6; ++column) {
+        request->predicate_columns.push_back(field_projection(column));
+        request->conjuncts.push_back(create_dictionary_accept_all_conjunct(column));
+    }
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 6);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 5);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 5);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateReaderIsSharedOutsideMergeRangeReader) {
