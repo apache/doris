@@ -23,6 +23,61 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="${ROOT}"
 
+java_major_version() {
+    local java_cmd="$1"
+    local spec_version
+
+    spec_version="$("${java_cmd}" -XshowSettings:properties -version 2>&1 \
+        | awk -F'= ' '/java.specification.version =/ {print $2; exit}')"
+    if [[ "${spec_version}" == 1.* ]]; then
+        spec_version="${spec_version#1.}"
+    fi
+    echo "${spec_version%%.*}"
+}
+
+is_jdk17_home() {
+    local java_home="$1"
+    [[ -n "${java_home}" ]] && [[ -x "${java_home}/bin/java" ]] \
+        && [[ -x "${java_home}/bin/javac" ]] \
+        && [[ "$(java_major_version "${java_home}/bin/java")" == "17" ]]
+}
+
+find_jdk17_home() {
+    local candidate
+
+    for candidate in "${JAVA_HOME:-}" "${JDK_17:-}"; do
+        if is_jdk17_home "${candidate}"; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+
+    if [[ "$(uname -s)" == "Darwin" ]] && [[ -x /usr/libexec/java_home ]]; then
+        candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+        if is_jdk17_home "${candidate}"; then
+            echo "${candidate}"
+            return 0
+        fi
+    elif [[ -d /usr/lib/jvm ]]; then
+        while IFS= read -r candidate; do
+            if is_jdk17_home "${candidate}"; then
+                echo "${candidate}"
+                return 0
+            fi
+        done < <(find /usr/lib/jvm -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null | sort)
+    fi
+
+    echo "Error: JDK 17 is required. Set JAVA_HOME or JDK_17, or install JDK 17." >&2
+    return 1
+}
+
+JAVA_HOME="$(find_jdk17_home)"
+export JAVA_HOME
+export PATH="${JAVA_HOME}/bin:${PATH}"
+export JAVA="${JAVA_HOME}/bin/java"
+JAVA_MAJOR_VERSION="$(java_major_version "${JAVA}")"
+echo "Using JDK ${JAVA_MAJOR_VERSION}: ${JAVA_HOME}"
+
 # Check args
 usage() {
     echo "
@@ -227,30 +282,8 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
     cd "${DORIS_HOME}"/regression-test/java-udf-src || { echo "Failed to change directory to java-udf-src"; exit 1; }
 
-    # The Java UDF jar must be built with JDK 8 (source/target 8, loaded by the BE embedded
-    # JVM), while the framework above is built with the ambient JDK (>=17 in CI). Switch to a
-    # JDK 8 just for this module, falling back to the ambient JDK if none is installed
-    # (e.g. local dev boxes).
-    udf_prev_java_home="${JAVA_HOME:-}"
-    udf_jdk8_home="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' 2>/dev/null | sed -n '1p')"
-    if [[ -n "${udf_jdk8_home}" ]]; then
-        echo "Building Java UDF with JDK 8 at ${udf_jdk8_home}"
-        export JAVA_HOME="${udf_jdk8_home}"
-    else
-        echo "WARNING: no JDK 8 found under /usr/lib/jvm; building Java UDF with ${JAVA_HOME:-the current JDK}"
-    fi
-
-    # Build UDF with retry
-    udf_build_rc=0
-    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || udf_build_rc=1
-
-    # Restore the framework JDK regardless of the UDF build result.
-    if [[ -n "${udf_prev_java_home}" ]]; then
-        export JAVA_HOME="${udf_prev_java_home}"
-    else
-        unset JAVA_HOME
-    fi
-    if [[ "${udf_build_rc}" -ne 0 ]]; then
+    # Build the UDF test jar with the same JDK 17 used by the regression framework.
+    if ! execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true"; then
         echo "Failed to build UDF package"
         exit 1
     fi
@@ -262,22 +295,6 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/fe/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
     cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
-fi
-
-# check java home
-if [[ -z "${JAVA_HOME}" ]]; then
-    echo "Error: JAVA_HOME is not set"
-    exit 1
-fi
-
-# check java version
-export JAVA="${JAVA_HOME}/bin/java"
-JAVA_SPEC_VERSION="$("${JAVA}" -XshowSettings:properties -version 2>&1 \
-    | awk -F'= ' '/java.specification.version =/ {print $2; exit}')"
-JAVA_MAJOR_VERSION="${JAVA_SPEC_VERSION%%.*}"
-if [[ "${JAVA_SPEC_VERSION}" == 1.* ]]; then
-    JAVA_MAJOR_VERSION="${JAVA_SPEC_VERSION#1.}"
-    JAVA_MAJOR_VERSION="${JAVA_MAJOR_VERSION%%.*}"
 fi
 
 # Arrow Flight SQL JDBC needs java.nio opened when the regression framework runs on JDK 17+.
