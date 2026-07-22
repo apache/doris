@@ -255,6 +255,81 @@ TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
     }
 }
 
+TEST(ColumnMapperTest, ParquetRetainsIdlessComplexWrapperWithNestedFieldId) {
+    auto table_child = field_id_col("a", 1, i32());
+    auto table_struct = struct_col("s", 10, {table_child});
+    auto file_child = field_id_col("legacy_a", 1, i32(), 0);
+    auto file_struct = struct_name_col("s", {file_child}, 0);
+
+    TableColumnMapper parquet_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID,
+                                      .allow_idless_complex_wrapper_projection = true});
+    ASSERT_TRUE(parquet_mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(parquet_mapper.mappings().size(), 1);
+    ASSERT_TRUE(parquet_mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(*parquet_mapper.mappings()[0].file_local_id, 0);
+    ASSERT_EQ(parquet_mapper.mappings()[0].child_mappings.size(), 1);
+    ASSERT_TRUE(parquet_mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+    EXPECT_EQ(*parquet_mapper.mappings()[0].child_mappings[0].file_local_id, 0);
+
+    TableColumnMapper orc_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(orc_mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    EXPECT_FALSE(orc_mapper.mappings()[0].file_local_id.has_value());
+}
+
+TEST(ColumnMapperTest, ParquetDescendantIdRetainsWrapperWithAuthoritativeEmptyMapping) {
+    auto table_struct = struct_col("s", 10, {field_id_col("a", 2, i32())});
+    table_struct.has_name_mapping = true;
+    auto file_struct = struct_name_col("s", {field_id_col("a", 2, i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID,
+                              .allow_idless_complex_wrapper_projection = true});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(*mapper.mappings()[0].file_local_id, 0);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].child_mappings[0].file_local_id.has_value());
+}
+
+TEST(ColumnMapperTest, ParquetRetainsRecursiveIdlessWrapperWithNestedFieldId) {
+    auto table_inner = struct_col("inner", 20, {field_id_col("leaf", 30, i32())});
+    auto table_outer = struct_col("outer", 10, {table_inner});
+    auto file_inner = struct_name_col("inner", {field_id_col("leaf", 30, i32(), 0)}, 0);
+    auto file_outer = struct_col("outer", 10, {file_inner}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID,
+                              .allow_idless_complex_wrapper_projection = true});
+    ASSERT_TRUE(mapper.create_mapping({table_outer}, {}, {file_outer}).ok());
+
+    const auto& outer_mapping = mapper.mappings()[0];
+    ASSERT_TRUE(outer_mapping.file_local_id.has_value());
+    ASSERT_EQ(outer_mapping.child_mappings.size(), 1);
+    const auto& inner_mapping = outer_mapping.child_mappings[0];
+    ASSERT_TRUE(inner_mapping.file_local_id.has_value());
+    ASSERT_EQ(inner_mapping.child_mappings.size(), 1);
+    EXPECT_TRUE(inner_mapping.child_mappings[0].file_local_id.has_value());
+}
+
+TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
+    auto defaulted_child = field_id_col("data", 2, varbinary());
+    defaulted_child.initial_default_value = "Ej5FZ+ibEtOkVkJmFBdAAA==";
+    defaulted_child.initial_default_value_is_base64 = true;
+    auto table_struct = struct_col("s", 10, {field_id_col("a", 1, i32()), defaulted_child});
+    auto file_struct = struct_col("s", 10, {field_id_col("a", 1, i32(), 0)}, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    const auto& missing = mapper.mappings()[0].child_mappings[1];
+    ASSERT_TRUE(missing.initial_default_column);
+    Field value;
+    missing.initial_default_column->get(0, value);
+    EXPECT_EQ(value.get_type(), TYPE_VARBINARY);
+    EXPECT_EQ(std::string(value.get<TYPE_VARBINARY>()),
+              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+}
+
 void expect_mapping(const ColumnMapping& mapping, size_t global_index,
                     const std::string& table_name, int32_t file_local_id,
                     const std::string& file_name, const DataTypePtr& file_type,

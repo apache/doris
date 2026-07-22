@@ -40,6 +40,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/deletion_vector_reader.h"
@@ -143,6 +144,93 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
+    ColumnDefinition identity;
+    if (field.__isset.id) {
+        identity.identifier = Field::create_field<TYPE_INT>(field.id);
+    }
+    identity.name = field.__isset.name ? field.name : "";
+    identity.name_mapping =
+            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
+    identity.has_name_mapping =
+            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
+    if (!field.__isset.nestedField) {
+        return identity;
+    }
+    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
+        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
+            if (const auto* child = get_field_ptr(child_ptr); child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+            }
+        }
+    } else if (field.nestedField.__isset.array_field &&
+               field.nestedField.array_field.__isset.item_field) {
+        if (const auto* child = get_field_ptr(field.nestedField.array_field.item_field);
+            child != nullptr) {
+            identity.children.push_back(build_schema_identity_from_external_field(*child));
+            identity.children.back().name = "element";
+        }
+    } else if (field.nestedField.__isset.map_field) {
+        if (field.nestedField.map_field.__isset.key_field) {
+            if (const auto* child = get_field_ptr(field.nestedField.map_field.key_field);
+                child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+                identity.children.back().name = "key";
+            }
+        }
+        if (field.nestedField.map_field.__isset.value_field) {
+            if (const auto* child = get_field_ptr(field.nestedField.map_field.value_field);
+                child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+                identity.children.back().name = "value";
+            }
+        }
+    }
+    return identity;
+}
+
+const ColumnDefinition* find_identity_child(const ColumnDefinition& projected_child,
+                                            const ColumnDefinition& identity_parent) {
+    const auto child_it = std::ranges::find_if(
+            identity_parent.children, [&](const ColumnDefinition& identity_child) {
+                if (projected_child.has_identifier_field_id() &&
+                    identity_child.has_identifier_field_id()) {
+                    return projected_child.get_identifier_field_id() ==
+                           identity_child.get_identifier_field_id();
+                }
+                if (to_lower(projected_child.name) == to_lower(identity_child.name)) {
+                    return true;
+                }
+                return std::ranges::any_of(
+                        identity_child.name_mapping, [&](const std::string& alias) {
+                            return to_lower(projected_child.name) == to_lower(alias);
+                        });
+            });
+    return child_it == identity_parent.children.end() ? nullptr : &*child_it;
+}
+
+void attach_full_schema_identity(ColumnDefinition* projected, const ColumnDefinition& identity) {
+    DORIS_CHECK(projected != nullptr);
+    // Access-path children control materialization, but wrapper discovery needs sibling IDs that
+    // were pruned from that projection. Keep the complete identity tree on a separate channel.
+    projected->identity_children = identity.children;
+    for (auto& projected_child : projected->children) {
+        if (const auto* identity_child = find_identity_child(projected_child, identity);
+            identity_child != nullptr) {
+            attach_full_schema_identity(&projected_child, *identity_child);
+        }
+    }
+}
+
+void clear_initial_default_metadata(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    column->initial_default_value.reset();
+    column->initial_default_value_is_base64 = false;
+    for (auto& child : column->children) {
+        clear_initial_default_metadata(&child);
+    }
+}
+
 bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
     if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
         return true;
@@ -189,6 +277,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .has_name_mapping = field.__isset.name_mapping_is_authoritative &&
+                                field.name_mapping_is_authoritative,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -298,12 +388,32 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
+    if (!supports_iceberg_scan_semantics_v1(params)) {
+        // Old BEs used one ordered current-name/alias pass. Preserve that result for old-FE plans
+        // until the explicit scan-semantics marker makes exact-name precedence cluster-wide.
+        for (const auto& field_ptr : schema->root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr && external_field_matches_name(*field, column.name)) {
+                return field;
+            }
+        }
+        return nullptr;
+    }
+    // A reused name identifies the newly added field, not an older sibling that retained that
+    // spelling as an alias. Exhaust exact current names before consulting historical aliases.
     for (const auto& field_ptr : schema->root_field.fields) {
         const auto* field = get_field_ptr(field_ptr);
-        if (field == nullptr) {
-            continue;
+        if (field != nullptr && field->__isset.name &&
+            to_lower(field->name) == to_lower(column.name)) {
+            return field;
         }
-        if (external_field_matches_name(*field, column.name)) {
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.name_mapping &&
+            std::ranges::any_of(field->name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(column.name);
+            })) {
             return field;
         }
     }
@@ -486,8 +596,20 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
         return Status::OK();
     }
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
+    const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    if (!use_current_semantics) {
+        // IDs and encoded defaults predate the result-changing semantics. Strip only the new
+        // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
+        clear_initial_default_metadata(&*context->schema_column);
+    }
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
+    column->has_name_mapping = context->schema_column->has_name_mapping;
+    // Projected roots already carry a generic FE default expression, but Iceberg binary defaults
+    // need the raw Base64 marker so missing-file materialization can decode rather than copy text.
+    column->initial_default_value = context->schema_column->initial_default_value;
+    column->initial_default_value_is_base64 =
+            context->schema_column->initial_default_value_is_base64;
     return Status::OK();
 }
 
@@ -531,6 +653,16 @@ Status TableReader::init(TableReadOptions&& options) {
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
+    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+        for (auto& projected_column : _projected_columns) {
+            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
+            if (schema_field != nullptr) {
+                attach_full_schema_identity(
+                        &projected_column,
+                        build_schema_identity_from_external_field(*schema_field));
+            }
+        }
+    }
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);

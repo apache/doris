@@ -56,6 +56,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
+#include "exec/scan/access_path_parser.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"
@@ -231,7 +232,9 @@ private:
 class IcebergTableReaderMappingModeTestHelper final
         : public doris::format::iceberg::IcebergTableReader {
 public:
-    TableColumnMappingMode mapping_mode_for_schema(std::vector<ColumnDefinition> file_schema) {
+    TableColumnMappingMode mapping_mode_for_schema(std::vector<ColumnDefinition> file_schema,
+                                                   TFileScanRangeParams* scan_params = nullptr) {
+        _scan_params = scan_params;
         _data_reader.file_schema = std::move(file_schema);
         return mapping_mode();
     }
@@ -514,6 +517,77 @@ void write_two_int_parquet_file(const std::string& file_path, const std::string&
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       static_cast<int64_t>(first_values.size()),
+                                                      builder.build()));
+}
+
+void write_recursive_idless_wrapper_parquet_file(const std::string& file_path, int32_t value,
+                                                 bool outer_has_field_id = true) {
+    const auto leaf_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"30"});
+    auto leaf_field = arrow::field("leaf", arrow::int32(), false)->WithMetadata(leaf_metadata);
+    auto inner_result = arrow::StructArray::Make({build_int32_array({value})}, {leaf_field});
+    ASSERT_TRUE(inner_result.ok()) << inner_result.status();
+    auto inner_field = arrow::field("inner", arrow::struct_({leaf_field}), false);
+    auto outer_result = arrow::StructArray::Make({*inner_result}, {inner_field});
+    ASSERT_TRUE(outer_result.ok()) << outer_result.status();
+    auto outer_field = arrow::field("outer", arrow::struct_({inner_field}), false);
+    if (outer_has_field_id) {
+        outer_field =
+                outer_field->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"10"}));
+    }
+    auto table = arrow::Table::Make(arrow::schema({outer_field}), {*outer_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
+void write_nullable_idless_struct_with_sibling_id_parquet_file(const std::string& file_path) {
+    const auto sibling_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"2"});
+    auto sibling_field = arrow::field("b", arrow::int32(), false)->WithMetadata(sibling_metadata);
+    const auto null_bitmap = arrow::Buffer::FromString(std::string("\x02", 1));
+    auto struct_result =
+            arrow::StructArray::Make({build_int32_array({0, 42})}, {sibling_field}, null_bitmap, 1);
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status();
+    auto struct_field = arrow::field("s", arrow::struct_({sibling_field}), true);
+    auto table = arrow::Table::Make(arrow::schema({struct_field}), {*struct_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
+                                                      builder.build()));
+}
+
+void write_nullable_renamed_struct_child_parquet_file(const std::string& file_path) {
+    const auto child_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"1"});
+    auto child_field = arrow::field("b", arrow::int32(), false)->WithMetadata(child_metadata);
+    const auto null_bitmap = arrow::Buffer::FromString(std::string("\x02", 1));
+    auto struct_result =
+            arrow::StructArray::Make({build_int32_array({0, 10})}, {child_field}, null_bitmap, 1);
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status();
+    auto struct_field =
+            arrow::field("s", arrow::struct_({child_field}), true)
+                    ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"10"}));
+    auto table = arrow::Table::Make(arrow::schema({struct_field}), {*struct_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
                                                       builder.build()));
 }
 
@@ -883,7 +957,17 @@ TFileScanRangeParams make_local_parquet_scan_params() {
     TFileScanRangeParams scan_params;
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     return scan_params;
+}
+
+TColumnAccessPath nested_data_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    access_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_path;
+    data_path.__set_path(std::move(path));
+    access_path.__set_data_access_path(std::move(data_path));
+    return access_path;
 }
 
 std::shared_ptr<io::IOContext> make_io_context(io::FileReaderStats* file_reader_stats,
@@ -1858,10 +1942,12 @@ TEST(IcebergV2ReaderTest, IcebergMappingModeIgnoresGlobalRowIdVirtualColumn) {
               TableColumnMappingMode::BY_FIELD_ID);
 }
 
-// Covers the fallback side of the previous case. Only synthesized columns are ignored; a real data
-// column without an Iceberg field id still disables field-id mapping.
-TEST(IcebergV2ReaderTest, IcebergMappingModeRequiresFieldIdsForDataColumns) {
+// Iceberg treats a schema as ID-bearing when any physical data field has an ID. Keeping ID mode
+// preserves authoritative matches even when a sibling was written without an ID.
+TEST(IcebergV2ReaderTest, IcebergMappingModeUsesAnyDataColumnFieldId) {
     IcebergTableReaderMappingModeTestHelper reader;
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     std::vector<ColumnDefinition> file_schema {
             make_file_column(1, "id", std::make_shared<DataTypeInt32>()),
             make_file_column(2, "name", std::make_shared<DataTypeString>()),
@@ -1869,7 +1955,35 @@ TEST(IcebergV2ReaderTest, IcebergMappingModeRequiresFieldIdsForDataColumns) {
     };
     file_schema[1].identifier = Field {};
 
-    EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema)),
+    EXPECT_EQ(reader.mapping_mode_for_schema(file_schema, &scan_params),
+              TableColumnMappingMode::BY_FIELD_ID);
+
+    file_schema[0].identifier = Field {};
+    file_schema[0].children.emplace_back(
+            make_file_column(3, "nested", std::make_shared<DataTypeInt32>()));
+    EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema), &scan_params),
+              TableColumnMappingMode::BY_FIELD_ID);
+}
+
+TEST(IcebergV2ReaderTest, IcebergLegacyPlanKeepsAllFieldIdsMappingRule) {
+    IcebergTableReaderMappingModeTestHelper reader;
+    TFileScanRangeParams old_fe_scan_params;
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(1, "a", std::make_shared<DataTypeInt32>()),
+            make_file_column(2, "b", std::make_shared<DataTypeInt32>()),
+    };
+    file_schema[1].identifier = Field {};
+
+    EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema), &old_fe_scan_params),
+              TableColumnMappingMode::BY_NAME);
+
+    auto nested = make_file_column(10, "s", std::make_shared<DataTypeInt32>());
+    nested.children = {
+            make_file_column(1, "a", std::make_shared<DataTypeInt32>()),
+            make_file_column(2, "b", std::make_shared<DataTypeInt32>()),
+    };
+    nested.children[1].identifier = Field {};
+    EXPECT_EQ(reader.mapping_mode_for_schema({std::move(nested)}, &old_fe_scan_params),
               TableColumnMappingMode::BY_NAME);
 }
 
@@ -2297,7 +2411,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
     write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
-    const std::string binary_default("\x00\x01\x02\xff", 4);
+    const std::string binary_default(
+            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
     write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
                                                       "added_binary");
 
@@ -2306,10 +2421,10 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     auto scan_params = make_local_parquet_scan_params();
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(
-            100,
-            {external_schema_field("id", 0),
-             external_schema_field("added_binary", 1, {}, "AAEC/w==",
-                                   external_primitive_type(TPrimitiveType::VARBINARY, 4), true)})});
+            100, {external_schema_field("id", 0),
+                  external_schema_field("added_binary", 1, {}, "Ej5FZ+ibEtOkVkJmFBdAAA==",
+                                        external_primitive_type(TPrimitiveType::VARBINARY, 16),
+                                        true)})});
 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2500,7 +2615,401 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesNameMappingWithoutFileFieldId
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
+TEST(IcebergV2ReaderTest, ParquetRecursivelyRetainsIdlessWrapperForSelectedLeafId) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_recursive_idless_wrapper_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_recursive_idless_wrapper_parquet_file(file_path, 42);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto leaf = make_table_column(30, "leaf", int_type);
+    auto inner_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"leaf"});
+    auto inner = make_table_column(20, "inner", inner_type);
+    inner.children = {leaf};
+    auto outer_type = std::make_shared<DataTypeStruct>(DataTypes {inner_type}, Strings {"inner"});
+    auto outer = make_table_column(10, "outer", outer_type);
+    outer.children = {inner};
+    std::vector<ColumnDefinition> projected_columns = {outer};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto& outer_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+    const auto& inner_result = assert_cast<const ColumnStruct&>(
+            expect_not_null_nullable_nested_column(outer_result.get_column(0)));
+    const auto& leaf_result = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(inner_result.get_column(0)));
+    ASSERT_EQ(leaf_result.size(), 1);
+    EXPECT_EQ(leaf_result.get_element(0), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ParquetReadsIdlessWrapperWithAuthoritativeEmptyMapping) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_authoritative_empty_idless_wrapper_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_recursive_idless_wrapper_parquet_file(file_path, 42, false);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto leaf = make_table_column(30, "leaf", int_type);
+    auto inner_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"leaf"});
+    auto inner = make_table_column(20, "inner", inner_type);
+    inner.children = {leaf};
+    inner.has_name_mapping = true;
+    auto outer_type = std::make_shared<DataTypeStruct>(DataTypes {inner_type}, Strings {"inner"});
+    auto outer = make_table_column(10, "outer", outer_type);
+    outer.children = {inner};
+    outer.has_name_mapping = true;
+    std::vector<ColumnDefinition> projected_columns = {outer};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto& outer_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+    const auto& inner_result = assert_cast<const ColumnStruct&>(
+            expect_not_null_nullable_nested_column(outer_result.get_column(0)));
+    const auto& leaf_result = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(inner_result.get_column(0)));
+    ASSERT_EQ(leaf_result.size(), 1);
+    EXPECT_EQ(leaf_result.get_element(0), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ParquetUsesUnprojectedSiblingIdToRetainNullableWrapper) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_unprojected_sibling_id_wrapper_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_idless_struct_with_sibling_id_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto projected_a = make_table_column(1, "a", int_type);
+    projected_a.initial_default_value = "7";
+    auto projected_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
+    auto projected_s = make_table_column(10, "s", projected_struct_type);
+    projected_s.children = {projected_a};
+    std::vector<ColumnDefinition> projected_columns = {projected_s};
+
+    auto schema_a =
+            external_schema_field("a", 1, {}, "7", external_primitive_type(TPrimitiveType::INT));
+    auto schema_b = external_schema_field("b", 2, {}, std::nullopt,
+                                          external_primitive_type(TPrimitiveType::INT));
+    schema::external::TStructField struct_children;
+    struct_children.__set_fields({schema_a, schema_b});
+    auto schema_s = external_schema_field("s", 10, {}, std::nullopt,
+                                          external_primitive_type(TPrimitiveType::STRUCT));
+    schema_s.field_ptr->nestedField.__set_struct_field(std::move(struct_children));
+    schema_s.field_ptr->__isset.nestedField = true;
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {schema_s})});
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto result = block.get_by_position(0).column->convert_to_full_column_if_const();
+    const auto& nullable_s = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_EQ(nullable_s.size(), 2);
+    EXPECT_TRUE(nullable_s.is_null_at(0));
+    EXPECT_FALSE(nullable_s.is_null_at(1));
+    const auto& struct_s = assert_cast<const ColumnStruct&>(nullable_s.get_nested_column());
+    const auto& nullable_a = assert_cast<const ColumnNullable&>(struct_s.get_column(0));
+    EXPECT_FALSE(nullable_a.is_null_at(1));
+    const auto& values = assert_cast<const ColumnInt32&>(nullable_a.get_nested_column());
+    EXPECT_EQ(values.get_element(1), 7);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ReusedRootNameReadsNewFieldInitialDefault) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_reused_root_name_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_single_int_parquet_file(file_path, "b", {10}, 1);
+
+    auto renamed_b = external_schema_field("renamed_b", 1, {"b"}, std::nullopt,
+                                           external_primitive_type(TPrimitiveType::INT));
+    renamed_b.field_ptr->__set_name_mapping_is_authoritative(true);
+    auto current_b =
+            external_schema_field("b", 2, {}, "7", external_primitive_type(TPrimitiveType::INT));
+    current_b.field_ptr->__set_name_mapping({});
+    current_b.field_ptr->__set_name_mapping_is_authoritative(true);
+
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {renamed_b, current_b})});
+
+    auto projected_b = make_table_column(-1, "b", std::make_shared<DataTypeInt32>());
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader annotation_reader;
+    ASSERT_TRUE(
+            annotation_reader.annotate_projected_column(slot_info, &context, &projected_b).ok());
+    std::vector<ColumnDefinition> projected_columns = {projected_b};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({7}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, LegacyPlanRetainsOrderedRootNameAndAliasLookupWithAllFieldIds) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_legacy_reused_root_name_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_two_int_parquet_file(file_path, "renamed_b", {10}, 1, "b", {20}, 2);
+
+    auto renamed_b = external_schema_field("renamed_b", 1, {"b"}, std::nullopt,
+                                           external_primitive_type(TPrimitiveType::INT));
+    renamed_b.field_ptr->__set_name_mapping_is_authoritative(true);
+    auto current_b = external_schema_field("b", 2, {}, std::nullopt,
+                                           external_primitive_type(TPrimitiveType::INT));
+    current_b.field_ptr->__set_name_mapping({});
+    current_b.field_ptr->__set_name_mapping_is_authoritative(true);
+
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    old_fe_scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    old_fe_scan_params.__set_current_schema_id(100);
+    old_fe_scan_params.__set_history_schema_info({external_schema(100, {renamed_b, current_b})});
+
+    auto projected_b = make_table_column(-1, "b", std::make_shared<DataTypeInt32>());
+    ProjectedColumnBuildContext context {.scan_params = &old_fe_scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader annotation_reader;
+    ASSERT_TRUE(
+            annotation_reader.annotate_projected_column(slot_info, &context, &projected_b).ok());
+    ASSERT_EQ(projected_b.get_identifier_field_id(), 1);
+    std::vector<ColumnDefinition> projected_columns = {projected_b};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &old_fe_scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({10}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, ReusedNestedNameReadsNewFieldInitialDefault) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_reused_nested_name_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_renamed_struct_child_parquet_file(file_path);
+
+    auto renamed_b = external_schema_field("renamed_b", 1, {"b"}, std::nullopt,
+                                           external_primitive_type(TPrimitiveType::INT));
+    renamed_b.field_ptr->__set_name_mapping_is_authoritative(true);
+    auto current_b =
+            external_schema_field("b", 2, {}, "7", external_primitive_type(TPrimitiveType::INT));
+    current_b.field_ptr->__set_name_mapping({});
+    current_b.field_ptr->__set_name_mapping_is_authoritative(true);
+    schema::external::TStructField struct_children;
+    struct_children.__set_fields({renamed_b, current_b});
+    auto schema_s = external_schema_field("s", 10, {}, std::nullopt,
+                                          external_primitive_type(TPrimitiveType::STRUCT));
+    schema_s.field_ptr->nestedField.__set_struct_field(std::move(struct_children));
+    schema_s.field_ptr->__isset.nestedField = true;
+
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {schema_s})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"b"});
+    auto projected_s = make_table_column(-1, "s", struct_type);
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader annotation_reader;
+    ASSERT_TRUE(
+            annotation_reader.annotate_projected_column(slot_info, &context, &projected_s).ok());
+    ASSERT_TRUE(context.schema_column.has_value());
+    ASSERT_TRUE(AccessPathParser::build_nested_children(
+                        &projected_s,
+                        std::vector<TColumnAccessPath> {nested_data_access_path({"s", "b"})},
+                        &*context.schema_column)
+                        .ok());
+    std::vector<ColumnDefinition> projected_columns = {projected_s};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto result = block.get_by_position(0).column->convert_to_full_column_if_const();
+    const auto& nullable_s = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_EQ(nullable_s.size(), 2);
+    EXPECT_TRUE(nullable_s.is_null_at(0));
+    EXPECT_FALSE(nullable_s.is_null_at(1));
+    const auto& struct_s = assert_cast<const ColumnStruct&>(nullable_s.get_nested_column());
+    const auto& nullable_b = assert_cast<const ColumnNullable&>(struct_s.get_column(0));
+    EXPECT_FALSE(nullable_b.is_null_at(1));
+    const auto& values = assert_cast<const ColumnInt32&>(nullable_b.get_nested_column());
+    EXPECT_EQ(values.get_element(1), 7);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, LegacyPlanUsesNestedNameMappingForMixedFieldIds) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_legacy_nested_name_mapping_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_idless_struct_with_sibling_id_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto projected_a = make_table_column(1, "a", int_type);
+    projected_a.name_mapping = {"b"};
+    projected_a.has_name_mapping = true;
+    auto projected_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
+    auto projected_s = make_table_column(10, "s", projected_struct_type);
+    projected_s.children = {projected_a};
+    std::vector<ColumnDefinition> projected_columns = {projected_s};
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    old_fe_scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &old_fe_scan_params, io_ctx, &state, &profile);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    const auto result = block.get_by_position(0).column->convert_to_full_column_if_const();
+    const auto& nullable_s = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_EQ(nullable_s.size(), 2);
+    EXPECT_TRUE(nullable_s.is_null_at(0));
+    EXPECT_FALSE(nullable_s.is_null_at(1));
+    const auto& struct_s = assert_cast<const ColumnStruct&>(nullable_s.get_nested_column());
+    const auto& nullable_a = assert_cast<const ColumnNullable&>(struct_s.get_column(0));
+    EXPECT_FALSE(nullable_a.is_null_at(1));
+    const auto& values = assert_cast<const ColumnInt32&>(nullable_a.get_nested_column());
+    EXPECT_EQ(values.get_element(1), 42);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeletePrefersExistingFieldIdInMixedSchema) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_iceberg_equality_delete_stale_field_id_test";
     std::filesystem::remove_all(test_dir);
@@ -2508,8 +3017,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
 
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
-    // The real key has no id and is mapped by its historical name. A different physical column
-    // carries the stale id 0, forcing the entire split into BY_NAME mode.
+    // Iceberg's existential hasIds contract makes the physical field carrying ID 0 authoritative;
+    // an ID-less alias cannot switch a mixed schema back to name projection.
     write_two_int_parquet_file(file_path, "legacy_id", {1, 2, 3}, std::nullopt, "stale_key",
                                {100, 200, 300}, 0);
     write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2, "current_id");
@@ -2534,7 +3043,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
     split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
             file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
-    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({100, 200, 300}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

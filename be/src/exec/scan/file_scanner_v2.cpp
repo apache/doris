@@ -47,6 +47,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
@@ -682,6 +683,9 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
             .range = &_current_range,
             .runtime_state = _state,
     };
+    // Field 34 is the rollout boundary for root and nested exact-name precedence.
+    const bool prefer_exact_name_match =
+            !_params->__isset.history_schema_info || supports_iceberg_scan_semantics_v1(_params);
 
     for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
         const auto& slot_info = _params->required_slots[slot_idx];
@@ -702,7 +706,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         // column's nested children.
         RETURN_IF_ERROR(AccessPathParser::build_nested_children(
                 &column, it->second,
-                build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr));
+                build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr,
+                prefer_exact_name_match));
         if (is_partition_slot(slot_info, column.name)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(
