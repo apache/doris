@@ -17,13 +17,18 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -51,6 +56,10 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.rules.rewrite.AccessPathInfo;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -82,6 +91,7 @@ import org.apache.iceberg.DeleteFileIndex;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionData;
@@ -117,6 +127,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -154,6 +165,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
+    private Schema querySchema;
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
@@ -504,17 +516,48 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     public void createScanRangeLocations() throws UserException {
-        super.createScanRangeLocations();
+        Schema scanSchema = getQuerySchema();
+        boolean mayRequireEqualityDeleteIdentity = false;
+        if (!isSystemTable) {
+            mayRequireEqualityDeleteIdentity = mayRequireEqualityDeleteIdentitySemantics();
+            if (requiresRecursiveInitialDefaultMaterialization(scanSchema, desc.getSlots())
+                    || mayRequireEqualityDeleteIdentity) {
+                checkCurrentIcebergScanSemanticsBackendCompatibility(backendPolicy.getBackends());
+            }
+        }
         enableCurrentIcebergScanSemantics();
-        // Extract name mapping from Iceberg table properties
+        super.createScanRangeLocations();
+
         Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
+        List<NestedField> schemaFields = getSchemaFieldsForScan(
+                scanSchema, mayRequireEqualityDeleteIdentity);
+        List<Column> scanColumns = getScanColumns(schemaFields);
 
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
-        // projection. Both scanners need the complete current schema to resolve field ids,
-        // historical names, types, and initial defaults when an old data file lacks such a key.
-        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
+        // projection. The carrier also includes dropped primitive fields from schema history so a
+        // still-applicable equality delete can resolve its field ID after a schema-only drop.
+        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, scanColumns,
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
-                getBase64EncodedInitialDefaultsForScan());
+                IcebergUtils.getSerializedInitialDefaults(
+                        schemaFields, getEnableMappingTimestampTz()),
+                IcebergUtils.getBinaryLikeFieldIds(schemaFields));
+    }
+
+    @VisibleForTesting
+    List<Column> getScanColumns(Schema scanSchema) {
+        return getScanColumns(scanSchema.columns());
+    }
+
+    private List<Column> getScanColumns(List<NestedField> schemaFields) {
+        if (isSystemTable) {
+            return source.getTargetTable().getColumns();
+        }
+        List<Column> scanColumns = new ArrayList<>();
+        for (NestedField field : schemaFields) {
+            scanColumns.add(IcebergUtils.parseField(
+                    field, getEnableMappingVarbinary(), getEnableMappingTimestampTz()));
+        }
+        return IcebergUtils.appendRowLineageColumnsForV3(scanColumns, icebergTable);
     }
 
     @VisibleForTesting
@@ -524,30 +567,354 @@ public class IcebergScanNode extends FileQueryScanNode {
         params.setIcebergScanSemanticsVersion(ICEBERG_SCAN_SEMANTICS_VERSION);
     }
 
+    /**
+     * Build the schema metadata carrier used by both scanners and equality-delete readers.
+     *
+     * <p>Batch-mode delete files are planned asynchronously after scan parameters are sent to BE,
+     * so FE cannot first wait for their equality field IDs. Carry the latest historical definition
+     * of every dropped primitive field; the field IDs referenced by any planned equality delete are
+     * a subset of this bounded metadata. Iceberg field IDs are never reused.
+     */
+    @VisibleForTesting
+    List<NestedField> getSchemaFieldsForScan(
+            Schema scanSchema, boolean includeHistoricalEqualityFields) throws UserException {
+        List<NestedField> fields = new ArrayList<>(scanSchema.columns());
+        if (isSystemTable || !includeHistoricalEqualityFields) {
+            return fields;
+        }
+
+        Set<Integer> carriedFieldIds = new HashSet<>(
+                TypeUtil.indexById(scanSchema.asStruct()).keySet());
+        Preconditions.checkState(icebergTable instanceof HasTableOperations,
+                "Iceberg table does not expose metadata schema history: %s", icebergTable.name());
+        List<Schema> schemaHistory = ((HasTableOperations) icebergTable)
+                .operations().current().schemas();
+        // Schema IDs may be reused when evolution returns to an earlier schema, while the metadata
+        // list may also contain schemas committed after a time-travel or branch target. Follow the
+        // actual scan snapshot's parent chain first so the field definition active on that lineage
+        // wins. Then use the complete metadata list as a fallback for schema-only changes and
+        // expired ancestors. A fallback definition may come from a later rename, so BE resolves an
+        // ID-less equality key through the target mapping first and the delete file's original key
+        // name second. Initial-default and field identity remain bound to the stable field ID.
+        Snapshot snapshot = createTableScan().snapshot();
+        while (snapshot != null) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId != null) {
+                Schema historicalSchema = icebergTable.schemas().get(schemaId);
+                Preconditions.checkState(historicalSchema != null,
+                        "Iceberg snapshot schema %s is absent from table metadata", schemaId);
+                addDroppedPrimitiveFields(fields, carriedFieldIds, historicalSchema);
+            }
+            Long parentId = snapshot.parentId();
+            snapshot = parentId == null ? null : icebergTable.snapshot(parentId);
+        }
+        for (int index = schemaHistory.size() - 1; index >= 0; index--) {
+            addDroppedPrimitiveFields(fields, carriedFieldIds, schemaHistory.get(index));
+        }
+        return fields;
+    }
+
+    private static void addDroppedPrimitiveFields(List<NestedField> fields,
+            Set<Integer> carriedFieldIds, Schema historicalSchema) {
+        for (NestedField field : TypeUtil.indexById(historicalSchema.asStruct()).values()) {
+            if (field.type().isPrimitiveType() && carriedFieldIds.add(field.fieldId())) {
+                fields.add(field);
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static boolean requiresRecursiveInitialDefaultMaterialization(
+            Schema scanSchema, List<SlotDescriptor> projectedSlots) {
+        Map<Integer, NestedField> fieldById = TypeUtil.indexById(scanSchema.asStruct());
+        Set<Integer> topLevelFieldIds = new HashSet<>();
+        for (NestedField field : scanSchema.columns()) {
+            topLevelFieldIds.add(field.fieldId());
+        }
+        for (SlotDescriptor slot : projectedSlots) {
+            Column column = slot.getColumn();
+            List<ColumnAccessPath> accessPaths = slot.getAllAccessPaths();
+            if (accessPaths != null && !accessPaths.isEmpty()) {
+                for (ColumnAccessPath accessPath : accessPaths) {
+                    List<String> path = accessPath.getPath();
+                    Preconditions.checkState(!path.isEmpty(),
+                            "Iceberg column access path must not be empty");
+                    Preconditions.checkState(matchesAccessPathComponent(column, path.get(0)),
+                            "Iceberg access path root %s does not match column %s", path.get(0),
+                            column.getName());
+                    if (requiresRecursiveInitialDefaultMaterialization(
+                            column, path, 1, fieldById,
+                            topLevelFieldIds.contains(column.getUniqueId()))) {
+                        return true;
+                    }
+                }
+            } else if (requiresRecursiveInitialDefaultMaterialization(
+                    column, slot.getType(), fieldById,
+                    topLevelFieldIds.contains(column.getUniqueId()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean requiresRecursiveInitialDefaultMaterialization(
+            Column column, org.apache.doris.catalog.Type projectedType,
+            Map<Integer, NestedField> fieldById, boolean isTopLevel) {
+        if (requiresInitialDefaultMaterialization(column, fieldById, isTopLevel)) {
+            return true;
+        }
+        if (column.getChildren() == null) {
+            return false;
+        }
+        if (projectedType.isStructType()) {
+            for (StructField projectedField : ((StructType) projectedType).getFields()) {
+                Column child = findChildByName(column, projectedField.getName());
+                Preconditions.checkState(child != null,
+                        "Projected Iceberg child %s is absent from column %s",
+                        projectedField.getName(), column.getName());
+                if (requiresRecursiveInitialDefaultMaterialization(
+                        child, projectedField.getType(), fieldById, false)) {
+                    return true;
+                }
+            }
+        } else if (projectedType.isArrayType()) {
+            Preconditions.checkState(column.getChildren().size() == 1,
+                    "Iceberg array column %s must have one child", column.getName());
+            if (requiresRecursiveInitialDefaultMaterialization(
+                    column.getChildren().get(0), ((ArrayType) projectedType).getItemType(),
+                    fieldById, false)) {
+                return true;
+            }
+        } else if (projectedType.isMapType()) {
+            Preconditions.checkState(column.getChildren().size() == 2,
+                    "Iceberg map column %s must have two children", column.getName());
+            MapType mapType = (MapType) projectedType;
+            if (requiresRecursiveInitialDefaultMaterialization(
+                    column.getChildren().get(0), mapType.getKeyType(), fieldById, false)
+                    || requiresRecursiveInitialDefaultMaterialization(
+                            column.getChildren().get(1), mapType.getValueType(), fieldById, false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean requiresRecursiveInitialDefaultMaterialization(
+            Column column, List<String> path, int pathIndex,
+            Map<Integer, NestedField> fieldById, boolean isTopLevel) {
+        if (requiresInitialDefaultMaterialization(column, fieldById, isTopLevel)) {
+            return true;
+        }
+        if (pathIndex == path.size()) {
+            return requiresRecursiveInitialDefaultMaterialization(column, fieldById);
+        }
+
+        String component = path.get(pathIndex);
+        if (AccessPathInfo.ACCESS_NULL.equals(component)
+                || AccessPathInfo.ACCESS_OFFSET.equals(component)) {
+            return false;
+        }
+        Preconditions.checkState(column.getChildren() != null,
+                "Iceberg access path continues below primitive column %s", column.getName());
+
+        if (AccessPathInfo.ACCESS_ALL.equals(component)) {
+            if (column.getType().isArrayType()) {
+                Preconditions.checkState(column.getChildren().size() == 1,
+                        "Iceberg array column %s must have one child", column.getName());
+                return requiresRecursiveInitialDefaultMaterialization(
+                        column.getChildren().get(0), path, pathIndex + 1, fieldById, false);
+            }
+            Preconditions.checkState(column.getType().isMapType(),
+                    "Unexpected Iceberg access-all path below column %s", column.getName());
+            Preconditions.checkState(column.getChildren().size() == 2,
+                    "Iceberg map column %s must have two children", column.getName());
+            Column key = column.getChildren().get(0);
+            // element_at(map, key) reads the complete key subtree, while any path after '*'
+            // describes only the selected value subtree.
+            if (requiresInitialDefaultMaterialization(key, fieldById, false)
+                    || requiresRecursiveInitialDefaultMaterialization(key, fieldById)) {
+                return true;
+            }
+            return requiresRecursiveInitialDefaultMaterialization(
+                    column.getChildren().get(1), path, pathIndex + 1, fieldById, false);
+        }
+        if (column.getType().isMapType()) {
+            Preconditions.checkState(column.getChildren().size() == 2,
+                    "Iceberg map column %s must have two children", column.getName());
+            int childIndex;
+            if (AccessPathInfo.ACCESS_MAP_KEYS.equals(component)) {
+                childIndex = 0;
+            } else {
+                Preconditions.checkState(AccessPathInfo.ACCESS_MAP_VALUES.equals(component),
+                        "Unexpected Iceberg map access path component %s", component);
+                childIndex = 1;
+            }
+            return requiresRecursiveInitialDefaultMaterialization(
+                    column.getChildren().get(childIndex), path, pathIndex + 1, fieldById, false);
+        }
+
+        Column child = findAccessPathChild(column, component);
+        Preconditions.checkState(child != null,
+                "Iceberg access path child %s is absent from column %s", component,
+                column.getName());
+        return requiresRecursiveInitialDefaultMaterialization(
+                child, path, pathIndex + 1, fieldById, false);
+    }
+
+    private static boolean requiresRecursiveInitialDefaultMaterialization(
+            Column column, Map<Integer, NestedField> fieldById) {
+        if (column.getChildren() == null) {
+            return false;
+        }
+        for (Column child : column.getChildren()) {
+            if (requiresInitialDefaultMaterialization(child, fieldById, false)
+                    || requiresRecursiveInitialDefaultMaterialization(child, fieldById)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean requiresInitialDefaultMaterialization(
+            Column column, Map<Integer, NestedField> fieldById, boolean isTopLevel) {
+        NestedField field = fieldById.get(column.getUniqueId());
+        return field != null && field.initialDefault() != null
+                && (!isTopLevel || field.type().isNestedType());
+    }
+
+    private static boolean matchesAccessPathComponent(Column column, String component) {
+        return Integer.toString(column.getUniqueId()).equals(component)
+                || column.getName().equalsIgnoreCase(component);
+    }
+
+    private static Column findAccessPathChild(Column column, String component) {
+        for (Column child : column.getChildren()) {
+            if (matchesAccessPathComponent(child, component)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private static Column findChildByName(Column column, String childName) {
+        for (Column child : column.getChildren()) {
+            if (child.getName().equalsIgnoreCase(childName)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    @VisibleForTesting
+    boolean mayRequireEqualityDeleteIdentitySemantics() throws UserException {
+        Snapshot snapshot = createTableScan().snapshot();
+        if (snapshot == null) {
+            return false;
+        }
+        Map<String, String> summary = snapshot.summary();
+        String equalityDeleteCount = summary == null
+                ? null : summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES);
+        if (equalityDeleteCount != null && Long.parseLong(equalityDeleteCount) > 0) {
+            return true;
+        }
+        // total-equality-deletes counts records, so a live zero-row equality-delete file still
+        // reports 0 while carrying field IDs that may require historical schema metadata. Missing
+        // counters have the same ambiguity. A non-empty delete-manifest list may contain only
+        // position deletes, but conservatively using the current semantics is safe and avoids
+        // reading manifest entries before asynchronous batch splits.
+        return mayRequireEqualityDeleteIdentitySemantics(
+                equalityDeleteCount, !snapshot.deleteManifests(icebergTable.io()).isEmpty());
+    }
+
+    @VisibleForTesting
+    static boolean mayRequireEqualityDeleteIdentitySemantics(
+            String equalityDeleteCount, boolean hasDeleteManifests) {
+        return hasDeleteManifests
+                || equalityDeleteCount != null && Long.parseLong(equalityDeleteCount) > 0;
+    }
+
+    @VisibleForTesting
+    static void checkCurrentIcebergScanSemanticsBackendCompatibility(Iterable<Backend> backends)
+            throws UserException {
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                throw new UserException("Current Iceberg scan semantics are unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
     @VisibleForTesting
     Map<Integer, String> getBase64EncodedInitialDefaultsForScan() throws UserException {
-        if (isSystemTable) {
-            // System-table columns are derived from the metadata table schema. Some metadata
-            // tables, such as position_deletes, do not support Table.newScan(). Use the same
-            // schema that produced source.getTargetTable().getColumns() to keep defaults aligned.
-            return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
+        return IcebergUtils.getBase64EncodedInitialDefaults(getQuerySchema());
+    }
+
+    /**
+     * Return the schema whose field defaults apply to this query.
+     *
+     * <p>An ordinary read uses the table's current schema even when the current snapshot was
+     * written with an older schema. Explicit snapshot, branch, or tag reads instead use the schema
+     * resolved by the time-travel request.
+     */
+    @VisibleForTesting
+    Schema getQuerySchema() throws UserException {
+        if (querySchema != null) {
+            return querySchema;
         }
+        if (isSystemTable) {
+            querySchema = icebergTable.schema();
+            return querySchema;
+        }
+
         IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
         Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
-        Schema scanSchema = null;
         if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
             long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
                     .getSnapshotCacheValue().getSnapshot().getSchemaId();
-            scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
+            querySchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
         } else {
-            scanSchema = selectedSnapshot == null
+            querySchema = selectedSnapshot == null
                     ? icebergTable.schema()
                     : icebergTable.schemas().get(selectedSnapshot.getSchemaId());
         }
-        // A branch can expose a schema newer than its data snapshot. The statement-pinned schema
-        // produced the target columns, so default markers must not be recomputed from that snapshot.
-        return IcebergUtils.getBase64EncodedInitialDefaults(
-                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
+        // A branch can expose a schema newer than its data snapshot. Use the statement-pinned
+        // schema that produced target columns, defaults, and the name mapping for this scan.
+        return Preconditions.checkNotNull(querySchema, "Schema for Iceberg scan is null");
+    }
+
+    @Override
+    protected org.apache.doris.nereids.trees.expressions.Expression getDefaultValueExpression(
+            Column column) throws UserException {
+        NestedField field = getQuerySchema().findField(column.getUniqueId());
+        Preconditions.checkNotNull(field, "Missing Iceberg field id %s in query schema", column.getUniqueId());
+        Preconditions.checkNotNull(field.initialDefault(),
+                "Missing Iceberg initial default for field id %s", column.getUniqueId());
+        if (field.type().isNestedType()) {
+            // V1 and V2 independently materialize complex defaults from the recursive Iceberg
+            // schema metadata. Keep FE's generic missing-column expression well-typed without
+            // asking Nereids to interpret Iceberg's field-id-keyed JSON as a SQL complex literal.
+            return new NullLiteral(
+                    org.apache.doris.nereids.types.DataType.fromCatalogType(column.getType()));
+        }
+        String serializedDefault = IcebergUtils.getSerializedInitialDefault(
+                field, getEnableMappingTimestampTz());
+        if (IcebergUtils.isBinaryLike(field.type())) {
+            String encodedDefault = serializedDefault;
+            return new VarBinaryLiteral(Base64.getDecoder().decode(encodedDefault));
+        }
+        return new StringLiteral(serializedDefault);
+    }
+
+    @Override
+    protected boolean hasDefaultValue(Column column) throws UserException {
+        NestedField field = getQuerySchema().findField(column.getUniqueId());
+        return field != null && field.initialDefault() != null;
+    }
+
+    @Override
+    protected boolean isColumnAllowNull(Column column) throws UserException {
+        NestedField field = getQuerySchema().findField(column.getUniqueId());
+        return field == null ? column.isAllowNull() : field.isOptional();
     }
 
     @Override

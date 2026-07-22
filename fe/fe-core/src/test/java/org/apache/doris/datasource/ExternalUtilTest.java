@@ -270,6 +270,40 @@ public class ExternalUtilTest {
     }
 
     @Test
+    public void testInitSchemaInfoForAllColumnCarriesNestedInitialDefaults() {
+        StructType structType = new StructType(
+                new StructField("nested_int", Type.INT, null, false),
+                new StructField("nested_binary", Type.VARBINARY, null, true));
+        Column payload = new Column("payload", structType, false);
+        payload.setUniqueId(1);
+        payload.getChildren().get(0).setUniqueId(2);
+        payload.getChildren().get(0).setIsAllowNull(false);
+        payload.getChildren().get(1).setUniqueId(3);
+        payload.getChildren().get(1).setIsAllowNull(true);
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        Map<Integer, String> defaults = new HashMap<>();
+        defaults.put(2, "17");
+        defaults.put(3, "AAEC/w==");
+        ExternalUtil.initSchemaInfoForAllColumn(params, 10L, Collections.singletonList(payload),
+                Collections.emptyMap(), defaults, Collections.singleton(3));
+
+        TField payloadField = params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr();
+        Assert.assertFalse(payloadField.isIsOptional());
+        TStructField nestedStruct = payloadField.getNestedField().getStructField();
+        TField nestedInt = nestedStruct.getFields().get(0).getFieldPtr();
+        TField nestedBinary = nestedStruct.getFields().get(1).getFieldPtr();
+        Assert.assertEquals("17", nestedInt.getInitialDefaultValue());
+        Assert.assertFalse(nestedInt.isIsOptional());
+        Assert.assertFalse(nestedInt.isSetInitialDefaultValueIsBase64());
+        Assert.assertEquals("AAEC/w==", nestedBinary.getInitialDefaultValue());
+        Assert.assertTrue(nestedBinary.isIsOptional());
+        Assert.assertEquals(3, nestedBinary.getId());
+        Assert.assertTrue(nestedBinary.isInitialDefaultValueIsBase64());
+    }
+
+    @Test
     public void testInitSchemaInfoForAllColumnSerializesNestedNonBinaryDefault() {
         StructType structType = new StructType(
                 new StructField("added_int", Type.INT, "nested default", true));

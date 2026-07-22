@@ -257,6 +257,7 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     if (!field.__isset.type) {
         return fallback_type;
     }
+    DORIS_CHECK(fallback_type != nullptr);
     const auto primitive_type = thrift_to_type(field.type.type);
     if (is_complex_type(primitive_type)) {
         return fallback_type;
@@ -265,7 +266,8 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     // current table field. Restore that type from FE before parsing the default and let the table
     // reader apply the normal promotion cast to the delete-key type.
     return DataTypeFactory::instance().create_data_type(
-            primitive_type, false, field.type.__isset.precision ? field.type.precision : 0,
+            primitive_type, fallback_type->is_nullable(),
+            field.type.__isset.precision ? field.type.precision : 0,
             field.type.__isset.scale ? field.type.scale : 0,
             field.type.__isset.len ? field.type.len : -1);
 }
@@ -288,6 +290,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
                                              : std::nullopt,
             .initial_default_value_is_base64 = field.__isset.initial_default_value_is_base64 &&
                                                field.initial_default_value_is_base64,
+            .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
+                                                     : std::nullopt,
             .is_partition_key = false,
     };
     if (column.type == nullptr || !field.__isset.nestedField) {
@@ -614,32 +618,63 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     return Status::OK();
 }
 
-std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field_id(
-        int32_t field_id, DataTypePtr type) const {
+std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
+        int32_t field_id, DataTypePtr type, bool include_historical_schemas) const {
     if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
         _scan_params->history_schema_info.empty()) {
         return std::nullopt;
     }
-    const auto* schema = &_scan_params->history_schema_info.front();
+    const auto find_field = [field_id](const schema::external::TSchema& schema) {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            return static_cast<const schema::external::TField*>(nullptr);
+        }
+        for (const auto& field_ptr : schema.root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr && field->__isset.id && field->id == field_id) {
+                return field;
+            }
+        }
+        return static_cast<const schema::external::TField*>(nullptr);
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
     if (_scan_params->__isset.current_schema_id) {
         for (const auto& candidate_schema : _scan_params->history_schema_info) {
             if (candidate_schema.__isset.schema_id &&
                 candidate_schema.schema_id == _scan_params->current_schema_id) {
-                schema = &candidate_schema;
+                current_schema = &candidate_schema;
                 break;
             }
         }
     }
-    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+    if (const auto* field = find_field(*current_schema); field != nullptr) {
+        return build_schema_column_from_external_field(*field, std::move(type));
+    }
+    if (!include_historical_schemas) {
         return std::nullopt;
     }
-    for (const auto& field_ptr : schema->root_field.fields) {
-        const auto* field = get_field_ptr(field_ptr);
-        if (field != nullptr && field->__isset.id && field->id == field_id) {
-            return build_schema_column_from_external_field(*field, std::move(type));
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    const schema::external::TField* latest_field = nullptr;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        const auto* candidate_field = find_field(candidate_schema);
+        if (candidate_field == nullptr) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_field = candidate_field;
         }
     }
-    return std::nullopt;
+    if (latest_field == nullptr) {
+        return std::nullopt;
+    }
+    return build_schema_column_from_external_field(*latest_field, std::move(type));
 }
 
 Status TableReader::init(TableReadOptions&& options) {

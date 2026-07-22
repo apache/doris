@@ -311,10 +311,15 @@ TEST(ColumnMapperTest, ParquetRetainsRecursiveIdlessWrapperWithNestedFieldId) {
     EXPECT_TRUE(inner_mapping.child_mappings[0].file_local_id.has_value());
 }
 
-TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
+TEST(ColumnMapperTest, MissingNestedChildRetainsTypedBinaryInitialDefault) {
     auto defaulted_child = field_id_col("data", 2, varbinary());
     defaulted_child.initial_default_value = "Ej5FZ+ibEtOkVkJmFBdAAA==";
     defaulted_child.initial_default_value_is_base64 = true;
+    const std::string binary_value(
+            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
+    const auto default_expr = VExprContext::create_shared(VLiteral::create_shared(
+            defaulted_child.type, Field::create_field<TYPE_VARBINARY>(StringView(binary_value))));
+    defaulted_child.default_expr = default_expr;
     auto table_struct = struct_col("s", 10, {field_id_col("a", 1, i32()), defaulted_child});
     auto file_struct = struct_col("s", 10, {field_id_col("a", 1, i32(), 0)}, 0);
 
@@ -322,12 +327,7 @@ TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
     ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
     const auto& missing = mapper.mappings()[0].child_mappings[1];
-    ASSERT_TRUE(missing.initial_default_column);
-    Field value;
-    missing.initial_default_column->get(0, value);
-    EXPECT_EQ(value.get_type(), TYPE_VARBINARY);
-    EXPECT_EQ(std::string(value.get<TYPE_VARBINARY>()),
-              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+    EXPECT_EQ(missing.default_expr, default_expr);
 }
 
 void expect_mapping(const ColumnMapping& mapping, size_t global_index,
@@ -3711,6 +3711,60 @@ TEST(ColumnMapperSchemaEvolutionTest, DroppedStructChildrenAreNotRead) {
     EXPECT_EQ(projection.column_id(), LocalColumnId(5));
     ASSERT_FALSE(projection.project_all_children);
     EXPECT_EQ(projection_ids(projection.children), std::vector<int32_t>({0}));
+}
+
+TEST(ColumnMapperSchemaEvolutionTest, MissingRequiredFieldPolicyIsOptIn) {
+    auto required = field_id_col("required_added", 2, i32());
+    required.is_optional = false;
+
+    TableColumnMapper permissive_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(permissive_mapper.create_mapping({required}, {}, {}).ok());
+
+    TableColumnMapper strict_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    const auto status = strict_mapper.create_mapping({required}, {}, {});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Missing required field: required_added"), std::string::npos);
+
+    const auto default_expr =
+            VExprContext::create_shared(literal(required.type, Field::create_field<TYPE_INT>(7)));
+    required.default_expr = default_expr;
+    TableColumnMapper default_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    ASSERT_TRUE(default_mapper.create_mapping({required}, {}, {}).ok());
+    ASSERT_EQ(default_mapper.mappings().size(), 1);
+    expect_constant(default_mapper, default_mapper.mappings()[0], 0, required.type);
+    EXPECT_EQ(default_mapper.mappings()[0].default_expr, default_expr);
+}
+
+TEST(ColumnMapperSchemaEvolutionTest, MissingNestedDefaultIsPropagatedAndRequiredIsRejected) {
+    auto present = field_id_col("present", 1, i32());
+    auto required_added = field_id_col("required_added", 2, str());
+    required_added.is_optional = false;
+    const auto table_struct = struct_col("s", 10, {present, required_added});
+
+    auto file_present = field_id_col("present", 1, i32(), 0);
+    const auto file_struct = struct_col("s", 10, {file_present}, 0);
+    TableColumnMapper strict_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    const auto status = strict_mapper.create_mapping({table_struct}, {}, {file_struct});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Missing required field: required_added"), std::string::npos);
+
+    const auto default_expr = VExprContext::create_shared(
+            literal(required_added.type, Field::create_field<TYPE_STRING>("nested-default")));
+    required_added.default_expr = default_expr;
+    const auto table_struct_with_default = struct_col("s", 10, {present, required_added});
+    TableColumnMapper default_mapper(
+            {.mode = TableColumnMappingMode::BY_FIELD_ID, .reject_missing_required_field = true});
+    ASSERT_TRUE(default_mapper.create_mapping({table_struct_with_default}, {}, {file_struct}).ok());
+    ASSERT_EQ(default_mapper.mappings().size(), 1);
+    ASSERT_EQ(default_mapper.mappings()[0].child_mappings.size(), 2);
+    const auto& added_mapping = default_mapper.mappings()[0].child_mappings[1];
+    EXPECT_FALSE(added_mapping.file_local_id.has_value());
+    EXPECT_FALSE(added_mapping.constant_index.has_value());
+    EXPECT_EQ(added_mapping.default_expr, default_expr);
+    EXPECT_EQ(added_mapping.filter_conversion, FilterConversionType::FINALIZE_ONLY);
 }
 
 TEST(ColumnMapperSchemaEvolutionTest, ReusedMapperClearsSplitLocalConstantsAndFileIds) {
