@@ -570,12 +570,6 @@ elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]]; then
     fi
 fi
 
-MECAB_IPADIC_DIR="${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920"
-if [[ ! -d "${MECAB_IPADIC_DIR}" ]]; then
-    echo "Staging mecab-ipadic (kuromoji dictionary source) into thirdparty ..."
-    bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" mecab_ipadic
-fi
-
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2
@@ -611,6 +605,21 @@ update_submodule() {
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
+
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
+fi
+
+if [[ "${BUILD_BE}" -eq 1 ]]; then
+    MECAB_IPADIC_DIR="${DORIS_THIRDPARTY}/installed/share/mecab-ipadic-2.7.0-20250920"
+    if [[ ! -d "${MECAB_IPADIC_DIR}" ]]; then
+        echo "Staging mecab-ipadic (kuromoji dictionary source) into thirdparty ..."
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" mecab_ipadic
+    fi
+fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
