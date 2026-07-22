@@ -21,38 +21,25 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowType;
-import org.apache.paimon.utils.DefaultValueUtils;
 
 /**
- * Immutable input-column metadata shared by all batches of one writer.
+ * Immutable mapping from Doris input columns to a Paimon table row.
  *
- * <p>Doris may produce a subset or permutation of the Paimon table columns. The
- * SDK {@code write(row)} API, including its partition and bucket extractors,
- * expects rows in table-schema order. This class resolves the input columns once
- * and expands every Arrow row to that canonical layout.
- *
- * <h3>Partial-write support</h3>
- * Missing columns with schema defaults are materialized before the row reaches
- * Paimon's nullability check; other missing columns remain null. Reordered columns
- * are placed at their table-schema positions, so routing and file writing always
- * observe the same layout.
+ * <p>The input may contain a subset of table columns in a different order. This class
+ * resolves their types and table positions once, then converts each input row to the
+ * table-schema layout expected by the Paimon writer.
  */
 final class PaimonWriteSchema {
     private final DataType[] targetTypes;
     /** Maps Doris input-column position → Paimon table-schema position. */
     private final int[] tableFieldIndexes;
-    /** Default values for omitted columns, in Paimon table-schema order. */
-    private final Object[] omittedFieldValues;
     private final int tableFieldCount;
-    private final boolean partial;
 
     private PaimonWriteSchema(DataType[] targetTypes, int[] tableFieldIndexes,
-                              Object[] omittedFieldValues, int tableFieldCount, boolean partial) {
+                              int tableFieldCount) {
         this.targetTypes = targetTypes;
         this.tableFieldIndexes = tableFieldIndexes;
-        this.omittedFieldValues = omittedFieldValues;
         this.tableFieldCount = tableFieldCount;
-        this.partial = partial;
     }
 
     /**
@@ -89,18 +76,7 @@ final class PaimonWriteSchema {
             tableFieldIndexes[i] = tableIndex;
         }
 
-        Object[] omittedFieldValues = new Object[tableType.getFieldCount()];
-        for (int i = 0; i < specifiedFields.length; i++) {
-            if (!specifiedFields[i]) {
-                DataField field = tableType.getFields().get(i);
-                if (field.defaultValue() != null) {
-                    omittedFieldValues[i] = DefaultValueUtils.convertDefaultValue(
-                            field.type(), field.defaultValue());
-                }
-            }
-        }
-        return new PaimonWriteSchema(targetTypes, tableFieldIndexes, omittedFieldValues,
-                tableType.getFieldCount(), columnNames.length != tableType.getFieldCount());
+        return new PaimonWriteSchema(targetTypes, tableFieldIndexes, tableType.getFieldCount());
     }
 
     /** Paimon {@link DataType}s for each write column, in write order. */
@@ -111,18 +87,9 @@ final class PaimonWriteSchema {
     /** Expand one Arrow row to the full Paimon table-schema layout. */
     GenericRow tableRow(Object[][] columnValues, int rowIndex) {
         GenericRow row = new GenericRow(tableFieldCount);
-        for (int i = 0; i < omittedFieldValues.length; i++) {
-            if (omittedFieldValues[i] != null) {
-                row.setField(i, omittedFieldValues[i]);
-            }
-        }
         for (int i = 0; i < tableFieldIndexes.length; i++) {
             row.setField(tableFieldIndexes[i], columnValues[i][rowIndex]);
         }
         return row;
-    }
-
-    boolean isPartial() {
-        return partial;
     }
 }

@@ -48,7 +48,6 @@ public class PaimonWriteSchemaTest {
         Assertions.assertEquals("erin", tableRow.getString(1).toString());
         Assertions.assertEquals(86.5D, tableRow.getDouble(2));
         Assertions.assertEquals("south", tableRow.getString(3).toString());
-        Assertions.assertFalse(schema.isPartial());
     }
 
     @Test
@@ -66,7 +65,6 @@ public class PaimonWriteSchemaTest {
         Assertions.assertTrue(tableRow.isNullAt(1));
         Assertions.assertTrue(tableRow.isNullAt(2));
         Assertions.assertEquals("east", tableRow.getString(3).toString());
-        Assertions.assertTrue(schema.isPartial());
     }
 
     @Test
@@ -79,7 +77,7 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
-    public void testPartialInputMaterializesOmittedDefaultValue() {
+    public void testPartialInputLeavesDefaultForTableWriter() {
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "id", new IntType()),
                 new DataField(1, "name", new VarCharType(false, VarCharType.MAX_LENGTH),
@@ -89,7 +87,7 @@ public class PaimonWriteSchemaTest {
         InternalRow tableRow = schema.tableRow(new Object[][] {{7}}, 0);
 
         Assertions.assertEquals(7, tableRow.getInt(0));
-        Assertions.assertEquals("unknown", tableRow.getString(1).toString());
+        Assertions.assertTrue(tableRow.isNullAt(1));
     }
 
     @Test
