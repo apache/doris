@@ -256,14 +256,15 @@ public class PropertyAnalyzer {
             .appendOffset("+HH:MM", "+00:00")
             .toFormatter()
             .withResolverStyle(ResolverStyle.STRICT);
-    /** Precompiled pattern matching a trailing timezone offset "±HH:MM"
-     *  preceded by a full {@code yyyy-MM-dd HH:mm:ss[.SSSSSS]} datetime,
-     *  i.e. the exact shape produced by {@code convertToUtcTimestamp()} in
-     *  DynamicPartitionScheduler.  Values with a TZ offset but a different
-     *  datetime shape (compact forms, missing seconds, etc.) are
-     *  intentionally left to the legacy DATETIME parser. */
+    /** Precompiled pattern matching a trailing timezone specifier
+     *  ({@code ±HH:MM}, {@code Z}, {@code UTC}, or {@code GMT}) preceded
+     *  by a full {@code yyyy-MM-dd HH:mm:ss[.SSSSSS]} datetime, i.e. the
+     *  exact shape produced by {@code convertToUtcTimestamp()} in
+     *  DynamicPartitionScheduler.  Values with other datetime shapes
+     *  (compact forms, missing seconds, etc.) are intentionally left to
+     *  the legacy DATETIME parser. */
     private static final Pattern TZ_OFFSET_PATTERN = Pattern.compile(
-            "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?[+-]\\d{2}:\\d{2}$");
+            "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2}|UTC|GMT)$");
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
@@ -446,7 +447,15 @@ public class PropertyAnalyzer {
                     // computation and produces incorrect results across DST
                     // boundaries.
                     if (TZ_OFFSET_PATTERN.matcher(value).find()) {
-                        cooldownTimestamp = TZ_FORMATTER.parse(value, ZonedDateTime::from)
+                        // TZ_FORMATTER only understands ±HH:MM offsets.
+                        // Normalize Z, UTC, GMT to the canonical zero
+                        // offset so that every explicit-zone spelling is
+                        // parsed as an unambiguous instant rather than
+                        // falling through to the DATETIME path (which
+                        // uses Instant.now() for the DST offset and
+                        // produces incorrect results across DST changes).
+                        String normalized = value.replaceAll("(Z|UTC|GMT)$", "+00:00");
+                        cooldownTimestamp = TZ_FORMATTER.parse(normalized, ZonedDateTime::from)
                                 .toInstant().toEpochMilli();
                     } else {
                         DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
