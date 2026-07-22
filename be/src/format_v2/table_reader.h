@@ -369,6 +369,7 @@ protected:
     Status create_next_reader(bool* eos);
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
+    virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
@@ -385,6 +386,7 @@ protected:
         RETURN_IF_ERROR(annotate_file_schema(&file_schema));
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = mapping_mode();
+        configure_mapper_options(&_mapper_options);
 
         _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
         DORIS_CHECK(_data_reader.column_mapper != nullptr);
@@ -1369,7 +1371,10 @@ protected:
             DORIS_CHECK(child_mapping != nullptr);
             if (!child_mapping->file_local_id.has_value()) {
                 child_columns.push_back(
-                        child_mapping->table_type->create_column_const_with_default_value(rows)
+                        (child_mapping->initial_default_column
+                                 ? child_mapping->initial_default_column->clone_resized(rows)
+                                 : child_mapping->table_type
+                                           ->create_column_const_with_default_value(rows))
                                 ->convert_to_full_column_if_const());
                 continue;
             }

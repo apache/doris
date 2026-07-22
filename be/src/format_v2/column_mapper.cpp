@@ -52,10 +52,76 @@
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
+#include "util/url_coding.h"
 
 namespace doris::format {
 
 namespace {
+
+Status build_initial_default_column(const ColumnDefinition& column, ColumnPtr* value) {
+    DORIS_CHECK(value != nullptr);
+    *value = nullptr;
+    if (!column.initial_default_value.has_value()) {
+        return Status::OK();
+    }
+    const auto nested_type = remove_nullable(column.type);
+    Field parsed;
+    if (column.initial_default_value_is_base64 ||
+        nested_type->get_primitive_type() == TYPE_VARBINARY) {
+        std::string decoded;
+        if (!base64_decode(*column.initial_default_value, &decoded)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
+                                           column.name);
+        }
+        parsed = nested_type->get_primitive_type() == TYPE_VARBINARY
+                         ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
+                         : Field::create_field<TYPE_STRING>(decoded);
+        // Variable-width Fields borrow their input. Materialize while decoded is alive so the
+        // resulting column owns the payload before it crosses a mapping/literal boundary.
+        *value = column.type->create_column_const(1, parsed);
+        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(
+                nested_type->get_serde()->from_fe_string(*column.initial_default_value, parsed));
+    }
+    *value = column.type->create_column_const(1, parsed);
+    return Status::OK();
+}
+
+Status build_initial_default_literal(const ColumnDefinition& column, VExprContextSPtr* literal) {
+    DORIS_CHECK(literal != nullptr);
+    ColumnPtr owned_value;
+    RETURN_IF_ERROR(build_initial_default_column(column, &owned_value));
+    DORIS_CHECK(static_cast<bool>(owned_value));
+    Field value;
+    owned_value->get(0, value);
+    // VLiteral copies the borrowed Field into its own column while owned_value is still alive.
+    *literal = VExprContext::create_shared(VLiteral::create_shared(column.type, value));
+    return Status::OK();
+}
+
+bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
+    const auto& table_children =
+            table.identity_children.empty() ? table.children : table.identity_children;
+    for (const auto& table_child : table_children) {
+        if (!table_child.has_identifier_field_id()) {
+            continue;
+        }
+        const auto file_child =
+                std::ranges::find_if(file.children, [&](const ColumnDefinition& candidate) {
+                    return candidate.has_identifier_field_id() &&
+                           candidate.get_identifier_field_id() ==
+                                   table_child.get_identifier_field_id();
+                });
+        if (file_child != file.children.end() ||
+            std::ranges::any_of(file.children, [&](const ColumnDefinition& candidate) {
+                return has_shared_descendant_field_id(table_child, candidate);
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
 
 std::string mapping_mode_to_string(TableColumnMappingMode mode) {
     switch (mode) {
@@ -82,12 +148,16 @@ bool column_has_name(const ColumnDefinition& column, const std::string& name) {
 }
 
 bool column_names_match(const ColumnDefinition& lhs, const ColumnDefinition& rhs) {
-    if (column_has_name(rhs, lhs.name)) {
-        return true;
+    if (!lhs.has_name_mapping) {
+        if (column_has_name(rhs, lhs.name)) {
+            return true;
+        }
+        if (lhs.has_identifier_name() && column_has_name(rhs, lhs.get_identifier_name())) {
+            return true;
+        }
     }
-    if (lhs.has_identifier_name() && column_has_name(rhs, lhs.get_identifier_name())) {
-        return true;
-    }
+    // Explicit Iceberg name mapping is authoritative: an empty alias list represents a field that
+    // did not exist in the imported file, so only transported aliases may match.
     return std::ranges::any_of(lhs.name_mapping, [&](const std::string& alias) {
         return column_has_name(rhs, alias);
     });
@@ -323,7 +393,9 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
 
 std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
-    out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode) << "}";
+    out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
+        << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
+        << "}";
     return out.str();
 }
 
@@ -332,8 +404,12 @@ std::string ColumnDefinition::debug_string() const {
     out << "ColumnDefinition{name=" << name << ", identifier=" << field_debug_string(identifier)
         << ", name_mapping="
         << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
-        << ", local_id=" << local_id << ", type=" << data_type_debug_string(type) << ", children="
+        << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
+        << ", type=" << data_type_debug_string(type) << ", children="
         << join_debug_strings(children,
+                              [](const ColumnDefinition& child) { return child.debug_string(); })
+        << ", identity_children="
+        << join_debug_strings(identity_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)
         << ", is_partition_key=" << is_partition_key << "}";
@@ -1960,6 +2036,12 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
+    } else if (table_column.initial_default_value.has_value()) {
+        VExprContextSPtr initial_default;
+        RETURN_IF_ERROR(build_initial_default_literal(table_column, &initial_default));
+        // Iceberg metadata is the authoritative logical value for files written before the field
+        // existed; the generic FE expression may still contain its Base64 transport text.
+        _set_constant_mapping(mapping, std::move(initial_default));
     } else if (table_column.default_expr != nullptr) {
         // Missing schema-evolution column with an explicit default expression.
         _set_constant_mapping(mapping, table_column.default_expr);
@@ -2282,7 +2364,25 @@ const ColumnDefinition* TableColumnMapper::_find_file_field(
         });
         return field_it == file_schema.end() ? nullptr : &*field_it;
     }
-    return matcher_for_mode(_options.mode).find(table_column, file_schema);
+    const auto* matched = matcher_for_mode(_options.mode).find(table_column, file_schema);
+    if (matched != nullptr || _options.mode != TableColumnMappingMode::BY_FIELD_ID ||
+        !_options.allow_idless_complex_wrapper_projection || table_column.children.empty()) {
+        return matched;
+    }
+    const ColumnDefinition* wrapper = nullptr;
+    for (const auto& candidate : file_schema) {
+        if (candidate.has_identifier_field_id() || candidate.children.empty() ||
+            !has_shared_descendant_field_id(table_column, candidate)) {
+            continue;
+        }
+        if (wrapper != nullptr) {
+            return nullptr;
+        }
+        wrapper = &candidate;
+    }
+    // Iceberg Parquet's PruneColumns retains an ID-less complex wrapper when a nested field ID is
+    // selected. Descendant IDs, not aliases, identify that wrapper; ambiguity remains unmapped.
+    return wrapper;
 }
 
 Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_column,
@@ -2320,6 +2420,13 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
             const auto* file_child =
                     find_file_child_for_mapping(table_child, file_field, _options.mode,
                                                 table_child_idx, synthesized_table_children);
+            if (file_child == nullptr && !synthesized_table_children &&
+                _options.mode == TableColumnMappingMode::BY_FIELD_ID &&
+                _options.allow_idless_complex_wrapper_projection) {
+                // Parquet can retain an ID-less wrapper at any depth when a selected descendant
+                // has an ID; apply the same opt-in fallback used for root lookup recursively.
+                file_child = _find_file_field(table_child, file_field.children);
+            }
             if (synthesized_table_children && file_child != nullptr) {
                 const auto file_child_id = file_child->file_local_id();
                 if (std::ranges::find(synthesized_used_file_child_ids, file_child_id) !=
@@ -2345,6 +2452,10 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
+                // A missing nested field still has its Iceberg initial-default value in every row
+                // written before the field was added; carry it into recursive materialization.
+                RETURN_IF_ERROR(build_initial_default_column(
+                        table_child, &child_mapping.initial_default_column));
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }

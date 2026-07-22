@@ -17,27 +17,17 @@
 
 #pragma once
 
-#include <vector>
-
-#include "common/status.h"
-#include "format_v2/column_data.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-class SlotDescriptor;
+inline constexpr int32_t ICEBERG_SCAN_SEMANTICS_VERSION_1 = 1;
 
-class AccessPathParser {
-public:
-    static Status build_nested_children(format::ColumnDefinition* column,
-                                        const SlotDescriptor* slot_desc,
-                                        const format::ColumnDefinition* schema_column,
-                                        bool prefer_exact_name_match = true);
-
-    static Status build_nested_children(format::ColumnDefinition* column,
-                                        const std::vector<TColumnAccessPath>& access_paths,
-                                        const format::ColumnDefinition* schema_column,
-                                        bool prefer_exact_name_match = true);
-};
+inline bool supports_iceberg_scan_semantics_v1(const TFileScanRangeParams* params) {
+    // Old FE plans can carry IDs and encoded defaults too, so only this explicit version marker
+    // may opt a new BE into result-changing semantics during a rolling upgrade.
+    return params != nullptr && params->__isset.iceberg_scan_semantics_version &&
+           params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_1;
+}
 
 } // namespace doris

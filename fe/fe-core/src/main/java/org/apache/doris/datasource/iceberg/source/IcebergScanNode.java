@@ -40,12 +40,15 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.EqualityDelete;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -92,7 +95,6 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
@@ -102,10 +104,6 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.mapping.MappedField;
-import org.apache.iceberg.mapping.MappedFields;
-import org.apache.iceberg.mapping.NameMapping;
-import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
@@ -134,6 +132,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
+    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
     private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
 
     private IcebergSource source;
@@ -267,38 +266,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.doInitialize();
     }
 
-    /**
-     * Extract name mapping from Iceberg table properties.
-     * Returns a map from field ID to list of mapped names.
-     */
-    private Map<Integer, List<String>> extractNameMapping() {
-        Map<Integer, List<String>> result = new HashMap<>();
-        try {
-            String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
-            if (nameMappingJson != null && !nameMappingJson.isEmpty()) {
-                NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
-                if (mapping != null) {
-                    // Extract mappings from NameMapping
-                    // NameMapping contains field mappings, we need to convert them to our format
-                    extractMappingsFromNameMapping(mapping.asMappedFields(), result);
-                }
-            }
-        } catch (Exception e) {
-            // If name mapping parsing fails, continue without it
-            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+    private Optional<Map<Integer, List<String>>> extractNameMapping() {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            // The mapping must come from the same metadata generation as the pinned schema; a
+            // property-only refresh can otherwise change alias semantics within one statement.
+            return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getNameMapping();
         }
-        return result;
-    }
-
-    private void extractMappingsFromNameMapping(MappedFields mappingFields, Map<Integer, List<String>> result) {
-        if (mappingFields == null) {
-            return;
-        }
-        for (MappedField mappedField : mappingFields.fields()) {
-            result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
-            extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
-        }
-
+        return IcebergUtils.getNameMapping(icebergTable);
     }
 
     @Override
@@ -530,14 +505,23 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
+        enableCurrentIcebergScanSemantics();
         // Extract name mapping from Iceberg table properties
-        Map<Integer, List<String>> nameMapping = extractNameMapping();
+        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
 
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
         // projection. Both scanners need the complete current schema to resolve field ids,
         // historical names, types, and initial defaults when an old data file lacks such a key.
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
-                nameMapping, getBase64EncodedInitialDefaultsForScan());
+                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
+                getBase64EncodedInitialDefaultsForScan());
+    }
+
+    @VisibleForTesting
+    void enableCurrentIcebergScanSemantics() {
+        // This explicit capability is the rollout boundary: old FE plans must keep legacy values
+        // when fragments run on a mixture of old and new BEs.
+        params.setIcebergScanSemanticsVersion(ICEBERG_SCAN_SEMANTICS_VERSION);
     }
 
     @VisibleForTesting
@@ -548,17 +532,22 @@ public class IcebergScanNode extends FileQueryScanNode {
             // schema that produced source.getTargetTable().getColumns() to keep defaults aligned.
             return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
         }
-        TableScan tableScan = createTableScan();
-        Snapshot snapshot = tableScan.snapshot();
-        // TableScan.schema() starts from the table's current schema even for useSnapshot/useRef.
-        // Resolve the selected snapshot's schema id explicitly so this metadata describes the same
-        // snapshot as source.getTargetTable().getColumns(). Otherwise a later type change can make
-        // BE decode a historical non-binary default as Base64, or fail to decode a binary default.
-        Schema scanSchema = snapshot == null
-                ? tableScan.schema()
-                : tableScan.table().schemas().get(snapshot.schemaId());
+        IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
+        Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        Schema scanSchema = null;
+        if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
+            long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
+                    .getSnapshotCacheValue().getSnapshot().getSchemaId();
+            scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
+        } else {
+            scanSchema = selectedSnapshot == null
+                    ? icebergTable.schema()
+                    : icebergTable.schemas().get(selectedSnapshot.getSchemaId());
+        }
+        // A branch can expose a schema newer than its data snapshot. The statement-pinned schema
+        // produced the target columns, so default markers must not be recomputed from that snapshot.
         return IcebergUtils.getBase64EncodedInitialDefaults(
-                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan snapshot is null"));
+                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
     }
 
     @Override
