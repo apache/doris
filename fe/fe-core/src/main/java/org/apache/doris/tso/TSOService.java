@@ -49,6 +49,33 @@ public class TSOService extends MasterDaemon {
     private final AtomicBoolean fatalClockBackwardReported = new AtomicBoolean(false);
     private final AtomicLong windowEndTSO = new AtomicLong(0);
 
+    /**
+     * Immutable snapshot of the current TSO service status.
+     */
+    public static final class TSOStatusSnapshot {
+        private final boolean initialized;
+        private final long currentTso;
+        private final long windowEndPhysicalTime;
+
+        public TSOStatusSnapshot(boolean initialized, long currentTso, long windowEndPhysicalTime) {
+            this.initialized = initialized;
+            this.currentTso = currentTso;
+            this.windowEndPhysicalTime = windowEndPhysicalTime;
+        }
+
+        public boolean isInitialized() {
+            return initialized;
+        }
+
+        public long getCurrentTso() {
+            return currentTso;
+        }
+
+        public long getWindowEndPhysicalTime() {
+            return windowEndPhysicalTime;
+        }
+    }
+
     private static final class TSOClockBackwardException extends RuntimeException {
         private TSOClockBackwardException(String message) {
             super(message);
@@ -230,6 +257,21 @@ public class TSOService extends MasterDaemon {
         lock.lock();
         try {
             return globalTimestamp.composeTimestamp();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Get a read-only snapshot of the TSO service status without allocating a new TSO timestamp.
+     *
+     * @return Current initialization state, composed TSO, and window end physical time
+     */
+    public TSOStatusSnapshot getStatusSnapshot() {
+        lock.lock();
+        try {
+            return new TSOStatusSnapshot(
+                    isInitialized.get(), globalTimestamp.composeTimestamp(), windowEndTSO.get());
         } finally {
             lock.unlock();
         }

@@ -40,7 +40,7 @@ import java.util.List;
 /**
  * Command for SHOW TSO STATUS.
  */
-public class ShowTsoStatusCommand extends ShowCommand {
+public class ShowTsoStatusCommand extends ShowCommand implements ForwardNoSync {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("window_end_physical_time",
@@ -68,13 +68,14 @@ public class ShowTsoStatusCommand extends ShowCommand {
         }
 
         TSOService tsoService = Env.getCurrentEnv().getTSOService();
-        long currentTso = tsoService.getCurrentTSO();
-        if (currentTso == 0) {
+        TSOService.TSOStatusSnapshot statusSnapshot = tsoService.getStatusSnapshot();
+        if (!statusSnapshot.isInitialized()) {
             throw new AnalysisException("TSO timestamp is not calibrated, please check");
         }
 
+        long currentTso = statusSnapshot.getCurrentTso();
         List<List<String>> rows = ImmutableList.of(ImmutableList.of(
-                String.valueOf(tsoService.getWindowEndTSO()),
+                String.valueOf(statusSnapshot.getWindowEndPhysicalTime()),
                 String.valueOf(currentTso),
                 String.valueOf(TSOTimestamp.extractPhysicalTime(currentTso)),
                 String.valueOf(TSOTimestamp.extractLogicalCounter(currentTso))));

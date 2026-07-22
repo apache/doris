@@ -95,8 +95,8 @@ public class ShowTsoStatusCommandTest {
         long logicalCounter = 17L;
         long currentTso = TSOTimestamp.composeTimestamp(physicalTime, logicalCounter);
         long windowEndPhysicalTime = physicalTime + 5_000L;
-        Mockito.when(tsoService.getCurrentTSO()).thenReturn(currentTso);
-        Mockito.when(tsoService.getWindowEndTSO()).thenReturn(windowEndPhysicalTime);
+        Mockito.when(tsoService.getStatusSnapshot()).thenReturn(
+                new TSOService.TSOStatusSnapshot(true, currentTso, windowEndPhysicalTime));
 
         ShowResultSet resultSet = new ShowTsoStatusCommand().doRun(null, null);
 
@@ -105,9 +105,10 @@ public class ShowTsoStatusCommandTest {
                 String.valueOf(currentTso),
                 String.valueOf(physicalTime),
                 String.valueOf(logicalCounter))), resultSet.getResultRows());
-        Mockito.verify(tsoService, Mockito.times(1)).getCurrentTSO();
-        Mockito.verify(tsoService, Mockito.times(1)).getWindowEndTSO();
+        Mockito.verify(tsoService, Mockito.times(1)).getStatusSnapshot();
         Mockito.verify(tsoService, Mockito.never()).getTSO();
+        Mockito.verify(tsoService, Mockito.never()).getCurrentTSO();
+        Mockito.verify(tsoService, Mockito.never()).getWindowEndTSO();
     }
 
     @Test
@@ -123,12 +124,16 @@ public class ShowTsoStatusCommandTest {
 
     @Test
     public void testNotCalibrated() {
-        Mockito.when(tsoService.getCurrentTSO()).thenReturn(0L);
+        long currentTso = TSOTimestamp.composeTimestamp(1_725_000_000_000L, 0L);
+        Mockito.when(tsoService.getStatusSnapshot()).thenReturn(
+                new TSOService.TSOStatusSnapshot(false, currentTso, 0L));
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> new ShowTsoStatusCommand().doRun(null, null));
 
         Assertions.assertTrue(exception.getMessage().contains("not calibrated"));
+        Mockito.verify(tsoService, Mockito.times(1)).getStatusSnapshot();
+        Mockito.verify(tsoService, Mockito.never()).getCurrentTSO();
         Mockito.verify(tsoService, Mockito.never()).getWindowEndTSO();
         Mockito.verify(tsoService, Mockito.never()).getTSO();
     }
