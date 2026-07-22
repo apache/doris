@@ -2281,6 +2281,67 @@ public:
         return 0;
     }
 
+    uint64_t xor_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 1;
+            case SINGLE:
+                return 1 + (_sv != rhs._sv);
+            case BITMAP:
+                return cardinality() + 1 - 2 * _bitmap->contains(rhs._sv);
+            case SET:
+                return _set.size() + 1 - 2 * _set.contains(rhs._sv);
+            }
+            break;
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return rhs.cardinality();
+            case SINGLE:
+                return rhs.cardinality() + 1 - 2 * rhs._bitmap->contains(_sv);
+            case BITMAP:
+                return _bitmap->xorCardinality(*rhs._bitmap);
+            case SET: {
+                uint64_t cardinality = rhs._bitmap->cardinality();
+                for (auto v : _set) {
+                    if (rhs._bitmap->contains(v)) {
+                        --cardinality;
+                    } else {
+                        ++cardinality;
+                    }
+                }
+                return cardinality;
+            }
+            }
+            break;
+        case SET:
+            switch (_type) {
+            case EMPTY:
+                return rhs.cardinality();
+            case SINGLE:
+                return rhs.cardinality() + 1 - 2 * rhs._set.contains(_sv);
+            case BITMAP: {
+                uint64_t cardinality = _bitmap->cardinality();
+                for (auto v : rhs._set) {
+                    if (_bitmap->contains(v)) {
+                        --cardinality;
+                    } else {
+                        ++cardinality;
+                    }
+                }
+                return cardinality;
+            }
+            case SET:
+                return _set.size() + rhs._set.size() - 2 * and_cardinality(rhs);
+            }
+        }
+        return 0;
+    }
+
     uint64_t andnot_cardinality(const BitmapValue& rhs) const {
         switch (rhs._type) {
         case EMPTY:

@@ -114,47 +114,117 @@ namespace doris {
         }                                                                                         \
     }
 
-#define BITMAP_FUNCTION_COUNT_VARIADIC(CLASS, FUNCTION_NAME, OP)                                  \
+#define BITMAP_FUNCTION_COUNT_VARIADIC(CLASS, FUNCTION_NAME, OP, COUNT_OP)                        \
     struct CLASS {                                                                                \
+    public:                                                                                       \
         static constexpr auto name = #FUNCTION_NAME;                                              \
         using ResultDataType = DataTypeInt64;                                                     \
         using TData = std::vector<BitmapValue>;                                                   \
         using ResTData = typename ColumnInt64::Container;                                         \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
                                     size_t input_rows_count, ResTData& res, IColumn* res_nulls) { \
-            TData vals;                                                                           \
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
-                vals.resize(input_rows_count);                                                    \
-                BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, =);                          \
-            } else {                                                                              \
-                vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();   \
+            DCHECK_GE(col_size, 2);                                                               \
+            if (col_size == 2) {                                                                  \
+                const auto lhs = make_bitmap_column_accessor(argument_columns[0]);                \
+                const auto rhs = make_bitmap_column_accessor(argument_columns[1]);                \
+                for (size_t row = 0; row < input_rows_count; ++row) {                             \
+                    const auto* lhs_value = lhs.is_null_at(row) ? nullptr : &lhs.get_value(row);  \
+                    const auto* rhs_value = rhs.is_null_at(row) ? nullptr : &rhs.get_value(row);  \
+                    if (!lhs_value || !rhs_value) {                                               \
+                        if constexpr (std::is_same_v<CLASS, BitmapOrCount>) {                     \
+                            const auto* value = lhs_value ? lhs_value : rhs_value;                \
+                            res[row] = value ? value->cardinality() : 0;                          \
+                        } else {                                                                  \
+                            res[row] = 0;                                                         \
+                        }                                                                         \
+                    } else {                                                                      \
+                        res[row] = lhs_value->COUNT_OP(*rhs_value);                               \
+                    }                                                                             \
+                }                                                                                 \
+                return Status::OK();                                                              \
             }                                                                                     \
-            for (size_t col = 1; col < col_size; ++col) {                                         \
-                if (auto* nullable =                                                              \
-                            check_and_get_column<ColumnNullable>(*argument_columns[col])) {       \
-                    BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, OP);                     \
-                } else {                                                                          \
-                    const auto& col_data =                                                        \
-                            assert_cast<const ColumnBitmap*>(argument_columns[col].get())         \
-                                    ->get_data();                                                 \
-                    for (size_t row = 0; row < input_rows_count; ++row) {                         \
-                        vals[row] OP col_data[row];                                               \
+            TData vals(input_rows_count);                                                         \
+            const auto first_column = make_bitmap_column_accessor(argument_columns[0]);           \
+            for (size_t row = 0; row < input_rows_count; ++row) {                                 \
+                if (!first_column.is_null_at(row)) {                                              \
+                    vals[row] = first_column.get_value(row);                                      \
+                }                                                                                 \
+            }                                                                                     \
+            for (size_t col = 1; col + 1 < col_size; ++col) {                                     \
+                const auto column = make_bitmap_column_accessor(argument_columns[col]);           \
+                for (size_t row = 0; row < input_rows_count; ++row) {                             \
+                    if (!column.is_null_at(row)) {                                                \
+                        vals[row] OP column.get_value(row);                                       \
                     }                                                                             \
                 }                                                                                 \
             }                                                                                     \
+            const auto last_column = make_bitmap_column_accessor(argument_columns[col_size - 1]); \
             for (size_t row = 0; row < input_rows_count; ++row) {                                 \
-                res[row] = vals[row].cardinality();                                               \
+                const auto* lhs_value = &vals[row];                                               \
+                const auto* rhs_value =                                                           \
+                        last_column.is_null_at(row) ? nullptr : &last_column.get_value(row);      \
+                if (!rhs_value) {                                                                 \
+                    if constexpr (std::is_same_v<CLASS, BitmapOrCount>) {                         \
+                        res[row] = lhs_value->cardinality();                                      \
+                    } else {                                                                      \
+                        res[row] = 0;                                                             \
+                    }                                                                             \
+                } else {                                                                          \
+                    res[row] = lhs_value->COUNT_OP(*rhs_value);                                   \
+                }                                                                                 \
             }                                                                                     \
             return Status::OK();                                                                  \
+        }                                                                                         \
+                                                                                                  \
+    private:                                                                                      \
+        struct BitmapColumnAccessor {                                                             \
+            const std::vector<BitmapValue>* values = nullptr;                                     \
+            const BitmapValue* const_value = nullptr;                                             \
+            const ColumnUInt8::value_type* null_map_data = nullptr;                               \
+            bool is_const = false;                                                                \
+            bool is_const_null = false;                                                           \
+                                                                                                  \
+            bool is_null_at(size_t row) const {                                                   \
+                return is_const ? is_const_null : (null_map_data && null_map_data[row]);          \
+            }                                                                                     \
+                                                                                                  \
+            const BitmapValue& get_value(size_t row) const {                                      \
+                return is_const ? *const_value : (*values)[row];                                  \
+            }                                                                                     \
+        };                                                                                        \
+                                                                                                  \
+        static BitmapColumnAccessor make_bitmap_column_accessor(const ColumnPtr& column) {        \
+            BitmapColumnAccessor accessor;                                                        \
+            const auto& [data_column_ptr, is_const] = unpack_if_const(column);                    \
+            accessor.is_const = is_const;                                                         \
+            const IColumn* data_column = data_column_ptr.get();                                   \
+                                                                                                  \
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*data_column)) {      \
+                if (accessor.is_const) {                                                          \
+                    accessor.is_const_null = nullable->is_null_at(0);                             \
+                } else {                                                                          \
+                    accessor.null_map_data = nullable->get_null_map_data().data();                \
+                }                                                                                 \
+                data_column = nullable->get_nested_column_ptr().get();                            \
+            }                                                                                     \
+                                                                                                  \
+            const auto* bitmap_column = assert_cast<const ColumnBitmap*>(data_column);            \
+            if (accessor.is_const) {                                                              \
+                accessor.const_value = &bitmap_column->get_data()[0];                             \
+            } else {                                                                              \
+                accessor.values = &bitmap_column->get_data();                                     \
+            }                                                                                     \
+                                                                                                  \
+            return accessor;                                                                      \
         }                                                                                         \
     }
 
 BITMAP_FUNCTION_VARIADIC(BitmapOr, bitmap_or, |=);
 BITMAP_FUNCTION_VARIADIC(BitmapAnd, bitmap_and, &=);
 BITMAP_FUNCTION_VARIADIC(BitmapXor, bitmap_xor, ^=);
-BITMAP_FUNCTION_COUNT_VARIADIC(BitmapOrCount, bitmap_or_count, |=);
-BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
-BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
+BITMAP_FUNCTION_COUNT_VARIADIC(BitmapOrCount, bitmap_or_count, |=, or_cardinality);
+BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=, and_cardinality);
+BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=, xor_cardinality);
 
 Status execute_bitmap_op_count_null_to_zero(
         FunctionContext* context, Block& block, const ColumnNumbers& arguments, uint32_t result,
@@ -260,25 +330,17 @@ public:
         auto& vec_res = col_res->get_data();
         vec_res.resize(input_rows_count);
 
-        bool used_binary_count_path = false;
-        if constexpr (std::is_same_v<Impl, BitmapOrCount> || std::is_same_v<Impl, BitmapAndCount> ||
-                      std::is_same_v<Impl, BitmapXorCount>) {
-            if (argument_size == 2) {
-                RETURN_IF_ERROR(execute_binary_bitmap_count<Impl>(
-                        block.get_by_position(arguments[0]).column,
-                        block.get_by_position(arguments[1]).column, input_rows_count, vec_res));
-                used_binary_count_path = true;
+        std::vector<ColumnPtr> argument_columns(argument_size);
+        for (size_t i = 0; i < argument_size; ++i) {
+            argument_columns[i] = block.get_by_position(arguments[i]).column;
+            if constexpr (!std::is_same_v<Impl, BitmapOrCount> &&
+                          !std::is_same_v<Impl, BitmapAndCount> &&
+                          !std::is_same_v<Impl, BitmapXorCount>) {
+                argument_columns[i] = argument_columns[i]->convert_to_full_column_if_const();
             }
         }
-        if (!used_binary_count_path) {
-            std::vector<ColumnPtr> argument_columns(argument_size);
-            for (size_t i = 0; i < argument_size; ++i) {
-                argument_columns[i] = block.get_by_position(arguments[i])
-                                              .column->convert_to_full_column_if_const();
-            }
-            RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
-                                                input_rows_count, vec_res, col_res_nulls.get()));
-        }
+        RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
+                                            input_rows_count, vec_res, col_res_nulls.get()));
 
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             block.replace_by_position(
@@ -293,93 +355,6 @@ private:
     bool is_count() const {
         return (std::is_same_v<Impl, BitmapOrCount> || std::is_same_v<Impl, BitmapAndCount> ||
                 std::is_same_v<Impl, BitmapXorCount>);
-    }
-
-    template <typename CountImpl>
-    Status execute_binary_bitmap_count(const ColumnPtr& lhs_column, const ColumnPtr& rhs_column,
-                                       size_t input_rows_count, ColumnInt64::Container& res) const {
-        static_assert(std::is_same_v<CountImpl, BitmapOrCount> ||
-                      std::is_same_v<CountImpl, BitmapAndCount> ||
-                      std::is_same_v<CountImpl, BitmapXorCount>);
-
-        struct BitmapColumnAccessor {
-            const std::vector<BitmapValue>* values = nullptr;
-            const BitmapValue* const_value = nullptr;
-            const ColumnUInt8::value_type* null_map_data = nullptr;
-            bool is_const = false;
-            bool is_const_null = false;
-
-            bool is_null_at(size_t row) const {
-                return is_const ? is_const_null : (null_map_data && null_map_data[row]);
-            }
-
-            const BitmapValue& get_value(size_t row) const {
-                return is_const ? *const_value : (*values)[row];
-            }
-        };
-
-        auto make_accessor = [](const ColumnPtr& column) {
-            BitmapColumnAccessor accessor;
-            const auto& [data_column_ptr, is_const] = unpack_if_const(column);
-            accessor.is_const = is_const;
-            const IColumn* data_column = data_column_ptr.get();
-
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(*data_column)) {
-                if (accessor.is_const) {
-                    accessor.is_const_null = nullable->is_null_at(0);
-                } else {
-                    accessor.null_map_data = nullable->get_null_map_data().data();
-                }
-                data_column = nullable->get_nested_column_ptr().get();
-            }
-
-            const auto* bitmap_column = assert_cast<const ColumnBitmap*>(data_column);
-            if (accessor.is_const) {
-                accessor.const_value = &bitmap_column->get_data()[0];
-            } else {
-                accessor.values = &bitmap_column->get_data();
-            }
-
-            return accessor;
-        };
-
-        const auto lhs = make_accessor(lhs_column);
-        const auto rhs = make_accessor(rhs_column);
-
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            const bool lhs_is_null = lhs.is_null_at(row);
-            const bool rhs_is_null = rhs.is_null_at(row);
-
-            if (lhs_is_null && rhs_is_null) {
-                res[row] = 0;
-                continue;
-            }
-
-            if constexpr (std::is_same_v<CountImpl, BitmapOrCount>) {
-                if (lhs_is_null) {
-                    res[row] = rhs.get_value(row).cardinality();
-                } else if (rhs_is_null) {
-                    res[row] = lhs.get_value(row).cardinality();
-                } else {
-                    res[row] = lhs.get_value(row).or_cardinality(rhs.get_value(row));
-                }
-            } else if constexpr (std::is_same_v<CountImpl, BitmapAndCount>) {
-                res[row] = (lhs_is_null || rhs_is_null)
-                                   ? 0
-                                   : lhs.get_value(row).and_cardinality(rhs.get_value(row));
-            } else {
-                if (lhs_is_null || rhs_is_null) {
-                    res[row] = 0;
-                } else {
-                    const auto& lhs_value = lhs.get_value(row);
-                    const auto& rhs_value = rhs.get_value(row);
-                    uint64_t inter = lhs_value.and_cardinality(rhs_value);
-                    res[row] = lhs_value.cardinality() + rhs_value.cardinality() - 2 * inter;
-                }
-            }
-        }
-
-        return Status::OK();
     }
 };
 

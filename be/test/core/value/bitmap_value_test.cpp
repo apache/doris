@@ -448,6 +448,7 @@ void check_bitmap_value_operator(const BitmapValue& left, const BitmapValue& rig
     auto right_cardinality = right.cardinality();
     auto and_cardinality = left.and_cardinality(right);
     auto and_not_cardinality = left.andnot_cardinality(right);
+    auto xor_cardinality = left.xor_cardinality(right);
 
     std::cout << "left_cardinality: " << left_cardinality
               << ", right_cardinality: " << right_cardinality
@@ -475,7 +476,8 @@ void check_bitmap_value_operator(const BitmapValue& left, const BitmapValue& rig
 
     copy = left;
     copy ^= right;
-    EXPECT_EQ(copy.cardinality(), left_cardinality + right_cardinality - and_cardinality * 2);
+    EXPECT_EQ(xor_cardinality, left_cardinality + right_cardinality - and_cardinality * 2);
+    EXPECT_EQ(copy.cardinality(), xor_cardinality);
 }
 
 // '='
