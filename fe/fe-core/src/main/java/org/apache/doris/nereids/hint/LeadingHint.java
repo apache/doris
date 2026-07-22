@@ -417,6 +417,10 @@ public class LeadingHint extends Hint {
             }
 
             if (joinConstraint.getJoinType().isSemiOrAntiJoin()) {
+                if (!LongBitmap.isSubset(joinConstraint.getMinLeftHand(), joinTableBitmap)
+                        || !LongBitmap.isSubset(joinConstraint.getMinRightHand(), joinTableBitmap)) {
+                    continue;
+                }
                 Long constrainedSide = joinConstraint.getJoinType().isRightSemiOrAntiJoin()
                         ? joinConstraint.getLeftHand() : joinConstraint.getRightHand();
                 if ((LongBitmap.isSubset(constrainedSide, leftTableBitmap)
