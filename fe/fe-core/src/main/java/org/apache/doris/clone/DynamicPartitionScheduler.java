@@ -61,6 +61,7 @@ import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -102,6 +103,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private static final String DEFAULT_RUNTIME_VALUE = FeConstants.null_string;
 
     private static final long SLEEP_PIECE = 5000L;
+
+    /** Test-only: when non-null overrides the clock in both add and drop
+     *  paths so tests can reproduce time-sensitive scenarios deterministically. */
+    @VisibleForTesting
+    public static volatile ZonedDateTime testNow;
 
     private Map<Long, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
     private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();
@@ -210,17 +216,27 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     /**
      * Get all partitions except the current one. When currentKey is non-null,
-     * the current partition is identified by matching its range lower bound
-     * against currentKey (parsed from currentUtcBorder).  When currentKey is
-     * null, fall back to name-based exclusion against nowPartitionName.
+     * the current partition is identified by checking if its range
+     * <em>contains</em> currentKey (i.e. lower <= currentKey < upper).
+     * When currentKey is null, fall back to name-based exclusion against
+     * nowPartitionName.
+     *
+     * <p>Using range containment instead of exact lower-bound equality
+     * handles non‑canonical current partitions whose lower endpoint does
+     * not coincide with the captured UTC‑midnight instant — for example a
+     * pre‑fix Asia/Shanghai partition p20260720 = [2026-07-19 16:00Z,
+     * 2026-07-20 16:00Z) where currentKey = 2026-07-22 00:00Z falls inside
+     * the range but does not equal the lower endpoint.  Without containment
+     * such a populated, still‑growing partition would be treated as history
+     * and distort auto‑bucket calculations.
      *
      * <p>The two filters are mutually exclusive — when a range key is available
      * it alone identifies the current partition.  Applying both filters on top
-     * of each other would double-exclude: after the range match removes the
+     * of each other would double‑exclude: after the range match removes the
      * current partition (whose name may use an old prefix after a prefix change),
      * the name filter could then catch a <em>different</em> partition whose name
      * happens to match the new prefix, losing two partitions and corrupting
-     * auto-bucket calculations.
+     * auto‑bucket calculations.
      */
     public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName,
             String currentUtcBorder) {
@@ -255,12 +271,21 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             return false;
                         }
                         if (rangeKey != null) {
-                            // Range-based exclusion only — mutually exclusive
-                            // with name-based exclusion to avoid double-filtering.
+                            // Range-based exclusion — mutually exclusive with
+                            // name-based exclusion to avoid double-filtering.
+                            // Exclude the partition whose range contains
+                            // rangeKey (lower <= rangeKey < upper).  This
+                            // handles both canonical partitions where
+                            // rangeKey equals the lower endpoint and
+                            // non-canonical partitions where rangeKey falls
+                            // inside the range.
                             RangePartitionItem item = (RangePartitionItem) info.getItem(partition.getId());
                             if (item != null) {
-                                PartitionKey lower = item.getItems().lowerEndpoint();
-                                if (lower.compareTo(rangeKey) == 0) {
+                                Range<PartitionKey> partitionRange = item.getItems();
+                                PartitionKey lower = partitionRange.lowerEndpoint();
+                                PartitionKey upper = partitionRange.upperEndpoint();
+                                if (lower.compareTo(rangeKey) <= 0
+                                        && rangeKey.compareTo(upper) < 0) {
                                     return false; // current partition
                                 }
                             }
@@ -337,7 +362,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // For TIMESTAMPTZ, both partition boundaries and names are UTC-based
         // (00:00—24:00 in UTC). This keeps partition names and values consistent.
         boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
-        ZonedDateTime nowTz = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
+        ZonedDateTime nowTz = testNow != null ? testNow
+                : ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
         ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
         TimeZone borderTimeZone = isTimestampTz
                 ? TimeUtils.getUTCTimeZone()
@@ -601,7 +627,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // For TIMESTAMPTZ, use UTC clock so the drop cutoff aligns with the
         // UTC-midnight partition boundaries created by getAddPartitionOp().
         boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
-        ZonedDateTime nowTz = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
+        ZonedDateTime nowTz = testNow != null ? testNow
+                : ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
         ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
         TimeZone borderTimeZone = isTimestampTz
                 ? TimeUtils.getUTCTimeZone()

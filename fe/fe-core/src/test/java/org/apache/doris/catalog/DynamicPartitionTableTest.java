@@ -2429,15 +2429,30 @@ public class DynamicPartitionTableTest {
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_drop_cutoff");
 
-            // Add a partition for two days ago (UTC) that should be dropped
-            // by the start=-1 cutoff. Must temporarily disable dynamic partition
-            // to manually add a partition.
-            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
+            // Inject a fixed clock so the test is deterministic regardless of
+            // wall-clock time.  Choose 2026-07-21 08:00:00Z when Asia/Shanghai
+            // is at 16:00 (same calendar day as UTC).  At this instant:
+            //
+            //   UTC now = 2026-07-21 08:00Z
+            //   start=-1 reserved lower (new, UTC)   = 2026-07-20 00:00Z
+            //   start=-1 reserved lower (old, +08:00) = 2026-07-19 16:00Z
+            //
+            //   p_old = [2026-07-19 00:00Z, 2026-07-20 00:00Z)
+            //
+            //   New code:  reserved [2026-07-20 00:00Z, ∞) → no intersect → DROP
+            //   Old code:  reserved [2026-07-19 16:00Z, ∞) → intersect  → KEEP
+            //
+            // The assertion below therefore always fails on the old
+            // implementation, not just for 16 hours of the day.
+            ZonedDateTime fixedNow = ZonedDateTime.of(
+                    2026, 7, 21, 8, 0, 0, 0, ZoneOffset.UTC);
+            DynamicPartitionScheduler.testNow = fixedNow;
+
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-            String oldLower = utcNow.minusDays(2).withHour(0).withMinute(0).withSecond(0)
-                    .withNano(0).format(fmt) + "+00:00";
-            String oldUpper = utcNow.minusDays(1).withHour(0).withMinute(0).withSecond(0)
-                    .withNano(0).format(fmt) + "+00:00";
+            String oldLower = fixedNow.minusDays(2).withHour(0).withMinute(0)
+                    .withSecond(0).withNano(0).format(fmt) + "+00:00";
+            String oldUpper = fixedNow.minusDays(1).withHour(0).withMinute(0)
+                    .withSecond(0).withNano(0).format(fmt) + "+00:00";
             alterTable("ALTER TABLE test.tstz_drop_cutoff SET "
                     + "('dynamic_partition.enable' = 'false')");
             alterTable("ALTER TABLE test.tstz_drop_cutoff ADD PARTITION p_old VALUES "
@@ -2473,6 +2488,7 @@ public class DynamicPartitionTableTest {
                         "00", lowerStr.substring(11, 13));
             }
         } finally {
+            DynamicPartitionScheduler.testNow = null;
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
     }
@@ -3590,6 +3606,101 @@ public class DynamicPartitionTableTest {
                     currentFoundByRange);
             Assert.assertEquals("Old prefix: exclude exactly one partition",
                     totalPartitions - 1, historicalWithUtc.size());
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimeStampTzGetHistoricalPartitionsNoncanonicalRange() throws Exception {
+        // A pre-fix partition created under Asia/Shanghai has a lower bound
+        // at 16:00Z (Shanghai midnight = UTC 16:00 previous day).  The new
+        // scheduler captures currentUtcBorder at UTC midnight (00:00Z) which
+        // falls INSIDE such a partition but does NOT equal its lower endpoint.
+        // Exact lower-bound equality would miss this partition, leaving it
+        // in the historical list and corrupting auto-bucket calculations.
+        // Range containment (lower <= rangeKey < upper) correctly excludes it.
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/Chicago");
+
+            // Create table without dynamic partition — we add ranges manually.
+            String createSql = "CREATE TABLE test.`tstz_noncanonical` (\n"
+                    + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
+                    + "  `k2` int NULL COMMENT \"\"\n"
+                    + ") ENGINE=OLAP\n"
+                    + "DUPLICATE KEY(`k1`, `k2`)\n"
+                    + "PARTITION BY RANGE(`k1`)\n"
+                    + "()\n"
+                    + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_num\" = \"1\"\n"
+                    + ");";
+            createTable(createSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_noncanonical");
+
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+
+            // Non-canonical partition: lower = yesterday 16:00Z, upper = today 16:00Z.
+            // currentUtcBorder (today 00:00Z) is inside [yesterday 16:00Z, today 16:00Z)
+            // but does NOT equal the lower bound (16:00Z).
+            ZonedDateTime yesterday16Z = now.withHour(16).withMinute(0).withSecond(0).withNano(0);
+            if (now.getHour() < 16) {
+                yesterday16Z = yesterday16Z.minusDays(1);
+            }
+            ZonedDateTime today16Z = yesterday16Z.plusDays(1);
+            String oldLower = fmt.format(yesterday16Z) + "+00:00";
+            String oldUpper = fmt.format(today16Z) + "+00:00";
+            alterTable("ALTER TABLE test.tstz_noncanonical ADD PARTITION p_legacy VALUES "
+                    + "[('" + oldLower + "'), ('" + oldUpper + "'))");
+
+            // Historical non-overlapping partition (far in the past).
+            alterTable("ALTER TABLE test.tstz_noncanonical ADD PARTITION p_hist VALUES "
+                    + "[('2020-01-01 00:00:00+00:00'), ('2020-01-02 00:00:00+00:00'))");
+
+            Assert.assertEquals(2, table.getPartitionNames().size());
+
+            // currentUtcBorder = today's UTC midnight → inside p_legacy.
+            String currentUtcBorder = fmt.format(now.withHour(0).withMinute(0).withSecond(0).withNano(0)) + "+00:00";
+
+            // Sanity check: currentUtcBorder is inside p_legacy.
+            RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
+            for (Map.Entry<Long, PartitionItem> entry : info.getIdToItem(false).entrySet()) {
+                RangePartitionItem item = (RangePartitionItem) entry.getValue();
+                String lowerStr = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                String upperStr = item.getItems().upperEndpoint().getKeys().get(0).getStringValue();
+                if ("p_legacy".equals(table.getPartition(entry.getKey()).getName())) {
+                    Assert.assertTrue("00:00Z must be inside [" + lowerStr + ", " + upperStr + ")",
+                            currentUtcBorder.compareTo(lowerStr) >= 0
+                            && currentUtcBorder.compareTo(upperStr) < 0);
+                    Assert.assertFalse("00:00Z must NOT equal " + lowerStr,
+                            currentUtcBorder.equals(lowerStr));
+                }
+            }
+
+            String wrongNowPartitionName = "p_nonexistent";
+
+            // 1. Without currentUtcBorder: name-based fallback returns both.
+            List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, wrongNowPartitionName, null);
+            Assert.assertEquals("Name-based fallback returns all partitions",
+                    2, historicalNoUtc.size());
+
+            // 2. With currentUtcBorder: range containment excludes p_legacy
+            //    because 00:00Z ∈ [yesterday 16:00Z, today 16:00Z).
+            //    p_legacy's lower bound (16:00Z) ≠ 00:00Z, so exact equality
+            //    would NOT find it — only containment does.
+            List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, wrongNowPartitionName, currentUtcBorder);
+            Assert.assertEquals("Range containment excludes exactly one partition",
+                    1, historicalWithUtc.size());
+            Assert.assertFalse("p_legacy must be excluded by range containment",
+                    "p_legacy".equals(historicalWithUtc.get(0).getName()));
+            Assert.assertEquals("p_hist should survive",
+                    "p_hist", historicalWithUtc.get(0).getName());
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
