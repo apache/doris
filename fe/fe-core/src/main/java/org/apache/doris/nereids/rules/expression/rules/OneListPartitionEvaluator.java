@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -46,14 +48,41 @@ public class OneListPartitionEvaluator<K>
     private final List<Slot> partitionSlots;
     private final ListPartitionItem partitionItem;
     private final ExpressionRewriteContext expressionRewriteContext;
+    // Position-aligned with partitionSlots. A true entry means the corresponding
+    // partition key is the output of a function expression (e.g. date_trunc(dt,'day')),
+    // not the raw slot value. For those positions we must NOT replace the slot with
+    // the stored key literal, because the filter references the raw slot (dt) whose
+    // values do not equal the truncated key. Instead we leave the slot un-bound,
+    // which forces evaluate() to produce a non-boolean, causing PartitionPruner to
+    // keep the partition (safe over-scan rather than unsafe under-scan).
+    private final boolean[] slotHasPartitionFunction;
 
     public OneListPartitionEvaluator(K partitionIdent, List<Slot> partitionSlots,
             ListPartitionItem partitionItem, CascadesContext cascadesContext) {
+        this(partitionIdent, partitionSlots, partitionItem, cascadesContext, null);
+    }
+
+    /**
+     * Constructor with per-position partition expressions. When a position's expression is a
+     * function call (e.g. date_trunc(dt,'day')) the corresponding partition key is the function
+     * output rather than the raw slot value; we skip literal binding for that slot to keep the
+     * partition (safe over-scan) instead of misjudging equality with the truncated key.
+     */
+    public OneListPartitionEvaluator(K partitionIdent, List<Slot> partitionSlots,
+            ListPartitionItem partitionItem, CascadesContext cascadesContext,
+            List<Expr> partitionExprs) {
         this.partitionIdent = partitionIdent;
         this.partitionSlots = Objects.requireNonNull(partitionSlots, "partitionSlots cannot be null");
         this.partitionItem = Objects.requireNonNull(partitionItem, "partitionItem cannot be null");
         this.expressionRewriteContext = new ExpressionRewriteContext(
                 Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null"));
+        this.slotHasPartitionFunction = new boolean[partitionSlots.size()];
+        if (partitionExprs != null) {
+            int n = Math.min(partitionSlots.size(), partitionExprs.size());
+            for (int i = 0; i < n; i++) {
+                slotHasPartitionFunction[i] = partitionExprs.get(i) instanceof FunctionCallExpr;
+            }
+        }
     }
 
     @Override
@@ -76,6 +105,13 @@ public class OneListPartitionEvaluator<K>
         ImmutableList.Builder<Map<Slot, PartitionSlotInput>> inputs
                 = ImmutableList.builderWithExpectedSize(partitionItem.getItems().size());
         Slot slot = partitionSlots.get(0);
+        // If this slot's partition key is a function output, we cannot substitute
+        // the raw slot with the stored literal. Emit a single empty binding: every
+        // predicate referencing this slot stays symbolic and the partition is kept.
+        if (slotHasPartitionFunction[0]) {
+            inputs.add(ImmutableMap.of());
+            return inputs.build();
+        }
         for (PartitionKey item : partitionItem.getItems()) {
             LiteralExpr legacy = item.getKeys().get(0);
             inputs.add(ImmutableMap.of(
@@ -94,15 +130,21 @@ public class OneListPartitionEvaluator<K>
                             .map(literal -> Literal.fromLegacyLiteral(literal, literal.getType()))
                             .collect(ImmutableList.toImmutableList());
 
-                    return IntStream.range(0, partitionSlots.size())
-                            .mapToObj(index -> {
-                                Slot partitionSlot = partitionSlots.get(index);
-                                // partitionSlot will be replaced to this literal
-                                Literal literal = literals.get(index);
-                                // list partition don't need to compute the slot's range,
-                                // so we pass through an empty map
-                                return Pair.of(partitionSlot, new PartitionSlotInput(literal, ImmutableMap.of()));
-                            }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+                    Map<Slot, PartitionSlotInput> row = new HashMap<>();
+                    IntStream.range(0, partitionSlots.size()).forEach(index -> {
+                        // Skip binding for positions whose partition key came from a function
+                        // expression: leaving the slot un-bound is the safe default that
+                        // avoids incorrect equality against the truncated key.
+                        if (slotHasPartitionFunction[index]) {
+                            return;
+                        }
+                        Slot partitionSlot = partitionSlots.get(index);
+                        Literal literal = literals.get(index);
+                        // list partition don't need to compute the slot's range,
+                        // so we pass through an empty map
+                        row.put(partitionSlot, new PartitionSlotInput(literal, ImmutableMap.of()));
+                    });
+                    return ImmutableMap.copyOf(row);
                 }).collect(ImmutableList.toImmutableList());
     }
 
@@ -126,6 +168,12 @@ public class OneListPartitionEvaluator<K>
             if (inPredicate.optionsContainsNullLiteral()) {
                 return NullLiteral.BOOLEAN_INSTANCE;
             }
+            // If the compare expression is still a Slot (i.e. it references a slot whose
+            // partition key is a function output and therefore un-bound), we cannot conclude
+            // FALSE — fall through to the default rewriter which returns a non-boolean.
+            if (!(newCompareExpr instanceof Literal)) {
+                return super.visitInPredicate(inPredicate, context);
+            }
             return BooleanLiteral.FALSE;
         } catch (Throwable t) {
             // slow path
@@ -145,7 +193,10 @@ public class OneListPartitionEvaluator<K>
 
     @Override
     public Expression visitSlot(Slot slot, Map<Slot, PartitionSlotInput> context) {
-        // replace partition slot to literal
+        // replace partition slot to literal, but only when it is bound.
+        // Unbound slots (partition function positions) stay as-is so that any
+        // predicate referencing them cannot fold to a boolean and the partition
+        // is conservatively retained.
         PartitionSlotInput partitionSlotInput = context.get(slot);
         return partitionSlotInput == null ? slot : partitionSlotInput.result;
     }

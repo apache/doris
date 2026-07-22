@@ -19,11 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ListUtil;
@@ -146,12 +148,22 @@ public class ListPartitionInfo extends PartitionInfo {
         }
         sb.append("PARTITION BY LIST (");
         int idx = 0;
-        for (Column column : partitionColumns) {
-            if (idx != 0) {
-                sb.append(", ");
+        if (enableAutomaticPartition() && partitionExprs != null && !partitionExprs.isEmpty()) {
+            for (Expr e : partitionExprs) {
+                if (idx != 0) {
+                    sb.append(", ");
+                }
+                sb.append(e.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+                idx++;
             }
-            sb.append("`").append(column.getName()).append("`");
-            idx++;
+        } else {
+            for (Column column : partitionColumns) {
+                if (idx != 0) {
+                    sb.append(", ");
+                }
+                sb.append("`").append(column.getName()).append("`");
+                idx++;
+            }
         }
         sb.append(")\n(");
 
