@@ -976,6 +976,48 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Table table = resolveTable(paimonHandle);
         RowType rowType = table.rowType();
         List<DataField> fields = rowType.getFields();
+        return buildColumnHandles(fields);
+    }
+
+    /**
+     * Returns column handles AT {@code snapshot.getSchemaId()} (the pinned schema version, for
+     * time-travel reads under schema evolution). Falls back to the LATEST columns
+     * ({@link #getColumnHandles(ConnectorSession, ConnectorTableHandle)}) when there is no pinned
+     * schema id (null snapshot or {@code schemaId < 0}).
+     *
+     * <p>Keys the handles by the PINNED names via the SAME memoized {@link PaimonCatalogOps#schemaAt}
+     * read the at-snapshot {@link #getTableSchema(ConnectorSession, ConnectorTableHandle,
+     * ConnectorMvccSnapshot)} uses, so the handle names equal the pinned Doris schema the query slots
+     * were bound to. Without this, a time-travel read across a RENAME would key the handles by the
+     * latest names, the renamed column's pinned-name slot would miss the map and be silently dropped,
+     * and the paimon field-id dict would omit that BE scan slot -&gt; BE StructNode out_of_range crash.</p>
+     */
+    @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null || snapshot.getSchemaId() < 0) {
+            return getColumnHandles(session, handle);
+        }
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        long schemaId = snapshot.getSchemaId();
+        Table table = resolveTable(paimonHandle);
+        PaimonCatalogOps.PaimonSchemaSnapshot schema =
+                schemaAtMemo.getOrLoad(paimonHandle, schemaId, () -> catalogOps.schemaAt(table, schemaId));
+        return buildColumnHandles(schema.fields());
+    }
+
+    /**
+     * Whether {@link #getColumnHandles(ConnectorSession, ConnectorTableHandle, ConnectorMvccSnapshot)}
+     * resolves handles at the pinned schema (it does &mdash; via {@code schemaAt}). Enables the generic
+     * node's fail-loud check that no pinned-schema column is silently dropped.
+     */
+    @Override
+    public boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return true;
+    }
+
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(List<DataField> fields) {
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (int i = 0; i < fields.size(); i++) {
             String name = fields.get(i).name();

@@ -1584,14 +1584,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
         // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
-        final List<ConnectorColumnHandle> columns = buildColumnHandles();
-        tryPushDownProjection(columns);
-        final Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
-        // Pin the MVCC snapshot onto currentHandle before the resolved handle is captured below, so
-        // the async batch path (planScanForPartitionBatch) reads at the pinned snapshot. startSplit
-        // cannot throw checked exceptions, so surface a getTargetTable() failure through the
-        // SplitAssignment error channel (same protocol as checkSysTableScanConstraints above).
+        // buildColumnHandles (a time-travel schema/handle mismatch) and pinMvccSnapshot both throw;
+        // startSplit cannot throw checked exceptions, so surface either through the SplitAssignment
+        // error channel (same protocol as checkSysTableScanConstraints above) rather than dropping it.
+        final List<ConnectorColumnHandle> columns;
+        final Optional<ConnectorExpression> remainingFilter;
         try {
+            columns = buildColumnHandles();
+            tryPushDownProjection(columns);
+            remainingFilter = buildRemainingFilter();
+            // Pin the MVCC snapshot onto currentHandle before the resolved handle is captured below,
+            // so the async batch path (planScanForPartitionBatch) reads at the pinned snapshot.
             pinMvccSnapshot();
         } catch (UserException e) {
             splitAssignment.setException(e);
@@ -1669,16 +1672,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
         // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
-        final List<ConnectorColumnHandle> columns = buildColumnHandles();
-        tryPushDownProjection(columns);
-        final Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
-        // Pin the MVCC snapshot + rewrite scope onto currentHandle before capturing the resolved handle,
-        // so the lazy source plans at the PINNED snapshot (rows are always correct). The streamingSplitEstimate
-        // gate ran pre-pin (current snapshot), so it only affects the approximate batch decision + concurrency
-        // hint, never the rows. Narrow caveat: a time-travel query to a past snapshot much LARGER than current
-        // (table since compacted/expired) may under-count -> pick the eager path -> lose streaming's OOM
-        // protection for that scan. Acceptable (perf-only, rare); documented in the FIX-M3 design.
+        // buildColumnHandles (a time-travel schema/handle mismatch) and pinMvccSnapshot both throw;
+        // startSplit cannot throw checked exceptions, so surface either through the SplitAssignment
+        // error channel so the query fails rather than silently ignoring it.
+        final List<ConnectorColumnHandle> columns;
+        final Optional<ConnectorExpression> remainingFilter;
         try {
+            columns = buildColumnHandles();
+            tryPushDownProjection(columns);
+            remainingFilter = buildRemainingFilter();
+            // Pin the MVCC snapshot + rewrite scope onto currentHandle before capturing the resolved
+            // handle, so the lazy source plans at the PINNED snapshot (rows are always correct). The
+            // streamingSplitEstimate gate ran pre-pin (current snapshot), so it only affects the
+            // approximate batch decision + concurrency hint, never the rows. Narrow caveat: a
+            // time-travel query to a past snapshot much LARGER than current (table since
+            // compacted/expired) may under-count -> pick the eager path -> lose streaming's OOM
+            // protection for that scan. Acceptable (perf-only, rare); documented in the FIX-M3 design.
             pinMvccSnapshot();
         } catch (UserException e) {
             splitAssignment.setException(e);
@@ -1838,20 +1847,23 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (cachedPropertiesResult == null) {
             ConnectorScanPlanProvider scanProvider = resolveScanProvider();
             if (scanProvider != null) {
-                List<ConnectorColumnHandle> columns = buildColumnHandles();
-                Optional<ConnectorExpression> filter = buildRemainingFilter();
+                List<ConnectorColumnHandle> columns;
+                Optional<ConnectorExpression> filter;
                 // Pin the MVCC snapshot onto currentHandle before getScanNodePropertiesResult
                 // consumes it: this single cached result feeds the serialized-table (JNI) path,
                 // scan-level params, explain, and file attributes, so the pin must land here or the
                 // serialized-table path silently reads LATEST while the split path reads the pin.
                 // This method is private and called from contexts that do not declare UserException
-                // (e.g. getNodeExplainString), so a getTargetTable() failure is surfaced by wrapping
-                // it in a RuntimeException (same unchecked error channel as create() above) rather
-                // than dropped.
+                // (e.g. getNodeExplainString), so a buildColumnHandles (time-travel schema/handle
+                // mismatch) or pinMvccSnapshot failure is surfaced by wrapping it in a RuntimeException
+                // (same unchecked error channel as create() above) rather than dropped.
                 try {
+                    columns = buildColumnHandles();
+                    filter = buildRemainingFilter();
                     pinMvccSnapshot();
                 } catch (UserException e) {
-                    throw new RuntimeException("Failed to pin MVCC snapshot for plugin-driven scan", e);
+                    throw new RuntimeException("Failed to build column handles / pin MVCC snapshot"
+                            + " for plugin-driven scan", e);
                 }
                 // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
                 pinRewriteFileScope();
@@ -1914,19 +1926,58 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * These tell the connector which columns are needed for the query,
      * enabling optimized column selection (e.g., SELECT col1, col2 instead of SELECT *).
      */
-    private List<ConnectorColumnHandle> buildColumnHandles() {
+    private List<ConnectorColumnHandle> buildColumnHandles() throws UserException {
         ConnectorMetadata metadata = metadata();
-        Map<String, ConnectorColumnHandle> allHandles =
-                metadata.getColumnHandles(connectorSession, currentHandle);
+        // Resolve THIS scan's pinned snapshot with the SAME version-aware selector as pinMvccSnapshot.
+        // When the reference pins a DISTINCT historical schema (getPinnedSchema() != null, i.e. a
+        // time-travel read under schema evolution), the query slots were bound to that pinned (old-name)
+        // schema, so the column handles MUST be built at the same pinned schema -- otherwise a column
+        // renamed after the pinned snapshot has its old-name slot miss the latest-keyed handle map and
+        // gets silently dropped, and the connector's field-id dictionary then omits that BE scan slot
+        // -> BE StructNode std::out_of_range -> crash. For a normal / same-schema read
+        // (getPinnedSchema() == null) this is byte-for-byte unchanged: the 3-arg overload is NOT taken
+        // and the latest 2-arg map is used exactly as before.
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable(),
+                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
+        SchemaCacheValue pinnedSchema = null;
+        ConnectorMvccSnapshot connectorSnapshot = null;
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            PluginDrivenMvccSnapshot pluginSnapshot = (PluginDrivenMvccSnapshot) snapshot.get();
+            pinnedSchema = pluginSnapshot.getPinnedSchema();
+            connectorSnapshot = pluginSnapshot.getConnectorSnapshot();
+        }
+        Map<String, ConnectorColumnHandle> allHandles;
+        if (pinnedSchema != null) {
+            allHandles = metadata.getColumnHandles(connectorSession, currentHandle, connectorSnapshot);
+        } else {
+            allHandles = metadata.getColumnHandles(connectorSession, currentHandle);
+        }
         if (allHandles.isEmpty()) {
             return Collections.emptyList();
+        }
+        // Fail-loud (defense in depth): for a connector that resolves handles AT the pinned schema
+        // (supportsColumnHandleSnapshotPin), every bound column that exists in the pinned schema MUST
+        // have a handle. A miss would otherwise be silently dropped below and crash BE on a field-id
+        // dict mismatch, so surface a clear error instead. Gated on the capability so a connector that
+        // recovers from the drop by its own means (iceberg's pinned-schema dict rebuild) keeps the
+        // unchanged silent-skip path; synthetic slots absent from the pinned schema are still skipped.
+        Set<String> pinnedNames = Collections.emptySet();
+        if (pinnedSchema != null && metadata.supportsColumnHandleSnapshotPin(connectorSession)) {
+            pinnedNames = pinnedSchema.getSchema().stream()
+                    .map(Column::getName).collect(Collectors.toSet());
         }
         List<ConnectorColumnHandle> selected = new ArrayList<>();
         for (org.apache.doris.analysis.SlotDescriptor slot : desc.getSlots()) {
             if (slot.getColumn() != null) {
-                ConnectorColumnHandle ch = allHandles.get(slot.getColumn().getName());
+                String name = slot.getColumn().getName();
+                ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
                     selected.add(ch);
+                } else if (pinnedNames.contains(name)) {
+                    throw new UserException("Column '" + name + "' of table "
+                            + getTargetTable().getName() + " resolves in the pinned time-travel schema"
+                            + " but has no connector column handle; refusing to silently drop it"
+                            + " (would crash BE on a schema-evolution field-id mismatch).");
                 }
             }
         }

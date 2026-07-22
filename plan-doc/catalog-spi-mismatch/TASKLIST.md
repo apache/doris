@@ -21,7 +21,7 @@
 
 | # | 批次 | 核实 | 状态 | 一句话 |
 |---|---|---|---|---|
-| 2  | B1 | CONFIRMED | ⬜ | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash** |
+| 2  | B1 | CONFIRMED | 🔄 | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash**（崩溃修复已完成+e2e 通过；姊妹统计 #15 待做）|
 | 1  | B2 | PARTIAL | ✅ | hudi decimal 分区谓词走 String.valueOf，未同步 hive 已修分支 → 潜在误剪（已镜像 hive BigDecimal 分支 + 单测）|
 | 14 | B2 | PARTIAL | ✅ | paimon `partition_values()` TVF 读 raw spec → DATE 显 epoch-day、null 显 `__DEFAULT_PARTITION__`（已在连接器渲染值 map + 单测）|
 | 21 | B3 | CONFIRMED | ✅ | `ConnectorDeleteFile` 欠建模且零 caller = 死代码（已删，commit `5f63c3af9b6`）|
@@ -54,7 +54,8 @@
 
 ## B1 · 正确性 / 稳定性（排期）
 
-### #2 — getColumnHandles 无 snapshot 参数 → paimon BE crash ⬜
+### #2 — getColumnHandles 无 snapshot 参数 → paimon BE crash 🔄
+- **崩溃修复已完成**（框架级带快照的取列句柄重载 + Paimon 实现 + 通用节点按钉住 schema 取句柄 + 丢列即报错兜底）。用户已用现有 `sc_parquet`（snapshot 1=改名前 schema）跑混合投影 `FOR VERSION AS OF 1` e2e **验证通过**（修复前 BE 崩溃、修复后返回数据）。设计见 [`fix-getcolumnhandles-snapshot-design.md`](fix-getcolumnhandles-snapshot-design.md)；e2e 见 `regression-test/suites/external_table_p0/paimon/test_paimon_time_travel_rename.groovy`。编译+checkstyle 全绿。**姊妹的统计无快照（#15）待做**（同一 commit 系列的下一步）。
 - **核实**：CONFIRMED（高）｜文档 [B](analysis-B-schema-column-identity.md#2)
 - **现象**：通用节点在 MVCC pin **之前**跑 `buildColumnHandles`，用未 pin 的 handle 拿 latest-keyed 的 `getColumnHandles` map；time-travel（`FOR VERSION AS OF`）+ 列被 RENAME 后，query slot 携旧名、latest map 只有新名 → slot 静默丢列。**真实触发 repro = 混合投影**（改名列与存活列同现）：paimon 侧 dict 的 -1 target 条目缺列 → BE `StructNode children.at()` `std::out_of_range` → **SIGABRT**。iceberg 已在连接器侧用 `hasSnapshotPin()` 全量重建 dict 自防，**paimon 未做**、更脆。纯单列改名投影被空集回退救活、不炸。
 - **建议动作（需先定架构高度，择一）**：
