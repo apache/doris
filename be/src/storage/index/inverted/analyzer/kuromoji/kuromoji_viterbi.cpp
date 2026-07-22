@@ -129,9 +129,13 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     end_next.push_back(-1);
     end_head[0] = 0;
 
+    auto penalty_for = [&](uint32_t s, uint32_t e) -> int64_t {
+        return _mode == KuromojiMode::Normal ? 0 : compute_penalty(_dict, text, s, e);
+    };
+
     // Add a node and relax it against all nodes ending at its start position.
     auto add_node = [&](uint32_t s, uint32_t e, int16_t lid, int16_t rid, int16_t wcost, bool known,
-                        uint32_t wid) {
+                        uint32_t wid, int64_t penalty) {
         int64_t best = KMJ_INF;
         int best_prev = -1;
         for (int pe = end_head[s]; pe >= 0; pe = end_next[pe]) {
@@ -150,15 +154,17 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         if (best_prev < 0) {
             return;
         }
-        // Search/Extended mode penalizes long compounds so shorter parts win.
-        const int64_t penalty =
-                _mode == KuromojiMode::Normal ? 0 : compute_penalty(_dict, text, s, e);
         const auto idx = static_cast<int>(nodes.size());
         nodes.push_back(
                 VNode {s, e, lid, rid, wcost, known, wid, best + wcost + penalty, best_prev});
         end_next.push_back(end_head[e]);
         end_head[e] = idx;
     };
+
+    // Cache of the current same-category run's byte end, so grouped unknown words are not rescanned at every position inside one run.
+    uint32_t cat_run_end = 0;
+    uint8_t cat_run_cat = 0;
+    bool cat_run_valid = false;
 
     uint32_t pos = 0;
     std::vector<KuromojiDictionary::PrefixMatch> matches;
@@ -174,11 +180,12 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         _dict.common_prefix_search(text.data() + pos, n - pos, &matches);
         bool any_known = false;
         for (const auto& mt : matches) {
+            const int64_t pen = penalty_for(pos, pos + mt.length);
             const WordIdRun run = _dict.run_for_value(mt.trie_value);
             for (uint32_t k = 0; k < run.count; ++k) {
                 const uint32_t wid = run.entry_start + k;
                 const WordEntry& e = _dict.word(wid);
-                add_node(pos, pos + mt.length, e.left_id, e.right_id, e.word_cost, true, wid);
+                add_node(pos, pos + mt.length, e.left_id, e.right_id, e.word_cost, true, wid, pen);
                 any_known = true;
             }
         }
@@ -188,25 +195,42 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
             const uint8_t cat = _dict.char_category(d0.cp);
             uint32_t group_len = d0.len;
             if (_dict.is_group(d0.cp)) {
-                uint32_t p = pos + d0.len;
-                uint32_t chars = 1;
-                while (p < n && chars < MAX_UNKNOWN_GROUP_CHARS) {
-                    const DecodedCp dn = decode_utf8(text, p);
-                    if (_dict.char_category(dn.cp) != cat) {
-                        break;
+                if (!cat_run_valid || cat != cat_run_cat || pos >= cat_run_end) {
+                    uint32_t p = pos + d0.len;
+                    while (p < n) {
+                        const DecodedCp dn = decode_utf8(text, p);
+                        if (_dict.char_category(dn.cp) != cat) {
+                            break;
+                        }
+                        p += dn.len;
                     }
-                    group_len += dn.len;
-                    p += dn.len;
-                    ++chars;
+                    cat_run_end = p;
+                    cat_run_cat = cat;
+                    cat_run_valid = true;
+                }
+                if (cat_run_end - pos <= MAX_UNKNOWN_GROUP_CHARS) {
+                    group_len = cat_run_end - pos;
+                } else {
+                    uint32_t p = pos + d0.len;
+                    uint32_t chars = 1;
+                    while (p < cat_run_end && chars < MAX_UNKNOWN_GROUP_CHARS) {
+                        p += decode_utf8(text, p).len;
+                        ++chars;
+                    }
+                    group_len = p - pos;
                 }
             }
+            const int64_t pen_single = penalty_for(pos, pos + d0.len);
+            const int64_t pen_group = group_len > d0.len ? penalty_for(pos, pos + group_len) : 0;
             const WordIdRun urun = _dict.unknown_run(cat);
             for (uint32_t k = 0; k < urun.count; ++k) {
                 const uint32_t wid = urun.entry_start + k;
                 const WordEntry& e = _dict.unknown_word(wid);
-                add_node(pos, pos + d0.len, e.left_id, e.right_id, e.word_cost, false, wid);
+                add_node(pos, pos + d0.len, e.left_id, e.right_id, e.word_cost, false, wid,
+                         pen_single);
                 if (group_len > d0.len) {
-                    add_node(pos, pos + group_len, e.left_id, e.right_id, e.word_cost, false, wid);
+                    add_node(pos, pos + group_len, e.left_id, e.right_id, e.word_cost, false, wid,
+                             pen_group);
                 }
             }
         }
@@ -214,7 +238,8 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         // Connectivity safety net: if nothing covers this reachable position, force a
         // single-character node so the lattice never dead-ends.
         if (nodes.size() == before) {
-            add_node(pos, pos + d0.len, 0, 0, std::numeric_limits<int16_t>::max(), false, 0);
+            add_node(pos, pos + d0.len, 0, 0, std::numeric_limits<int16_t>::max(), false, 0,
+                     penalty_for(pos, pos + d0.len));
         }
         pos += d0.len;
     }
