@@ -34,8 +34,26 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ComputeGroup {
-    private static final Logger LOG = LogManager.getLogger(ComputeGroup.class);
+/**
+ * FE-side in-memory metadata for a cloud compute group.
+ *
+ * <p>This class models both physical and virtual cloud compute groups and keeps cloud-only
+ * control-plane state, including the compute group type, active-standby policy, sub compute
+ * groups, availability timestamps, and cache warm-up properties. Its instances are refreshed
+ * from the meta service by {@link CloudInstanceStatusChecker} and
+ * {@link org.apache.doris.cloud.system.CloudSystemInfoService}.
+ *
+ * <p>Do not confuse this class with {@link org.apache.doris.resource.computegroup.ComputeGroup}.
+ * The resource-layer class is a runtime routing abstraction shared by cloud and non-cloud
+ * deployments: it selects backends and resolves the workload group namespace for a request.
+ * In contrast, this class is the long-lived cloud control-plane metadata consulted during
+ * routing, failover, and cache warm-up.
+ *
+ * <p>The meta service is the source of truth. This class is only an FE in-memory mirror and is
+ * not persisted in the FE edit log or image.
+ */
+public class CloudComputeGroupMeta {
+    private static final Logger LOG = LogManager.getLogger(CloudComputeGroupMeta.class);
 
     public static final String BALANCE_TYPE = "balance_type";
 
@@ -139,7 +157,7 @@ public class ComputeGroup {
     @Setter
     private Map<String, String> properties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
 
-    public ComputeGroup(String id, String name, ComputeTypeEnum type) {
+    public CloudComputeGroupMeta(String id, String name, ComputeTypeEnum type) {
         this.id = id;
         this.name = name;
         this.type = type;
@@ -305,10 +323,10 @@ public class ComputeGroup {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof ComputeGroup)) {
+        if (!(o instanceof CloudComputeGroupMeta)) {
             return false;
         }
-        ComputeGroup that = (ComputeGroup) o;
+        CloudComputeGroupMeta that = (CloudComputeGroupMeta) o;
         return unavailableSince == that.unavailableSince
                 && availableSince == that.availableSince
                 && id.equals(that.id)
