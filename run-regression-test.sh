@@ -23,6 +23,61 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="${ROOT}"
 
+java_major_version() {
+    local java_cmd="$1"
+    local spec_version
+
+    spec_version="$("${java_cmd}" -XshowSettings:properties -version 2>&1 \
+        | awk -F'= ' '/java.specification.version =/ {print $2; exit}')"
+    if [[ "${spec_version}" == 1.* ]]; then
+        spec_version="${spec_version#1.}"
+    fi
+    echo "${spec_version%%.*}"
+}
+
+is_jdk17_home() {
+    local java_home="$1"
+    [[ -n "${java_home}" ]] && [[ -x "${java_home}/bin/java" ]] \
+        && [[ -x "${java_home}/bin/javac" ]] \
+        && [[ "$(java_major_version "${java_home}/bin/java")" == "17" ]]
+}
+
+find_jdk17_home() {
+    local candidate
+
+    for candidate in "${JAVA_HOME:-}" "${JDK_17:-}"; do
+        if is_jdk17_home "${candidate}"; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+
+    if [[ "$(uname -s)" == "Darwin" ]] && [[ -x /usr/libexec/java_home ]]; then
+        candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+        if is_jdk17_home "${candidate}"; then
+            echo "${candidate}"
+            return 0
+        fi
+    elif [[ -d /usr/lib/jvm ]]; then
+        while IFS= read -r candidate; do
+            if is_jdk17_home "${candidate}"; then
+                echo "${candidate}"
+                return 0
+            fi
+        done < <(find /usr/lib/jvm -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null | sort)
+    fi
+
+    echo "Error: JDK 17 is required. Set JAVA_HOME or JDK_17, or install JDK 17." >&2
+    return 1
+}
+
+JAVA_HOME="$(find_jdk17_home)"
+export JAVA_HOME
+export PATH="${JAVA_HOME}/bin:${PATH}"
+export JAVA="${JAVA_HOME}/bin/java"
+JAVA_MAJOR_VERSION="$(java_major_version "${JAVA}")"
+echo "Using JDK ${JAVA_MAJOR_VERSION}: ${JAVA_HOME}"
+
 # Check args
 usage() {
     echo "
@@ -194,15 +249,6 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
     cd "${DORIS_HOME}"
 fi
-
-# check java home
-if [[ -z "${JAVA_HOME}" ]]; then
-    echo "Error: JAVA_HOME is not set"
-    exit 1
-fi
-
-# check java version
-export JAVA="${JAVA_HOME}/bin/java"
 
 REGRESSION_OPTIONS_PREFIX=''
 
