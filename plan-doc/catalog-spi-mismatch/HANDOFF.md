@@ -77,15 +77,14 @@
 
 ## 5. 当前进度快照
 
-**进度：B2、B3 全部完成并各自独立提交（已验证）。下一步 = B1 #2（唯一 crash 风险，需先定架构高度）。**
+**进度：B1/B2/B3/B4 的全部可执行项已完成并提交+验证。剩余只有 B5（可选增强，待产品签字）与 #27（默认不做）。**
 
-- B1：⬜ #2（唯一真待办；需先定"是否碰 SPI 签名/铁律"的架构高度，可一并覆盖 #15）
-- B2：✅ #1（hudi decimal 谓词，commit `ae525a88c1c`）、✅ #14（paimon partition_values TVF，commit `1c3f86646f3`）
+- B1：✅ #2（时间旅行列句柄崩溃，框架级带快照重载 + 通用节点 + 兜底，commit `3de586e87ca`，e2e 用户已验证通过）
+- B2：✅ #1（hudi decimal 谓词，`ae525a88c1c`）、✅ #14（paimon partition_values TVF，`1c3f86646f3`）
 - B3：✅ #21（删 ConnectorDeleteFile，`5f63c3af9b6`）、✅ #23（删 ConnectorDomain/Range，`186f28e57df`）、✅ #25（补 MvccSnapshot equals/hashCode，`0885de225a5`）、✅ #28（清过时 dormant 注释，`914f191c830`）
-  - ⚠️ **#28 历史结论纠正**：原判 STALE_FIXED 系误判（recon 找错模块 fe-connector-hms↔fe-connector-hive）。实测 hms 已全 live（分派纯靠 `instanceof PluginDrivenExternalCatalog`、无独立 write 门槛、legacy 类已删），~35 处"dormant"注释确为过时，已清（comment-only，21 文件）。
-  - 有意留白：MVCC/MTMV freshness substep + event-sync 注释（子系统状态超核实范围）；**建议另立一轮**清 iceberg/maxcompute 各自 cutover 的同款过时注释（别的连接器，本次未扫）。
-- B4：⬜ #7、⬜ #8、⬜ #9、⬜ #27（均为设计任务）
-- B5：🚫 #10、#11、#12、#13、#16、#19（待用户签字）
-- B6：☑️ #3、#4、#5、#6、#17（已闭环）｜🚫 #15、#18、#20、#22、#24、#26（有意/潜伏，记录不动）
+- B4：✅ #7（收窄 getWriteContext javadoc，`656b03c9d86`）、✅ #8（事务源专属方法下沉窄能力接口 + instanceof，`13daac21606`）、✅ #9（改正 ConnectorBucketSpec 死文档，`895b71b9e8e`）、⬜ #27（reader-type 三副本：架构观察成立但回归已 REFUTED，**默认不做**，需独立设计任务再议）
+- B5：🚫 #10、#11、#12、#13、#16、#19（待用户签字的可选增强）
+- B6：☑️ #3、#4、#5、#6、#17（已闭环）｜🚫 ~~#15~~ **已修**（time-travel 统计行数偏斜，`724a874b1df`，随 #2 一并做）、#18、#20、#22、#24、#26（有意/潜伏，记录不动）
+  - **有意留白 / 建议另立**：iceberg/maxcompute 各自 cutover 的同款过时 dormant 注释（#28 未扫的别连接器）；#27 若真要统一 reader-type 枚举。
 
 > 每完成一条，更新 [`TASKLIST.md`](TASKLIST.md) 对应行的状态与结论，并在此处同步 batch 级进度。
