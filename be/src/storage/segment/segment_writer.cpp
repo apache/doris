@@ -39,6 +39,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "cpp/sync_point.h"
 #include "exec/common/variant_util.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -1041,6 +1042,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
         for (auto& segment : holder->file_blocks) {
             static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
         }
+        TEST_INJECTION_POINT_CALLBACK("SegmentWriter::finalize::index_cache_holder", holder.get());
     }
     return Status::OK();
 }
