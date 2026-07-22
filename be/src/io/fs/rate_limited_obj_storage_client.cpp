@@ -76,7 +76,9 @@ ObjectStorageHeadResponse RateLimitedObjStorageClient::head_object(
         const ObjectStoragePathOptions& opts) {
     S3RateLimitGuard guard(S3RateLimitType::GET, 0);
     if (!guard.ok()) {
-        return {.resp = rate_limited_response(S3RateLimitType::GET, guard.reject_reason())};
+        ObjectStorageHeadResponse response;
+        response.resp = rate_limited_response(S3RateLimitType::GET, guard.reject_reason());
+        return response;
     }
     return _inner->head_object(opts);
 }
