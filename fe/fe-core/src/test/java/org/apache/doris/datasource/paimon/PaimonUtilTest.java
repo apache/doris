@@ -17,7 +17,10 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
@@ -54,6 +57,25 @@ public class PaimonUtilTest {
         Assert.assertTrue(type1.isVarchar());
         Assert.assertEquals(32, type1.getLength());
         Assert.assertEquals(14, type2.getLength());
+    }
+
+    @Test
+    public void testTimestampWriteTypeMappingUsesDateTimeV2() {
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(0, "ntz", DataTypes.TIMESTAMP(6)),
+                DataTypes.FIELD(1, "ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)),
+                DataTypes.FIELD(2, "nested_ltz",
+                        DataTypes.ARRAY(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6))));
+
+        StructType writeType = (StructType) PaimonUtil.paimonTypeToDorisType(rowType, false, false);
+
+        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+                writeType.getFields().get(0).getType().getPrimitiveType());
+        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+                writeType.getFields().get(1).getType().getPrimitiveType());
+        ArrayType nestedLtz = (ArrayType) writeType.getFields().get(2).getType();
+        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+                nestedLtz.getItemType().getPrimitiveType());
     }
 
     @Test

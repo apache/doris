@@ -25,6 +25,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -64,6 +65,9 @@ public class UnboundTableSinkCreator {
             return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof MaxComputeExternalCatalog) {
             return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions, query);
+        } else if (curCatalog instanceof PaimonExternalCatalog) {
+            validatePaimonPartitionSyntax(false, partitions);
+            return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -104,6 +108,10 @@ public class UnboundTableSinkCreator {
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof MaxComputeExternalCatalog) {
             return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
+        } else if (curCatalog instanceof PaimonExternalCatalog) {
+            validatePaimonPartitionSyntax(temporaryPartition, partitions);
+            return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
@@ -146,6 +154,10 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof MaxComputeExternalCatalog && !isAutoDetectPartition) {
             return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
+        } else if (curCatalog instanceof PaimonExternalCatalog && !isAutoDetectPartition) {
+            validatePaimonPartitionSyntax(temporaryPartition, partitions);
+            return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
 
         throw new AnalysisException(
@@ -153,6 +165,18 @@ public class UnboundTableSinkCreator {
                         + " is not supported."
                         + (isAutoDetectPartition
                         ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
+    }
+
+    private static void validatePaimonPartitionSyntax(boolean temporaryPartition,
+            List<String> partitions) {
+        if (temporaryPartition) {
+            throw new AnalysisException("Paimon tables do not support temporary partitions");
+        }
+        if (partitions != null && !partitions.isEmpty()) {
+            throw new AnalysisException("Paimon tables do not support PARTITION name lists; "
+                    + "use PARTITION (key = value) for static partitions or omit PARTITION "
+                    + "for dynamic partition overwrite");
+        }
     }
 
     /**
