@@ -139,12 +139,10 @@ public class PaimonJniWriter {
                     this.table = table;
                     this.commitUser = commitUser;
 
+                    CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames);
-                    if (writeSchema.isPartial() && !table.primaryKeys().isEmpty()) {
-                        throw new UnsupportedOperationException(
-                                "Paimon primary-key write requires all table columns");
-                    }
-                    openFileStoreWriter(table, commitUser, overwrite, spillDirectories);
+                    validateWriteColumnsForMergeEngine(columnNames.length, coreOptions);
+                    openFileStoreWriter(table, commitUser, overwrite, spillDirectories, coreOptions);
                     return null;
                 } catch (Throwable t) {
                     throw new RuntimeException("PaimonJniWriter open failed", t);
@@ -260,14 +258,27 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void openFileStoreWriter(FileStoreTable table, String commitUser, boolean overwrite,
-            String spillDirectories) throws Exception {
-        CoreOptions coreOptions = CoreOptions.fromMap(table.options());
+            String spillDirectories, CoreOptions coreOptions) throws Exception {
         tableWrite = table.newWrite(commitUser);
         if (overwrite) {
             tableWrite.withIgnorePreviousFiles(true);
         }
         writer = tableWrite;
         openSpillResources(coreOptions, spillDirectories);
+    }
+
+    private void validateWriteColumnsForMergeEngine(int writeColumnCount, CoreOptions coreOptions) {
+        if (writeColumnCount == table.rowType().getFieldCount() || table.primaryKeys().isEmpty()) {
+            return;
+        }
+
+        CoreOptions.MergeEngine mergeEngine = coreOptions.mergeEngine();
+        if (mergeEngine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
+            throw new UnsupportedOperationException(
+                    "Paimon primary-key partial-column write requires "
+                            + "merge-engine=partial-update, but table uses merge-engine="
+                            + mergeEngine);
+        }
     }
 
     private void openSpillResources(CoreOptions coreOptions, String spillDirectories) throws Exception {
