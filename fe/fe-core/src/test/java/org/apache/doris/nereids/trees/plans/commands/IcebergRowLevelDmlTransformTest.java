@@ -41,12 +41,11 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
@@ -206,7 +205,7 @@ public class IcebergRowLevelDmlTransformTest {
     @Test
     public void synthesizeDeleteOnPluginTableBuildsSinkTargetingIt() {
         // Post-flip: synthesize must accept a PluginDrivenExternalTable (instead of CCE on the legacy
-        // (IcebergExternalTable) cast) and build a re-parameterized LogicalIcebergDeleteSink that targets it.
+        // (IcebergExternalTable) cast) and build a re-parameterized LogicalExternalRowLevelDeleteSink that targets it.
         // Pins the synthesize cast widening + the Iceberg*Command synthesis-entry widening + the logical-sink
         // re-parameterization; the full plan execution is flip-e2e-gated. (Reverting the cast/param back to
         // IcebergExternalTable would not even compile against this plugin-typed argument.)
@@ -219,12 +218,12 @@ public class IcebergRowLevelDmlTransformTest {
 
         LogicalPlan query = (LogicalPlan) filterOver(table, "id");
         RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(table, ImmutableList.of("db", "t"), null,
-                false, ImmutableList.of(), query, new DeleteCommandContext());
+                false, ImmutableList.of(), query);
 
         LogicalPlan plan = transform.synthesize(null, args, RowLevelDmlOp.DELETE);
 
-        Assertions.assertTrue(plan instanceof LogicalIcebergDeleteSink, plan.getClass().getName());
-        Assertions.assertSame(table, ((LogicalIcebergDeleteSink<?>) plan).getTargetTable());
+        Assertions.assertTrue(plan instanceof LogicalExternalRowLevelDeleteSink, plan.getClass().getName());
+        Assertions.assertSame(table, ((LogicalExternalRowLevelDeleteSink<?>) plan).getTargetTable());
     }
 
     @Test
@@ -285,7 +284,7 @@ public class IcebergRowLevelDmlTransformTest {
     public void extractWriteConstraintExcludesMetadataColumn() {
         TableIf target = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(target.getId()).thenReturn(TARGET_ID);
-        // "$partition_spec_id" is an IcebergMetadataColumn -> excluded.
+        // "$partition_spec_id" is a position-delete metadata column -> excluded.
         Plan plan = filterOver(target, "$partition_spec_id");
         Assertions.assertFalse(transform.extractWriteConstraint(plan, target).isPresent());
     }

@@ -38,7 +38,6 @@ import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -373,9 +372,7 @@ public class InsertUtils {
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
         List<Column> columns = table.getBaseSchema(false);
         Map<String, Expression> staticPartitions = null;
-        if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
-            staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
-        } else if (unboundLogicalSink instanceof UnboundConnectorTableSink) {
+        if (unboundLogicalSink instanceof UnboundConnectorTableSink) {
             staticPartitions = ((UnboundConnectorTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
         if (staticPartitions != null && !staticPartitions.isEmpty()
@@ -594,8 +591,6 @@ public class InsertUtils {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundIcebergTableSink) {
-            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {

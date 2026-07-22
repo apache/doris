@@ -30,7 +30,7 @@ import java.util.Optional;
  *
  * <p>Explicit static registration (no {@code ServiceLoader}) — avoids the thread-context-classloader pitfalls
  * seen with SPI loaders. Today the single entry is {@link IcebergRowLevelDmlTransform}, whose {@code handles}
- * is {@code instanceof IcebergExternalTable}; at P6.6 cutover the predicate can become a capability check.</p>
+ * is a connector-capability probe (supportsDelete/supportsMerge), not a source-type check.</p>
  */
 public final class RowLevelDmlRegistry {
 
