@@ -410,23 +410,28 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadUnsignedLogicalIntegersCastsPhysicalVal
     }
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, SignedLogicalIntegersRejectOutOfRangePhysicalCarrier) {
+TEST(DataTypeSerDeDecodedValuesTest, StrictSignedLogicalIntegersRejectOutOfRangePhysicalCarrier) {
     std::vector<int32_t> values = {127, 128, 255, -1};
     auto view = with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, true);
+    // Carrier bounds are metadata validation: strict scans reject malformed values, while
+    // permissive scans intentionally preserve the declared bit-width conversion.
+    view.enable_strict_mode = true;
     auto result = read_column(std::make_shared<DataTypeInt8>(), view);
     expect_data_quality_error(result.status);
     EXPECT_EQ(result.column->size(), 0);
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, UnsignedLogicalIntegersRejectOutOfRangePhysicalCarrier) {
+TEST(DataTypeSerDeDecodedValuesTest, StrictUnsignedLogicalIntegersRejectOutOfRangePhysicalCarrier) {
     std::vector<int32_t> values = {255, 256};
     auto view = with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, false);
+    view.enable_strict_mode = true;
     auto result = read_column(std::make_shared<DataTypeInt16>(), view);
     expect_data_quality_error(result.status);
     EXPECT_EQ(result.column->size(), 0);
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, NullableLogicalIntegerCarrierOverflowBecomesNull) {
+TEST(DataTypeSerDeDecodedValuesTest,
+     NonStrictNullableLogicalIntegerCarrierPreservesBitWidthCompatibility) {
     auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
     std::vector<int32_t> values = {127, 1000, -128};
     std::vector<uint8_t> null_map(values.size(), 0);
@@ -436,9 +441,11 @@ TEST(DataTypeSerDeDecodedValuesTest, NullableLogicalIntegerCarrierOverflowBecome
 
     ASSERT_TRUE(result.status.ok()) << result.status;
     const auto& nullable = assert_cast<const ColumnNullable&>(*result.column);
+    const auto& nested = assert_cast<const ColumnInt8&>(nullable.get_nested_column());
     EXPECT_FALSE(nullable.is_null_at(0));
-    EXPECT_TRUE(nullable.is_null_at(1));
+    EXPECT_FALSE(nullable.is_null_at(1));
     EXPECT_FALSE(nullable.is_null_at(2));
+    EXPECT_EQ(nested.get_data(), (ColumnInt8::Container {127, -24, -128}));
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadFloatAndDouble) {
