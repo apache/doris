@@ -48,8 +48,18 @@
 - 构建：fe-connector-api / fe-connector-paimon / fe-core `compile` + `checkstyle:check` 全绿。
 - paimon 连接器无单测脚手架（`src/test` 空、metadata 难裸构造），故以 e2e 为权威验证。
 
-## 5. 姊妹问题（统计行数无快照，第 15 条）——随后处理
+## 5. 姊妹问题（统计行数无快照，第 15 条）——已完成
 
-- `getTableStatistics(session, handle)` 亦无快照维度；时间旅行下 CBO 取 latest 行数、扫描读钉住快照 → 基数估算偏斜（**只影响代价估算，不影响结果正确性、不崩溃**）。
-- 关键差异：统计走**跨语句缓存会话**，`ExternalRowCountCache` 只按 `{catalogId,dbId,tableId}` 建 key、且该路径拿不到查询时间点。故**不能**复用 #2 的"扫描线程内 pin"入口。
-- 处理方向（下一 commit）：加三参 `getTableStatistics(session, handle, snapshot)` 默认转调两参；iceberg/paimon 在钉住快照上算行数；行数路径仅在**存在时间旅行 pin** 时按钉住快照直算（绕过/扩展跨语句缓存键），普通查询保持现缓存路径不变。
+- 现象：`getTableStatistics(session, handle)` 亦无快照维度；时间旅行下 CBO 取 latest 行数、扫描读钉住快照 → 基数估算偏斜（**只影响代价估算，不影响结果正确性、不崩溃**）。
+- 关键差异：统计走**跨语句缓存会话**（`ConnectorStatementScope.NONE`），`ExternalRowCountCache` 只按 `{catalogId,dbId,tableId}` 建 key，且**缓存 loader 在后台线程、拿不到查询时间点**。故不能复用 #2 的"扫描线程内 pin"入口。
+
+**实现（已落地）**：
+- **connector-api**：`ConnectorStatisticsOps` 增默认三参 `getTableStatistics(session, handle, snapshot)`，默认转调两参（latest）。
+- **fe-core `StatementContext`**：新增 `getVersionedSnapshot(TableIf)` —— 仅返回**在非默认 version key（真正的 FOR VERSION/TIME AS OF / @branch/@tag）下钉住**的快照；普通/最新引用（version key 为 `""`）与歧义（`t@v1` join `t@v2`）返回空。这是"是否真的时间旅行"的判据（普通查询行数偏斜发生在**任意**跨快照时间旅行，故不能像 #2 用 `getPinnedSchema()!=null` 判 schema 演进）。
+- **fe-core `PluginDrivenExternalTable`**：override `getRowCount()`。仅当本语句为该表钉住了真正的 versioned 快照时，在**查询线程内**按钉住快照直算行数（`fetchRowCountAtSnapshot` → 三参 `getTableStatistics`），**绕过**latest-keyed 跨语句缓存（历史行数不值得跨语句缓存）；否则/无上下文 → `super.getRowCount()` 走原缓存路径，**逐字节不变**。连接器算不出时优雅回退 latest。
+- **iceberg**：三参用 `table.snapshot(snapshotId).summary()`（复用同一 total-records/position/equality-delete 公式），非 `currentSnapshot()`。
+- **paimon**：三参用与扫描路径**同一** `applySnapshot` 生成 scan options，`resolveTable` + `table.copy(scanOptions)` 后 `rowCount` 求和；任何异常回退空（→ 上层回退 latest）。
+
+**验证**：`test_paimon_time_travel_rowcount.groovy` —— `EXPLAIN SELECT * FROM tbl_time_travel FOR VERSION AS OF 1` 的 `cardinality` 应为钉住 snapshot 1 的 3（非 latest 18），并断言 time-travel 基数 < latest 基数（修复前二者相等）。compile + checkstyle 全绿。
+
+**范围说明**：普通查询、SHOW TABLE / information_schema（走 `getCachedRowCount`，未 override）保持原缓存路径不变；本修复只在真正时间旅行时改走钉住快照直算。

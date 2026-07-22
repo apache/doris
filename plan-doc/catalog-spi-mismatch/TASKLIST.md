@@ -21,7 +21,7 @@
 
 | # | 批次 | 核实 | 状态 | 一句话 |
 |---|---|---|---|---|
-| 2  | B1 | CONFIRMED | 🔄 | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash**（崩溃修复已完成+e2e 通过；姊妹统计 #15 待做）|
+| 2  | B1 | CONFIRMED | ✅ | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash**（崩溃修复+e2e 通过；姊妹统计 #15 已一并做）|
 | 1  | B2 | PARTIAL | ✅ | hudi decimal 分区谓词走 String.valueOf，未同步 hive 已修分支 → 潜在误剪（已镜像 hive BigDecimal 分支 + 单测）|
 | 14 | B2 | PARTIAL | ✅ | paimon `partition_values()` TVF 读 raw spec → DATE 显 epoch-day、null 显 `__DEFAULT_PARTITION__`（已在连接器渲染值 map + 单测）|
 | 21 | B3 | CONFIRMED | ✅ | `ConnectorDeleteFile` 欠建模且零 caller = 死代码（已删，commit `5f63c3af9b6`）|
@@ -43,7 +43,7 @@
 | 5  | B6 | REFUTED | ☑️ | iceberg 行数三点全反：snapshot summary / 扣 position delete / equality gate -1 |
 | 6  | B6 | STALE_FIXED | ☑️ | LZ4FRAME→LZ4BLOCK 经 `adjustFileCompressType` 能力位已恢复 + 单测 |
 | 17 | B6 | REFUTED | ☑️ | branch 移动窗口被 `IcebergStatementScope` 每语句单次冻结堵死 |
-| 15 | B6 | CONFIRMED | 🚫 | stats 无 snapshot，time-travel 下仅 CBO 估计偏斜不错结果（legacy 端口，同 #2 族） |
+| 15 | B6 | CONFIRMED | ✅ | stats 无 snapshot → time-travel CBO 估计偏斜（不错结果）；已加三参 getTableStatistics + getRowCount 按钉住快照直算（绕过 latest 缓存）+ e2e |
 | 18 | B6 | PARTIAL | 🚫 | FOR TIME AS OF 数字串当 epoch，合法 datetime 恒不误判（有意对齐） |
 | 20 | B6 | CONFIRMED | 🚫 | transform 参数只 `List<Integer>`，当前无非整型/小数参数 transform（YAGNI） |
 | 22 | B6 | CONFIRMED | 🚫 | iceberg 谓词用 latest 非 pinned schema，有意 legacy parity，只丢下推不丢正确性 |
@@ -54,8 +54,8 @@
 
 ## B1 · 正确性 / 稳定性（排期）
 
-### #2 — getColumnHandles 无 snapshot 参数 → paimon BE crash 🔄
-- **崩溃修复已完成**（框架级带快照的取列句柄重载 + Paimon 实现 + 通用节点按钉住 schema 取句柄 + 丢列即报错兜底）。用户已用现有 `sc_parquet`（snapshot 1=改名前 schema）跑混合投影 `FOR VERSION AS OF 1` e2e **验证通过**（修复前 BE 崩溃、修复后返回数据）。设计见 [`fix-getcolumnhandles-snapshot-design.md`](fix-getcolumnhandles-snapshot-design.md)；e2e 见 `regression-test/suites/external_table_p0/paimon/test_paimon_time_travel_rename.groovy`。编译+checkstyle 全绿。**姊妹的统计无快照（#15）待做**（同一 commit 系列的下一步）。
+### #2 — getColumnHandles 无 snapshot 参数 → paimon BE crash ✅
+- **已完成**（框架级带快照的取列句柄重载 + Paimon 实现 + 通用节点按钉住 schema 取句柄 + 丢列即报错兜底，commit `3de586e87ca`）。用户已用现有 `sc_parquet`（snapshot 1=改名前 schema）跑混合投影 `FOR VERSION AS OF 1` e2e **验证通过**（修复前 BE 崩溃、修复后返回数据）。设计见 [`fix-getcolumnhandles-snapshot-design.md`](fix-getcolumnhandles-snapshot-design.md)；e2e 见 `regression-test/suites/external_table_p0/paimon/test_paimon_time_travel_rename.groovy`。编译+checkstyle 全绿。**姊妹的统计无快照（#15）已一并完成**（见下）。
 - **核实**：CONFIRMED（高）｜文档 [B](analysis-B-schema-column-identity.md#2)
 - **现象**：通用节点在 MVCC pin **之前**跑 `buildColumnHandles`，用未 pin 的 handle 拿 latest-keyed 的 `getColumnHandles` map；time-travel（`FOR VERSION AS OF`）+ 列被 RENAME 后，query slot 携旧名、latest map 只有新名 → slot 静默丢列。**真实触发 repro = 混合投影**（改名列与存活列同现）：paimon 侧 dict 的 -1 target 条目缺列 → BE `StructNode children.at()` `std::out_of_range` → **SIGABRT**。iceberg 已在连接器侧用 `hasSnapshotPin()` 全量重建 dict 自防，**paimon 未做**、更脆。纯单列改名投影被空集回退救活、不炸。
 - **建议动作（需先定架构高度，择一）**：
@@ -194,7 +194,7 @@
 - **#17** REFUTED — branch 移动机制属实，但 `IcebergStatementScope.sharedTable`（key 含 queryId）保证每语句对某表单次冻结加载，pin 与 scan 复用同一冻结 `Table`，`useRef` 恒解析回 pin 时的 `snapshotId`/`schemaId`，"plan→scan 间 head 移动"窗口不存在。｜[E](analysis-E-stats-mvcc-timetravel.md#17)
 
 ### 记录不动 🚫（CONFIRMED/PARTIAL 但有意 / 潜伏 / 无失败场景）
-- **#15** CONFIRMED — stats 无 snapshot 参，time-travel 下 `computeRowCount` 恒取 `currentSnapshot`，与已 pin 的 schema 不对称 → CBO 基数估计偏斜；**但仅影响估计、不改结果正确性**，且是 legacy 忠实端口。**同 #2 族**，治理应与 schema/partition 快照粒度统一做（见 HANDOFF §4 依赖）。｜[E](analysis-E-stats-mvcc-timetravel.md#15)
+- **#15** CONFIRMED → ✅ **已修**（与 #2 同批处理）— 加三参 `getTableStatistics(session,handle,snapshot)`（默认转调两参）；`StatementContext.getVersionedSnapshot` 只认真正时间旅行（非默认 version key）；`PluginDrivenExternalTable.getRowCount()` override 在查询线程内按钉住快照直算、绕过 latest-keyed 跨语句缓存，普通查询逐字节不变；iceberg 用 `table.snapshot(id).summary()`、paimon 复用 `applySnapshot`+scanOptions copy。e2e `test_paimon_time_travel_rowcount.groovy` 断言 `EXPLAIN` cardinality=钉住快照行数。仅影响 CBO 估计、不改结果正确性。｜[E](analysis-E-stats-mvcc-timetravel.md#15)
 - **#18** PARTIAL — 数字正则当 epoch 属实，但合法 datetime 字面量必含非数字字符（`-`/`:`/空格）恒不落 epoch 分支，无 date/epoch 交叠歧义；系跨连接器（paimon/iceberg）有意对齐的 benign superset。｜[E](analysis-E-stats-mvcc-timetravel.md#18)
 - **#20** CONFIRMED — transform 参数只 `List<Integer>`（ALTER 侧甚至单 `Integer`），非整型被静默丢、小数被截断；但当前 iceberg/paimon/hive 全部分区 transform 无非整型/小数参数（bucket/truncate 均整型宽度），**今天无可复现错误**（YAGNI，勿提前抽象）。｜[C](analysis-C-partition.md#20)
 - **#22** CONFIRMED — iceberg 谓词转换用 `table.schema()`（latest）非 pinned；time-travel 到改名前快照 + 谓词命中被改名列时该谓词 drop 到 BE residual（安全过近似，**不漏行/不多行**），仅丢文件级剪枝性能。注释锁死为有意 legacy parity，且与 dict-schema/slot-schema 字节一致 INVARIANT 协同（改动风险高、收益薄）。｜[B](analysis-B-schema-column-identity.md#22)

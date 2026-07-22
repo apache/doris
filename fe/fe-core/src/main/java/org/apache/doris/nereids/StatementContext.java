@@ -1132,6 +1132,33 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Resolves a GENUINE time-travel snapshot for this table &mdash; one pinned under a NON-default version
+     * key (a FOR VERSION/TIME AS OF or {@code @branch}/{@code @tag} selector), if exactly one such versioned
+     * reference is pinned. Returns empty for a plain/latest reference (version key {@code ""}) so the caller
+     * keeps its latest path, and empty when the versioned pin is ambiguous (e.g. {@code t@tag('v1')} joined
+     * with {@code t@tag('v2')}). Used by the row-count path to compute cardinality AT the pinned snapshot
+     * (versus the latest-keyed cross-statement row-count cache) ONLY when the statement actually time-travels,
+     * leaving the shared cache untouched for plain reads.
+     */
+    public Optional<MvccSnapshot> getVersionedSnapshot(TableIf tableIf) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo defaultKey = new MvccTableInfo(tableIf);
+        MvccSnapshot only = null;
+        for (Map.Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            MvccTableInfo key = entry.getKey();
+            if (defaultKey.isSameTable(key) && !key.getVersion().isEmpty()) {
+                if (only != null) {
+                    return Optional.empty();
+                }
+                only = entry.getValue();
+            }
+        }
+        return Optional.ofNullable(only);
+    }
+
+    /**
      * Obtain snapshot information of mvcc
      *
      * @param mvccTableInfo mvccTableInfo

@@ -738,6 +738,33 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Table-level row count AS OF the pinned snapshot, for a time-travel read. Same formula as the latest
+     * path but reads the pinned snapshot's summary (via {@code table.snapshot(snapshotId)}) instead of
+     * {@code currentSnapshot()}, so the CBO estimate matches the rows the scan actually reads. Falls back
+     * to the latest path for a system table or a missing/negative snapshot id.
+     */
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || snapshot == null || snapshot.getSnapshotId() < 0) {
+            return getTableStatistics(session, handle);
+        }
+        long rowCount;
+        try {
+            rowCount = computeRowCount(loadTable(session, iceHandle).snapshot(snapshot.getSnapshotId()));
+        } catch (Exception e) {
+            LOG.warn("Failed to compute Iceberg row count at snapshot {} for {}.{}",
+                    snapshot.getSnapshotId(), iceHandle.getDbName(), iceHandle.getTableName(), e);
+            return Optional.empty();
+        }
+        if (rowCount > 0) {
+            return Optional.of(new ConnectorTableStatistics(rowCount, -1));
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Row count from the current snapshot summary, a faithful port of legacy {@code IcebergUtils
      * .getIcebergRowCount} (which calls {@code getCountFromSummary(summary, true)}, upstream 32a2651f66b /
      * #64648): any equality delete ({@code total-equality-deletes} absent or {@code != "0"}) -> -1 (UNKNOWN),
@@ -748,7 +775,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * Empty table (no current snapshot) -> -1, which the caller maps to UNKNOWN.
      */
     private static long computeRowCount(Table table) {
-        Snapshot snapshot = table.currentSnapshot();
+        return computeRowCount(table.currentSnapshot());
+    }
+
+    /** Row count from a specific snapshot's summary (shared by the latest and at-snapshot paths). */
+    private static long computeRowCount(Snapshot snapshot) {
         if (snapshot == null) {
             return -1;
         }

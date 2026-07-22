@@ -1275,6 +1275,39 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Row count AS OF the pinned snapshot, for a time-travel read. Applies the snapshot to the handle (the
+     * SAME {@link #applySnapshot} the scan path uses) and copies its scan options onto the resolved table,
+     * so the summed split row counts reflect the pinned snapshot / branch / tag &mdash; matching the rows
+     * the scan reads instead of the latest count. Any failure degrades to empty, and the caller then falls
+     * back to the latest cached estimate (estimate-only, never a correctness concern).
+     */
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null) {
+            return getTableStatistics(session, handle);
+        }
+        long rowCount;
+        try {
+            PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, handle, snapshot);
+            Table table = resolveTable(pinned);
+            Map<String, String> scanOptions = pinned.getScanOptions();
+            if (scanOptions != null && !scanOptions.isEmpty()) {
+                table = table.copy(scanOptions);
+            }
+            rowCount = catalogOps.rowCount(table);
+        } catch (Exception e) {
+            LOG.warn("Failed to compute Paimon row count at snapshot {} for {}",
+                    snapshot.getSnapshotId(), handle, e);
+            return Optional.empty();
+        }
+        if (rowCount > 0) {
+            return Optional.of(new ConnectorTableStatistics(rowCount, -1));
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Resolves the live {@link Table} for a handle: prefer the transient reference, else re-load
      * from the catalog seam. Delegates to the single sys-aware {@link PaimonTableResolver} shared
      * with the scan path so there is exactly ONE reload rule (a sys handle reloads via the 4-arg
