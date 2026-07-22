@@ -1970,6 +1970,9 @@ TEST(KeysTest, TableStreamMappingKeyTest) {
 
     key = table_stream_inverted_key({instance_id, base_db_id, base_table_id, stream_id});
     key_sv = key;
+    meta_prefix.clear();
+    decoded_instance_id.clear();
+    mapping_infix.clear();
     int64_t decoded_base_db_id = 0;
     int64_t decoded_base_table_id = 0;
     remove_user_space_prefix(&key_sv);

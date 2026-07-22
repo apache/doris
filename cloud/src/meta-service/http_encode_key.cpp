@@ -727,9 +727,10 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     }
     LOG(WARNING) << "set_value saved, key=" << hex(key);
 
-    std::string final_json_str =
-            handle_kv_output(key, value.value(), original_value_json, proto_to_json(*pb_to_save),
-                             serialized_value_to_save);
+    std::string new_value_json =
+            json_parsing_function ? proto_to_json(*pb_to_save) : serialized_value_to_save;
+    std::string final_json_str = handle_kv_output(key, value.value(), original_value_json,
+                                                  new_value_json, serialized_value_to_save);
 
     return http_text_reply(MetaServiceCode::OK, "", final_json_str);
 }
