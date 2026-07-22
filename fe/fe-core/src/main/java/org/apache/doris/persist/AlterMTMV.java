@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -37,6 +38,12 @@ import java.util.Map;
 import java.util.Objects;
 
 public class AlterMTMV implements Writable {
+    @SerializedName("nc")
+    private Column newColumn;
+    @SerializedName("eq")
+    private String exprSql;
+    @SerializedName("nqs")
+    private String newQuerySql;
     @SerializedName("ot")
     private MTMVAlterOpType opType;
     @SerializedName("mn")
@@ -59,6 +66,20 @@ public class AlterMTMV implements Writable {
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
+        this.opType = Objects.requireNonNull(opType, "require opType object");
+        this.needRebuildJob = true;
+    }
+
+    public AlterMTMV(TableNameInfo mvName, Column newColumn, String exprSql, MTMVAlterOpType opType) {
+        this(mvName, newColumn, exprSql, null, opType);
+    }
+
+    public AlterMTMV(TableNameInfo mvName, Column newColumn, String exprSql,
+            String newQuerySql, MTMVAlterOpType opType) {
+        this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+        this.newColumn = Objects.requireNonNull(newColumn, "require addcolumn object");
+        this.exprSql = Objects.requireNonNull(exprSql, "require exprSql object");
+        this.newQuerySql = newQuerySql;
         this.opType = Objects.requireNonNull(opType, "require opType object");
         this.needRebuildJob = true;
     }
@@ -110,6 +131,18 @@ public class AlterMTMV implements Writable {
 
     public MTMVAlterOpType getOpType() {
         return opType;
+    }
+
+    public Column getNewColumn() {
+        return newColumn;
+    }
+
+    public String getExprSql() {
+        return exprSql;
+    }
+
+    public String getNewQuerySql() {
+        return newQuerySql;
     }
 
     public MTMVTask getTask() {

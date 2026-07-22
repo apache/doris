@@ -1313,6 +1313,11 @@ public class Alter {
                 case ALTER_PROPERTY:
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
+                case ALTER_ADD_COLUMN:
+                    mtmv.alterAddColumn(
+                            alterMTMV.getNewColumn(),
+                            alterMTMV.getExprSql(), alterMTMV.getNewQuerySql());
+                    break;
                 case ADD_TASK:
                     alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
                             alterMTMV.getPartitionSnapshots(),
@@ -1336,6 +1341,10 @@ public class Alter {
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
+        } catch (RuntimeException e) {
+            // alterAddColumn wraps its underlying failure in a RuntimeException; surface it here
+            // so a schema-change failure does not crash the caller thread.
+            LOG.warn("processAlterMTMV failed", e);
         }
     }
 }
