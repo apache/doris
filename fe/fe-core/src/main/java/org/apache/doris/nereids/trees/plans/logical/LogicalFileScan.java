@@ -200,6 +200,9 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
         LogicalFileScan that = (LogicalFileScan) other;
         return Objects.equals(selectedPartitions, that.selectedPartitions)
                 && Objects.equals(tableSample, that.tableSample)

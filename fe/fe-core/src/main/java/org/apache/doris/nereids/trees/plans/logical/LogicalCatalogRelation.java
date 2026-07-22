@@ -272,6 +272,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     protected boolean hasSameTableIdentity(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
         return new TableIdentifier(table).equals(new TableIdentifier(other.table));
     }
 

@@ -1209,6 +1209,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
         LogicalOlapScan that = (LogicalOlapScan) other;
         return selectedIndexId == that.selectedIndexId
                 && indexSelected == that.indexSelected

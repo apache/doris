@@ -97,7 +97,7 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
 
     @Override
     protected boolean hasSameScanState(LogicalCatalogRelation other) {
-        return true;
+        return Utils.isSameClass(this, other);
     }
 
     @Override

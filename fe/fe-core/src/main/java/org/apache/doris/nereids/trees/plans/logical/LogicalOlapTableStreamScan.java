@@ -467,6 +467,9 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     protected boolean hasSameTableIdentity(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
         LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) other;
         return Objects.equals(getTable().getStreamDbId(), that.getTable().getStreamDbId())
                 && Objects.equals(getTable().getStreamId(), that.getTable().getStreamId())
@@ -476,6 +479,9 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
         LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) other;
         return super.hasSameScanState(other)
                 && readMode == that.readMode

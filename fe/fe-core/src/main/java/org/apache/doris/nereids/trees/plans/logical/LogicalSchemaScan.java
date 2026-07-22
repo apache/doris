@@ -115,6 +115,9 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
 
     @Override
     protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
         LogicalSchemaScan that = (LogicalSchemaScan) other;
         return filterPushed == that.filterPushed
                 && Objects.equals(schemaCatalog, that.schemaCatalog)
