@@ -17,10 +17,15 @@
 
 #include "storage/index/inverted/inverted_index_compaction.h"
 
+#include <CLucene/util/stringUtil.h>
+
+#include "common/config.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/inverted_index_term_bloom_filter.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
@@ -30,7 +35,8 @@ Status compact_column(
         std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
         std::vector<lucene::store::Directory*>& dest_index_dirs, std::string_view tmp_path,
         const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
-        const std::vector<uint32_t>& dest_segment_num_rows) {
+        const std::vector<uint32_t>& dest_segment_num_rows, const TabletIndex* index_meta,
+        std::string_view field_name) {
     DBUG_EXECUTE_IF("index_compaction_compact_column_throw_error", {
         if (index_id % 2 == 0) {
             _CLTHROWA(CL_ERR_IO, "debug point: test throw error in index compaction");
@@ -73,6 +79,36 @@ Status compact_column(
     DBUG_EXECUTE_IF("compact_column_index_writer_close_error", {
         _CLTHROWA(CL_ERR_IO,
                   "debug point: compact_column_index_writer_close_error in index compaction");
+    })
+
+    // Emit the token-exists Bloom Filter ("tbf") sub-file for each dest segment, in lockstep with
+    // the normal writer's `write_term_bloom_filter()`. Without this, the index-compaction
+    // shortcut (`do_inverted_index_compaction`) would silently drop tbf from every output --
+    // CLucene's `indexCompaction()` only knows about its own files (segments_*, _*.cfs,
+    // null_bitmap) and never copies our custom "tbf" forward. On a default cluster
+    // (`inverted_index_compaction_enable=true`, DUP_KEYS / MoW with fulltext indexes) this is the
+    // dominant compaction path, so missing the emit here means historical segments would never
+    // get a tbf even after compaction. Gating mirrors the writer (BE config + analyzed index).
+    //
+    // Must run BEFORE the dest dirs are closed by their `InvertedIndexFileWriter::close()` (the
+    // caller invokes `_output_rs_writer->build()` later in compaction.cpp); inserting into the
+    // compound after close would not be honored.
+    if (config::enable_inverted_index_term_bf && index_meta != nullptr &&
+        !field_name.empty() &&
+        inverted_index::InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
+        const uint64_t analyzer_sig = compute_analyzer_sig(index_meta->properties());
+        const std::wstring wfield_name =
+                StringUtil::string_to_wstring(std::string {field_name});
+        for (auto* dest_dir : dest_index_dirs) {
+            if (dest_dir == nullptr) {
+                continue;
+            }
+            emit_term_bloom_filter_into_dir(dest_dir, wfield_name, analyzer_sig);
+        }
+    }
+    DBUG_EXECUTE_IF("compact_column_emit_term_bf_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_emit_term_bf_error in index compaction");
     })
 
     // delete temporary segment_path, only when inverted_index_ram_dir_enable is false

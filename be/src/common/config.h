@@ -1330,6 +1330,9 @@ DECLARE_String(inverted_index_searcher_cache_limit);
 DECLARE_mBool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
+// One-key rollback for the token-exists Bloom Filter ("tbf") absent-term fast path on the
+// FullText read path. Default off until the read/write guardrails are fully closed.
+DECLARE_mBool(enable_inverted_index_term_bf);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
 

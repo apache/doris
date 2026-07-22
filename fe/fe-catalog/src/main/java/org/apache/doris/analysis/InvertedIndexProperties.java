@@ -57,6 +57,10 @@ public class InvertedIndexProperties {
 
     public static String INVERTED_INDEX_DICT_COMPRESSION_KEY = "dict_compression";
 
+    // Build a token-exists Bloom Filter ("tbf") sub-file to fast-path absent exact-term queries.
+    // Must match the BE-side key (be/.../inverted_index_parser.h INVERTED_INDEX_PARSER_TOKEN_BF_KEY).
+    public static String INVERTED_INDEX_TOKEN_BLOOM_FILTER_KEY = "token_bloom_filter";
+
     public static String INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
     public static String INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 

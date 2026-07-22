@@ -42,6 +42,7 @@
 namespace doris {
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
+class InvertedIndexTermBloomFilter;
 
 class InvertedIndexSearcherCache {
 public:
@@ -56,6 +57,10 @@ public:
     class CacheValue : public LRUCacheValueBase {
     public:
         IndexSearcherPtr index_searcher;
+        // A token-exists Bloom Filter entry reuses this same cache (same LRU + memory budget) under
+        // a distinct key namespace, so it has no opened searcher: index_searcher is null and the
+        // payload is term_bf. A normal searcher entry has term_bf null. The two never share a key.
+        std::shared_ptr<InvertedIndexTermBloomFilter> term_bf;
         size_t size = 0;
         int64_t last_visit_time;
 
@@ -83,6 +88,23 @@ public:
 
     void insert(const InvertedIndexSearcherCache::CacheKey& cache_key, CacheValue* cache_value,
                 InvertedIndexCacheHandle* handle);
+
+    // Token-exists Bloom Filter sub-API. The BF for a (segment, index) is cached in THIS cache
+    // (same LRU + memory budget, no separate cache) under an internal key namespace derived from
+    // the same `index_file_key` the searcher entry uses -- callers pass the logical key and never
+    // see the namespacing, so it cannot drift between insert/lookup/erase. On a hit the handle
+    // exposes the BF via get_term_bf().
+    bool lookup_term_bf(const std::string& index_file_key, InvertedIndexCacheHandle* handle);
+    void insert_term_bf(const std::string& index_file_key,
+                        std::shared_ptr<InvertedIndexTermBloomFilter> bf,
+                        InvertedIndexCacheHandle* handle);
+    // Cache a negative result: this (segment, index) has no usable "tbf" sub-file (never built or
+    // corrupt). This is stable for the immutable segment, so eligible queries can skip re-opening
+    // the index. A lookup_term_bf() hit whose get_term_bf() is null IS this negative marker. (Only
+    // structural absence is cached negative -- an analyzer-signature mismatch is reader-dependent
+    // and must NOT be, or it would deny a valid BF to a matching-analyzer reader on the same key.)
+    void insert_term_bf_negative(const std::string& index_file_key,
+                                 InvertedIndexCacheHandle* handle);
 
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
@@ -122,6 +144,14 @@ private:
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
+
+    // Derive the BF entry's key from a (segment, index) identity. The '\x01' byte never occurs in
+    // an index file path, so a BF key can never collide with a searcher key. This is the single
+    // place that knows the namespace -- insert/lookup/erase all route through it, so the searcher
+    // entry and its BF entry stay in lockstep (notably: erase() removes both).
+    static std::string term_bf_key(const std::string& index_file_key) {
+        return index_file_key + std::string("\x01tbf", 4);
+    }
 
     std::unique_ptr<InvertedIndexSearcherCachePolicy> _policy;
 };
@@ -168,6 +198,14 @@ public:
 
     InvertedIndexSearcherCache::CacheValue* get_index_cache_value() {
         return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle));
+    }
+
+    // The token-exists Bloom Filter held by a BF-namespace cache entry (null for searcher entries).
+    std::shared_ptr<InvertedIndexTermBloomFilter> get_term_bf() {
+        if (_cache == nullptr) {
+            return nullptr;
+        }
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->term_bf;
     }
 
 private:
