@@ -59,6 +59,7 @@ import java.lang.reflect.Method;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -324,7 +325,7 @@ public class NereidsParser {
         if (!hasLetter) {
             return false;
         }
-        String upperCase = expression.toUpperCase();
+        String upperCase = expression.toUpperCase(Locale.ROOT);
         return (NON_RESERVED_KEYWORDS.contains(upperCase) || !LITERAL_TOKENS.containsKey(upperCase));
     }
 

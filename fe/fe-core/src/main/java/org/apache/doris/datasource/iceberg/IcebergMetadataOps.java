@@ -1005,7 +1005,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         validateNoCaseInsensitiveSiblingCollision(
                 schema.asStruct(), "", newName, oldPath.getField(), "rename");
         UpdateSchema updateSchema = icebergTable.updateSchema();
-        updateSchema.renameColumn(oldPath.getFullPath(), newName);
+        applyRenameColumn(schema, updateSchema, oldPath, newName);
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
@@ -1029,7 +1029,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 parentPath.getColumnPath(), newName, resolvedPath.getField(), "rename");
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
-        updateSchema.renameColumn(resolvedPath.getFullPath(), newName);
+        applyRenameColumn(icebergTable.schema(), updateSchema, resolvedPath, newName);
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
@@ -1037,6 +1037,37 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable, updateTime);
+    }
+
+    private void applyRenameColumn(Schema schema, UpdateSchema updateSchema,
+            ResolvedColumnPath oldPath, String newName) {
+        String oldFullPath = oldPath.getFullPath();
+        ColumnPath renamedPath = oldPath.getColumnPath().isNested()
+                ? childPath(oldPath.getColumnPath().getParentPath(), newName)
+                : ColumnPath.of(newName);
+        String renamedFullPath = renamedPath.getFullPath();
+        boolean identifierFieldRenamed = false;
+        Set<String> renamedIdentifierFields = new TreeSet<>();
+        int renamedFieldId = oldPath.getField().fieldId();
+        // Iceberg 1.10.1 does not preserve full identifier paths when an identifier field or one
+        // of its ancestors is renamed. Use field identity so dotted sibling names are not mistaken for descendants.
+        for (int identifierFieldId : schema.identifierFieldIds()) {
+            String identifierField = schema.findColumnName(identifierFieldId);
+            boolean isRenamedField = identifierFieldId == renamedFieldId;
+            boolean isDescendant = TypeUtil.ancestorFields(schema, identifierFieldId).stream()
+                    .anyMatch(field -> field.fieldId() == renamedFieldId);
+            if (isRenamedField || isDescendant) {
+                renamedIdentifierFields.add(renamedFullPath + identifierField.substring(oldFullPath.length()));
+                identifierFieldRenamed = true;
+            } else {
+                renamedIdentifierFields.add(identifierField);
+            }
+        }
+
+        updateSchema.renameColumn(oldFullPath, newName);
+        if (identifierFieldRenamed) {
+            updateSchema.setIdentifierFields(renamedIdentifierFields);
+        }
     }
 
     @Override

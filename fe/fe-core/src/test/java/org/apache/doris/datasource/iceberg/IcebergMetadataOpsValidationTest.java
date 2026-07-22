@@ -770,6 +770,97 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testRenamePreservesNestedIdentifierFieldPaths() throws Exception {
+        String dbName = "db";
+        String tableName = "identifier_table";
+        TableIdentifier tableIdentifier = TableIdentifier.of(dbName, tableName);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CatalogProperties.WAREHOUSE_LOCATION,
+                temporaryFolder.newFolder("identifier_warehouse").toURI().toString());
+
+        HadoopCatalog icebergCatalog = new HadoopCatalog();
+        icebergCatalog.setConf(new Configuration());
+        icebergCatalog.initialize("identifier_catalog", properties);
+        icebergCatalog.createNamespace(Namespace.of(dbName));
+        Schema schema = new Schema(Arrays.asList(
+                Types.NestedField.required(1, "root", Types.StructType.of(
+                        Types.NestedField.required(2, "child", Types.StructType.of(
+                                Types.NestedField.required(3, "id", Types.IntegerType.get()),
+                                Types.NestedField.optional(4, "value", Types.StringType.get())))))),
+                Collections.singleton(3));
+        Table icebergTable = icebergCatalog.createTable(tableIdentifier, schema);
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn(dbName);
+        Mockito.when(dorisTable.getRemoteName()).thenReturn(tableName);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.renameColumn(dorisTable, ColumnPath.fromDotName("root.child.id"), "renamed_id", 1L);
+            icebergTable.refresh();
+            Assert.assertEquals(Collections.singleton("root.child.renamed_id"),
+                    icebergTable.schema().identifierFieldNames());
+
+            ops.renameColumn(dorisTable, ColumnPath.fromDotName("root.child"), "renamed_child", 1L);
+            icebergTable.refresh();
+            Assert.assertEquals(Collections.singleton("root.renamed_child.renamed_id"),
+                    icebergTable.schema().identifierFieldNames());
+
+            ops.renameColumn(dorisTable, "root", "renamed_root", 1L);
+            icebergTable.refresh();
+            Assert.assertEquals(Collections.singleton("renamed_root.renamed_child.renamed_id"),
+                    icebergTable.schema().identifierFieldNames());
+            Assert.assertEquals(3, icebergTable.schema().findField(
+                    "renamed_root.renamed_child.renamed_id").fieldId());
+        }
+
+        icebergCatalog.dropTable(tableIdentifier);
+        icebergCatalog.dropNamespace(Namespace.of(dbName));
+        icebergCatalog.close();
+    }
+
+    @Test
+    public void testRenameDoesNotRewriteDottedIdentifierSibling() throws Exception {
+        String dbName = "db";
+        String tableName = "dotted_identifier_table";
+        TableIdentifier tableIdentifier = TableIdentifier.of(dbName, tableName);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CatalogProperties.WAREHOUSE_LOCATION,
+                temporaryFolder.newFolder("dotted_identifier_warehouse").toURI().toString());
+
+        HadoopCatalog icebergCatalog = new HadoopCatalog();
+        icebergCatalog.setConf(new Configuration());
+        icebergCatalog.initialize("dotted_identifier_catalog", properties);
+        icebergCatalog.createNamespace(Namespace.of(dbName));
+        Schema schema = new Schema(Arrays.asList(
+                Types.NestedField.required(1, "a", Types.IntegerType.get()),
+                Types.NestedField.required(2, "a.b", Types.IntegerType.get())),
+                Collections.singleton(2));
+        Table icebergTable = icebergCatalog.createTable(tableIdentifier, schema);
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn(dbName);
+        Mockito.when(dorisTable.getRemoteName()).thenReturn(tableName);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.renameColumn(dorisTable, "a", "renamed", 1L);
+            icebergTable.refresh();
+            Assert.assertNotNull(icebergTable.schema().findField("renamed"));
+            Assert.assertEquals(Collections.singleton("a.b"), icebergTable.schema().identifierFieldNames());
+            Assert.assertEquals(2, icebergTable.schema().findField("a.b").fieldId());
+        }
+
+        icebergCatalog.dropTable(tableIdentifier);
+        icebergCatalog.dropNamespace(Namespace.of(dbName));
+        icebergCatalog.close();
+    }
+
+    @Test
     public void testNestedColumnOperationsRejectDefaultMetadata() {
         Schema schema = new Schema(Types.NestedField.optional(1, "s", Types.StructType.of(
                 Types.NestedField.optional(2, "existing", Types.IntegerType.get()))));

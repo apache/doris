@@ -38,6 +38,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public class IcebergNestedSchemaEvolutionParserTest {
 
@@ -202,6 +203,21 @@ public class IcebergNestedSchemaEvolutionParserTest {
                 "ALTER TABLE t MODIFY COLUMN info.payload STRUCT<city:INT>",
                 ModifyColumnOp.class, "info.payload");
         Assertions.assertTrue(ordinary.toSql().contains("STRUCT<city:INT>"));
+    }
+
+    @Test
+    public void testStructFieldSqlRoundTripIsLocaleIndependent() {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            StructType structType = (StructType) parser.parseDataType("STRUCT<`in`:INT>");
+            String renderedType = structType.toSql();
+
+            Assertions.assertTrue(renderedType.contains("`in`:INT"));
+            Assertions.assertDoesNotThrow(() -> parser.parseDataType(renderedType));
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
     }
 
     @Test

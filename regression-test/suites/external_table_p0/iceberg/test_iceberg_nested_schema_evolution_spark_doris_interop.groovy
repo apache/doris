@@ -17,7 +17,8 @@
 
 import groovy.json.JsonSlurper
 
-suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,iceberg") {
+suite("test_iceberg_nested_schema_evolution_spark_doris_interop",
+        "p0,external,iceberg,external_docker,external_docker_iceberg") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
