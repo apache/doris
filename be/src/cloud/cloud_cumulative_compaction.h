@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -47,6 +48,9 @@ public:
     int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
     int64_t get_input_num_rows() const { return _input_row_num; }
 
+protected:
+    int64_t _refresh_conflict_versions();
+
 private:
     Status pick_rowsets_to_compact();
 
@@ -61,6 +65,7 @@ private:
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
     int64_t _input_segments = 0;
+    int64_t _min_conflict_version = std::numeric_limits<int64_t>::max();
     int64_t _max_conflict_version = 0;
     // Snapshot values when pick input rowsets
     int64_t _base_compaction_cnt = 0;

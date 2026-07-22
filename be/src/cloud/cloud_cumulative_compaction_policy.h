@@ -38,6 +38,16 @@ class CloudCumulativeCompactionPolicy {
 public:
     virtual ~CloudCumulativeCompactionPolicy() = default;
 
+    // rowsets must be ordered and continuous from input_cumulative_point. Advance past delete
+    // rowsets, and stop at the first overlapping rowset or the first rowset rejected by the policy.
+    // output_rowset identifies the rowset associated with last_delete_version and must be in
+    // rowsets.
+    int64_t calculate_cumulative_point(CloudTablet* tablet,
+                                       const std::vector<RowsetSharedPtr>& rowsets,
+                                       const RowsetSharedPtr& output_rowset,
+                                       Version& last_delete_version,
+                                       int64_t input_cumulative_point);
+
     virtual int64_t new_cumulative_point(CloudTablet* tablet, const RowsetSharedPtr& output_rowset,
                                          Version& last_delete_version,
                                          int64_t last_cumulative_point) = 0;

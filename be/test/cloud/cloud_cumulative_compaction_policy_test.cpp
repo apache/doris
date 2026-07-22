@@ -115,10 +115,11 @@ public:
 protected:
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
-
-private:
     CloudStorageEngine _engine;
 };
+
+class TestCloudTimeSeriesCumulativeCompactionPolicy
+        : public TestCloudSizeBasedCumulativeCompactionPolicy {};
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
                                      int64_t data_size) {
@@ -134,6 +135,15 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
     if (!st.ok()) {
         return nullptr;
     }
+    return rowset;
+}
+
+static RowsetSharedPtr create_delete_rowset(Version version, bool overlapping) {
+    auto rowset = create_rowset(version, 0, overlapping, kMiB);
+    DORIS_CHECK(rowset != nullptr);
+    DeletePredicatePB delete_predicate;
+    delete_predicate.set_version(version.first);
+    rowset->rowset_meta()->set_delete_predicate(delete_predicate);
     return rowset;
 }
 
@@ -160,6 +170,147 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     RowsetSharedPtr output_rowset = create_rowset(Version(3, 5), 5, false, 100 * 1024 * 1024);
     Version version(1, 1);
     EXPECT_EQ(policy.new_cumulative_point(&_tablet, output_rowset, version, 2), 6);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       calculate_cumulative_point_checks_preceding_rowsets) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    Version last_delete_version {-1, -1};
+
+    auto output_after_overlapping = create_rowset(Version(3, 5), 1, false, 100L * kMiB);
+    std::vector<RowsetSharedPtr> rowsets {create_rowset(Version(2, 2), 2, true, 100L * kMiB),
+                                          output_after_overlapping};
+    EXPECT_EQ(2, policy.calculate_cumulative_point(&tablet, rowsets, output_after_overlapping,
+                                                   last_delete_version, 2));
+
+    auto large_output = create_rowset(Version(4, 5), 1, false, 100L * kMiB);
+    auto small_output = create_rowset(Version(4, 5), 1, false, kMiB);
+    rowsets = {create_rowset(Version(2, 3), 1, false, 100L * kMiB), small_output};
+    EXPECT_EQ(4, policy.calculate_cumulative_point(&tablet, rowsets, small_output,
+                                                   last_delete_version, 2));
+
+    rowsets.back() = large_output;
+    EXPECT_EQ(6, policy.calculate_cumulative_point(&tablet, rowsets, large_output,
+                                                   last_delete_version, 2));
+
+    rowsets = {create_rowset(Version(2, 3), 1, false, kMiB), large_output};
+    EXPECT_EQ(2, policy.calculate_cumulative_point(&tablet, rowsets, large_output,
+                                                   last_delete_version, 2));
+
+    rowsets = {
+            create_rowset(Version(2, 3), 1, false, 100L * kMiB),
+            create_rowset(Version(4, 4), 1, false, kMiB),
+            create_rowset(Version(5, 6), 1, false, 100L * kMiB),
+    };
+    EXPECT_EQ(4, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.back(),
+                                                   last_delete_version, 2));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       calculate_cumulative_point_checks_following_conflict_rowsets) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    Version last_delete_version {-1, -1};
+
+    std::vector<RowsetSharedPtr> rowsets {create_rowset(Version(10, 20), 1, false, 100L * kMiB),
+                                          create_rowset(Version(21, 30), 1, false, 100L * kMiB)};
+    EXPECT_EQ(31, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.front(),
+                                                    last_delete_version, 10));
+
+    rowsets.back() = create_rowset(Version(21, 30), 1, false, kMiB);
+    EXPECT_EQ(21, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.front(),
+                                                    last_delete_version, 10));
+
+    rowsets.back() = create_rowset(Version(21, 21), 2, true, 100L * kMiB);
+    EXPECT_EQ(21, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.front(),
+                                                    last_delete_version, 10));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       calculate_cumulative_point_stops_at_overlapping_output) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    Version last_delete_version {-1, -1};
+    std::vector<RowsetSharedPtr> rowsets {create_rowset(Version(4, 4), 2, true, 100L * kMiB)};
+
+    EXPECT_EQ(4, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.front(),
+                                                   last_delete_version, 4));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       calculate_cumulative_point_applies_delete_version_to_output_only) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    Version last_delete_version {6, 6};
+    auto output_rowset = create_rowset(Version(4, 5), 1, false, kMiB);
+    std::vector<RowsetSharedPtr> rowsets {
+            create_rowset(Version(2, 3), 1, false, kMiB),
+            output_rowset,
+            create_rowset(Version(6, 7), 1, false, kMiB),
+    };
+
+    EXPECT_EQ(2, policy.calculate_cumulative_point(&tablet, rowsets, output_rowset,
+                                                   last_delete_version, 2));
+
+    rowsets.front() = create_rowset(Version(2, 3), 1, false, 100L * kMiB);
+    EXPECT_EQ(6, policy.calculate_cumulative_point(&tablet, rowsets, output_rowset,
+                                                   last_delete_version, 2));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       calculate_cumulative_point_advances_past_delete_rowsets) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    Version last_delete_version {-1, -1};
+
+    std::vector<RowsetSharedPtr> rowsets {
+            create_delete_rowset(Version(2, 2), true),
+            create_rowset(Version(3, 4), 1, false, 100L * kMiB),
+    };
+    EXPECT_EQ(5, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.back(),
+                                                   last_delete_version, 2));
+
+    rowsets = {
+            create_rowset(Version(10, 20), 1, false, 100L * kMiB),
+            create_delete_rowset(Version(21, 21), true),
+            create_rowset(Version(22, 30), 1, false, 100L * kMiB),
+    };
+    EXPECT_EQ(31, policy.calculate_cumulative_point(&tablet, rowsets, rowsets.front(),
+                                                    last_delete_version, 10));
+}
+
+TEST_F(TestCloudTimeSeriesCumulativeCompactionPolicy,
+       calculate_cumulative_point_checks_policy_conditions) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    CloudTimeSeriesCumulativeCompactionPolicy policy;
+    Version last_delete_version {-1, -1};
+    auto output_rowset = create_rowset(Version(2, 3), 1, false, kMiB);
+    std::vector<RowsetSharedPtr> rowsets {
+            output_rowset,
+            create_rowset(Version(4, 5), 1, false, kMiB),
+    };
+
+    EXPECT_EQ(6, policy.calculate_cumulative_point(&tablet, rowsets, output_rowset,
+                                                   last_delete_version, 2));
+
+    rowsets.back() = create_rowset(Version(4, 5), 0, false, 0);
+    EXPECT_EQ(4, policy.calculate_cumulative_point(&tablet, rowsets, output_rowset,
+                                                   last_delete_version, 2));
+
+    _tablet_meta->set_time_series_compaction_level_threshold(2);
+    EXPECT_EQ(2, policy.calculate_cumulative_point(&tablet, rowsets, output_rowset,
+                                                   last_delete_version, 2));
+
+    _tablet_meta->set_time_series_compaction_level_threshold(1);
+    _tablet_meta->set_tablet_state(TABLET_NOTREADY);
+    EXPECT_EQ(2, policy.calculate_cumulative_point(&tablet, rowsets, output_rowset,
+                                                   last_delete_version, 2));
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
