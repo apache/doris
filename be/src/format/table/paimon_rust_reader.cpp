@@ -30,6 +30,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "exprs/vexpr.h"
 #include "format/table/paimon_rust_predicate_converter.h"
+#include "format/table/partition_column_filler.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
@@ -167,6 +168,80 @@ PaimonRustReader::PaimonRustReader(const std::vector<SlotDescriptor*>& file_slot
 }
 
 PaimonRustReader::~PaimonRustReader() = default;
+
+Status PaimonRustReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _partition_values.clear();
+    _partition_value_is_null.clear();
+    if (ctx->range == nullptr || ctx->tuple_descriptor == nullptr ||
+        !ctx->range->__isset.columns_from_path_keys) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(ctx->range->__isset.columns_from_path);
+    DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
+    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
+                    ctx->range->columns_from_path_keys.size());
+    }
+
+    std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
+    for (auto* slot : ctx->tuple_descriptor->slots()) {
+        name_to_slot.emplace(slot->col_name(), slot);
+    }
+    for (size_t i = 0; i < ctx->range->columns_from_path_keys.size(); ++i) {
+        const auto& key = ctx->range->columns_from_path_keys[i];
+        auto slot_it = name_to_slot.find(key);
+        if (slot_it == name_to_slot.end()) {
+            continue;
+        }
+        _partition_values.emplace(
+                key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
+        _partition_value_is_null.emplace(
+                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
+    }
+    return Status::OK();
+}
+
+Status PaimonRustReader::on_after_read_block(Block* block, size_t* read_rows) {
+    if (_column_descs == nullptr || _partition_values.empty() || *read_rows == 0 ||
+        _push_down_agg_type == TPushAggOp::type::COUNT) {
+        return Status::OK();
+    }
+    return _fill_partition_columns(block, *read_rows);
+}
+
+Status PaimonRustReader::_fill_partition_columns(Block* block, size_t num_rows) {
+    if (_col_name_to_block_idx.empty()) {
+        _col_name_to_block_idx = block->get_name_to_pos_map();
+    }
+
+    for (const auto& desc : *_column_descs) {
+        if (desc.category != ColumnCategory::PARTITION_KEY) {
+            continue;
+        }
+        auto value_it = _partition_values.find(desc.name);
+        if (value_it == _partition_values.end()) {
+            continue;
+        }
+        auto col_it = _col_name_to_block_idx.find(desc.name);
+        if (col_it == _col_name_to_block_idx.end()) {
+            return Status::InternalError("Missing partition column {} in block {}", desc.name,
+                                         block->dump_structure());
+        }
+
+        auto& column_with_type_and_name = block->get_by_position(col_it->second);
+        auto mutable_column = std::move(*column_with_type_and_name.column).mutate();
+        const auto& [value, slot_desc] = value_it->second;
+        auto null_it = _partition_value_is_null.find(desc.name);
+        DORIS_CHECK(null_it != _partition_value_is_null.end());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(*mutable_column, *slot_desc, value,
+                                                              num_rows, null_it->second));
+        column_with_type_and_name.column = std::move(mutable_column);
+    }
+    return Status::OK();
+}
 
 Status PaimonRustReader::init_reader() {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
@@ -562,6 +637,31 @@ std::map<std::string, std::string> PaimonRustReader::_build_options() const {
             options[kv.first] = kv.second;
         }
     }
+
+    auto copy_if_missing = [&](const char* from_key, const char* to_key) {
+        if (options.find(to_key) != options.end()) {
+            return;
+        }
+        auto it = options.find(from_key);
+        if (it != options.end() && !it->second.empty()) {
+            options[to_key] = it->second;
+        }
+    };
+
+    // Map common OSS/S3 Hadoop configs to Doris/paimon-native S3 property keys
+    // that the paimon-rust FileIO recognizes.
+    copy_if_missing("fs.oss.accessKeyId", "AWS_ACCESS_KEY");
+    copy_if_missing("fs.oss.accessKeySecret", "AWS_SECRET_KEY");
+    copy_if_missing("fs.oss.sessionToken", "AWS_TOKEN");
+    copy_if_missing("fs.oss.endpoint", "AWS_ENDPOINT");
+    copy_if_missing("fs.oss.region", "AWS_REGION");
+    copy_if_missing("fs.s3a.access.key", "AWS_ACCESS_KEY");
+    copy_if_missing("fs.s3a.secret.key", "AWS_SECRET_KEY");
+    copy_if_missing("fs.s3a.session.token", "AWS_TOKEN");
+    copy_if_missing("fs.s3a.endpoint", "AWS_ENDPOINT");
+    copy_if_missing("fs.s3a.region", "AWS_REGION");
+    copy_if_missing("fs.s3a.path.style.access", "use_path_style");
+
     return options;
 }
 
