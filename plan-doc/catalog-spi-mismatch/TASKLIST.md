@@ -29,7 +29,7 @@
 | 25 | B3 | CONFIRMED | ✅ | `ConnectorMvccSnapshot` 补 equals/hashCode/toString + 单测（commit `0885de225a5`）|
 | 28 | B3 | ~~STALE_FIXED~~ **CONFIRMED** | ✅ | **纠正：并非已修**（原 recon 找错模块 fe-connector-hms）——hms 已 live，~35 处过时"dormant"注释已清（commit `914f191c830`）|
 | 7  | B4 | CONFIRMED | ✅ | `getWriteContext()` 错标 free-form bag，实为静态分区 spec（已收窄两处 javadoc；重命名 thorough 版留后）|
-| 8  | B4 | CONFIRMED | ⬜ | `ConnectorTransaction` 泄漏 odps/iceberg 专属方法（write-block 还双泄漏进 fe-core） |
+| 8  | B4 | CONFIRMED | ✅ | `ConnectorTransaction` 泄漏 odps/iceberg 专属方法 → 下沉两个窄能力接口（RewriteCapableTransaction / WriteBlockAllocating*Transaction）+ 消费侧 instanceof；fe-core Transaction 亦收窄。设计 [`design-transaction-capability-convergence.md`](design-transaction-capability-convergence.md) |
 | 9  | B4 | CONFIRMED | ✅ | `ConnectorBucketSpec` "iceberg_bucket" 死文档已改正（+"hive_hash" 也是错的，真值 doris_default/doris_random）；iceberg fail-loud 早已由 rejectDistribution 实现 |
 | 27 | B4 | PARTIAL | ⬜ | reader-type 3 份手搓副本 + 3 种线上编码（force_jni 回归已 REFUTED） |
 | 10 | B5 | PARTIAL | 🚫 | iceberg writeDefault 未接 + Column 元数据默认恒 null（initialDefault 已正确下发） |
