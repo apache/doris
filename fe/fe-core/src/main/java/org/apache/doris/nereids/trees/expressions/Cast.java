@@ -20,21 +20,29 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 
@@ -273,10 +281,38 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        // Both upward and downward casting of date types satisfy monotonicity.
-        if (child().getDataType() instanceof DateLikeType && targetType instanceof DateLikeType) {
+        DataType childType = child().getDataType();
+        if (!(childType instanceof DateLikeType && targetType instanceof DateLikeType)) {
+            return false;
+        }
+
+        if (childType instanceof TimeStampTzType && targetType instanceof DateTimeV2Type) {
+            return isTimeStampTzToDateTimeV2Monotonic(lower, upper);
+        }
+        return true;
+    }
+
+    private boolean isTimeStampTzToDateTimeV2Monotonic(Literal lower, Literal upper) {
+        ZoneId timeZone;
+        try {
+            timeZone = DateUtils.getTimeZone();
+        } catch (DateTimeException e) {
+            return false;
+        }
+        if (timeZone.getRules().isFixedOffset()) {
             return true;
         }
-        return false;
+        if (!(lower instanceof TimestampTzLiteral) || !(upper instanceof TimestampTzLiteral)) {
+            return false;
+        }
+
+        // TimestampTzLiteral stores UTC civil fields. The cast renders those instants in the
+        // session timezone, which moves backward at a fall-back transition.
+        Instant lowerInstant = ((TimestampTzLiteral) lower).toJavaDateType().toInstant(ZoneOffset.UTC);
+        Instant upperInstant = ((TimestampTzLiteral) upper).toJavaDateType().toInstant(ZoneOffset.UTC);
+        if (upperInstant.isBefore(lowerInstant)) {
+            return false;
+        }
+        return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
     }
 }
