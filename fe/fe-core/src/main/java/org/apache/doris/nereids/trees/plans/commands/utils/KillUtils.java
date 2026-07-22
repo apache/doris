@@ -61,7 +61,7 @@ public class KillUtils {
             // kill connection connection_id
             // kill connection_id
             Preconditions.checkState(connectionId >= 0, connectionId);
-            killByConnectionId(ctx, true, connectionId);
+            killByConnectionId(ctx, true, connectionId, stmt);
         } else {
             if (!Strings.isNullOrEmpty(queryId)) {
                 // kill query "query_id"
@@ -69,7 +69,7 @@ public class KillUtils {
             } else {
                 // kill query connection_id
                 Preconditions.checkState(connectionId >= 0, connectionId);
-                killByConnectionId(ctx, false, connectionId);
+                killByConnectionId(ctx, false, connectionId, stmt);
             }
         }
     }
@@ -163,15 +163,44 @@ public class KillUtils {
 
     /**
      * Kill a connection by connection id.
+     * If the connection is not found on the current FE, the kill request is forwarded
+     * to other FEs (same as killQueryByQueryId), so that KILL QUERY works correctly
+     * in multi-FE deployments behind a load balancer.
      *
      * @param ctx the current connect context
+     * @param killConnection true if kill connection, false if only kill query
      * @param connectionId the connection id to kill
+     * @param stmt the origin kill statement used for cross-FE forwarding; may be null
      */
     @VisibleForTesting
-    public static void killByConnectionId(ConnectContext ctx, boolean killConnection, int connectionId)
-            throws DdlException {
+    public static void killByConnectionId(ConnectContext ctx, boolean killConnection, int connectionId,
+            OriginStatement stmt) throws DdlException {
         ConnectContext killCtx = ctx.getConnectScheduler().getContext(connectionId);
         if (killCtx == null) {
+            // Not found on the current FE. Try to forward to other FEs when not already
+            // in a forwarded (proxy) request and when we have a statement to forward.
+            if (!ctx.isProxy() && stmt != null) {
+                for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
+                    if (!fe.isAlive()
+                            || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+                        continue;
+                    }
+                    TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+                    FEOpExecutor feOpExecutor = new FEOpExecutor(feAddr, stmt, ConnectContext.get(), false);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("try kill connection {} to FE: {}", connectionId, feAddr);
+                    }
+                    try {
+                        feOpExecutor.execute();
+                    } catch (Exception e) {
+                        throw new DdlException(e.getMessage(), e);
+                    }
+                    if (feOpExecutor.getStatusCode() == TStatusCode.OK.getValue()) {
+                        ctx.getState().setOk();
+                        return;
+                    }
+                }
+            }
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, connectionId);
         }
         if (ctx == killCtx) {
