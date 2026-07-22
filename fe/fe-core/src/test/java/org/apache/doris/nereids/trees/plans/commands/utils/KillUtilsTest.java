@@ -213,7 +213,7 @@ public class KillUtilsTest {
     // Test for killByQueryId when query is not found and ctx is proxy
     @Test
     public void testKillQueryByQueryIdNotFoundAndIsProxy() {
-        String queryId = "test_query_id";
+        String queryId = "2e67816f0b004552-9dc42570874200d6";
         ExecuteEnv mockExecEnv = Mockito.mock(ExecuteEnv.class);
         ConnectScheduler mockQueryScheduler = Mockito.mock(ConnectScheduler.class);
 
