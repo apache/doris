@@ -47,6 +47,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/decompressor.h"
 #include "util/slice.h"
@@ -174,7 +175,26 @@ JsonReader::~JsonReader() {
     static_cast<void>(close());
 }
 
+void JsonReader::_init_profile() {
+    if (_profile == nullptr) {
+        return;
+    }
+    file_scan_profile::ensure_hierarchy(_profile);
+    static const char* json_profile = "JsonReader";
+    _total_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, json_profile, file_scan_profile::FILE_READER, 1);
+    _open_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JsonOpenTime", json_profile, 1);
+    _read_document_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JsonReadDocumentTime", json_profile, 1);
+    _parse_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JsonParseTime", json_profile, 1);
+    _materialize_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JsonMaterializeTime", json_profile, 1);
+    _filter_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JsonFilterTime", json_profile, 1);
+}
+
 Status JsonReader::init(RuntimeState* state) {
+    _init_profile();
+    SCOPED_TIMER(_total_time);
     _runtime_state = state;
     if (_scan_params == nullptr) {
         return Status::InvalidArgument("JSON v2 reader requires scan params");
@@ -230,6 +250,7 @@ Status JsonReader::init(RuntimeState* state) {
 }
 
 Status JsonReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
+    SCOPED_TIMER(_total_time);
     if (file_schema == nullptr) {
         return Status::InvalidArgument("JSON v2 file_schema is null");
     }
@@ -243,6 +264,8 @@ std::unique_ptr<TableColumnMapper> JsonReader::create_column_mapper(
 }
 
 Status JsonReader::open(std::shared_ptr<FileScanRequest> request) {
+    SCOPED_TIMER(_total_time);
+    SCOPED_TIMER(_open_time);
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
     DORIS_CHECK(_request != nullptr);
     RETURN_IF_ERROR(_build_requested_columns(*_request, &_requested_columns));
@@ -269,6 +292,7 @@ Status JsonReader::open(std::shared_ptr<FileScanRequest> request) {
 }
 
 Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_total_time);
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -297,7 +321,10 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         bool is_empty_row = false;
         Status st = Status::OK();
         try {
-            st = _parse_next_json(&size, &_reader_eof);
+            {
+                SCOPED_TIMER(_parse_time);
+                st = _parse_next_json(&size, &_reader_eof);
+            }
             if (st.ok() && !_reader_eof) {
                 if (size == 0) {
                     is_empty_row = true;
@@ -306,6 +333,7 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                 }
             }
             if (st.ok() && !_reader_eof && !is_empty_row) {
+                SCOPED_TIMER(_materialize_time);
                 st = _append_rows_from_current_value(file_block, &is_empty_row, &_reader_eof);
             }
         } catch (simdjson::simdjson_error& e) {
@@ -324,13 +352,17 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     *rows = file_block->rows();
     _record_scan_rows(cast_set<int64_t>(*rows));
-    RETURN_IF_ERROR(_apply_filters(file_block, rows));
+    {
+        SCOPED_TIMER(_filter_time);
+        RETURN_IF_ERROR(_apply_filters(file_block, rows));
+    }
     *eof = _reader_eof && *rows == 0;
     _eof = *eof;
     return Status::OK();
 }
 
 Status JsonReader::close() {
+    SCOPED_TIMER(_total_time);
     if (_line_reader != nullptr) {
         _line_reader->close();
         _line_reader.reset();
@@ -489,6 +521,7 @@ Status JsonReader::_parse_jsonpath_and_json_root() {
 }
 
 Status JsonReader::_read_one_document(size_t* size, bool* eof) {
+    SCOPED_TIMER(_read_document_time);
     DORIS_CHECK(size != nullptr);
     DORIS_CHECK(eof != nullptr);
     *size = 0;

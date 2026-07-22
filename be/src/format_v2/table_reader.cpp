@@ -50,6 +50,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
 #include "util/string_util.h"
@@ -642,34 +643,15 @@ std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field
 }
 
 Status TableReader::init(TableReadOptions&& options) {
-    _scan_params = options.scan_params;
-    _format = options.format;
-    _io_ctx = options.io_ctx;
-    _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
-    _file_slot_descs = options.file_slot_descs;
-    _push_down_agg_type = options.push_down_agg_type;
-    _push_down_count_columns = options.push_down_count_columns;
-    _initial_condition_cache_digest = options.condition_cache_digest;
-    _condition_cache_digest = _initial_condition_cache_digest;
-    _projected_columns = std::move(options.projected_columns);
-    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
-        for (auto& projected_column : _projected_columns) {
-            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
-            if (schema_field != nullptr) {
-                attach_full_schema_identity(
-                        &projected_column,
-                        build_schema_identity_from_external_field(*schema_field));
-            }
-        }
-    }
-    _system_properties = create_system_properties(_scan_params);
-    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
-    _conjuncts = std::move(options.conjuncts);
-
     if (_scanner_profile != nullptr) {
-        static const char* table_profile = "TableReader";
-        ADD_TIMER_WITH_LEVEL(_scanner_profile, table_profile, 1);
+        const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
+        static const char* table_profile = file_scan_profile::TABLE_READER;
+        static const char* file_reader_profile = file_scan_profile::FILE_READER;
+        _profile.total_timer = hierarchy.table_reader;
+        _profile.file_reader_total_timer = hierarchy.file_reader;
+        _profile.init_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "InitTime", table_profile, 1);
         _profile.num_delete_files = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteFiles",
                                                                  TUnit::UNIT, table_profile, 1);
         _profile.num_delete_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteRows",
@@ -702,11 +684,57 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
-        _profile.runtime_filter_partition_prune_timer = ADD_TIMER_WITH_LEVEL(
-                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", 1);
-        _profile.runtime_filter_partition_pruned_range_counter = ADD_COUNTER_WITH_LEVEL(
-                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
+        _profile.runtime_filter_partition_prune_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", table_profile, 1);
+        _profile.runtime_filter_partition_pruned_range_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT,
+                table_profile, 1);
+        _profile.close_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "CloseTime", table_profile, 1);
+        // Lifecycle timer names remain globally unique because RuntimeProfile's visual hierarchy
+        // does not namespace counters that share the same display parent.
+        _profile.file_reader_init_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderInitTime", file_reader_profile, 1);
+        _profile.file_reader_schema_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderGetSchemaTime", file_reader_profile, 1);
+        _profile.file_reader_mapper_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderCreateColumnMapperTime", file_reader_profile, 1);
+        _profile.file_reader_open_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderOpenTime", file_reader_profile, 1);
+        _profile.file_reader_get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderGetBlockTime", file_reader_profile, 1);
+        _profile.file_reader_aggregate_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderAggregatePushDownTime", file_reader_profile, 1);
+        _profile.file_reader_close_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderCloseTime", file_reader_profile, 1);
     }
+    // Establish lifecycle timers before consuming options or constructing filesystem properties;
+    // placing these scopes at the tail records only scope teardown and hides expensive init work.
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.init_timer);
+    _scan_params = options.scan_params;
+    _format = options.format;
+    _io_ctx = options.io_ctx;
+    _runtime_state = options.runtime_state;
+    _file_slot_descs = options.file_slot_descs;
+    _push_down_agg_type = options.push_down_agg_type;
+    _push_down_count_columns = options.push_down_count_columns;
+    _initial_condition_cache_digest = options.condition_cache_digest;
+    _condition_cache_digest = _initial_condition_cache_digest;
+    _projected_columns = std::move(options.projected_columns);
+    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+        for (auto& projected_column : _projected_columns) {
+            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
+            if (schema_field != nullptr) {
+                attach_full_schema_identity(
+                        &projected_column,
+                        build_schema_identity_from_external_field(*schema_field));
+            }
+        }
+    }
+    _system_properties = create_system_properties(_scan_params);
+    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
+    _conjuncts = std::move(options.conjuncts);
     return Status::OK();
 }
 
@@ -720,16 +748,17 @@ Status TableReader::_build_table_filters_from_conjuncts() {
         // `_table_filters` omits expressions without slot references, but such an expression still
         // occupies a position in the row-level conjunct order. Record how many localized filters
         // precede the first unsafe original conjunct so constant pruning cannot jump over a
-        // slotless non-deterministic/error-preserving barrier.
+        // slotless non-deterministic/error-preserving barrier. Unsafe predicates remain solely on
+        // Scanner's original row-level path because localizing a clone would execute their state
+        // twice with independent state.
         if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
-        if (!in_safe_prefix) {
-            continue;
-        }
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
-        _constant_pruning_safe_filter_count = _table_filters.size();
+        if (in_safe_prefix) {
+            _constant_pruning_safe_filter_count = _table_filters.size();
+        }
     }
     return Status::OK();
 }
@@ -855,7 +884,12 @@ Status TableReader::create_next_reader(bool* eos) {
     if (_batch_size > 0) {
         _data_reader.reader->set_batch_size(_batch_size);
     }
-    Status st = _data_reader.reader->init(_runtime_state);
+    Status st;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_init_timer);
+        st = _data_reader.reader->init(_runtime_state);
+    }
     if (!st.ok()) {
         if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
             *eos = true;
@@ -886,10 +920,16 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
+    const bool enable_mapping_varbinary = _scan_params != nullptr &&
+                                          _scan_params->__isset.enable_mapping_varbinary &&
+                                          _scan_params->enable_mapping_varbinary;
     if (_format == FileFormat::PARQUET) {
+        // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
+        // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
+        // match the table type.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -960,6 +1000,7 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 }
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
+    SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
@@ -994,6 +1035,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
+    _remaining_file_level_count = -1;
     _current_split_uses_metadata_count = false;
     _current_reader_reached_eof = false;
     RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,

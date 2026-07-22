@@ -24,6 +24,7 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/page_index.h>
 
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <map>
@@ -35,10 +36,15 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -58,6 +64,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
@@ -66,6 +73,7 @@
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace {
@@ -140,6 +148,86 @@ private:
     const int _column_id;
     const int32_t _value;
     const std::string _expr_name = "Int32GreaterThanExpr";
+};
+
+class Int32DictionaryEqualsExpr final : public VExpr {
+public:
+    Int32DictionaryEqualsExpr(int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& input = nullable_nested_column<ColumnInt32>(*block, _column_id);
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = input.get_element(input_row) == _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        const auto* dictionary = ctx.slot(_column_id);
+        if (dictionary == nullptr) {
+            return ZoneMapFilterResult::kUnsupported;
+        }
+        const auto expected = Field::create_field<TYPE_INT>(_value);
+        return std::ranges::any_of(dictionary->values,
+                                   [&](const Field& value) { return value == expected; })
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    const int _column_id;
+    const int32_t _value;
+    const std::string _expr_name = "Int32DictionaryEqualsExpr";
+};
+
+class DictionaryAcceptAllExpr final : public VExpr {
+public:
+    explicit DictionaryAcceptAllExpr(int column_id)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _column_id(column_id) {}
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 1);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        return ctx.slot(_column_id) == nullptr ? ZoneMapFilterResult::kUnsupported
+                                               : ZoneMapFilterResult::kMayMatch;
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    const int _column_id;
+    const std::string _expr_name = "DictionaryAcceptAllExpr";
 };
 
 class Int32SumGreaterThanExpr final : public VExpr {
@@ -376,6 +464,21 @@ VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value
     return ctx;
 }
 
+VExprContextSPtr create_int32_dictionary_equals_conjunct(int column_id, int32_t value) {
+    auto ctx = VExprContext::create_shared(
+            std::make_shared<Int32DictionaryEqualsExpr>(column_id, value));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
+VExprContextSPtr create_dictionary_accept_all_conjunct(int column_id) {
+    auto ctx = VExprContext::create_shared(std::make_shared<DictionaryAcceptAllExpr>(column_id));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
 VExprContextSPtr create_int32_sum_greater_than_conjunct(int left_column_id, int right_column_id,
                                                         int32_t value) {
     auto ctx = VExprContext::create_shared(
@@ -458,8 +561,49 @@ std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& valu
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_nullable_int32_array(
+        const std::vector<std::optional<int32_t>>& values) {
+    arrow::Int32Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(value.has_value() ? builder.Append(*value).ok() : builder.AppendNull().ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_int64_array(const std::vector<int64_t>& values) {
+    arrow::Int64Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_float_array(const std::vector<float>& values) {
+    arrow::FloatBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_double_array(const std::vector<double>& values) {
+    arrow::DoubleBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>& values) {
     arrow::StringBuilder builder;
+    for (const auto& value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_binary_array(const std::vector<std::string>& values) {
+    arrow::BinaryBuilder builder;
     for (const auto& value : values) {
         EXPECT_TRUE(builder.Append(value).ok());
     }
@@ -471,6 +615,27 @@ std::shared_ptr<arrow::Array> build_timestamp_array(const std::shared_ptr<arrow:
     arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
     for (const auto value : values) {
         EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_decimal_array(const std::shared_ptr<arrow::DataType>& type,
+                                                  const std::vector<int64_t>& values) {
+    arrow::Decimal128Builder builder(type, arrow::default_memory_pool());
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(arrow::Decimal128(value)).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_fixed_binary_array(const std::shared_ptr<arrow::DataType>& type,
+                                                       const std::vector<std::string>& values) {
+    arrow::FixedSizeBinaryBuilder builder(type, arrow::default_memory_pool());
+    const int32_t byte_width =
+            std::static_pointer_cast<arrow::FixedSizeBinaryType>(type)->byte_width();
+    for (const auto& value : values) {
+        EXPECT_EQ(value.size(), byte_width);
+        EXPECT_TRUE(builder.Append(reinterpret_cast<const uint8_t*>(value.data())).ok());
     }
     return finish_array(&builder);
 }
@@ -515,6 +680,41 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_unannotated_binary_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({arrow::field("raw_bytes", arrow::binary(), false)});
+    auto table = arrow::Table::Make(schema, {build_binary_array({"否", "是", "测试"})});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 3,
+                                                      builder.build()));
+}
+
+void write_decimal_and_fixed_binary_parquet_file(const std::string& file_path) {
+    auto decimal_type = arrow::decimal128(38, 6);
+    auto fixed_type = arrow::fixed_size_binary(4);
+    auto schema = arrow::schema({arrow::field("decimal_value", decimal_type, false),
+                                 arrow::field("fixed_value", fixed_type, false)});
+    auto table = arrow::Table::Make(
+            schema,
+            {build_decimal_array(decimal_type, {1234567, -1, 0, -987654321, 42}),
+             build_fixed_binary_array(fixed_type, {"ABCD", std::string("\0x\0y", 4), "wxyz", "1234",
+                                                   std::string("\xff\x00\x7f\x80", 4)})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
+                                                      builder.build()));
 }
 
 std::shared_ptr<arrow::Array> build_nullable_int_string_map_array() {
@@ -686,6 +886,27 @@ void write_nullable_string_struct_parquet_file(const std::string& file_path) {
                                                       ROW_COUNT, builder.build()));
 }
 
+void write_nullable_complex_parquet_file(const std::string& file_path) {
+    auto map_array = build_nullable_int_string_map_array();
+    auto list_array = build_nullable_string_list_array();
+    auto struct_array = build_nullable_string_struct_array();
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("m", map_array->type(), true),
+                                                   arrow::field("a", list_array->type(), true),
+                                                   arrow::field("s", struct_array->type(), true)}),
+                                    {map_array, list_array, struct_array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
 void write_nullable_struct_with_list_parquet_file(const std::string& file_path) {
     auto scalar_first = build_nullable_struct_with_list_array(false);
     auto list_first = build_nullable_struct_with_list_array(true);
@@ -698,6 +919,34 @@ void write_nullable_struct_with_list_parquet_file(const std::string& file_path) 
     ASSERT_TRUE(file_result.ok()) << file_result.status();
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
 
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
+void write_nested_complex_under_struct_parquet_file(const std::string& file_path) {
+    auto nested_struct = build_nullable_string_struct_array();
+    auto nested_array = build_nullable_string_list_array();
+    auto nested_map = build_nullable_int_string_map_array();
+    auto marker = build_int32_array({10, 20, 30, 40, 50});
+    auto struct_field = arrow::field("nested_struct", nested_struct->type(), true);
+    auto array_field = arrow::field("nested_array", nested_array->type(), true);
+    auto map_field = arrow::field("nested_map", nested_map->type(), true);
+    auto marker_field = arrow::field("marker", arrow::int32(), false);
+    auto outer_result =
+            arrow::StructArray::Make({nested_struct, nested_array, nested_map, marker},
+                                     {struct_field, array_field, map_field, marker_field});
+    ASSERT_TRUE(outer_result.ok()) << outer_result.status();
+    auto outer = *outer_result;
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("outer", outer->type(), false)}),
+                                    {outer});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
@@ -792,14 +1041,21 @@ void write_struct_filter_parquet_file(const std::string& file_path) {
                                                       builder.build()));
 }
 
-void write_dictionary_filter_parquet_file(const std::string& file_path) {
+void write_dictionary_filter_parquet_file(
+        const std::string& file_path,
+        ::parquet::Compression::type compression = ::parquet::Compression::UNCOMPRESSED) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int32(), false),
             arrow::field("value", arrow::utf8(), false),
     });
-    auto table =
-            arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
-                                        build_string_array({"aa", "az", "lm", "lz", "za", "zz"})});
+    const std::vector<std::string> values =
+            compression == ::parquet::Compression::UNCOMPRESSED
+                    ? std::vector<std::string> {"aa", "az", "lm", "lz", "za", "zz"}
+                    : std::vector<std::string> {std::string(4096, 'a'), std::string(4096, 'b'),
+                                                std::string(4096, 'c'), std::string(4096, 'd'),
+                                                std::string(4096, 'e'), std::string(4096, 'f')};
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array({1, 2, 3, 4, 5, 6}), build_string_array(values)});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -808,7 +1064,7 @@ void write_dictionary_filter_parquet_file(const std::string& file_path) {
     ::parquet::WriterProperties::Builder builder;
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.compression(compression);
     builder.enable_dictionary("value");
     builder.disable_dictionary("id");
     builder.disable_statistics();
@@ -840,6 +1096,71 @@ void write_single_row_group_dictionary_filter_parquet_file(const std::string& fi
                                                       builder.build()));
 }
 
+void write_fixed_width_dictionary_filter_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("value", arrow::int32(), true),
+    });
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                     build_nullable_int32_array({10, 20, std::nullopt, 20, 40, 20})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary("id");
+    builder.enable_dictionary("value");
+    builder.disable_statistics();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
+                                                      builder.build()));
+}
+
+void write_all_fixed_width_dictionary_filter_parquet_file(const std::string& file_path) {
+    auto fixed_type = arrow::fixed_size_binary(4);
+    auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("int64_value", arrow::int64(), false),
+            arrow::field("float_value", arrow::float32(), false),
+            arrow::field("double_value", arrow::float64(), false),
+            arrow::field("fixed_value", fixed_type, false),
+            arrow::field("int96_value", timestamp_type, false),
+    });
+    auto table = arrow::Table::Make(
+            schema,
+            {build_int32_array({1, 2, 3, 4, 5, 6}), build_int64_array({10, 20, 10, 30, 20, 10}),
+             build_float_array({1.5F, 2.5F, 1.5F, 3.5F, 2.5F, 1.5F}),
+             build_double_array({10.25, 20.25, 10.25, 30.25, 20.25, 10.25}),
+             build_fixed_binary_array(fixed_type, {"AAAA", "BBBB", "AAAA", "CCCC", "BBBB", "AAAA"}),
+             build_timestamp_array(timestamp_type, {1000, 2000, 1000, 3000, 2000, 1000})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    writer_builder.disable_dictionary("id");
+    writer_builder.enable_dictionary("int64_value");
+    writer_builder.enable_dictionary("float_value");
+    writer_builder.enable_dictionary("double_value");
+    writer_builder.enable_dictionary("fixed_value");
+    writer_builder.enable_dictionary("int96_value");
+    writer_builder.disable_statistics();
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
+                                                      writer_builder.build(),
+                                                      arrow_builder.build()));
+}
+
 void write_dictionary_filter_with_trailing_column_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int32(), false),
@@ -867,31 +1188,6 @@ void write_dictionary_filter_with_trailing_column_parquet_file(const std::string
                                                       builder.build()));
 }
 
-void write_nested_dictionary_filter_parquet_file(const std::string& file_path) {
-    auto id_field = arrow::field("id", arrow::int32(), false);
-    auto name_field = arrow::field("name", arrow::utf8(), false);
-    auto struct_type = arrow::struct_({id_field, name_field});
-    auto schema = arrow::schema({
-            arrow::field("s", struct_type, false),
-    });
-    auto table = arrow::Table::Make(
-            schema, {build_struct_array({1, 2, 3, 4, 5, 6}, {"aa", "az", "lm", "lz", "za", "zz"})});
-
-    auto file_result = arrow::io::FileOutputStream::Open(file_path);
-    ASSERT_TRUE(file_result.ok()) << file_result.status();
-    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
-
-    ::parquet::WriterProperties::Builder builder;
-    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
-    builder.enable_dictionary("s.name");
-    builder.disable_dictionary("s.identifier.field_id");
-    builder.disable_statistics();
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
-                                                      builder.build()));
-}
-
 void write_dictionary_edge_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int32(), false),
@@ -915,62 +1211,6 @@ void write_dictionary_edge_parquet_file(const std::string& file_path) {
     builder.disable_statistics();
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
                                                       builder.build()));
-}
-
-void write_nested_page_index_filter_parquet_file(const std::string& file_path) {
-    std::vector<int32_t> ids(128);
-    std::iota(ids.begin(), ids.end(), 0);
-    std::vector<std::string> names;
-    names.reserve(ids.size());
-    for (const auto id : ids) {
-        names.push_back("name-" + std::to_string(id));
-    }
-    auto id_field = arrow::field("id", arrow::int32(), false);
-    auto name_field = arrow::field("name", arrow::utf8(), false);
-    auto struct_type = arrow::struct_({id_field, name_field});
-    auto schema = arrow::schema({
-            arrow::field("s", struct_type, false),
-    });
-    auto table = arrow::Table::Make(schema, {build_struct_array(ids, names)});
-
-    auto file_result = arrow::io::FileOutputStream::Open(file_path);
-    ASSERT_TRUE(file_result.ok()) << file_result.status();
-    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
-
-    ::parquet::WriterProperties::Builder builder;
-    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
-    builder.disable_dictionary();
-    builder.enable_write_page_index();
-    builder.write_batch_size(8);
-    builder.data_pagesize(10);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
-                                                      ids.size(), builder.build()));
-}
-
-void write_page_index_filter_parquet_file(const std::string& file_path) {
-    std::vector<int32_t> ids(128);
-    std::iota(ids.begin(), ids.end(), 0);
-    auto schema = arrow::schema({
-            arrow::field("id", arrow::int32(), false),
-    });
-    auto table = arrow::Table::Make(schema, {build_int32_array(ids)});
-
-    auto file_result = arrow::io::FileOutputStream::Open(file_path);
-    ASSERT_TRUE(file_result.ok()) << file_result.status();
-    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
-
-    ::parquet::WriterProperties::Builder builder;
-    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
-    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
-    builder.compression(::parquet::Compression::UNCOMPRESSED);
-    builder.disable_dictionary();
-    builder.enable_write_page_index();
-    builder.write_batch_size(8);
-    builder.data_pagesize(10);
-    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
-                                                      ids.size(), builder.build()));
 }
 
 void write_page_index_filter_pair_parquet_file(const std::string& file_path) {
@@ -1136,7 +1376,8 @@ protected:
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-            bool is_immutable = false) const {
+            bool is_immutable = false, bool enable_mapping_varbinary = false,
+            std::string fs_name = {}, int64_t mtime = 0) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1145,9 +1386,11 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         file_description->is_immutable = is_immutable;
+        file_description->fs_name = std::move(fs_name);
+        file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
     }
 
     std::filesystem::path _test_dir;
@@ -1170,6 +1413,39 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(schema[1].name, "value");
     ASSERT_TRUE(schema[1].type->is_nullable());
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
+}
+
+TEST_F(NewParquetReaderTest, RawByteArrayMappingFollowsV2ScanOption) {
+    write_unannotated_binary_parquet_file(_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto string_reader = create_reader();
+    const auto string_init_status = string_reader->init(&state);
+    ASSERT_TRUE(string_init_status.ok()) << string_init_status;
+    std::vector<format::ColumnDefinition> string_schema;
+    ASSERT_TRUE(string_reader->get_schema(&string_schema).ok());
+    ASSERT_EQ(string_schema.size(), 1);
+    EXPECT_EQ(remove_nullable(string_schema[0].type)->get_primitive_type(), TYPE_STRING);
+
+    RuntimeProfile binary_profile("raw_binary_mapping_profile");
+    auto binary_reader =
+            create_reader(0, -1, &binary_profile, false, nullptr, std::nullopt, false, true);
+    const auto binary_init_status = binary_reader->init(&state);
+    ASSERT_TRUE(binary_init_status.ok()) << binary_init_status;
+    std::vector<format::ColumnDefinition> binary_schema;
+    ASSERT_TRUE(binary_reader->get_schema(&binary_schema).ok());
+    ASSERT_EQ(binary_schema.size(), 1);
+    // The explicit VARBINARY mapping must remain available for scans whose table contract asks for it.
+    EXPECT_EQ(remove_nullable(binary_schema[0].type)->get_primitive_type(), TYPE_VARBINARY);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(create_string_in_conjunct(0, {"是"}));
+    ASSERT_TRUE(binary_reader->open(request).ok());
+    // A table-side STRING comparison may be rewritten through this VARBINARY file slot. Native
+    // dictionary pruning must leave the row group available for the mapping expression.
+    EXPECT_EQ(binary_profile.get_counter("RowGroupsFilteredByDictionary")->value(), 0);
 }
 
 // Scenario: Parquet is columnar and supports predicate/non-predicate split, nested projection and
@@ -1203,6 +1479,10 @@ TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
     EXPECT_EQ(result.count, 4);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
+    ASSERT_NE(profile.get_counter("PageReadCount"), nullptr);
+    EXPECT_GT(profile.get_counter("PageReadCount")->value(), 0);
+    ASSERT_NE(profile.get_counter("ParsePageHeaderNum"), nullptr);
+    EXPECT_GT(profile.get_counter("ParsePageHeaderNum")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, CountArrayColumnUsesLevelsOnlyPath) {
@@ -1271,6 +1551,238 @@ TEST_F(NewParquetReaderTest, CountStructWithRepeatedChildUsesTopLevelRowBoundari
     }
 }
 
+TEST_F(NewParquetReaderTest, NativeComplexColumnsMaterializeDirectlyAcrossBatchChanges) {
+    write_nullable_complex_parquet_file(_file_path);
+    RuntimeProfile profile("native_complex_materialization");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 3);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1),
+                                      field_projection(2)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    MutableColumns output;
+    output.reserve(schema.size());
+    for (const auto& field : schema) {
+        output.push_back(field.type->create_column());
+    }
+    bool eof = false;
+    int batch = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        for (size_t column = 0; column < output.size(); ++column) {
+            output[column]->insert_range_from(*block.get_by_position(column).column, 0, rows);
+        }
+        if (++batch == 1) {
+            // Adaptive sizing changes only the logical row cap. The persistent native readers and
+            // their level/string scratch must continue from the same page cursors.
+            reader->set_batch_size(3);
+        }
+    }
+
+    const auto& nullable_map = assert_cast<const ColumnNullable&>(*output[0]);
+    ASSERT_EQ(nullable_map.size(), ROW_COUNT);
+    EXPECT_FALSE(nullable_map.is_null_at(0));
+    EXPECT_TRUE(nullable_map.is_null_at(1));
+    EXPECT_FALSE(nullable_map.is_null_at(2));
+    const auto& map = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
+    EXPECT_EQ(map.get_offsets(), ColumnArray::Offsets64({1, 1, 1, 2, 3}));
+    const auto& map_keys = assert_cast<const ColumnNullable&>(map.get_keys());
+    const auto& key_values = assert_cast<const ColumnInt32&>(map_keys.get_nested_column());
+    ASSERT_EQ(key_values.size(), 3);
+    EXPECT_EQ(key_values.get_element(0), 10);
+    EXPECT_EQ(key_values.get_element(2), 30);
+    const auto& map_values = assert_cast<const ColumnNullable&>(map.get_values());
+    const auto& value_strings = assert_cast<const ColumnString&>(map_values.get_nested_column());
+    EXPECT_EQ(value_strings.get_data_at(0).to_string(), "small");
+    EXPECT_EQ(value_strings.get_data_at(1).size, 4096);
+    EXPECT_TRUE(map_values.is_null_at(2));
+
+    const auto& nullable_array = assert_cast<const ColumnNullable&>(*output[1]);
+    ASSERT_EQ(nullable_array.size(), ROW_COUNT);
+    EXPECT_TRUE(nullable_array.is_null_at(1));
+    const auto& array = assert_cast<const ColumnArray&>(nullable_array.get_nested_column());
+    EXPECT_EQ(array.get_offsets(), ColumnArray::Offsets64({2, 2, 2, 3, 4}));
+    const auto& array_values = assert_cast<const ColumnNullable&>(array.get_data());
+    const auto& array_strings = assert_cast<const ColumnString&>(array_values.get_nested_column());
+    EXPECT_EQ(array_strings.get_data_at(0).to_string(), "small");
+    EXPECT_EQ(array_strings.get_data_at(1).size, 4096);
+    EXPECT_TRUE(array_values.is_null_at(2));
+    EXPECT_EQ(array_strings.get_data_at(3).size, 4096);
+
+    const auto& nullable_struct = assert_cast<const ColumnNullable&>(*output[2]);
+    ASSERT_EQ(nullable_struct.size(), ROW_COUNT);
+    EXPECT_TRUE(nullable_struct.is_null_at(1));
+    const auto& struct_column =
+            assert_cast<const ColumnStruct&>(nullable_struct.get_nested_column());
+    const auto& payload = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
+    const auto& payload_strings = assert_cast<const ColumnString&>(payload.get_nested_column());
+    EXPECT_EQ(payload_strings.get_data_at(0).to_string(), "small");
+    EXPECT_EQ(payload_strings.get_data_at(2).size, 4096);
+    EXPECT_TRUE(payload.is_null_at(3));
+    EXPECT_EQ(payload_strings.get_data_at(4).size, 4096);
+    const auto& ids = assert_cast<const ColumnNullable&>(struct_column.get_column(1));
+    const auto& id_values = assert_cast<const ColumnInt32&>(ids.get_nested_column());
+    EXPECT_EQ(id_values.get_element(0), 1);
+    EXPECT_EQ(id_values.get_element(4), 4);
+
+    ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
+    ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
+    EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
+    ASSERT_NE(profile.get_counter("NestedBatches"), nullptr);
+    EXPECT_GT(profile.get_counter("NestedBatches")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, FullComplexChildUnderPartialParentReadsItsWholeSubtree) {
+    write_nested_complex_under_struct_parquet_file(_file_path);
+    for (size_t child_index = 0; child_index < 3; ++child_index) {
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 1);
+        ASSERT_EQ(schema[0].children.size(), 4);
+        auto projection = format::LocalColumnIndex::partial_local(0);
+        projection.children.push_back(
+                format::LocalColumnIndex::local(schema[0].children[child_index].file_local_id()));
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {projection};
+        request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+        ASSERT_TRUE(reader->open(request).ok());
+
+        format::ColumnDefinition projected;
+        ASSERT_TRUE(format::project_column_definition(schema[0], projection, &projected).ok());
+        Block block;
+        block.insert(ColumnWithTypeAndName(projected.type->create_column(), projected.type,
+                                           projected.name));
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        ASSERT_GT(rows, 0);
+        const auto& outer = nullable_nested_column<ColumnStruct>(block, 0);
+        ASSERT_EQ(outer.tuple_size(), 1);
+        const auto& nullable_nested = assert_cast<const ColumnNullable&>(outer.get_column(0));
+        if (child_index == 0) {
+            const auto& nested =
+                    assert_cast<const ColumnStruct&>(nullable_nested.get_nested_column());
+            ASSERT_EQ(nested.tuple_size(), 2);
+            const auto& payload = assert_cast<const ColumnNullable&>(nested.get_column(0));
+            EXPECT_EQ(assert_cast<const ColumnString&>(payload.get_nested_column())
+                              .get_data_at(0)
+                              .to_string(),
+                      "small");
+            const auto& ids = assert_cast<const ColumnNullable&>(nested.get_column(1));
+            EXPECT_EQ(ids.get_nested_column().get_int(0), 1);
+        } else if (child_index == 1) {
+            const auto& nested =
+                    assert_cast<const ColumnArray&>(nullable_nested.get_nested_column());
+            EXPECT_EQ(nested.get_offsets()[0], 2);
+            EXPECT_EQ(nested.get_data().size(), 4);
+        } else {
+            const auto& nested = assert_cast<const ColumnMap&>(nullable_nested.get_nested_column());
+            EXPECT_EQ(nested.get_offsets()[0], 1);
+            EXPECT_EQ(nested.get_keys().size(), 3);
+            EXPECT_EQ(nested.get_values().size(), 3);
+        }
+    }
+}
+
+TEST_F(NewParquetReaderTest, NativeNestedMapUsesOuterKeyRepetitionShape) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    _file_path =
+            std::string(source_root) + "/regression-test/data/external_table_p0/tvf/comp.parquet";
+    ASSERT_TRUE(std::filesystem::exists(_file_path));
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    for (size_t position = 0; position < schema.size(); ++position) {
+        request->non_predicate_columns.push_back(field_projection(cast_set<int32_t>(position)));
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        const Status status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        total_rows += rows;
+    }
+    EXPECT_GT(total_rows, 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeDecimalAndFixedBinaryMaterializeDirectly) {
+    write_decimal_and_fixed_binary_parquet_file(_file_path);
+    RuntimeProfile profile("native_decimal_fixed_binary_materialization");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    MutableColumns output;
+    output.reserve(schema.size());
+    for (const auto& field : schema) {
+        output.push_back(field.type->create_column());
+    }
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        for (size_t column = 0; column < output.size(); ++column) {
+            output[column]->insert_range_from(*block.get_by_position(column).column, 0, rows);
+        }
+        reader->set_batch_size(3);
+    }
+
+    const auto& decimals = assert_cast<const ColumnDecimal128V3&>(
+            assert_cast<const ColumnNullable&>(*output[0]).get_nested_column());
+    ASSERT_EQ(decimals.size(), ROW_COUNT);
+    EXPECT_EQ(decimals.get_element(0), Decimal128V3(1234567));
+    EXPECT_EQ(decimals.get_element(1), Decimal128V3(-1));
+    EXPECT_EQ(decimals.get_element(3), Decimal128V3(-987654321));
+
+    const auto& fixed_values = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(*output[1]).get_nested_column());
+    ASSERT_EQ(fixed_values.size(), ROW_COUNT);
+    EXPECT_EQ(fixed_values.get_data_at(0).to_string(), "ABCD");
+    EXPECT_EQ(fixed_values.get_data_at(1).to_string(), std::string("\0x\0y", 4));
+    EXPECT_EQ(fixed_values.get_data_at(4).to_string(), std::string("\xff\x00\x7f\x80", 4));
+
+    ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ConvertTime"), nullptr);
+    ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
+    EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
+}
+
 TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
     write_struct_filter_parquet_file(_file_path);
     auto reader = create_reader();
@@ -1295,6 +1807,35 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
     ASSERT_EQ(struct_type->get_elements().size(), 2);
     EXPECT_TRUE(struct_type->get_element(0)->is_nullable());
     EXPECT_TRUE(struct_type->get_element(1)->is_nullable());
+}
+
+TEST_F(NewParquetReaderTest, ComplexColumnDoesNotMisreportSiblingPagesAsCrossing) {
+    write_struct_filter_parquet_file(_file_path);
+    RuntimeProfile profile("new_parquet_reader_complex_page_fragments");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t total_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 4);
+    // Each STRUCT child reads one page per Row Group, but no individual leaf crosses a boundary in
+    // either batch. The aggregate fragment count remains useful without inflating crossing batches.
+    EXPECT_EQ(profile.get_counter("NativePageFragments")->value(), 8);
+    EXPECT_EQ(profile.get_counter("PageCrossingBatches")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappingEnabled) {
@@ -1532,8 +2073,76 @@ TEST_F(NewParquetReaderTest, UnknownMtimeSkipsPageCacheForMutableFile) {
 
     ASSERT_NE(profile.get_counter("PageReadCount"), nullptr);
     ASSERT_NE(profile.get_counter("PageCacheWriteCount"), nullptr);
-    EXPECT_EQ(profile.get_counter("PageReadCount")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageReadCount")->value(), 0);
     EXPECT_EQ(profile.get_counter("PageCacheWriteCount")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheIdentityIncludesFilesystemAndVersion) {
+    const auto first = format::parquet::detail::build_native_file_cache_key(
+            "hdfs://nameservice-a", "/warehouse/shared.parquet", 10, 0, 1024, 1024, false);
+    const auto other_fs = format::parquet::detail::build_native_file_cache_key(
+            "hdfs://nameservice-b", "/warehouse/shared.parquet", 10, 0, 1024, 1024, false);
+    const auto replaced = format::parquet::detail::build_native_file_cache_key(
+            "hdfs://nameservice-a", "/warehouse/shared.parquet", 11, 0, 1024, 1024, false);
+    EXPECT_FALSE(first.empty());
+    EXPECT_NE(first, other_fs);
+    EXPECT_NE(first, replaced);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotCrossFilesystems) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile first_profile("native_footer_cache_nameservice_a");
+    auto first = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false, false,
+                               "hdfs://nameservice-a", 1234567);
+    ASSERT_TRUE(first->init(&state).ok());
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    RuntimeProfile second_profile("native_footer_cache_nameservice_b");
+    auto second = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false, false,
+                                "hdfs://nameservice-b", 1234567);
+    ASSERT_TRUE(second->init(&state).ok());
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheSkipsMutableUnknownVersion) {
+    EXPECT_TRUE(format::parquet::detail::build_native_file_cache_key("hdfs://nameservice-a",
+                                                                     "/warehouse/mutable.parquet",
+                                                                     0, 0, 1024, 1024, false)
+                        .empty());
+    EXPECT_FALSE(
+            format::parquet::detail::build_native_file_cache_key(
+                    "hdfs://nameservice-a", "/warehouse/immutable.parquet", 0, 0, 1024, 1024, true)
+                    .empty());
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotReuseMutableUnknownVersion) {
+    _file_path = (_test_dir / "mutable_footer_cache.parquet").string();
+    write_parquet_file(_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    RuntimeProfile first_profile("native_footer_cache_mutable_first");
+    auto first = create_reader(0, -1, &first_profile);
+    ASSERT_TRUE(first->init(&state).ok());
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    write_parquet_file(_file_path);
+    RuntimeProfile second_profile("native_footer_cache_mutable_second");
+    auto second = create_reader(0, -1, &second_profile);
+    ASSERT_TRUE(second->init(&state).ok());
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, NativeFooterSizeIsBoundedBeforeMetadataAllocation) {
+    constexpr size_t file_size = 256UL << 20;
+    constexpr size_t metadata_limit = 100UL << 20;
+    const auto status = format::parquet::detail::validate_native_footer_size(
+            static_cast<uint32_t>(metadata_limit + 1), file_size, metadata_limit);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("metadata limit"), std::string::npos);
 }
 
 TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {
@@ -1645,24 +2254,42 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RowsFilteredByConjunct"), nullptr);
     ASSERT_NE(profile.get_counter("TotalBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("DenseBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("SelectedBatches"), nullptr);
     ASSERT_NE(profile.get_counter("EmptySelectionBatches"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderReadRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSelectRows"), nullptr);
-    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    ASSERT_NE(profile.get_counter("LevelOnlyReadTime"), nullptr);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
+    ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
+    ASSERT_NE(profile.get_counter("FileFooterReadCalls"), nullptr);
+    ASSERT_NE(profile.get_counter("FileFooterHitCache"), nullptr);
     ASSERT_GT(profile.get_counter("FileReaderCreateTime")->value(), 0);
     EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), ROW_COUNT);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 3);
     EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 2);
+    TRuntimeProfileTree profile_tree;
+    profile.to_thrift(&profile_tree);
+    ASSERT_FALSE(profile_tree.nodes.empty());
+    const auto parquet_children =
+            profile_tree.nodes.front().child_counters_map.find("ParquetReader");
+    ASSERT_NE(parquet_children, profile_tree.nodes.front().child_counters_map.end());
+    EXPECT_TRUE(parquet_children->second.contains("RowsFilteredByConjunct"));
     EXPECT_EQ(profile.get_counter("TotalBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DenseBatches")->value(), 0);
+    EXPECT_EQ(profile.get_counter("SelectedBatches")->value(), 1);
     EXPECT_EQ(profile.get_counter("EmptySelectionBatches")->value(), 0);
     EXPECT_EQ(profile.get_counter("ReaderReadRows")->value(), ROW_COUNT + 3);
     EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 2);
     EXPECT_EQ(profile.get_counter("ReaderSelectRows")->value(), 3);
-    EXPECT_GT(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
+    EXPECT_EQ(profile.get_counter("LevelOnlyReadTime")->value(), 0);
     EXPECT_GT(profile.get_counter("MaterializationTime")->value(), 0);
+    EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
+    EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value() +
+                      profile.get_counter("FileFooterHitCache")->value(),
+              1);
 
     rows = 0;
     eof = false;
@@ -1777,12 +2404,59 @@ TEST_F(NewParquetReaderTest, EmptySelectionUpdatesProfileCounters) {
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RowsFilteredByConjunct"), nullptr);
     ASSERT_NE(profile.get_counter("TotalBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("DenseBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("SelectedBatches"), nullptr);
     ASSERT_NE(profile.get_counter("EmptySelectionBatches"), nullptr);
     EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), ROW_COUNT);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 0);
     EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), ROW_COUNT);
     EXPECT_EQ(profile.get_counter("TotalBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DenseBatches")->value(), 0);
+    EXPECT_EQ(profile.get_counter("SelectedBatches")->value(), 0);
     EXPECT_EQ(profile.get_counter("EmptySelectionBatches")->value(), 1);
+}
+
+TEST_F(NewParquetReaderTest, ProfileNestsFormatReaderBelowFileReaderAndRecordsTotalTime) {
+    RuntimeProfile profile("new_parquet_reader_hierarchy_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    Block block = build_file_block(schema);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+
+    auto* parquet_total = profile.get_counter("ParquetReader");
+    ASSERT_NE(parquet_total, nullptr);
+    EXPECT_GT(parquet_total->value(), 0);
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains(RuntimeProfile::ROOT_COUNTER));
+    EXPECT_TRUE(children.at(RuntimeProfile::ROOT_COUNTER).contains("FileScannerV2"));
+    ASSERT_TRUE(children.contains("FileScannerV2"));
+    EXPECT_TRUE(children.at("FileScannerV2").contains("TableReader"));
+    ASSERT_TRUE(children.contains("TableReader"));
+    EXPECT_TRUE(children.at("TableReader").contains("FileReader"));
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    EXPECT_TRUE(children.at("FileReader").contains("ParquetReader"));
+    ASSERT_TRUE(children.contains("ParquetReader"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("ColumnReadTime"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("RowGroupsReadNum"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FilteredRowsByGroup"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FilteredBytes"));
+    EXPECT_TRUE(children.at("ParquetReader").contains("FileNum"));
 }
 
 TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
@@ -2010,41 +2684,6 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
 
 TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     write_dictionary_filter_parquet_file(_file_path);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 6);
-    for (int row_group_idx = 0; row_group_idx < 6; ++row_group_idx) {
-        auto row_group = parquet_file_reader->metadata()->RowGroup(row_group_idx);
-        ASSERT_NE(row_group, nullptr);
-        auto value_chunk = row_group->ColumnChunk(1);
-        ASSERT_NE(value_chunk, nullptr);
-        ASSERT_TRUE(value_chunk->has_dictionary_page());
-        ASSERT_TRUE(value_chunk->statistics() == nullptr ||
-                    !value_chunk->statistics()->HasMinMax());
-    }
-
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    auto schema_descriptor = parquet_file_reader->metadata()->schema();
-    ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(
-            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
-    ASSERT_EQ(file_schema.size(), 2);
-
-    format::FileScanRequest plan_request;
-    plan_request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
-    plan_request.conjuncts.push_back(create_string_in_conjunct(1, {"lm"}));
-
-    format::parquet::RowGroupScanPlan plan;
-    format::parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                         parquet_file_reader.get(), file_schema,
-                                                         plan_request, scan_range, false, &plan)
-                        .ok());
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 5);
-    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 5);
-    EXPECT_EQ(plan.pruning_stats.selected_row_ranges, 1);
-
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
@@ -2078,6 +2717,55 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3}));
     EXPECT_EQ(values, std::vector<std::string>({"lm"}));
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPruningPublishesColdAndWarmNativePageProfile) {
+    const double old_cache_threshold = config::parquet_page_cache_decompress_threshold;
+    config::parquet_page_cache_decompress_threshold = 100.0;
+    Defer restore_cache_threshold {
+            [&] { config::parquet_page_cache_decompress_threshold = old_cache_threshold; }};
+    write_dictionary_filter_parquet_file(_file_path, ::parquet::Compression::SNAPPY);
+
+    auto open_pruned_reader = [&](RuntimeProfile* profile) {
+        auto reader = create_reader(0, -1, profile, false, nullptr, std::nullopt, true);
+        TQueryOptions query_options;
+        query_options.__set_enable_parquet_file_page_cache(true);
+        RuntimeState state {query_options, TQueryGlobals()};
+        RETURN_IF_ERROR(reader->init(&state));
+        std::vector<format::ColumnDefinition> schema;
+        RETURN_IF_ERROR(reader->get_schema(&schema));
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(1)};
+        request->non_predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(create_string_in_conjunct(1, {"not-present"}));
+        use_schema_order_positions(request.get(), schema);
+        RETURN_IF_ERROR(reader->open(request));
+        EXPECT_EQ(profile->get_counter("RowGroupsFilteredByDictionary")->value(), 0);
+        EXPECT_EQ(profile->get_counter("PageReadCount")->value(), 0);
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        // Expensive dictionary probes are current-row-group work now, so advance the scheduler
+        // once before inspecting page-cache and pruning counters.
+        return reader->get_block(&block, &rows, &eof);
+    };
+
+    RuntimeProfile cold_profile("dictionary_pruning_cold_profile");
+    ASSERT_TRUE(open_pruned_reader(&cold_profile).ok());
+    for (const auto* counter_name :
+         {"RowGroupsFilteredByDictionary", "PageReadCount", "PageCacheWriteCount",
+          "ParsePageHeaderNum", "DecompressCount", "DecodeDictTime"}) {
+        ASSERT_NE(cold_profile.get_counter(counter_name), nullptr) << counter_name;
+        EXPECT_GT(cold_profile.get_counter(counter_name)->value(), 0) << counter_name;
+    }
+
+    RuntimeProfile warm_profile("dictionary_pruning_warm_profile");
+    ASSERT_TRUE(open_pruned_reader(&warm_profile).ok());
+    for (const auto* counter_name : {"RowGroupsFilteredByDictionary", "PageReadCount",
+                                     "PageCacheHitCount", "ParsePageHeaderNum", "DecodeDictTime"}) {
+        ASSERT_NE(warm_profile.get_counter(counter_name), nullptr) << counter_name;
+        EXPECT_GT(warm_profile.get_counter(counter_name)->value(), 0) << counter_name;
+    }
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
@@ -2135,7 +2823,102 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
 }
 
-TEST_F(NewParquetReaderTest, DictionaryPredicateProbeDoesNotUseMergeRangeReader) {
+TEST_F(NewParquetReaderTest, FixedWidthDictionaryPredicateFiltersRowsByDictionaryId) {
+    write_fixed_width_dictionary_filter_parquet_file(_file_path);
+
+    RuntimeProfile profile("new_parquet_reader_fixed_width_dictionary_filter_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(create_int32_dictionary_equals_conjunct(1, 20));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnInt32>(block, 1);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 4, 6}));
+    EXPECT_EQ(values, std::vector<int32_t>({20, 20, 20}));
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 3);
+    EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, AllFixedWidthDictionaryTypesDecodeThroughDictionaryIds) {
+    write_all_fixed_width_dictionary_filter_parquet_file(_file_path);
+
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    auto row_group = parquet_file_reader->metadata()->RowGroup(0);
+    ASSERT_NE(row_group, nullptr);
+    ASSERT_EQ(row_group->num_columns(), 6);
+    const std::array<::parquet::Type::type, 5> expected_types {
+            ::parquet::Type::INT64, ::parquet::Type::FLOAT, ::parquet::Type::DOUBLE,
+            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, ::parquet::Type::INT96};
+    for (int column = 1; column < row_group->num_columns(); ++column) {
+        ASSERT_TRUE(row_group->ColumnChunk(column)->has_dictionary_page()) << column;
+        EXPECT_EQ(row_group->ColumnChunk(column)->type(), expected_types[column - 1]) << column;
+    }
+
+    RuntimeProfile profile("new_parquet_reader_all_fixed_width_dictionary_filter_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 6);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    for (int column = 1; column < 6; ++column) {
+        request->predicate_columns.push_back(field_projection(column));
+        request->conjuncts.push_back(create_dictionary_accept_all_conjunct(column));
+    }
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 6);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 5);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 5);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPredicateReaderIsSharedOutsideMergeRangeReader) {
     write_dictionary_filter_with_trailing_column_parquet_file(_file_path);
 
     RuntimeProfile profile("new_parquet_reader_dictionary_filter_merge_profile");
@@ -2177,8 +2960,14 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateProbeDoesNotUseMergeRangeReader)
     EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
     EXPECT_EQ(payloads, std::vector<int32_t>({20, 50}));
     EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 4);
+    // The native dictionary probe keeps its reader and cursor for predicate data pages. Other
+    // projected chunks still use the row-group merge reader, so probing never duplicates the
+    // dictionary read or perturbs the merge range's sequential access order.
     ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
     ASSERT_NE(profile.get_counter("MergedBytes"), nullptr);
+    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
+    ASSERT_NE(profile.get_counter("NativeReadCalls"), nullptr);
+    EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateWorksWithoutRuntimeProfile) {
@@ -2258,7 +3047,9 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateSkipsRemainingPredicateColumnsWh
     // second predicate column is skipped after the selection becomes empty, which verifies the
     // StarRocks-style round-by-round policy: only rows surviving previous predicates are read.
     EXPECT_EQ(profile.get_counter("ReaderSelectRows")->value(), 6);
-    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 6);
+    // Five dictionary ids are rejected before the residual predicate; the remaining predicate
+    // reader then skips all six logical rows once the selection is empty.
+    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 11);
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateRunsResidualConjunctOnSurvivors) {
@@ -2346,208 +3137,10 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateKeepsNestedOrResidualConjunct) {
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 1);
 }
 
-TEST_F(NewParquetReaderTest, ScanRangeFiltersRowGroupsBeforeDictionaryPruning) {
-    write_dictionary_filter_parquet_file(_file_path);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 6);
-
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    auto schema_descriptor = parquet_file_reader->metadata()->schema();
-    ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(
-            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
-
-    format::FileScanRequest request;
-    request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
-    request.conjuncts.push_back(create_string_in_conjunct(1, {"lm"}));
-
-    const auto [range_start_offset, range_size] = row_group_mid_range(_file_path, 2);
-    format::parquet::ParquetScanRange scan_range;
-    scan_range.start_offset = range_start_offset;
-    scan_range.size = range_size;
-    scan_range.file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
-
-    format::parquet::RowGroupScanPlan plan;
-    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                         parquet_file_reader.get(), file_schema,
-                                                         request, scan_range, false, &plan)
-                        .ok());
-    ASSERT_EQ(plan.row_groups.size(), 1);
-    EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 0);
-    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
-}
-
-TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotFilterRowGroupsByStatistics) {
-    write_struct_filter_parquet_file(_file_path);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 2);
-
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    auto schema_descriptor = parquet_file_reader->metadata()->schema();
-    ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(
-            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
-    ASSERT_EQ(file_schema.size(), 1);
-    ASSERT_EQ(file_schema[0]->children.size(), 2);
-    ASSERT_EQ(file_schema[0]->children[0]->name, "id");
-
-    format::FileScanRequest request;
-
-    format::parquet::RowGroupScanPlan plan;
-    format::parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                         parquet_file_reader.get(), file_schema,
-                                                         request, scan_range, false, &plan)
-                        .ok());
-    ASSERT_EQ(plan.row_groups.size(), 2);
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 2);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 2);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 0);
-    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
-}
-
-TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotFilterRowGroupsByDictionary) {
-    write_nested_dictionary_filter_parquet_file(_file_path);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 6);
-    for (int row_group_idx = 0; row_group_idx < 6; ++row_group_idx) {
-        auto row_group = parquet_file_reader->metadata()->RowGroup(row_group_idx);
-        ASSERT_NE(row_group, nullptr);
-        auto name_chunk = row_group->ColumnChunk(1);
-        ASSERT_NE(name_chunk, nullptr);
-        ASSERT_TRUE(name_chunk->has_dictionary_page());
-        ASSERT_TRUE(name_chunk->statistics() == nullptr || !name_chunk->statistics()->HasMinMax());
-    }
-
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    auto schema_descriptor = parquet_file_reader->metadata()->schema();
-    ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(
-            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
-    ASSERT_EQ(file_schema.size(), 1);
-    ASSERT_EQ(file_schema[0]->children.size(), 2);
-    ASSERT_EQ(file_schema[0]->children[1]->name, "name");
-
-    format::FileScanRequest request;
-
-    format::parquet::RowGroupScanPlan plan;
-    format::parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                         parquet_file_reader.get(), file_schema,
-                                                         request, scan_range, false, &plan)
-                        .ok());
-    ASSERT_EQ(plan.row_groups.size(), 6);
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 6);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 0);
-    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
-}
-
-TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
-    write_page_index_filter_parquet_file(_file_path);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
-    auto page_index_reader = parquet_file_reader->GetPageIndexReader();
-    ASSERT_NE(page_index_reader, nullptr);
-    auto row_group_index_reader = page_index_reader->RowGroup(0);
-    ASSERT_NE(row_group_index_reader, nullptr);
-    auto offset_index = row_group_index_reader->GetOffsetIndex(0);
-    ASSERT_NE(offset_index, nullptr);
-    ASSERT_GT(offset_index->page_locations().size(), 1);
-
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    auto schema_descriptor = parquet_file_reader->metadata()->schema();
-    ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(
-            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
-    ASSERT_EQ(file_schema.size(), 1);
-
-    format::FileScanRequest request;
-    request.predicate_columns = {field_projection(0)};
-    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
-    request.conjuncts.push_back(create_int32_greater_than_conjunct(0, 63));
-
-    format::parquet::RowGroupScanPlan plan;
-    format::parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                         parquet_file_reader.get(), file_schema,
-                                                         request, scan_range, false, &plan)
-                        .ok());
-    ASSERT_EQ(plan.row_groups.size(), 1);
-    ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
-    EXPECT_GT(plan.row_groups[0].selected_ranges.front().start, 0);
-    EXPECT_LT(plan.row_groups[0].selected_ranges.front().length, 128);
-    auto skip_plan_it = plan.row_groups[0].page_skip_plans.find(0);
-    ASSERT_NE(skip_plan_it, plan.row_groups[0].page_skip_plans.end());
-    EXPECT_EQ(skip_plan_it->second.leaf_column_id, 0);
-    EXPECT_GT(skip_plan_it->second.skipped_ranges.size(), 0);
-    EXPECT_GT(skip_plan_it->second.skipped_pages.size(), 1);
-    ASSERT_EQ(skip_plan_it->second.skipped_pages.size(),
-              skip_plan_it->second.skipped_page_compressed_sizes.size());
-    int64_t skipped_compressed_bytes = 0;
-    for (size_t page_idx = 0; page_idx < skip_plan_it->second.skipped_pages.size(); ++page_idx) {
-        if (skip_plan_it->second.should_skip_page(page_idx)) {
-            skipped_compressed_bytes += skip_plan_it->second.skipped_page_compressed_size(page_idx);
-        }
-    }
-    EXPECT_GT(skipped_compressed_bytes, 0);
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
-    EXPECT_GT(plan.pruning_stats.filtered_page_rows, 0);
-    EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
-}
-
-TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotNarrowRowRangesByPageIndex) {
-    write_nested_page_index_filter_parquet_file(_file_path);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
-    auto page_index_reader = parquet_file_reader->GetPageIndexReader();
-    ASSERT_NE(page_index_reader, nullptr);
-    auto row_group_index_reader = page_index_reader->RowGroup(0);
-    ASSERT_NE(row_group_index_reader, nullptr);
-    auto offset_index = row_group_index_reader->GetOffsetIndex(0);
-    ASSERT_NE(offset_index, nullptr);
-    ASSERT_GT(offset_index->page_locations().size(), 1);
-
-    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
-    auto schema_descriptor = parquet_file_reader->metadata()->schema();
-    ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(
-            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
-    ASSERT_EQ(file_schema.size(), 1);
-    ASSERT_EQ(file_schema[0]->children.size(), 2);
-    ASSERT_EQ(file_schema[0]->children[0]->name, "id");
-
-    format::FileScanRequest request;
-    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
-    request.conjuncts.push_back(create_int32_greater_than_conjunct(0, 63));
-
-    format::parquet::RowGroupScanPlan plan;
-    format::parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                         parquet_file_reader.get(), file_schema,
-                                                         request, scan_range, false, &plan)
-                        .ok());
-    ASSERT_EQ(plan.row_groups.size(), 1);
-    ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
-    EXPECT_EQ(plan.row_groups[0].selected_ranges.front().start, 0);
-    EXPECT_EQ(plan.row_groups[0].selected_ranges.front().length,
-              parquet_file_reader->metadata()->RowGroup(0)->num_rows());
-    EXPECT_TRUE(plan.row_groups[0].page_skip_plans.empty());
-    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
-    EXPECT_EQ(plan.pruning_stats.filtered_page_rows, 0);
-    EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
-}
-
 // Scenario: the selected range starts after page-index-pruned rows. The scheduler defers that range
 // gap for the non-predicate payload reader, then flushes it exactly once before materialization. The
-// page skip plan advances the reader without calling Arrow SkipRecords or double-skipping row 64.
+// native RowRanges/OffsetIndex plan advances both readers without decoding the rejected pages or
+// double-skipping row 64.
 TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     write_page_index_filter_pair_parquet_file(_file_path);
     RuntimeProfile profile("new_parquet_reader_page_skip");
@@ -2571,7 +3164,8 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     bool eof = false;
     while (!eof) {
         size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
         if (rows == 0) {
             continue;
         }
@@ -2589,7 +3183,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
-    ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
+    ASSERT_NE(profile.get_counter("LevelOnlySkipTime"), nullptr);
     ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
@@ -2599,7 +3193,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
     EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 0);
-    EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
+    EXPECT_EQ(profile.get_counter("LevelOnlySkipTime")->value(), 0);
     EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);

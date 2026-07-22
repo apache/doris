@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <utility>
 
 #include "format_v2/table_reader.h"
@@ -84,6 +85,12 @@ public:
     std::pair<size_t, size_t> TEST_child_batch_sizes() const {
         return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size()};
     }
+    void TEST_set_child_reader_factories(
+            std::function<std::unique_ptr<format::TableReader>()> native_factory,
+            std::function<std::unique_ptr<format::TableReader>()> jni_factory) {
+        _test_native_reader_factory = std::move(native_factory);
+        _test_jni_reader_factory = std::move(jni_factory);
+    }
 #endif
 
 private:
@@ -96,6 +103,10 @@ private:
     std::unique_ptr<format::TableReader> _native_reader; // handle parquet/orc native splits
     std::unique_ptr<format::TableReader> _jni_reader;    // handle serialized JNI splits
     format::TableReader* _current_split_reader = nullptr;
+#ifdef BE_TEST
+    std::function<std::unique_ptr<format::TableReader>()> _test_native_reader_factory;
+    std::function<std::unique_ptr<format::TableReader>()> _test_jni_reader_factory;
+#endif
 };
 
 } // namespace doris::format::paimon

@@ -71,6 +71,7 @@ public:
     Status close() override;
 
 private:
+    void _init_profile() override;
     Status _open_stream();
     Status _materialize_record_batch(const arrow::RecordBatch& batch, Block* file_block,
                                      size_t* rows) const;
@@ -83,6 +84,12 @@ private:
     const std::vector<SlotDescriptor*> _file_slot_descs;
     RemoteDorisStreamFactory _stream_factory;
     cctz::time_zone _ctz;
+    RuntimeProfile::Counter* _total_time = nullptr;
+    RuntimeProfile::Counter* _open_stream_time = nullptr;
+    RuntimeProfile::Counter* _next_batch_time = nullptr;
+    RuntimeProfile::Counter* _io_time = nullptr;
+    RuntimeProfile::Counter* _materialize_time = nullptr;
+    RuntimeProfile::Counter* _filter_time = nullptr;
     std::unique_ptr<RemoteDorisStream> _stream;
     std::unordered_map<std::string, LocalColumnId> _col_name_to_file_id;
 };
