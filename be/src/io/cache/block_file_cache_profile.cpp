@@ -99,6 +99,17 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(lock_wait_timer);
     SUBTRACT_FIELD(get_timer);
     SUBTRACT_FIELD(set_timer);
+    SUBTRACT_FIELD(async_cache_write_submitted);
+    SUBTRACT_FIELD(async_cache_write_rejected);
+    SUBTRACT_FIELD(async_cache_write_buffer_alloc_fail);
+    SUBTRACT_FIELD(async_cache_write_drop_stale_epoch);
+    SUBTRACT_FIELD(inflight_write_buffer_index_hit);
+    SUBTRACT_FIELD(inflight_write_buffer_index_miss);
+    SUBTRACT_FIELD(probe_downloaded_hit);
+    SUBTRACT_FIELD(probe_downloading_hit);
+    SUBTRACT_FIELD(probe_miss);
+    SUBTRACT_FIELD(block_wait_success);
+    SUBTRACT_FIELD(block_wait_timeout);
 
     SUBTRACT_FIELD(inverted_index_num_local_io_total);
     SUBTRACT_FIELD(inverted_index_num_remote_io_total);
@@ -163,6 +174,27 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+    async_cache_write_submitted = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "AsyncCacheWriteSubmitted",
+                                                               TUnit::UNIT, cache_profile, 1);
+    async_cache_write_rejected = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "AsyncCacheWriteRejected",
+                                                              TUnit::UNIT, cache_profile, 1);
+    async_cache_write_buffer_alloc_fail = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteBufferAllocFail", TUnit::UNIT, cache_profile, 1);
+    async_cache_write_drop_stale_epoch = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteDropStaleEpoch", TUnit::UNIT, cache_profile, 1);
+    inflight_write_buffer_index_hit = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InflightWriteBufferIndexHit", TUnit::UNIT, cache_profile, 1);
+    inflight_write_buffer_index_miss = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InflightWriteBufferIndexMiss", TUnit::UNIT, cache_profile, 1);
+    probe_downloaded_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadedHit", TUnit::UNIT,
+                                                        cache_profile, 1);
+    probe_downloading_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadingHit",
+                                                         TUnit::UNIT, cache_profile, 1);
+    probe_miss = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeMiss", TUnit::UNIT, cache_profile, 1);
+    block_wait_success = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitSuccess", TUnit::UNIT,
+                                                      cache_profile, 1);
+    block_wait_timeout = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitTimeout", TUnit::UNIT,
+                                                      cache_profile, 1);
     remote_only_on_miss_triggered = profile->AddHighWaterMarkCounter("RemoteOnlyOnMissTriggered",
                                                                      TUnit::UNIT, cache_profile, 1);
     remote_only_on_miss_threshold_bytes = profile->AddHighWaterMarkCounter(
@@ -257,6 +289,19 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
     COUNTER_UPDATE(get_timer, statistics->get_timer);
     COUNTER_UPDATE(set_timer, statistics->set_timer);
+    COUNTER_UPDATE(async_cache_write_submitted, statistics->async_cache_write_submitted);
+    COUNTER_UPDATE(async_cache_write_rejected, statistics->async_cache_write_rejected);
+    COUNTER_UPDATE(async_cache_write_buffer_alloc_fail,
+                   statistics->async_cache_write_buffer_alloc_fail);
+    COUNTER_UPDATE(async_cache_write_drop_stale_epoch,
+                   statistics->async_cache_write_drop_stale_epoch);
+    COUNTER_UPDATE(inflight_write_buffer_index_hit, statistics->inflight_write_buffer_index_hit);
+    COUNTER_UPDATE(inflight_write_buffer_index_miss, statistics->inflight_write_buffer_index_miss);
+    COUNTER_UPDATE(probe_downloaded_hit, statistics->probe_downloaded_hit);
+    COUNTER_UPDATE(probe_downloading_hit, statistics->probe_downloading_hit);
+    COUNTER_UPDATE(probe_miss, statistics->probe_miss);
+    COUNTER_UPDATE(block_wait_success, statistics->block_wait_success);
+    COUNTER_UPDATE(block_wait_timeout, statistics->block_wait_timeout);
     remote_only_on_miss_triggered->set(statistics->remote_only_on_miss_triggered);
     remote_only_on_miss_threshold_bytes->set(statistics->remote_only_on_miss_threshold_bytes);
 

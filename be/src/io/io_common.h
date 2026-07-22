@@ -19,6 +19,8 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -41,6 +43,7 @@ enum class ReaderType : uint8_t {
 namespace io {
 
 class RemoteScanCacheWriteLimiter;
+enum class CacheWriteMode : uint8_t;
 
 enum class FileCacheMissPolicy : uint8_t {
     READ_THROUGH_AND_WRITE_BACK = 0,
@@ -73,6 +76,17 @@ struct FileCacheStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t async_cache_write_submitted = 0;
+    int64_t async_cache_write_rejected = 0;
+    int64_t async_cache_write_buffer_alloc_fail = 0;
+    int64_t async_cache_write_drop_stale_epoch = 0;
+    int64_t inflight_write_buffer_index_hit = 0;
+    int64_t inflight_write_buffer_index_miss = 0;
+    int64_t probe_downloaded_hit = 0;
+    int64_t probe_downloading_hit = 0;
+    int64_t probe_miss = 0;
+    int64_t block_wait_success = 0;
+    int64_t block_wait_timeout = 0;
 
     int64_t inverted_index_num_local_io_total = 0;
     int64_t inverted_index_num_remote_io_total = 0;
@@ -134,6 +148,17 @@ struct FileCacheStatistics {
         lock_wait_timer += other.lock_wait_timer;
         get_timer += other.get_timer;
         set_timer += other.set_timer;
+        async_cache_write_submitted += other.async_cache_write_submitted;
+        async_cache_write_rejected += other.async_cache_write_rejected;
+        async_cache_write_buffer_alloc_fail += other.async_cache_write_buffer_alloc_fail;
+        async_cache_write_drop_stale_epoch += other.async_cache_write_drop_stale_epoch;
+        inflight_write_buffer_index_hit += other.inflight_write_buffer_index_hit;
+        inflight_write_buffer_index_miss += other.inflight_write_buffer_index_miss;
+        probe_downloaded_hit += other.probe_downloaded_hit;
+        probe_downloading_hit += other.probe_downloading_hit;
+        probe_miss += other.probe_miss;
+        block_wait_success += other.block_wait_success;
+        block_wait_timeout += other.block_wait_timeout;
 
         inverted_index_num_local_io_total += other.inverted_index_num_local_io_total;
         inverted_index_num_remote_io_total += other.inverted_index_num_remote_io_total;
@@ -212,6 +237,9 @@ struct IOContext {
     int64_t predicate_filtered_rows = 0;
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
+    // Per-call override for cache write completion semantics. An unset value follows the reader
+    // option and the global async file-cache write switch.
+    std::optional<CacheWriteMode> cache_write_mode_override = std::nullopt;
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
 };

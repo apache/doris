@@ -86,6 +86,17 @@ struct ReadStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t async_cache_write_submitted = 0;
+    int64_t async_cache_write_rejected = 0;
+    int64_t async_cache_write_buffer_alloc_fail = 0;
+    int64_t async_cache_write_drop_stale_epoch = 0;
+    int64_t inflight_write_buffer_index_hit = 0;
+    int64_t inflight_write_buffer_index_miss = 0;
+    int64_t probe_downloaded_hit = 0;
+    int64_t probe_downloading_hit = 0;
+    int64_t probe_miss = 0;
+    int64_t block_wait_success = 0;
+    int64_t block_wait_timeout = 0;
 };
 
 class BlockFileCache;

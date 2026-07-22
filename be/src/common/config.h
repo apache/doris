@@ -1320,6 +1320,16 @@ DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
+// async file cache write
+DECLARE_mBool(enable_async_file_cache_write);
+DECLARE_mInt32(async_file_cache_write_workers_per_disk);
+DECLARE_mInt64(async_file_cache_write_max_pending_tasks_per_disk);
+DECLARE_mInt32(async_file_cache_write_batch_size);
+DECLARE_mInt64(async_file_cache_write_watchdog_warn_secs);
+DECLARE_mInt64(async_file_cache_write_watchdog_drop_secs);
+DECLARE_mBool(enable_async_file_cache_write_inflight_write_buffer_index);
+DECLARE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count);
+
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
