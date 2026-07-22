@@ -132,7 +132,7 @@ public class TablePropertyTest {
     }
 
     @Test
-    public void testDeserializeConflictingDefaultReplicaPropertiesUsesAllocation() throws IOException {
+    public void testDeserializeConflictingDefaultReplicaPropertiesPreservesNumericPrecedence() throws IOException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(DEFAULT_REPLICATION_NUM, "3");
         properties.put(DEFAULT_REPLICATION_ALLOCATION, REPLICATION_ALLOCATION);
@@ -140,7 +140,26 @@ public class TablePropertyTest {
 
         tableProperty.gsonPostProcess();
 
-        assertReplicaAllocationWins(tableProperty);
+        Assert.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assert.assertTrue(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_ALLOCATION));
+        Assert.assertEquals(Short.valueOf((short) 3),
+                tableProperty.getReplicaAllocation().getReplicaNumByTag(Tag.DEFAULT_BACKEND_TAG));
+    }
+
+    @Test
+    public void testResetPropertiesForRestoreRemovesLegacyReplicationNum() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(DEFAULT_REPLICATION_NUM, "3");
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildReplicaAllocation();
+
+        ReplicaAllocation restoredReplicaAllocation = new ReplicaAllocation((short) 2);
+        tableProperty.resetPropertiesForRestore(false, false, restoredReplicaAllocation);
+
+        Assert.assertFalse(tableProperty.getProperties().containsKey(DEFAULT_REPLICATION_NUM));
+        Assert.assertEquals(restoredReplicaAllocation.toCreateStmt(),
+                tableProperty.getProperties().get(DEFAULT_REPLICATION_ALLOCATION));
+        Assert.assertEquals((short) 2, tableProperty.getReplicaAllocation().getTotalReplicaNum());
     }
 
     @Test

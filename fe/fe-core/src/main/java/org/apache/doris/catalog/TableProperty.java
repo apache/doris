@@ -54,6 +54,10 @@ import java.util.Map;
  */
 public class TableProperty implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
+    private static final String DEFAULT_REPLICATION_NUM =
+            "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+    private static final String DEFAULT_REPLICATION_ALLOCATION =
+            "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -678,19 +682,20 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public void modifyTableProperties(Map<String, String> modifyProperties) {
-        removeConflictingReplicaProperty(modifyProperties,
-                "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION);
+        // Compatibility note: ModifyTablePropertyOperationLog persists only properties to set, not keys removed
+        // here. Keep its payload unchanged for this legacy repair. During a rolling FE upgrade, alter these
+        // properties on a table that already contains both legacy keys only after all FEs have been upgraded;
+        // otherwise old and new FEs may apply different effective replica settings.
+        removeConflictingDefaultReplicaProperty(modifyProperties);
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
     }
 
-    private void removeConflictingReplicaProperty(Map<String, String> modifyProperties,
-            String replicationNumKey, String replicationAllocationKey) {
-        if (modifyProperties.containsKey(replicationAllocationKey)) {
-            properties.remove(replicationNumKey);
-        } else if (modifyProperties.containsKey(replicationNumKey)) {
-            properties.remove(replicationAllocationKey);
+    private void removeConflictingDefaultReplicaProperty(Map<String, String> modifyProperties) {
+        if (modifyProperties.containsKey(DEFAULT_REPLICATION_ALLOCATION)) {
+            properties.remove(DEFAULT_REPLICATION_NUM);
+        } else if (modifyProperties.containsKey(DEFAULT_REPLICATION_NUM)) {
+            properties.remove(DEFAULT_REPLICATION_ALLOCATION);
         }
     }
 
@@ -702,8 +707,8 @@ public class TableProperty implements GsonPostProcessable {
     public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
         this.replicaAlloc = replicaAlloc;
         // set it to "properties" so that this info can be persisted
-        properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                replicaAlloc.toCreateStmt());
+        properties.remove(DEFAULT_REPLICATION_NUM);
+        properties.put(DEFAULT_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -980,18 +985,12 @@ public class TableProperty implements GsonPostProcessable {
         buildColumnSeqMapping();
     }
 
-    // Both replication_num and replication_allocation may exist in properties loaded from old metadata.
-    // Prefer the canonical replication_allocation form because replication_num is checked first by the analyzer.
+    // Historical dynamic partition metadata may contain both replica properties. Keep the allocation form by
+    // removing replication_num because the analyzer checks it first.
     private void removeDuplicateReplicaNumProperty() {
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
-        }
-        String defaultReplicationNum = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-        String defaultReplicationAllocation = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
-        if (properties.containsKey(defaultReplicationNum)
-                && properties.containsKey(defaultReplicationAllocation)) {
-            properties.remove(defaultReplicationNum);
         }
     }
 
