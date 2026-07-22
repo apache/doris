@@ -64,7 +64,7 @@ public class AlterTableCommandTest {
         EnableFeatureOp rowTtl = new EnableFeatureOp("ROW_TTL", properties);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> rowTtl.validate(null));
-        Assertions.assertEquals("unknown feature name: ROW_TTL", exception.getMessage());
+        Assertions.assertEquals("unknown feature name: ROW_TTL", exception.getDetailMessage());
     }
 
     @Test
@@ -74,11 +74,10 @@ public class AlterTableCommandTest {
             Map<String, String> properties = new HashMap<>();
             properties.put(property, property.equals("enable_row_ttl") ? "true" : "event_time");
             ModifyTablePropertiesOp modifyRowTtl = new ModifyTablePropertiesOp(properties);
-            org.apache.doris.nereids.exceptions.AnalysisException propertyException =
-                    Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                            () -> modifyRowTtl.validate(null));
+            AnalysisException propertyException = Assertions.assertThrows(AnalysisException.class,
+                    () -> modifyRowTtl.validate(null));
             Assertions.assertEquals("TTL properties can only be specified when creating a table",
-                    propertyException.getMessage());
+                    propertyException.getDetailMessage());
         }
     }
 

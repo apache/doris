@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
@@ -38,7 +39,6 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "runtime/be_exec_version_manager.h"
 #include "storage/partial_update_info.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -248,10 +248,10 @@ TEST(RowTtlTest, ConvertAllSupportedTemporalSources) {
     expect_converted_time(make_tablet_column("DATETIMEV2", 6), "1970-01-01 00:00:00.123456",
                           "UTC", 123'456L);
     expect_converted_time(make_tablet_column("TIMESTAMPTZ", 6),
-                          "1970-01-01 00:00:00.123456+00:00", "Asia/Shanghai", 123'456L);
+                          "1970-01-01 00:00:00.123456+00:00", "+08:00", 123'456L);
 
     auto immortal = convert_row_ttl_time_to_epoch_us(
-            make_tablet_column("DATETIMEV2", 6), "NULL", "Asia/Shanghai");
+            make_tablet_column("DATETIMEV2", 6), "NULL", "+08:00");
     ASSERT_TRUE(immortal.has_value()) << immortal.error();
     EXPECT_FALSE(immortal->has_value());
 }
@@ -282,7 +282,7 @@ TEST(RowTtlTest, PartialUpdateMetadataTracksSourceAndDefaults) {
     PartialUpdateInfo rollup_info;
     ASSERT_TRUE(rollup_info.init(1, 2, rollup_schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
                                  PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0,
-                                 "Asia/Shanghai", "", -1, -1, source.unique_id(), &source)
+                                 "+08:00", "", -1, -1, source.unique_id(), &source)
                         .ok());
     EXPECT_EQ(rollup_info.row_ttl_source_cid(), -1);
     EXPECT_EQ(rollup_info.row_ttl_source_uid(), source.unique_id());
@@ -294,7 +294,7 @@ TEST(RowTtlTest, PartialUpdateMetadataTracksSourceAndDefaults) {
     PartialUpdateInfo source_info;
     ASSERT_TRUE(source_info.init(1, 2, source_schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
                                  PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0,
-                                 "Asia/Shanghai", "", -1, -1, source_schema.column(1).unique_id(),
+                                 "+08:00", "", -1, -1, source_schema.column(1).unique_id(),
                                  &source_schema.column(1))
                         .ok());
     EXPECT_EQ(source_info.row_ttl_source_cid(), 1);

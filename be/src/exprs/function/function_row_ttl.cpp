@@ -25,14 +25,15 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/types.h"
+#include "exec/common/util.hpp"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/row_ttl.h"
-#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
@@ -58,7 +59,7 @@ public:
         ColumnPtr ttl_column = ttl_entry.column->convert_to_full_column_if_const();
         const NullMap* null_map = VectorizedUtils::get_null_map(ttl_column);
         ttl_column = remove_nullable(ttl_column);
-        const FieldType ttl_type = TabletColumn::get_field_type_by_type(
+        const FieldType ttl_type = primitive_type_to_storage_field_type(
                 remove_nullable(ttl_entry.type)->get_primitive_type());
         const bool source_time = ttl_type != FieldType::OLAP_FIELD_TYPE_BIGINT;
         const auto* direct_expiration =

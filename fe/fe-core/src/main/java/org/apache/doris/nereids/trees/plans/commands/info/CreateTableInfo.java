@@ -665,17 +665,28 @@ public class CreateTableInfo {
                 }
             }
 
-            boolean enableRowTtl = PropertyAnalyzer.analyzeEnableRowTtl(properties, keysType);
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
-                        Boolean.toString(enableRowTtl));
+            boolean enableRowTtl;
+            String rowTtlCol;
+            try {
+                enableRowTtl = PropertyAnalyzer.analyzeEnableRowTtl(properties, keysType);
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                            Boolean.toString(enableRowTtl));
+                }
+                rowTtlCol = PropertyAnalyzer.analyzeRowTtlCol(properties, keysType);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
-            String rowTtlCol = PropertyAnalyzer.analyzeRowTtlCol(properties, keysType);
             if (enableRowTtl) {
                 ColumnDefinition sourceColumn = null;
                 DataType ttlColumnType = BigIntType.INSTANCE;
                 if (rowTtlCol != null) {
-                    long durationMicros = PropertyAnalyzer.analyzeRowTtlDurationMicros(properties);
+                    long durationMicros;
+                    try {
+                        durationMicros = PropertyAnalyzer.analyzeRowTtlDurationMicros(properties);
+                    } catch (org.apache.doris.common.AnalysisException e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
                     properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                                     + PropertyAnalyzer.PROPERTIES_TTL,
                             Long.toString(durationMicros / 1_000_000L));

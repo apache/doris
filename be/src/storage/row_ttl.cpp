@@ -240,7 +240,7 @@ Status apply_row_ttl_update(const RowLocation& location, RowTtlOperation operati
 Status build_row_visibility_filter(const Block& block, const TabletSchema& tablet_schema,
                                    bool apply_delete_sign, bool apply_row_ttl, int64_t now_us,
                                    RowVisibilityFilter* filter) {
-    filter->selection.assign(block.rows(), 1);
+    filter->selection.resize_fill(block.rows(), 1);
     filter->rows_deleted = 0;
 
     if (apply_delete_sign) {

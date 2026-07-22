@@ -605,7 +605,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         if (_return_columns_loc[ttl_read_pos] == -1) {
             _row_ttl_output_pos = return_column_size;
             _remove_row_ttl_output = true;
-            _return_columns_loc[ttl_read_pos] = _row_ttl_output_pos;
+            _return_columns_loc[ttl_read_pos] = static_cast<int>(_row_ttl_output_pos);
             _normal_columns_idx.emplace_back(ttl_read_pos);
             pos_map[ttl_cid] = static_cast<int32_t>(_normal_columns_idx.size() - 1);
         }
