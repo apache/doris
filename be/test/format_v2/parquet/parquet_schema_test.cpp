@@ -19,6 +19,7 @@
 
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -124,28 +125,103 @@ TEST(ParquetSchemaTest, NativeLogicalUtcTimeIsDeferredToProjectionValidation) {
               "Parquet TIME with isAdjustedToUTC=true is not supported");
 }
 
-TEST(ParquetSchemaTest, NativeGroupEnumLogicalTypeIsRejected) {
+TEST(ParquetSchemaTest, NativeGroupPrimitiveLogicalTypesAreRejected) {
     tparquet::SchemaElement root;
     root.__set_name("schema");
     root.__set_num_children(1);
-
-    tparquet::SchemaElement enum_group;
-    enum_group.__set_name("bad_enum_group");
-    enum_group.__set_num_children(1);
-    enum_group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
-    enum_group.__set_logicalType(tparquet::LogicalType());
-    enum_group.logicalType.__set_ENUM(tparquet::EnumType());
 
     tparquet::SchemaElement child;
     child.__set_name("value");
     child.__set_type(tparquet::Type::BYTE_ARRAY);
     child.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
 
-    NativeFieldDescriptor native_schema;
-    const auto status = native_schema.parse_from_thrift({root, enum_group, child});
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Logical type Enum cannot be applied to group node"),
-              std::string::npos);
+    std::vector<std::pair<std::string, tparquet::LogicalType>> logical_types;
+    tparquet::LogicalType string_type;
+    string_type.__set_STRING(tparquet::StringType());
+    logical_types.emplace_back("STRING", string_type);
+    tparquet::LogicalType enum_type;
+    enum_type.__set_ENUM(tparquet::EnumType());
+    logical_types.emplace_back("ENUM", enum_type);
+    tparquet::LogicalType decimal_type;
+    decimal_type.__set_DECIMAL(tparquet::DecimalType());
+    logical_types.emplace_back("DECIMAL", decimal_type);
+    tparquet::LogicalType date_type;
+    date_type.__set_DATE(tparquet::DateType());
+    logical_types.emplace_back("DATE", date_type);
+    tparquet::LogicalType time_type;
+    time_type.__set_TIME(tparquet::TimeType());
+    logical_types.emplace_back("TIME", time_type);
+    tparquet::LogicalType timestamp_type;
+    timestamp_type.__set_TIMESTAMP(tparquet::TimestampType());
+    logical_types.emplace_back("TIMESTAMP", timestamp_type);
+    tparquet::LogicalType integer_type;
+    integer_type.__set_INTEGER(tparquet::IntType());
+    logical_types.emplace_back("INTEGER", integer_type);
+    tparquet::LogicalType uuid_type;
+    uuid_type.__set_UUID(tparquet::UUIDType());
+    logical_types.emplace_back("UUID", uuid_type);
+    tparquet::LogicalType float16_type;
+    float16_type.__set_FLOAT16(tparquet::Float16Type());
+    logical_types.emplace_back("FLOAT16", float16_type);
+
+    for (const auto& [name, logical_type] : logical_types) {
+        SCOPED_TRACE(name);
+        tparquet::SchemaElement group;
+        group.__set_name("bad_" + name + "_group");
+        group.__set_num_children(1);
+        group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        group.__set_logicalType(logical_type);
+        NativeFieldDescriptor native_schema;
+        EXPECT_FALSE(native_schema.parse_from_thrift({root, group, child}).ok());
+    }
+
+    for (const auto converted_type :
+         {tparquet::ConvertedType::UTF8, tparquet::ConvertedType::ENUM,
+          tparquet::ConvertedType::DECIMAL, tparquet::ConvertedType::DATE,
+          tparquet::ConvertedType::TIME_MILLIS, tparquet::ConvertedType::TIMESTAMP_MICROS,
+          tparquet::ConvertedType::INT_32, tparquet::ConvertedType::JSON,
+          tparquet::ConvertedType::BSON}) {
+        SCOPED_TRACE(tparquet::to_string(converted_type));
+        tparquet::SchemaElement group;
+        group.__set_name("bad_converted_group");
+        group.__set_num_children(1);
+        group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        group.__set_converted_type(converted_type);
+        NativeFieldDescriptor native_schema;
+        EXPECT_FALSE(native_schema.parse_from_thrift({root, group, child}).ok());
+    }
+}
+
+TEST(ParquetSchemaTest, NativeFlatLeafValueCountMustMatchRowCount) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement leaf;
+    leaf.__set_name("value");
+    leaf.__set_type(tparquet::Type::INT32);
+    leaf.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::Statistics statistics;
+    statistics.__set_null_count(2);
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.__set_type(tparquet::Type::INT32);
+    column_metadata.__set_num_values(2);
+    column_metadata.__set_statistics(statistics);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(column_metadata);
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    row_group.__set_columns({chunk});
+    tparquet::FileMetaData thrift_metadata;
+    thrift_metadata.__set_version(1);
+    thrift_metadata.__set_schema({root, leaf});
+    thrift_metadata.__set_num_rows(1);
+    thrift_metadata.__set_row_groups({row_group});
+
+    NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    const auto status = metadata.init_schema(false, false);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 
 TEST(ParquetSchemaTest, NativeStringAnnotationsAndTimeUnitsPreserveLogicalTypes) {

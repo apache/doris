@@ -55,6 +55,25 @@ static bool is_map_node(const tparquet::SchemaElement& schema) {
            (schema.__isset.logicalType && schema.logicalType.__isset.MAP);
 }
 
+static bool has_primitive_only_annotation(const tparquet::SchemaElement& schema) {
+    if (schema.__isset.logicalType) {
+        const auto& logical = schema.logicalType;
+        if (logical.__isset.STRING || logical.__isset.ENUM || logical.__isset.DECIMAL ||
+            logical.__isset.DATE || logical.__isset.TIME || logical.__isset.TIMESTAMP ||
+            logical.__isset.INTEGER || logical.__isset.UNKNOWN || logical.__isset.JSON ||
+            logical.__isset.BSON || logical.__isset.UUID || logical.__isset.FLOAT16 ||
+            logical.__isset.GEOMETRY || logical.__isset.GEOGRAPHY) {
+            return true;
+        }
+    }
+    if (!schema.__isset.converted_type) {
+        return false;
+    }
+    return schema.converted_type != tparquet::ConvertedType::MAP &&
+           schema.converted_type != tparquet::ConvertedType::MAP_KEY_VALUE &&
+           schema.converted_type != tparquet::ConvertedType::LIST;
+}
+
 static bool is_repeated_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.repetition_type &&
            schema.repetition_type == tparquet::FieldRepetitionType::REPEATED;
@@ -488,12 +507,11 @@ Status NativeFieldDescriptor::parse_group_field(
         const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
         NativeFieldSchema* group_field) {
     auto& group_schema = t_schemas[curr_pos];
-    if ((group_schema.__isset.logicalType && group_schema.logicalType.__isset.ENUM) ||
-        (group_schema.__isset.converted_type &&
-         group_schema.converted_type == tparquet::ConvertedType::ENUM)) {
-        // ENUM describes primitive bytes only. Rejecting it before recursive group parsing keeps
-        // the native metadata tree from silently accepting a schema the Parquet contract forbids.
-        return Status::InvalidArgument("Logical type Enum cannot be applied to group node");
+    if (has_primitive_only_annotation(group_schema)) {
+        // Primitive annotations cannot change a group into a scalar. Reject them here instead of
+        // silently interpreting malformed metadata as an ordinary STRUCT.
+        return Status::InvalidArgument("Primitive annotation cannot be applied to group node {}",
+                                       group_schema.name);
     }
     if (is_map_node(group_schema)) {
         // the map definition:

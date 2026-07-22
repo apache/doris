@@ -82,11 +82,25 @@ Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
                 return Status::Corruption("Parquet row group {} column {} has no metadata",
                                           row_group_idx, column_idx);
             }
-            if (chunk.meta_data.type != _schema.get_physical_field(column_idx)->physical_type) {
+            const auto* physical_field = _schema.get_physical_field(column_idx);
+            if (chunk.meta_data.type != physical_field->physical_type) {
                 return Status::Corruption(
                         "Parquet row group {} column {} physical type {} does not match schema {}",
                         row_group_idx, column_idx, tparquet::to_string(chunk.meta_data.type),
-                        tparquet::to_string(_schema.get_physical_field(column_idx)->physical_type));
+                        tparquet::to_string(physical_field->physical_type));
+            }
+            if (chunk.meta_data.num_values < 0) {
+                return Status::Corruption(
+                        "Parquet row group {} column {} has negative value count {}", row_group_idx,
+                        column_idx, chunk.meta_data.num_values);
+            }
+            if (physical_field->repetition_level == 0 &&
+                chunk.meta_data.num_values != row_group.num_rows) {
+                // A flat leaf contributes one definition-level slot per row, including NULLs.
+                // Reject a mismatched footer before metadata COUNT can treat it as cardinality.
+                return Status::Corruption(
+                        "Parquet row group {} flat column {} has {} values but {} rows",
+                        row_group_idx, column_idx, chunk.meta_data.num_values, row_group.num_rows);
             }
         }
     }

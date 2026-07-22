@@ -709,7 +709,12 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             DORIS_CHECK(column_chunk.__isset.meta_data);
             const auto& column_metadata = column_chunk.meta_data;
             std::optional<tparquet::Statistics> safe_statistics;
-            if (column_metadata.__isset.statistics) {
+            if (column_metadata.__isset.statistics &&
+                detail::can_use_native_footer_min_max(
+                        leaf_schema->type_descriptor, column_metadata.statistics,
+                        detail::has_supported_type_defined_order(
+                                _state->file_context.native_metadata->to_thrift(),
+                                leaf_schema->leaf_column_id))) {
                 safe_statistics = detail::sanitize_native_footer_statistics(
                         leaf_schema->type_descriptor, column_metadata.statistics,
                         detail::has_supported_type_defined_order(

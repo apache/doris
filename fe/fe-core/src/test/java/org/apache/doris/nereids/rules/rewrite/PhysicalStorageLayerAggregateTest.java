@@ -149,6 +149,21 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 .nonMatch(physicalStorageLayerAggregate());
     }
 
+    @Test
+    public void testMixedCountStarAndNullableFileCountDoesNotUseStorageLayerAggregate() {
+        LogicalAggregate<LogicalFileScan> nullableCount = newNullableFileCountAggregate();
+        LogicalFileScan fileScan = nullableCount.child();
+        LogicalAggregate<LogicalFileScan> mixedCount = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(), "count_star"),
+                        new Alias(new Count(fileScan.getOutput().get(0)), "count_nullable")),
+                true, Optional.empty(), fileScan);
+
+        PlanChecker.from(MemoTestUtils.createCascadesContext(mixedCount))
+                .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                .nonMatch(physicalStorageLayerAggregate());
+    }
+
     private LogicalAggregate<LogicalFileScan> newNullableFileCountAggregate() {
         Column nullableColumn = new Column("value", Type.INT, true);
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);

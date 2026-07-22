@@ -1035,6 +1035,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
+    _remaining_file_level_count = -1;
     _current_split_uses_metadata_count = false;
     _current_reader_reached_eof = false;
     RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,

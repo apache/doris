@@ -111,6 +111,12 @@ tparquet::Statistics sanitize_native_footer_statistics(const ParquetTypeDescript
 bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
                                    const tparquet::Statistics& statistics,
                                    bool has_type_defined_order) {
+    // Inexact bounds remain useful for pruning, but returning them as aggregate values changes the
+    // query result. Missing exactness fields are legacy-compatible; only an explicit false rejects.
+    if ((statistics.__isset.is_min_value_exact && !statistics.is_min_value_exact) ||
+        (statistics.__isset.is_max_value_exact && !statistics.is_max_value_exact)) {
+        return false;
+    }
     const auto sanitized =
             sanitize_native_footer_statistics(type_descriptor, statistics, has_type_defined_order);
     return (sanitized.__isset.min_value && sanitized.__isset.max_value) ||

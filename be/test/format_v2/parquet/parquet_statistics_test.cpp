@@ -427,6 +427,32 @@ TEST(NativeParquetStatisticsTest, LegacyBinaryFooterBoundsRequireComparableOrder
                                                                         true));
 }
 
+TEST(NativeParquetStatisticsTest, ExplicitlyInexactNumericBoundsCannotBackMinMaxAggregate) {
+    format::parquet::ParquetTypeDescriptor int32_type;
+    int32_type.physical_type = tparquet::Type::INT32;
+    auto encode_int32 = [](int32_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+
+    tparquet::Statistics statistics;
+    statistics.__set_min_value(encode_int32(0));
+    statistics.__set_max_value(encode_int32(100));
+    EXPECT_TRUE(
+            format::parquet::detail::can_use_native_footer_min_max(int32_type, statistics, true));
+
+    statistics.__set_is_min_value_exact(false);
+    statistics.__set_is_max_value_exact(true);
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(int32_type, statistics, true));
+
+    statistics.__set_is_min_value_exact(true);
+    statistics.__set_is_max_value_exact(false);
+    EXPECT_FALSE(
+            format::parquet::detail::can_use_native_footer_min_max(int32_type, statistics, true));
+}
+
 TEST(NativeParquetStatisticsTest, TypeDefinedBoundsRequireSupportedColumnOrder) {
     auto encode_int32 = [](int32_t value) {
         std::string bytes(sizeof(value), '\0');

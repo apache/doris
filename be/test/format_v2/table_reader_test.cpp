@@ -1856,6 +1856,58 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     EXPECT_EQ(fake_state->last_aggregate_request->columns[0].projection.local_id(), 0);
 }
 
+TEST(TableReaderTest, PushDownCountEmitsAtMostOneRuntimeBatch) {
+    const auto nullable_bigint_type = make_nullable(std::make_shared<DataTypeInt64>());
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", nullable_bigint_type));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", nullable_bigint_type));
+    set_name_identifiers(&projected_columns);
+
+    TQueryOptions query_options;
+    query_options.__set_batch_size(2);
+    RuntimeState state {query_options, TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 5;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns =
+                                            std::vector<GlobalIndex> {GlobalIndex(0)},
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    bool eos = false;
+    for (const size_t expected_rows : {2, 2, 1}) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_FALSE(eos);
+        EXPECT_EQ(block.rows(), expected_rows);
+        ASSERT_TRUE(block.check_type_and_column().ok()) << block.dump_structure();
+    }
+
+    Block block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
+    EXPECT_EQ(fake_state->open_count, 1);
+    EXPECT_EQ(fake_state->close_count, 1);
+    EXPECT_TRUE(reader.current_split_uses_metadata_count());
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, PushDownCountStarIgnoresProjectedPlaceholderColumn) {
     const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
     std::vector<ColumnDefinition> file_schema;

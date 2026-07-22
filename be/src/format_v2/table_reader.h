@@ -242,6 +242,7 @@ public:
         }
         _delete_rows = nullptr;
         _remaining_table_level_count = -1;
+        _remaining_file_level_count = -1;
         _current_split_uses_metadata_count = false;
         _current_split_pruned = false;
         return Status::OK();
@@ -267,6 +268,10 @@ public:
             if (!_data_reader.reader) {
                 if (_is_table_level_count_active()) {
                     RETURN_IF_ERROR(_read_table_level_count(block, eos));
+                    return Status::OK();
+                }
+                if (_is_file_level_count_active()) {
+                    RETURN_IF_ERROR(_read_file_level_count(block, eos));
                     return Status::OK();
                 }
                 RETURN_IF_ERROR(create_next_reader(eos));
@@ -345,6 +350,7 @@ public:
         _current_task.reset();
         _current_file_description.reset();
         _remaining_table_level_count = -1;
+        _remaining_file_level_count = -1;
         _current_split_uses_metadata_count = false;
         return Status::OK();
     }
@@ -631,6 +637,8 @@ protected:
 
     bool _is_table_level_count_active() const { return _remaining_table_level_count >= 0; }
 
+    bool _is_file_level_count_active() const { return _remaining_file_level_count >= 0; }
+
     Status _materialize_count_rows(size_t rows, Block* block) const {
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(block->columns() > 0 || rows == 0);
@@ -650,26 +658,41 @@ protected:
         return Status::OK();
     }
 
-    Status _read_table_level_count(Block* block, bool* eos) {
+    Status _materialize_next_count_batch(int64_t* remaining_rows, Block* block) const {
+        DORIS_CHECK(remaining_rows != nullptr);
+        DORIS_CHECK(*remaining_rows > 0);
+        const int64_t batch_size = _runtime_state == nullptr
+                                           ? *remaining_rows
+                                           : static_cast<int64_t>(_runtime_state->batch_size());
+        const auto rows = std::min(*remaining_rows, batch_size);
+        RETURN_IF_ERROR(_materialize_count_rows(cast_set<size_t>(rows), block));
+        *remaining_rows -= rows;
+        return Status::OK();
+    }
+
+    Status _read_count_batch(int64_t* remaining_rows, Block* block, bool* eos) {
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(eos != nullptr);
         DORIS_CHECK(_push_down_agg_type == TPushAggOp::type::COUNT);
-        DORIS_CHECK(_remaining_table_level_count >= 0);
-        if (_remaining_table_level_count == 0) {
-            _remaining_table_level_count = -1;
+        DORIS_CHECK(remaining_rows != nullptr);
+        DORIS_CHECK(*remaining_rows >= 0);
+        if (*remaining_rows == 0) {
+            *remaining_rows = -1;
             _current_task.reset();
             *eos = true;
             return Status::OK();
         }
-
-        const int64_t batch_size = _runtime_state == nullptr
-                                           ? _remaining_table_level_count
-                                           : static_cast<int64_t>(_runtime_state->batch_size());
-        const auto rows = std::min(_remaining_table_level_count, batch_size);
-        RETURN_IF_ERROR(_materialize_count_rows(cast_set<size_t>(rows), block));
-        _remaining_table_level_count -= rows;
+        RETURN_IF_ERROR(_materialize_next_count_batch(remaining_rows, block));
         *eos = false;
         return Status::OK();
+    }
+
+    Status _read_table_level_count(Block* block, bool* eos) {
+        return _read_count_batch(&_remaining_table_level_count, block, eos);
+    }
+
+    Status _read_file_level_count(Block* block, bool* eos) {
+        return _read_count_batch(&_remaining_file_level_count, block, eos);
     }
 
     void _append_file_scan_column(FileScanRequest* request, LocalColumnId column_id,
@@ -1019,10 +1042,19 @@ protected:
             return Status::OK();
         }
         RETURN_IF_ERROR(status);
-        RETURN_IF_ERROR(
-                _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
         if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+            DORIS_CHECK(file_result.count >= 0);
+            // The upper aggregate consumes synthetic input rows, but emitting the whole metadata
+            // count in one block bypasses the runtime batch contract and can allocate by file size.
+            // Keep the remaining cardinality as split state and expose at most one batch per call.
+            _remaining_file_level_count = file_result.count;
             _current_split_uses_metadata_count = true;
+            if (_remaining_file_level_count > 0) {
+                RETURN_IF_ERROR(_materialize_next_count_batch(&_remaining_file_level_count, block));
+            }
+        } else {
+            RETURN_IF_ERROR(
+                    _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
         }
         *pushed_down = true;
         RETURN_IF_ERROR(close_current_reader());
@@ -1631,13 +1663,7 @@ protected:
     Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
                                                 const FileAggregateResult& file_result,
                                                 Block* block) {
-        if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown is not a final count value. It emits `count` default rows so the
-            // upper COUNT(*) aggregate can count them and produce the final result, including
-            // zero rows when count is 0.
-            DORIS_CHECK(file_result.count >= 0);
-            return _materialize_count_rows(cast_set<size_t>(file_result.count), block);
-        }
+        DORIS_CHECK(agg_type == TPushAggOp::type::MINMAX);
         // MIN/MAX pushdown emits two rows, min first and max second, for each projected column.
         // The upper MIN/MAX aggregate consumes those two rows to produce the final aggregate value.
         DORIS_CHECK(file_result.columns.size() == _data_reader.column_mapper->mappings().size());
@@ -1747,6 +1773,7 @@ protected:
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
+    int64_t _remaining_file_level_count = -1;
     // True only after the active split selects a table-level row-count shortcut or successfully
     // materializes COUNT rows from file metadata. FileScannerV2 uses this result, rather than the
     // raw aggregate opcode, to keep adaptive batching enabled for normal row-scan fallbacks.
