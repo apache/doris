@@ -1042,22 +1042,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime) throws DdlException {
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
-            // Drop associated IVM streams
-            MTMV mtmv = (MTMV) table;
-            MTMVRelation relation = mtmv.getRelation();
-            if (relation != null && mtmv.isIvm()) {
-                Set<BaseTableInfo> baseTables = relation.getBaseTables();
-                if (baseTables != null) {
-                    for (BaseTableInfo baseTableInfo : baseTables) {
-                        String streamName = IvmUtil.streamName(mtmv.getId(), baseTableInfo.getTableName());
-                        TableIf streamTable = db.getTableNullable(streamName);
-                        if (streamTable != null) {
-                            unprotectDropTable(db, (Table) streamTable, isForceDrop, isReplay, 0L);
-                            LOG.info("dropped stream {} associated with MTMV {}", streamName, mtmv.getName());
-                        }
-                    }
-                }
-            }
+            unprotectDropIvmStreams(db, (MTMV) table, isForceDrop, isReplay);
         }
         if (table instanceof View) {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
@@ -1078,6 +1063,28 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished dropping table[{}] in db[{}] recycleTable cost: {}ms",
                 table.getName(), db.getFullName(), watch.getTime());
         return true;
+    }
+
+    public void unprotectDropIvmStreams(Database db, MTMV mtmv, boolean isForceDrop, boolean isReplay)
+            throws DdlException {
+        MTMVRelation relation = mtmv.getRelation();
+        if (!mtmv.isIvm() || relation == null || relation.getBaseTables() == null) {
+            return;
+        }
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            String streamName = IvmUtil.streamName(mtmv.getId(), baseTableInfo.getTableName());
+            TableIf streamTable = db.getTableNullable(streamName);
+            if (streamTable != null) {
+                Table stream = (Table) streamTable;
+                stream.writeLock();
+                try {
+                    unprotectDropTable(db, stream, isForceDrop, isReplay, 0L);
+                    LOG.info("dropped stream {} associated with MTMV {}", streamName, mtmv.getName());
+                } finally {
+                    stream.writeUnlock();
+                }
+            }
+        }
     }
 
     private void dropTable(Database db, long tableId, boolean isForceDrop, boolean isReplay,

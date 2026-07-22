@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -27,6 +28,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -332,6 +334,96 @@ public class AlterMTMVTest extends TestWithFeService {
         Assertions.assertNotNull(streamTable, "Stream should be auto-created for IVM base table");
         Assertions.assertTrue(streamTable instanceof org.apache.doris.catalog.stream.OlapTableStream,
                 "Should be an OlapTableStream");
+    }
+
+    @Test
+    public void testReplaceIvmWithoutSwapRemovesOldStreams() throws Exception {
+        createDatabaseAndUse("ivm_replace_stream_test");
+        createIvmBaseAndMv("ivm_replace_stream_test", "replace_old_base", "replace_old_mv");
+        createIvmBaseAndMv("ivm_replace_stream_test", "replace_new_base", "replace_new_mv");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_replace_stream_test");
+        MTMV oldMtmv = (MTMV) db.getTableOrMetaException("replace_old_mv");
+        MTMV newMtmv = (MTMV) db.getTableOrMetaException("replace_new_mv");
+        String oldStreamName = IvmUtil.streamName(oldMtmv.getId(), "replace_old_base");
+        String newStreamName = IvmUtil.streamName(newMtmv.getId(), "replace_new_base");
+        long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
+        long newStreamId = db.getTableOrMetaException(newStreamName).getId();
+
+        alterMv("ALTER MATERIALIZED VIEW replace_old_mv REPLACE WITH MATERIALIZED VIEW replace_new_mv "
+                + "PROPERTIES ('swap' = 'false')");
+
+        Assertions.assertNull(db.getTableNullable(oldStreamName));
+        Assertions.assertFalse(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(oldStreamId));
+        Assertions.assertNotNull(db.getTableNullable(newStreamName));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(newStreamId));
+        Assertions.assertEquals(newMtmv.getId(), db.getTableOrMetaException("replace_old_mv").getId());
+        Assertions.assertNull(db.getTableNullable("replace_new_mv"));
+    }
+
+    @Test
+    public void testReplayReplaceIvmWithoutSwapRemovesOldStreams() throws Exception {
+        createDatabaseAndUse("ivm_replay_replace_stream_test");
+        createIvmBaseAndMv("ivm_replay_replace_stream_test", "replay_old_base", "replay_old_mv");
+        createIvmBaseAndMv("ivm_replay_replace_stream_test", "replay_new_base", "replay_new_mv");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_replay_replace_stream_test");
+        MTMV oldMtmv = (MTMV) db.getTableOrMetaException("replay_old_mv");
+        MTMV newMtmv = (MTMV) db.getTableOrMetaException("replay_new_mv");
+        String oldStreamName = IvmUtil.streamName(oldMtmv.getId(), "replay_old_base");
+        String newStreamName = IvmUtil.streamName(newMtmv.getId(), "replay_new_base");
+        long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
+        long newStreamId = db.getTableOrMetaException(newStreamName).getId();
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), oldMtmv.getId(),
+                oldMtmv.getName(), newMtmv.getId(), newMtmv.getName(), false, true);
+
+        Env.getCurrentEnv().getAlterInstance().replayReplaceTable(log);
+
+        Assertions.assertNull(db.getTableNullable(oldStreamName));
+        Assertions.assertFalse(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(oldStreamId));
+        Assertions.assertNotNull(db.getTableNullable(newStreamName));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(newStreamId));
+    }
+
+    @Test
+    public void testReplaceIvmWithSwapKeepsBothStreams() throws Exception {
+        createDatabaseAndUse("ivm_swap_replace_stream_test");
+        createIvmBaseAndMv("ivm_swap_replace_stream_test", "swap_old_base", "swap_old_mv");
+        createIvmBaseAndMv("ivm_swap_replace_stream_test", "swap_new_base", "swap_new_mv");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_swap_replace_stream_test");
+        MTMV oldMtmv = (MTMV) db.getTableOrMetaException("swap_old_mv");
+        MTMV newMtmv = (MTMV) db.getTableOrMetaException("swap_new_mv");
+        String oldStreamName = IvmUtil.streamName(oldMtmv.getId(), "swap_old_base");
+        String newStreamName = IvmUtil.streamName(newMtmv.getId(), "swap_new_base");
+        long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
+        long newStreamId = db.getTableOrMetaException(newStreamName).getId();
+
+        alterMv("ALTER MATERIALIZED VIEW swap_old_mv REPLACE WITH MATERIALIZED VIEW swap_new_mv "
+                + "PROPERTIES ('swap' = 'true')");
+
+        Assertions.assertNotNull(db.getTableNullable(oldStreamName));
+        Assertions.assertNotNull(db.getTableNullable(newStreamName));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(oldStreamId));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(newStreamId));
+    }
+
+    private void createIvmBaseAndMv(String dbName, String baseTableName, String mvName) throws Exception {
+        createTable("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW " + dbName + "." + mvName + "\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM " + dbName + "." + baseTableName);
     }
 
     @Test

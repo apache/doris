@@ -822,6 +822,10 @@ public class Alter {
             if (!isReplay) {
                 Env.getCurrentEnv().getConstraintManager().checkNoReferencingForeignKeys(origTableInfo);
             }
+            if (origTable instanceof MTMV) {
+                Env.getCurrentInternalCatalog().unprotectDropIvmStreams(
+                        db, (MTMV) origTable, isForce, isReplay);
+            }
             Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
         }
 
