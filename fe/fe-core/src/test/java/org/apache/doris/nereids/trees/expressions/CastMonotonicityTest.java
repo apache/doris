@@ -53,6 +53,9 @@ class CastMonotonicityTest {
 
         Assertions.assertTrue(cast.isMonotonic(null, timestampTz("2024-11-03 06:00:00+00:00")));
         Assertions.assertTrue(cast.isMonotonic(timestampTz("2024-11-03 05:00:00+00:00"), null));
+        Assertions.assertTrue(cast(6, 0).isMonotonic(
+                timestampTz("2024-11-03 05:00:00.000000+00:00"),
+                timestampTz("2024-11-03 05:59:59.900000+00:00")));
     }
 
     @Test
@@ -83,6 +86,15 @@ class CastMonotonicityTest {
     }
 
     @Test
+    void testScaleReductionInDynamicTimeZoneIsNotMonotonic() {
+        setTimeZone("America/New_York");
+
+        Assertions.assertFalse(cast(6, 0).isMonotonic(
+                timestampTz("2024-11-03 05:00:00.000000+00:00"),
+                timestampTz("2024-11-03 05:59:59.900000+00:00")));
+    }
+
+    @Test
     void testUnboundedRangeInDynamicTimeZoneIsNotMonotonic() {
         setTimeZone("America/New_York");
 
@@ -92,6 +104,11 @@ class CastMonotonicityTest {
 
     private TimestampTzLiteral timestampTz(String value) {
         return new TimestampTzLiteral(TimeStampTzType.of(6), value);
+    }
+
+    private Cast cast(int sourceScale, int destinationScale) {
+        return new Cast(new SlotReference("ts", TimeStampTzType.of(sourceScale)),
+                DateTimeV2Type.of(destinationScale));
     }
 
     private void setTimeZone(String timeZone) {

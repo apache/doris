@@ -287,12 +287,14 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         }
 
         if (childType instanceof TimeStampTzType && targetType instanceof DateTimeV2Type) {
-            return isTimeStampTzToDateTimeV2Monotonic(lower, upper);
+            return isTimeStampTzToDateTimeV2Monotonic(
+                    (TimeStampTzType) childType, (DateTimeV2Type) targetType, lower, upper);
         }
         return true;
     }
 
-    private boolean isTimeStampTzToDateTimeV2Monotonic(Literal lower, Literal upper) {
+    private boolean isTimeStampTzToDateTimeV2Monotonic(
+            TimeStampTzType sourceType, DateTimeV2Type destinationType, Literal lower, Literal upper) {
         ZoneId timeZone;
         try {
             timeZone = DateUtils.getTimeZone();
@@ -301,6 +303,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         }
         if (timeZone.getRules().isFixedOffset()) {
             return true;
+        }
+        // Scale reduction rounds the UTC value before applying the session timezone. That rounding
+        // can move values across a fall-back transition just outside the original partition range.
+        if (destinationType.getScale() < sourceType.getScale()) {
+            return false;
         }
         if (!(lower instanceof TimestampTzLiteral) || !(upper instanceof TimestampTzLiteral)) {
             return false;

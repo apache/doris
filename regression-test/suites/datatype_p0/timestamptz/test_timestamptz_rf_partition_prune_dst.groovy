@@ -23,6 +23,7 @@ suite("test_timestamptz_rf_partition_prune_dst") {
     sql "SET runtime_filter_wait_infinitely=true"
     sql "SET runtime_filter_mode='GLOBAL'"
     sql "SET runtime_filter_type='IN_OR_BLOOM_FILTER'"
+    sql "SET runtime_filter_max_in_num=1024"
     sql "SET disable_join_reorder=true"
     sql "SET enable_sql_cache=false"
 
