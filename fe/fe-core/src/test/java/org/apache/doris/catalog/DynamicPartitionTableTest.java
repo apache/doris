@@ -3642,16 +3642,20 @@ public class DynamicPartitionTableTest {
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_noncanonical");
 
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-            ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
 
-            // Non-canonical partition: lower = yesterday 16:00Z, upper = today 16:00Z.
-            // currentUtcBorder (today 00:00Z) is inside [yesterday 16:00Z, today 16:00Z)
-            // but does NOT equal the lower bound (16:00Z).
-            ZonedDateTime yesterday16Z = now.withHour(16).withMinute(0).withSecond(0).withNano(0);
-            if (now.getHour() < 16) {
-                yesterday16Z = yesterday16Z.minusDays(1);
-            }
-            ZonedDateTime today16Z = yesterday16Z.plusDays(1);
+            // Derive all timestamps from today's UTC midnight so the
+            // test is independent of wall-clock time.  At 2026-07-22
+            // 00:00:00Z:
+            //   lower = yesterday 16:00Z = 2026-07-21 16:00Z
+            //   upper = today     16:00Z = 2026-07-22 16:00Z
+            //
+            // currentUtcBorder (today 00:00Z = 2026-07-22 00:00Z) is
+            // always inside [yesterday 16:00Z, today 16:00Z) regardless
+            // of when the test runs.
+            ZonedDateTime todayMidnight = ZonedDateTime.now(ZoneOffset.UTC)
+                    .withHour(0).withMinute(0).withSecond(0).withNano(0);
+            ZonedDateTime yesterday16Z = todayMidnight.minusHours(8);  // yesterday 16:00Z
+            ZonedDateTime today16Z = yesterday16Z.plusDays(1);        // today 16:00Z
             String oldLower = fmt.format(yesterday16Z) + "+00:00";
             String oldUpper = fmt.format(today16Z) + "+00:00";
             alterTable("ALTER TABLE test.tstz_noncanonical ADD PARTITION p_legacy VALUES "
@@ -3664,7 +3668,7 @@ public class DynamicPartitionTableTest {
             Assert.assertEquals(2, table.getPartitionNames().size());
 
             // currentUtcBorder = today's UTC midnight → inside p_legacy.
-            String currentUtcBorder = fmt.format(now.withHour(0).withMinute(0).withSecond(0).withNano(0)) + "+00:00";
+            String currentUtcBorder = fmt.format(todayMidnight) + "+00:00";
 
             // Sanity check: currentUtcBorder is inside p_legacy.
             RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
