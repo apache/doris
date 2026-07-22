@@ -18,38 +18,6 @@
 
 suite("test_drop_index_on_partition", "inverted_index") {
     def timeout = 300000
-    def delta_time = 1000
-
-    def get_build_index_job_count = { table_name ->
-        def res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-        return res.size()
-    }
-
-    def wait_for_build_index_on_partition_finish = { table_name, expected_job_count, OpTimeout ->
-        def useTime = 0
-        for (int t = delta_time; t <= OpTimeout; t += delta_time) {
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            if (alter_res.size() < expected_job_count) {
-                useTime = t
-                sleep(delta_time)
-                continue
-            }
-            def finished_num = 0
-            for (int i = 0; i < alter_res.size(); i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + " idx: " + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num
-                }
-            }
-            if (finished_num == alter_res.size()) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_build_index_on_partition_finish timeout")
-    }
 
     // case 1: basic DROP INDEX ON PARTITION with job count verification
     def tableName1 = "test_drop_idx_on_partition_basic"
@@ -76,7 +44,16 @@ suite("test_drop_index_on_partition", "inverted_index") {
 
     // create inverted index
     sql "CREATE INDEX idx_v2 ON ${tableName1}(v2) USING INVERTED"
-    wait_for_last_build_index_finish(tableName1, timeout)
+    wait_for_last_col_change_finish(tableName1, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName1, timeout) {
+            build_index_on_table("idx_v2", tableName1)
+        }
+        def physical_index_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */
+                k1 FROM ${tableName1} WHERE v2 MATCH 'foo bar'"""
+        assertEquals(1, physical_index_result.size())
+        assertEquals(10, physical_index_result[0][0])
+    }
 
     // verify index exists
     def show_idx = sql "SHOW INDEX FROM ${tableName1}"
@@ -84,19 +61,20 @@ suite("test_drop_index_on_partition", "inverted_index") {
     assertTrue(show_idx.toString().contains("idx_v2"))
 
     // record job count before DROP
-    def job_count_before = get_build_index_job_count(tableName1)
-    logger.info("job count before drop: " + job_count_before)
+    def previous_job_ids = snapshot_build_index_job_ids(tableName1)
+    logger.info("job count before drop: " + previous_job_ids.size())
 
     // drop index on partition p1 only — should create new job(s)
     sql "DROP INDEX idx_v2 ON ${tableName1} PARTITION (p1)"
 
-    def job_count_after = get_build_index_job_count(tableName1)
-    logger.info("job count after drop: " + job_count_after)
-    assertTrue(job_count_after > job_count_before,
+    def job_ids_after = snapshot_build_index_job_ids(tableName1)
+    def new_job_ids = job_ids_after.findAll { !previous_job_ids.contains(it) }.toSet()
+    logger.info("new job count after drop: " + new_job_ids.size())
+    assertTrue(!new_job_ids.isEmpty(),
             "DROP INDEX ON PARTITION should create new build index jobs, " +
-            "before: ${job_count_before}, after: ${job_count_after}")
+            "previous: ${previous_job_ids}, new: ${new_job_ids}")
 
-    wait_for_build_index_on_partition_finish(tableName1, job_count_after, timeout)
+    wait_for_new_build_index_jobs_finish(tableName1, timeout, previous_job_ids)
 
     // verify index definition still exists in table schema
     show_idx = sql "SHOW INDEX FROM ${tableName1}"
@@ -134,19 +112,29 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "INSERT INTO ${tableName2} VALUES (10, 'hello'), (110, 'world'), (210, 'doris')"
 
     sql "CREATE INDEX idx_v1 ON ${tableName2}(v1) USING INVERTED"
-    wait_for_last_build_index_finish(tableName2, timeout)
+    wait_for_last_col_change_finish(tableName2, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName2, timeout) {
+            build_index_on_table("idx_v1", tableName2)
+        }
+        def physical_index_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */
+                k1 FROM ${tableName2} WHERE v1 MATCH 'hello'"""
+        assertEquals(1, physical_index_result.size())
+        assertEquals(10, physical_index_result[0][0])
+    }
 
-    job_count_before = get_build_index_job_count(tableName2)
+    previous_job_ids = snapshot_build_index_job_ids(tableName2)
 
     // drop index on p1 and p2 — should create at least 2 new jobs
     sql "DROP INDEX idx_v1 ON ${tableName2} PARTITIONS (p1, p2)"
 
-    job_count_after = get_build_index_job_count(tableName2)
-    logger.info("multi-partition drop: job count before=${job_count_before}, after=${job_count_after}")
-    assertTrue(job_count_after >= job_count_before + 2,
-            "DROP INDEX ON 2 PARTITIONS should create at least 2 new jobs")
+    job_ids_after = snapshot_build_index_job_ids(tableName2)
+    new_job_ids = job_ids_after.findAll { !previous_job_ids.contains(it) }.toSet()
+    logger.info("multi-partition drop: new job count=${new_job_ids.size()}")
+    assertTrue(new_job_ids.size() >= 2,
+            "DROP INDEX ON 2 PARTITIONS should create at least 2 new jobs, new: ${new_job_ids}")
 
-    wait_for_build_index_on_partition_finish(tableName2, job_count_after, timeout)
+    wait_for_new_build_index_jobs_finish(tableName2, timeout, previous_job_ids)
 
     // index definition should still exist
     show_idx = sql "SHOW INDEX FROM ${tableName2}"
@@ -171,7 +159,7 @@ suite("test_drop_index_on_partition", "inverted_index") {
     """
     sql "INSERT INTO ${tableName3} VALUES (1, 'test')"
     sql "CREATE INDEX idx_v1 ON ${tableName3}(v1) USING INVERTED"
-    wait_for_last_build_index_finish(tableName3, timeout)
+    wait_for_last_col_change_finish(tableName3, timeout)
 
     test {
         sql "DROP INDEX idx_v1 ON ${tableName3} PARTITION (p1)"
@@ -249,18 +237,28 @@ suite("test_drop_index_on_partition", "inverted_index") {
     sql "INSERT INTO ${tableName5} VALUES (10, 'hello world'), (110, 'test data')"
 
     sql "CREATE INDEX idx_v1 ON ${tableName5}(v1) USING INVERTED"
-    wait_for_last_build_index_finish(tableName5, timeout)
+    wait_for_last_col_change_finish(tableName5, timeout)
+    if (!isCloudMode()) {
+        run_index_change_job_and_wait(tableName5, timeout) {
+            build_index_on_table("idx_v1", tableName5)
+        }
+        def physical_index_result = sql """SELECT /*+ SET_VAR(enable_fallback_on_missing_inverted_index=false) */
+                k1 FROM ${tableName5} WHERE v1 MATCH 'hello world'"""
+        assertEquals(1, physical_index_result.size())
+        assertEquals(10, physical_index_result[0][0])
+    }
 
-    job_count_before = get_build_index_job_count(tableName5)
+    previous_job_ids = snapshot_build_index_job_ids(tableName5)
 
     // use ALTER TABLE form
     sql "ALTER TABLE ${tableName5} DROP INDEX idx_v1 PARTITION (p1)"
 
-    job_count_after = get_build_index_job_count(tableName5)
-    assertTrue(job_count_after > job_count_before,
-            "ALTER TABLE DROP INDEX ON PARTITION should create new jobs")
+    job_ids_after = snapshot_build_index_job_ids(tableName5)
+    new_job_ids = job_ids_after.findAll { !previous_job_ids.contains(it) }.toSet()
+    assertTrue(!new_job_ids.isEmpty(),
+            "ALTER TABLE DROP INDEX ON PARTITION should create new jobs, new: ${new_job_ids}")
 
-    wait_for_build_index_on_partition_finish(tableName5, job_count_after, timeout)
+    wait_for_new_build_index_jobs_finish(tableName5, timeout, previous_job_ids)
 
     // index definition should still exist
     show_idx = sql "SHOW INDEX FROM ${tableName5}"

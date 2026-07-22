@@ -19,9 +19,6 @@ import groovy.json.JsonSlurper
 suite("test_ngram_bloomfilter_index_change") {
     def tableName = 'test_ngram_bloomfilter_index_change'
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
     // Helper functions to fetch profile via HTTP API
     def getProfileList = {
@@ -79,21 +76,6 @@ suite("test_ngram_bloomfilter_index_change") {
             }
         }
         return null
-    }
-
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
     // Function to insert test data batch
@@ -181,9 +163,12 @@ suite("test_ngram_bloomfilter_index_change") {
     assertTrue(filtered2 != null && filtered2 == 10, "Expected RowsBloomFilterFiltered = 10, but got ${filtered2}")
 
     // Drop index
+    def previousJobIds = isCloudMode() ? snapshot_build_index_job_ids(tableName) : null
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    wait_for_last_build_index_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
+    if (isCloudMode()) {
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previousJobIds)
+    }
 
     // Test after dropping index
     def token3 = UUID.randomUUID().toString()
@@ -237,8 +222,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Add NGRAM Bloom Filter index (will trigger schema change in this mode)
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    wait_for_last_build_index_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
 
     // Test after adding NGRAM Bloom Filter index (should filter existing data)
     def token5 = UUID.randomUUID().toString()
@@ -263,8 +247,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Drop index
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    wait_for_last_build_index_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
 
     // Test after dropping index
     def token7 = UUID.randomUUID().toString()
@@ -306,8 +289,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Add ngram bf index before data insertion
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    wait_for_last_build_index_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
 
     // Insert data after index creation
     insertTestData()
@@ -336,6 +318,10 @@ suite("test_ngram_bloomfilter_index_change") {
     assertTrue(filtered9 != null && filtered9 == 20, "Expected RowsBloomFilterFiltered = 20, but got ${filtered9}")
 
     // Final cleanup
+    previousJobIds = isCloudMode() ? snapshot_build_index_job_ids(tableName) : null
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    sleep(2000)
+    wait_for_last_col_change_finish(tableName, timeout)
+    if (isCloudMode()) {
+        wait_for_new_build_index_jobs_finish(tableName, timeout, previousJobIds)
+    }
 }

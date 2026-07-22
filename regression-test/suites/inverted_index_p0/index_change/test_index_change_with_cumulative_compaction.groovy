@@ -21,32 +21,8 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
     def tableName = "index_change_with_cumulative_compaction_dup_keys"
 
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
     sql "set enable_add_index_for_new_data = true"
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
 
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
@@ -154,13 +130,22 @@ suite("test_index_change_with_cumulative_compaction", "nonConcurrent") {
         sql """ CREATE INDEX idx_date ON ${tableName}(`date`) USING INVERTED """
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
 
-        // build index
-        build_index_on_table("idx_user_id", tableName)
-        wait_for_build_index_on_partition_finish(tableName, timeout)
-        build_index_on_table("idx_date", tableName)
-        wait_for_build_index_on_partition_finish(tableName, timeout)
-        build_index_on_table("idx_city", tableName)
-        wait_for_build_index_on_partition_finish(tableName, timeout)
+        // Cloud BUILD INDEX is table-scoped; local BUILD INDEX is index-scoped.
+        if (isCloudMode()) {
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_user_id", tableName)
+            }
+        } else {
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_user_id", tableName)
+            }
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_date", tableName)
+            }
+            run_index_change_job_and_wait(tableName, timeout) {
+                build_index_on_table("idx_city", tableName)
+            }
+        }
 
         // trigger compactions for all tablets in ${tableName}
         trigger_and_wait_compaction(tableName, "cumulative")
