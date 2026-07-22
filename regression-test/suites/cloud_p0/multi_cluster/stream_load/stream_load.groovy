@@ -314,6 +314,109 @@ suite("stream_load") {
 
     assertTrue(before_cluster1_load_rows == after_cluster1_load_rows)
     assertTrue(before_cluster1_flush == after_cluster1_flush)
+
+    // case4 FE redirects HTTP stream by compute_group and planning follows the receiving backend
+    before_cluster0_load_rows = get_be_metric(ipList[0], httpPortList[0], "load_rows");
+    log.info("before_cluster0_load_rows : ${before_cluster0_load_rows}".toString())
+    before_cluster0_flush = get_be_metric(ipList[0], httpPortList[0], "memtable_flush_total");
+    log.info("before_cluster0_flush : ${before_cluster0_flush}".toString())
+
+    before_cluster1_load_rows = get_be_metric(ipList[1], httpPortList[1], "load_rows");
+    log.info("before_cluster1_load_rows : ${before_cluster1_load_rows}".toString())
+    before_cluster1_flush = get_be_metric(ipList[1], httpPortList[1], "memtable_flush_total");
+    log.info("before_cluster1_flush : ${before_cluster1_flush}".toString())
+
+    streamLoad {
+        set 'version', '1'
+        set 'sql', """
+                insert into ${context.dbName}.${tableName4}
+                select * from http_stream("format"="csv", "column_separator"=",")
+                """
+        set 'compute_group', 'stream_load_cluster_name1'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { loadResult, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("HTTP stream load result: ${loadResult}".toString())
+            def json = parseJson(loadResult)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(20, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_http_stream_compute_group "SELECT count(*) FROM ${tableName4}"
+
+    after_cluster0_load_rows = get_be_metric(ipList[0], httpPortList[0], "load_rows");
+    log.info("after_cluster0_load_rows : ${after_cluster0_load_rows}".toString())
+    after_cluster0_flush = get_be_metric(ipList[0], httpPortList[0], "memtable_flush_total");
+    log.info("after_cluster0_flush : ${after_cluster0_flush}".toString())
+
+    after_cluster1_load_rows = get_be_metric(ipList[1], httpPortList[1], "load_rows");
+    log.info("after_cluster1_load_rows : ${after_cluster1_load_rows}".toString())
+    after_cluster1_flush = get_be_metric(ipList[1], httpPortList[1], "memtable_flush_total");
+    log.info("after_cluster1_flush : ${after_cluster1_flush}".toString())
+
+    assertTrue(before_cluster0_load_rows == after_cluster0_load_rows)
+    assertTrue(before_cluster0_flush == after_cluster0_flush)
+
+    assertTrue(before_cluster1_load_rows < after_cluster1_load_rows)
+    assertTrue(before_cluster1_flush < after_cluster1_flush)
+
+    // case5 direct-to-BE stream load ignores compute_group and uses the receiving backend's compute group
+    before_cluster0_load_rows = get_be_metric(ipList[0], httpPortList[0], "load_rows");
+    log.info("before_cluster0_load_rows : ${before_cluster0_load_rows}".toString())
+    before_cluster0_flush = get_be_metric(ipList[0], httpPortList[0], "memtable_flush_total");
+    log.info("before_cluster0_flush : ${before_cluster0_flush}".toString())
+
+    before_cluster1_load_rows = get_be_metric(ipList[1], httpPortList[1], "load_rows");
+    log.info("before_cluster1_load_rows : ${before_cluster1_load_rows}".toString())
+    before_cluster1_flush = get_be_metric(ipList[1], httpPortList[1], "memtable_flush_total");
+    log.info("before_cluster1_flush : ${before_cluster1_flush}".toString())
+
+    streamLoad {
+        table "${tableName4}"
+        directToBe ipList[0], httpPortList[0].toInteger()
+
+        set 'column_separator', ','
+        set 'compute_group', 'stream_load_cluster_name1'
+
+        file 'all_types.csv'
+        time 10000 // limit inflight 10s
+
+        check { loadResult, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Direct-to-BE stream load result: ${loadResult}".toString())
+            def json = parseJson(loadResult)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(20, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_direct_be_compute_group "SELECT count(*) FROM ${tableName4}"
+
+    after_cluster0_load_rows = get_be_metric(ipList[0], httpPortList[0], "load_rows");
+    log.info("after_cluster0_load_rows : ${after_cluster0_load_rows}".toString())
+    after_cluster0_flush = get_be_metric(ipList[0], httpPortList[0], "memtable_flush_total");
+    log.info("after_cluster0_flush : ${after_cluster0_flush}".toString())
+
+    after_cluster1_load_rows = get_be_metric(ipList[1], httpPortList[1], "load_rows");
+    log.info("after_cluster1_load_rows : ${after_cluster1_load_rows}".toString())
+    after_cluster1_flush = get_be_metric(ipList[1], httpPortList[1], "memtable_flush_total");
+    log.info("after_cluster1_flush : ${after_cluster1_flush}".toString())
+
+    assertTrue(before_cluster0_load_rows < after_cluster0_load_rows)
+    assertTrue(before_cluster0_flush < after_cluster0_flush)
+
+    assertTrue(before_cluster1_load_rows == after_cluster1_load_rows)
+    assertTrue(before_cluster1_flush == after_cluster1_flush)
     } finally {
     sql """ drop table if exists ${tableName3} """
     sql """ drop table if exists ${tableName4} """

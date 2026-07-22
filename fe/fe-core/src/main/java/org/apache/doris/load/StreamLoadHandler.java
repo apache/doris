@@ -139,11 +139,19 @@ public class StreamLoadHandler {
             Preconditions.checkState(currentUser.size() == 1);
             ctx.setCurrentUserIdentity(currentUser.get(0));
         }
-        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
+        if (request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
-            ctx.setCloudCluster(backend.getCloudClusterName());
+            String computeGroup = backend.getCloudClusterName();
+            // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
+            // stream loads must still validate compute group privilege, existence, and status.
+            if (request.isSetToken() || request.isSetAuthCode() || Strings.isNullOrEmpty(userName)) {
+                ctx.setCloudCluster(computeGroup);
+            } else {
+                ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(computeGroup, ctx);
+            }
+            request.setCloudCluster(computeGroup);
             return;
         }
         if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
