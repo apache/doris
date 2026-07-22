@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
 #include "storage/utils.h"
@@ -40,6 +41,15 @@ public:
     // resize segment rowid map to its rows num
     Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
         for (size_t i = 0; i < num_rows.size(); i++) {
+            auto src_segment = std::pair<RowsetId, uint32_t> {src_rowset_id, cast_set<uint32_t>(i)};
+            auto iter = _segment_to_id_map.find(src_segment);
+            // Each segment-group reader initializes all source segments, so reuse existing maps.
+            if (iter != _segment_to_id_map.end()) {
+                DORIS_CHECK_LT(iter->second, _segments_rowid_map.size());
+                DORIS_CHECK_EQ(_segments_rowid_map[iter->second].size(), num_rows[i]);
+                continue;
+            }
+
             constexpr size_t RESERVED_MEMORY = 10 * 1024 * 1024; // 10M
             if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(RESERVED_MEMORY)) {
                 return Status::MemoryLimitExceeded(fmt::format(
@@ -59,9 +69,10 @@ public:
                                 ->consumption()));
             }
 
-            uint32_t id = static_cast<uint32_t>(_segments_rowid_map.size());
-            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
-            _id_to_segment_map.emplace_back(src_rowset_id, i);
+            uint32_t id = cast_set<uint32_t>(_segments_rowid_map.size());
+            auto insert_result = _segment_to_id_map.emplace(src_segment, id);
+            DORIS_CHECK(insert_result.second);
+            _id_to_segment_map.push_back(src_segment);
             std::vector<std::pair<uint32_t, uint32_t>> vec(
                     num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX));
 
