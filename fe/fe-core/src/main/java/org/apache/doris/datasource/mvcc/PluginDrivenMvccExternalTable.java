@@ -230,7 +230,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             }
         }
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue,
-                null, partitionType, snapshotIdFreshness, view.getNewestUpdateTimeMillis());
+                null, partitionType, snapshotIdFreshness, view.getNewestUpdateMonotonicMarker());
     }
 
     /**
@@ -820,7 +820,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // change marker. Use the connector-supplied newest-update-time, which IS monotonic (parity master
             // IcebergExternalTable.getNewestUpdateVersionOrTime = max(partition.lastUpdateTime)). The dictionary
             // requires a monotonically non-decreasing value or it throws (Dictionary.hasNewerSourceVersion).
-            return pin.getNewestUpdateTimeMillis();
+            return pin.getNewestUpdateMonotonicMarker();
         }
         // Skip the UNKNOWN(-1) sentinel (a connector that did not collect a modified time): legacy
         // used Paimon's lastFileCreationTime() which has no -1 sentinel, so feeding -1 into max()

@@ -820,7 +820,7 @@ public class IcebergPartitionUtilsTest {
         // The view also carries the table's newest-update-time (max last_updated_at), the MONOTONIC marker the
         // generic model answers the dictionary auto-refresh probe with (snapshot ids are non-monotonic). A real
         // committed table has a positive value. MUTATION: mapping lastUpdateTime->0 (or orElse over no rows) -> red.
-        Assertions.assertTrue(view.getNewestUpdateTimeMillis() > 0,
+        Assertions.assertTrue(view.getNewestUpdateMonotonicMarker() > 0,
                 "a committed RANGE table must report a positive newest-update-time for dictionary refresh");
     }
 
@@ -901,9 +901,9 @@ public class IcebergPartitionUtilsTest {
         long s1ts = catalog.loadTable(id).snapshot(s1).timestampMillis();
         long s2ts = catalog.loadTable(id).snapshot(s2).timestampMillis();
         long fullNewest = IcebergPartitionUtils.buildMvccPartitionView(catalog.loadTable(id), -1L)
-                .getNewestUpdateTimeMillis();
+                .getNewestUpdateMonotonicMarker();
         long s1OnlyNewest = IcebergPartitionUtils.buildMvccPartitionView(catalog.loadTable(id), s1)
-                .getNewestUpdateTimeMillis();
+                .getNewestUpdateMonotonicMarker();
         if (s2ts > s1ts) {
             Assertions.assertTrue(fullNewest > s1OnlyNewest,
                     "newest-update must be max (track the later snapshot S2), not min; full=" + fullNewest
@@ -924,7 +924,7 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertTrue(view.getPartitions().isEmpty());
         // An unpartitioned view reports newest-update-time 0 (the gate failed before any PARTITIONS scan;
         // dictionary treats it as "unchanged"). MUTATION: a non-zero default -> red.
-        Assertions.assertEquals(0L, view.getNewestUpdateTimeMillis());
+        Assertions.assertEquals(0L, view.getNewestUpdateMonotonicMarker());
     }
 
     @Test
@@ -951,7 +951,7 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle());
         Assertions.assertTrue(view.getPartitions().isEmpty(),
                 "a snapshot with no data files has no partitions");
-        Assertions.assertEquals(0L, view.getNewestUpdateTimeMillis(),
+        Assertions.assertEquals(0L, view.getNewestUpdateMonotonicMarker(),
                 "an empty partition stream must reduce to newest-update-time 0 (orElse fallback)");
     }
 
@@ -964,7 +964,7 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle());
         Assertions.assertTrue(view.getPartitions().isEmpty());
         // No partitions yet -> newest-update-time 0 (parity master max(...).orElse(0)). MUTATION: orElse non-zero -> red.
-        Assertions.assertEquals(0L, view.getNewestUpdateTimeMillis());
+        Assertions.assertEquals(0L, view.getNewestUpdateMonotonicMarker());
     }
 
     @Test

@@ -1148,7 +1148,7 @@ public class PluginDrivenMvccExternalTableTest {
                 rangePart("p20240202", "2024-02-02", "2024-02-03", FRESH_777)));
 
         // MUTATION: returning max(freshness)=777 (the legacy max-over-the-map path) instead of the view's
-        // newest-update-time makes this red — proving the view path reads newestUpdateTimeMillis.
+        // newest-update marker makes this red — proving the view path reads newestUpdateMonotonicMarker.
         Assertions.assertEquals(NEWEST_UPDATE_TIME, f.table.getNewestUpdateVersionOrTime(),
                 "the range-view path must answer the dictionary with the monotonic newest-update-time");
     }

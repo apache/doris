@@ -36,9 +36,10 @@ import java.util.Objects;
  * {@link #getFreshness()} — all connector-specific math (transform-to-range, partition-evolution overlap
  * merge, snapshot-id resolution) having already happened inside the connector.</p>
  *
- * <p>The view also carries a {@link #getNewestUpdateTimeMillis() newest-update-time} marker: a monotonically
- * non-decreasing table-change timestamp the generic model answers the dictionary auto-refresh probe with
- * (the snapshot id alone is unusable there because it need not be monotonic).</p>
+ * <p>The view also carries a {@link #getNewestUpdateMonotonicMarker() newest-update} marker: a monotonically
+ * non-decreasing, source-defined-scale change marker (NOT a wall-clock timestamp) the generic model answers
+ * the dictionary auto-refresh probe with (the snapshot id alone is unusable there because it need not be
+ * monotonic).</p>
  *
  * <p>A connector that does NOT override {@code getMvccPartitionView} leaves the generic model on its
  * default {@code listPartitions} / LIST / timestamp path (byte-unchanged), so this view is purely
@@ -67,16 +68,16 @@ public final class ConnectorMvccPartitionView {
     private final Style style;
     private final Freshness freshness;
     private final List<ConnectorMvccPartition> partitions;
-    private final long newestUpdateTimeMillis;
+    private final long newestUpdateMonotonicMarker;
 
     public ConnectorMvccPartitionView(Style style, Freshness freshness,
-            List<ConnectorMvccPartition> partitions, long newestUpdateTimeMillis) {
+            List<ConnectorMvccPartition> partitions, long newestUpdateMonotonicMarker) {
         this.style = Objects.requireNonNull(style, "style");
         this.freshness = Objects.requireNonNull(freshness, "freshness");
         this.partitions = partitions == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(partitions);
-        this.newestUpdateTimeMillis = newestUpdateTimeMillis;
+        this.newestUpdateMonotonicMarker = newestUpdateMonotonicMarker;
     }
 
     /** Returns an {@code UNPARTITIONED} view (no partitions, newest-update-time {@code 0}); the freshness
@@ -110,8 +111,8 @@ public final class ConnectorMvccPartitionView {
      * which also compares this raw value without conversion). Do NOT treat it as millis or convert it.
      * {@code 0} when the table has no partitions / is unpartitioned (treated as "unchanged").</p>
      */
-    public long getNewestUpdateTimeMillis() {
-        return newestUpdateTimeMillis;
+    public long getNewestUpdateMonotonicMarker() {
+        return newestUpdateMonotonicMarker;
     }
 
     @Override
@@ -125,13 +126,13 @@ public final class ConnectorMvccPartitionView {
         ConnectorMvccPartitionView that = (ConnectorMvccPartitionView) o;
         return style == that.style
                 && freshness == that.freshness
-                && newestUpdateTimeMillis == that.newestUpdateTimeMillis
+                && newestUpdateMonotonicMarker == that.newestUpdateMonotonicMarker
                 && partitions.equals(that.partitions);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(style, freshness, partitions, newestUpdateTimeMillis);
+        return Objects.hash(style, freshness, partitions, newestUpdateMonotonicMarker);
     }
 
     @Override
@@ -139,6 +140,6 @@ public final class ConnectorMvccPartitionView {
         return "ConnectorMvccPartitionView{style=" + style
                 + ", freshness=" + freshness
                 + ", partitions=" + partitions.size()
-                + ", newestUpdateTimeMillis=" + newestUpdateTimeMillis + "}";
+                + ", newestUpdateMonotonicMarker=" + newestUpdateMonotonicMarker + "}";
     }
 }

@@ -600,10 +600,10 @@ final class IcebergPartitionUtils {
         // The table's newest data-update time = max(lastUpdateTime) over the FULL deduped partition set
         // (allByName, NOT just survivors — master uses getNameToIcebergPartition() which keeps enclosed
         // partitions too). Byte-parity with master getNewestUpdateVersionOrTime: max(...).orElse(0).
-        long newestUpdateTimeMillis = allByName.values().stream()
+        long newestUpdateMonotonicMarker = allByName.values().stream()
                 .mapToLong(rb -> rb.lastUpdateTime).max().orElse(0L);
         return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
-                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, partitions, newestUpdateTimeMillis);
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, partitions, newestUpdateMonotonicMarker);
     }
 
     /**
