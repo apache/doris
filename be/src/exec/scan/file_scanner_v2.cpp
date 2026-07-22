@@ -450,18 +450,10 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 }
 
 Status FileScannerV2::_filter_output_block(Block* block) {
-    return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
-                                               _get_current_format_type());
-}
-
-Status FileScannerV2::_contextualize_output_filter_status(Status status,
-                                                          TFileFormatType::type format_type) {
-    if (!status.ok() && format_type == TFileFormatType::FORMAT_ORC) {
-        // Error-preserving expressions cannot be reordered into the ORC reader and therefore run
-        // at the scanner boundary; keep their error context identical to ORC callback failures.
-        status.prepend("Orc row reader nextBatch failed. reason = ");
-    }
-    return status;
+    (void)block;
+    // FileReader and TableReader jointly enforce the split's exact predicate ownership. Running
+    // scanner conjuncts again would duplicate deterministic work and stateful expression effects.
+    return Status::OK();
 }
 
 Status FileScannerV2::_prepare_next_split(bool* eos) {
@@ -1145,9 +1137,8 @@ void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
     const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
     const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
     if (filtered_delta > 0) {
-        // File readers can evaluate localized conjuncts before a block reaches Scanner. Count
-        // those rows as scanner-level unselected rows so load statistics stay identical no matter
-        // whether a predicate is pushed down or evaluated by Scanner::_filter_output_block().
+        // FileReader and TableReader both report their owned predicate rows through the shared IO
+        // context. Preserve scanner-level load statistics without re-evaluating either predicate.
         _counter.num_rows_unselected += filtered_delta;
         _reported_predicate_filtered_rows = filtered_rows;
     }

@@ -88,10 +88,6 @@ public:
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
-    static Status TEST_contextualize_output_filter_status(Status status,
-                                                          TFileFormatType::type format_type) {
-        return _contextualize_output_filter_status(std::move(status), format_type);
-    }
     static bool TEST_should_run_adaptive_batch_size(bool predictor_initialized,
                                                     bool current_split_uses_metadata_count) {
         return _should_run_adaptive_batch_size(predictor_initialized,
@@ -133,8 +129,6 @@ private:
                                        std::map<std::string, Field> partition_values);
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool _should_skip_empty(const Status& status, bool stopped);
-    static Status _contextualize_output_filter_status(Status status,
-                                                      TFileFormatType::type format_type);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;

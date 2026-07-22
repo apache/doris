@@ -742,23 +742,92 @@ Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
     _constant_pruning_safe_filter_count = 0;
     bool in_safe_prefix = true;
-    for (const auto& conjunct : _conjuncts) {
+    for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
+        const auto& conjunct = _conjuncts[conjunct_index];
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
         // `_table_filters` omits expressions without slot references, but such an expression still
         // occupies a position in the row-level conjunct order. Record how many localized filters
         // precede the first unsafe original conjunct so constant pruning cannot jump over a
-        // slotless non-deterministic/error-preserving barrier. Unsafe predicates remain solely on
-        // Scanner's original row-level path because localizing a clone would execute their state
-        // twice with independent state.
+        // slotless non-deterministic/error-preserving barrier. Unsafe predicates remain on the
+        // post-materialization TableReader path because pre-executing them could change errors or
+        // stateful results.
         if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
+        const size_t filters_before = _table_filters.size();
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
+        for (size_t filter_index = filters_before; filter_index < _table_filters.size();
+             ++filter_index) {
+            _table_filters[filter_index].source_conjunct_index = conjunct_index;
+            _table_filters[filter_index].can_localize = in_safe_prefix;
+        }
         if (in_safe_prefix) {
             _constant_pruning_safe_filter_count = _table_filters.size();
         }
+    }
+    return Status::OK();
+}
+
+Status TableReader::_prepare_all_conjuncts_as_remaining() {
+    _remaining_conjuncts.clear();
+    RowDescriptor row_desc;
+    for (const auto& source_conjunct : _conjuncts) {
+        VExprSPtr root;
+        RETURN_IF_ERROR(clone_table_expr_tree(source_conjunct->root(), &root));
+        auto conjunct = VExprContext::create_shared(std::move(root));
+        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(conjunct->open(_runtime_state));
+        _remaining_conjuncts.push_back(std::move(conjunct));
+    }
+    return Status::OK();
+}
+
+Status TableReader::_prepare_remaining_conjuncts(
+        const FilterLocalizationResult& localization_result) {
+    DORIS_CHECK(localization_result.localized_filters.size() == _table_filters.size());
+    std::vector<bool> localized_conjuncts(_conjuncts.size(), false);
+    for (size_t filter_index = 0; filter_index < _table_filters.size(); ++filter_index) {
+        if (!localization_result.localized_filters[filter_index]) {
+            continue;
+        }
+        const size_t source_index = _table_filters[filter_index].source_conjunct_index;
+        DORIS_CHECK(source_index < localized_conjuncts.size());
+        localized_conjuncts[source_index] = true;
+    }
+
+    _remaining_conjuncts.clear();
+    RowDescriptor row_desc;
+    for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
+        if (localized_conjuncts[conjunct_index]) {
+            continue;
+        }
+        VExprSPtr root;
+        RETURN_IF_ERROR(clone_table_expr_tree(_conjuncts[conjunct_index]->root(), &root));
+        auto conjunct = VExprContext::create_shared(std::move(root));
+        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(conjunct->open(_runtime_state));
+        _remaining_conjuncts.push_back(std::move(conjunct));
+    }
+    return Status::OK();
+}
+
+Status TableReader::_filter_remaining_conjuncts(Block* block, size_t* rows) {
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(rows != nullptr);
+    if (*rows == 0 || _remaining_conjuncts.empty()) {
+        return Status::OK();
+    }
+    const size_t rows_before_filter = *rows;
+    auto status = VExprContext::filter_block(_remaining_conjuncts, block, block->columns());
+    if (!status.ok() && _format == FileFormat::ORC) {
+        status.prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    RETURN_IF_ERROR(status);
+    *rows = block->columns() == 0 ? rows_before_filter : block->rows();
+    if (_io_ctx != nullptr) {
+        _io_ctx->predicate_filtered_rows += rows_before_filter - *rows;
     }
     return Status::OK();
 }
@@ -1003,6 +1072,9 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
+    // Predicate localization belongs to the physical schema of one split. Clear the previous
+    // ownership before any early return so a pruned or failed split cannot leak it to the next one.
+    _remaining_conjuncts.clear();
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
     _condition_cache_digest_covers_current_split = options.condition_cache_digest.has_value();
     if (options.condition_cache_digest.has_value()) {

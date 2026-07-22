@@ -1146,11 +1146,6 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     return ctx;
 }
 
-void apply_final_conjuncts(Block* block, const VExprContextSPtrs& conjuncts) {
-    const auto status = VExprContext::filter_block(conjuncts, block, block->columns());
-    ASSERT_TRUE(status.ok()) << status;
-}
-
 TEST(IcebergV2ReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_test";
@@ -1389,9 +1384,6 @@ TEST(IcebergV2ReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterializa
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
-    ASSERT_EQ(block.rows(), 3);
-
-    apply_final_conjuncts(&block, conjuncts);
     ASSERT_EQ(block.rows(), 1);
     expect_nullable_int64_column_values(*block.get_by_position(0).column, {1001});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {77});
@@ -1443,9 +1435,6 @@ TEST(IcebergV2ReaderTest, IcebergLastUpdatedSequencePredicateFiltersAfterMateria
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
-    ASSERT_EQ(block.rows(), 3);
-
-    apply_final_conjuncts(&block, conjuncts);
     ASSERT_EQ(block.rows(), 1);
     expect_nullable_int64_column_values(*block.get_by_position(0).column, {1001});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {77});

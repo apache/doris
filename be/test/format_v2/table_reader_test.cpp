@@ -534,6 +534,23 @@ void write_parquet_file(const std::string& file_path, int32_t id, const std::str
                                                       builder.build()));
 }
 
+void write_single_int_parquet_file(const std::string& file_path, const std::string& column_name,
+                                   int32_t value) {
+    auto schema = arrow::schema({arrow::field(column_name, arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema, {build_int32_array({value})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
 void write_struct_parquet_file(const std::string& file_path, int32_t id) {
     auto struct_type = arrow::struct_({arrow::field("id", arrow::int32(), false)});
     arrow::StructBuilder builder(
@@ -1381,13 +1398,15 @@ TEST(TableReaderTest, ConstantPruningStopsAtUnsafePredicate) {
     Block block = build_table_block(projected_columns);
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-    EXPECT_FALSE(predicate_executed);
-    EXPECT_FALSE(eos);
+    EXPECT_TRUE(predicate_executed);
+    EXPECT_TRUE(eos);
+    // The file was still opened, proving constant pruning did not jump over the unsafe predicate;
+    // the predicate is evaluated only after the resulting table row is materialized.
     EXPECT_EQ(fake_state->open_count, 1);
     ASSERT_TRUE(reader.close().ok());
 }
 
-TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
+TEST(TableReaderTest, UnsafePredicateRunsAfterTableMaterialization) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
     std::vector<ColumnDefinition> projected_columns;
@@ -1420,7 +1439,7 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_NE(fake_state->last_request, nullptr);
     EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
-    EXPECT_FALSE(predicate_executed);
+    EXPECT_TRUE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
 }
 
@@ -1464,14 +1483,14 @@ TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(predicate_executed);
-    EXPECT_FALSE(eos);
+    EXPECT_TRUE(eos);
     // The later partition predicate is false for part=7. Opening the file proves constant pruning
     // stopped at the earlier unsafe expression even though that expression had no slot and thus no
     // entry in `_table_filters`.
     EXPECT_EQ(fake_state->open_count, 1);
     ASSERT_NE(fake_state->last_request, nullptr);
     // A slotless unsafe conjunct is an ordering barrier even though it has no TableFilter entry.
-    // The later predicate must stay on the scanner's row-level path instead of running inside the
+    // The later predicate must stay on the post-materialization path instead of running inside the
     // file reader before the unsafe conjunct.
     EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
     ASSERT_TRUE(reader.close().ok());
@@ -1756,7 +1775,10 @@ TEST(TableReaderTest, SlotlessConjunctDisablesAggregatePushdown) {
     // presence still prevents the fake aggregate count (3) from replacing the two physical rows.
     ASSERT_NE(fake_state->last_request, nullptr);
     EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
-    EXPECT_EQ(block.rows(), 2);
+    // The two physical rows are then filtered at the table boundary, where slotless predicates are
+    // evaluated exactly even though they cannot be localized to a file column.
+    EXPECT_EQ(block.rows(), 0);
+    EXPECT_TRUE(eos);
     EXPECT_TRUE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
 }
@@ -4303,6 +4325,57 @@ TEST(TableReaderTest, VExprPredicateSurvivesReopenSplit) {
     }
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, RecomputesPredicateExecutionLayerForEverySplit) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_split_local_predicate_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto local_file = (test_dir / "local.parquet").string();
+    const auto missing_file = (test_dir / "missing.parquet").string();
+    write_single_int_parquet_file(local_file, "id", 3);
+    write_single_int_parquet_file(missing_file, "other", 9);
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 2))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(local_file)).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    expect_int32_column_values(*block.get_by_position(0).column, {3});
+    ASSERT_TRUE(reader.close().ok());
+
+    // The same predicate cannot be file-local when this split omits `id`. It must be rebuilt as a
+    // table-level predicate over the materialized NULL instead of inheriting the previous split's
+    // file-local ownership or escaping without exact evaluation.
+    ASSERT_TRUE(reader.prepare_split(build_split_options(missing_file)).ok());
+    block = build_table_block(projected_columns);
+    eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
+
+    ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }
 

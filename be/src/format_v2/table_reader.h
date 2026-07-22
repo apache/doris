@@ -78,10 +78,14 @@ namespace doris::format {
 using DeleteRows = std::vector<int64_t>;
 
 // Row-level predicates on table/global schema. They are rewritten to file-local expressions when
-// possible, and remain the source of row-level filtering after localization.
+// possible; otherwise TableReader evaluates them after final table-schema materialization.
 struct TableFilter {
     VExprContextSPtr conjunct;
     std::vector<GlobalIndex> global_indices;
+    size_t source_conjunct_index = 0;
+    // False after the first unsafe source conjunct so file-local execution cannot reorder a later
+    // predicate ahead of stateful or error-preserving table semantics.
+    bool can_localize = true;
 };
 
 struct ScanTask {
@@ -245,6 +249,7 @@ public:
         _remaining_file_level_count = -1;
         _current_split_uses_metadata_count = false;
         _current_split_pruned = false;
+        _remaining_conjuncts.clear();
         return Status::OK();
     }
 
@@ -326,7 +331,7 @@ public:
             RETURN_IF_ERROR(_check_file_block_columns("after file reader get_block", current_rows));
 #endif
             DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
-            RETURN_IF_ERROR(finalize_chunk(block, current_rows));
+            RETURN_IF_ERROR(finalize_chunk(block, &current_rows));
 #ifndef NDEBUG
             RETURN_IF_ERROR(
                     _check_table_block_columns("after finalize_chunk", block, current_rows));
@@ -334,6 +339,10 @@ public:
             if (current_eof) {
                 _current_reader_reached_eof = !stopped_during_read;
                 RETURN_IF_ERROR(close_current_reader());
+            }
+            if (current_rows == 0) {
+                block->clear_column_data(_projected_columns.size());
+                continue;
             }
             return Status::OK();
         }
@@ -352,6 +361,7 @@ public:
         _remaining_table_level_count = -1;
         _remaining_file_level_count = -1;
         _current_split_uses_metadata_count = false;
+        _remaining_conjuncts.clear();
         return Status::OK();
     }
 
@@ -437,14 +447,17 @@ protected:
         // reader with the request. File scan request carries row-level expression filters and
         // file-level pruning hints. Only expression filters decide returned rows.
         auto file_request = std::make_shared<FileScanRequest>();
+        FilterLocalizationResult localization_result;
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
-                _table_filters, _projected_columns, file_request.get(), _runtime_state));
+                _table_filters, _projected_columns, file_request.get(), _runtime_state,
+                &localization_result));
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
+        RETURN_IF_ERROR(_prepare_remaining_conjuncts(localization_result));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This
@@ -520,6 +533,9 @@ protected:
     }
 
     Status _build_table_filters_from_conjuncts();
+    Status _prepare_remaining_conjuncts(const FilterLocalizationResult& localization_result);
+    Status _prepare_all_conjuncts_as_remaining();
+    Status _filter_remaining_conjuncts(Block* block, size_t* rows);
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
     static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
@@ -758,6 +774,7 @@ protected:
         }
         _table_filters.clear();
         _constant_pruning_safe_filter_count = 0;
+        _remaining_conjuncts.clear();
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -774,14 +791,16 @@ protected:
     }
 
     // Finalize file-local block to table/global schema block.
-    Status finalize_chunk(Block* block, const size_t rows) {
+    Status finalize_chunk(Block* block, size_t* rows) {
+        DORIS_CHECK(rows != nullptr);
         SCOPED_TIMER(_profile.finalize_timer);
         size_t idx = 0;
         const auto& mappings = _data_reader.column_mapper->mappings();
         for (const auto& mapping : mappings) {
             ColumnPtr column;
-            RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
-                                                        &column, idx + 1 == mappings.size()));
+            RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template,
+                                                        *rows, &column,
+                                                        idx + 1 == mappings.size()));
             block->replace_by_position(idx, IColumn::mutate(std::move(column)));
             idx++;
         }
@@ -789,7 +808,9 @@ protected:
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
         // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
-        return Status::OK();
+        // Predicate ownership is split-local: only predicates not acknowledged as exact by this
+        // split's FileScanRequest run here, after virtual/default/schema-evolution values exist.
+        return _filter_remaining_conjuncts(block, rows);
     }
 
     // Materialize virtual columns in the table block, such as Iceberg _row_id and
@@ -1074,9 +1095,8 @@ protected:
         if (!_all_runtime_filters_applied_for_split) {
             return false;
         }
-        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
-        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
-        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
+        // Even a slotless conjunct that cannot become a TableFilter must see every source row
+        // before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
         if (!_conjuncts.empty()) {
             return false;
         }
@@ -1748,6 +1768,7 @@ protected:
     // intentionally absent from that vector but must still act as ordering barriers.
     size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
+    VExprContextSPtrs _remaining_conjuncts;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;

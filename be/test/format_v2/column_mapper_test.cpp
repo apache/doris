@@ -2315,6 +2315,39 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
 }
 
+TEST(ColumnMapperLocalizeFiltersTest, ReportsLocalizationForEachSplitMapping) {
+    const auto int_type = i32();
+    auto table_column = name_col("id", int_type);
+    const std::vector<ColumnDefinition> table_schema = {table_column};
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(int_gt(table_slot(0, 0, int_type, "id"), 1)),
+            .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper local_mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(local_mapper.create_mapping(table_schema, {}, {name_col("id", int_type, 7)}).ok());
+    FileScanRequest local_request;
+    FilterLocalizationResult local_result;
+    ASSERT_TRUE(local_mapper
+                        .create_scan_request({filter}, table_schema, &local_request, nullptr,
+                                             &local_result)
+                        .ok());
+    ASSERT_EQ(local_result.localized_filters.size(), 1);
+    EXPECT_TRUE(local_result.localized_filters[0]);
+    ASSERT_EQ(local_request.conjuncts.size(), 1);
+
+    TableColumnMapper missing_mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(missing_mapper.create_mapping(table_schema, {}, {}).ok());
+    FileScanRequest missing_request;
+    FilterLocalizationResult missing_result;
+    ASSERT_TRUE(missing_mapper
+                        .create_scan_request({filter}, table_schema, &missing_request, nullptr,
+                                             &missing_result)
+                        .ok());
+    ASSERT_EQ(missing_result.localized_filters.size(), 1);
+    EXPECT_FALSE(missing_result.localized_filters[0]);
+    EXPECT_TRUE(missing_request.conjuncts.empty());
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
     const auto binary_type = varbinary();
     const auto table_column = name_col("partition_key", binary_type);
@@ -2490,7 +2523,7 @@ TEST(ColumnMapperScanRequestTest, HiddenTopLevelFilterMappingUsesNameFallback) {
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(1)).local_index(), LocalIndex(1));
 }
 
-TEST(ColumnMapperScanRequestTest, OrdinaryPredicateSlotRetainsPayloadForScannerBoundary) {
+TEST(ColumnMapperScanRequestTest, OrdinaryPredicateSlotRetainsOutputPayload) {
     const auto int_type = i32();
     auto quantity = name_col("ss_quantity", int_type);
     auto tax = name_col("ss_ext_tax", int_type);
@@ -2515,8 +2548,8 @@ TEST(ColumnMapperScanRequestTest, OrdinaryPredicateSlotRetainsPayloadForScannerB
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(0));
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
-    // The scanner evaluates its table-level conjuncts after TableReader returns, so a visible
-    // predicate slot cannot be replaced with a default-valued placeholder at the file boundary.
+    // A visible predicate slot is still part of the table output and cannot be replaced with a
+    // default-valued placeholder after file-local filtering.
     EXPECT_TRUE(request.predicate_only_columns.empty());
 }
 
