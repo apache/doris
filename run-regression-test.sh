@@ -261,7 +261,9 @@ fi
 
 echo "===== Run Regression Test ====="
 
-# if use jdk17, add java option "--add-opens=java.base/java.nio=ALL-UNNAMED"
+# Arrow Flight SQL uses direct access to java.nio buffers. JDK 17 requires this
+# package to be opened to the (shaded) Arrow client classes at runtime.
+JAVA_OPTS="${JAVA_OPTS} --add-opens=java.base/java.nio=ALL-UNNAMED"
 if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi
