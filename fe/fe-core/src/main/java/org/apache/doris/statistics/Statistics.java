@@ -49,6 +49,15 @@ public class Statistics {
 
     private long actualRowCount = -1L;
     private boolean isFromHbo = false;
+    // True iff the row count was clamped from UNKNOWN_ROW_COUNT (-1) to a sentinel
+    // (e.g. 1) during stats derivation. Downstream sizing decisions that take a
+    // hard yes/no on the build side (broadcast eligibility) MUST refuse to act on a
+    // clamped row count, otherwise an un-ANALYZE'd large table can be wrongly chosen
+    // as broadcast build side and OOM at runtime. Cost-model arithmetic still uses
+    // the clamped value because it cannot tolerate negatives. The flag is propagated
+    // through Statistics(Statistics) and StatisticsBuilder so derived stats
+    // (filter / project / single-table-sub-plan) remain marked.
+    private boolean rowCountWasUnknown = false;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -57,6 +66,7 @@ public class Statistics {
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
         this.isFromHbo = another.isFromHbo;
+        this.rowCountWasUnknown = another.rowCountWasUnknown;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
@@ -66,6 +76,13 @@ public class Statistics {
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
         this.isFromHbo = isFromHbo;
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo,
+            boolean rowCountWasUnknown) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo);
+        this.rowCountWasUnknown = rowCountWasUnknown;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
@@ -89,13 +106,25 @@ public class Statistics {
         return rowCount;
     }
 
+    /**
+     * @return true iff this Statistics' row count was clamped from
+     *     UNKNOWN_ROW_COUNT (-1) to a non-negative sentinel during derivation.
+     *     Callers that take a hard yes/no decision on this row count
+     *     (e.g. {@code JoinUtils#checkBroadcastJoinStats}) should treat the
+     *     value as untrustworthy and bail out.
+     */
+    public boolean isRowCountWasUnknown() {
+        return rowCountWasUnknown;
+    }
+
     public Statistics withRowCount(double rowCount) {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, rowCountWasUnknown);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo,
+                rowCountWasUnknown);
     }
 
     /**
@@ -103,7 +132,7 @@ public class Statistics {
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
-                expressionToColumnStats, 0, isFromHbo);
+                expressionToColumnStats, 0, isFromHbo, rowCountWasUnknown);
         statistics.normalizeColumnStatistics(this.rowCount, false);
         return statistics;
     }

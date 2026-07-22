@@ -89,9 +89,25 @@ public class JoinUtils {
         double memLimit = sessionVariable.getMaxExecMemByte();
         double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
         double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
-        double datasize = join.getGroupExpression().get().child(1)
-                .getStatistics().computeSize(join.right().getOutput());
-        double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        // Refuse broadcast when the right child's row count is unknown (UNKNOWN_ROW_COUNT).
+        // Otherwise, an unknown-but-likely-huge table could be picked as build side
+        // because UNKNOWN_ROW_COUNT (-1) gets clamped to 1 row downstream.
+        // Note: We check row count directly instead of isStatsReliable() because estimation
+        // values (even if not perfectly accurate) are considered reliable for decisions.
+        // Additionally, if the row count was clamped from UNKNOWN at scan derivation
+        // (rowCountWasUnknown == true) we must also refuse broadcast: a clamped value
+        // looks like "1 row" but actually means "we don't know", and trusting it would
+        // wrongly broadcast an un-ANALYZE'd large table.
+        if (!join.getGroupExpression().isPresent()) {
+            return false;
+        }
+        org.apache.doris.statistics.Statistics rightStats =
+                join.getGroupExpression().get().child(1).getStatistics();
+        double rowCount = rightStats.getRowCount();
+        if (rowCount < 0 || rightStats.isRowCountWasUnknown()) {
+            return false;
+        }
+        double datasize = rightStats.computeSize(join.right().getOutput());
         return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }
 
