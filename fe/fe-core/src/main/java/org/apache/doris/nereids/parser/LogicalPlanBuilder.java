@@ -1135,6 +1135,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1600,9 +1601,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // PARTITION (col1='val1', col2='val2') - static partition
         if (ctx.partitionKeyValue() != null && !ctx.partitionKeyValue().isEmpty()) {
             Map<String, Expression> staticValues = Maps.newLinkedHashMap();
+            Set<String> staticColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (DorisParser.PartitionKeyValueContext kvCtx : ctx.partitionKeyValue()) {
                 String colName = kvCtx.identifier().getText();
-                if (staticValues.containsKey(colName)) {
+                if (!staticColumnNames.add(colName)) {
                     throw new AnalysisException("Duplicate partition column: " + colName);
                 }
                 Expression valueExpr = typedVisit(kvCtx.expression());

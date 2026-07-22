@@ -36,7 +36,7 @@ public class HiveTransactionManager extends AbstractExternalTransactionManager<H
     }
 
     @Override
-    HMSTransaction createTransaction() {
+    HMSTransaction createTransaction(long transactionId) {
         return new HMSTransaction((HiveMetadataOps) ops, fileSystem, fileSystemExecutor);
     }
 }

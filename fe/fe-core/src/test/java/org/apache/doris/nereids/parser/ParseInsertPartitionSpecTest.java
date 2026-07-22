@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.qe.ConnectContext;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
 
@@ -273,5 +275,17 @@ public class ParseInsertPartitionSpecTest {
         // month should be string
         Assertions.assertTrue(staticValues.get("month") instanceof StringLikeLiteral);
         Assertions.assertEquals("01", ((StringLikeLiteral) staticValues.get("month")).getStringValue());
+    }
+
+    @Test
+    public void testRejectCaseInsensitiveDuplicateStaticPartitionColumns() throws Exception {
+        String sql = "INSERT OVERWRITE TABLE tbl "
+                + "PARTITION (region='east', REGION='west') SELECT * FROM src";
+        Object ctx = parsePartitionSpec(sql);
+
+        InvocationTargetException exception = Assertions.assertThrows(
+                InvocationTargetException.class, () -> invokeParseInsertPartitionSpec(ctx));
+        Assertions.assertInstanceOf(AnalysisException.class, exception.getCause());
+        Assertions.assertEquals("Duplicate partition column: REGION", exception.getCause().getMessage());
     }
 }
