@@ -45,6 +45,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -77,9 +78,11 @@ public class IcebergSchemaUtilsTest {
 
     /** Build the dictionary for the given requested column names and return the single (-1) entry. */
     private static TSchema dict(Table table, String... requestedLowerNames) {
-        Map<Integer, List<String>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
+        // Mirror the production path (encodeSchemaEvolutionProp): thread the PRECISE isPresent() as
+        // hasNameMapping (#65784), so a present-but-empty mapping is still authoritative.
+        Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
         return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedLowerNames),
-                nameMapping);
+                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), false);
     }
 
     /** Index the top-level fields of an entry by name (preserving order for ordering assertions). */
@@ -431,6 +434,9 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(Collections.singletonList("id"), fields.get("id").getNameMapping());
         Assertions.assertTrue(fields.get("name").isSetNameMapping());
         Assertions.assertEquals(Collections.singletonList("name"), fields.get("name").getNameMapping());
+        // #65784: a present table-level mapping is AUTHORITATIVE for every field. MUTATION: drop the flag -> red.
+        Assertions.assertTrue(fields.get("id").isNameMappingIsAuthoritative());
+        Assertions.assertTrue(fields.get("name").isNameMappingIsAuthoritative());
     }
 
     @Test
@@ -441,6 +447,58 @@ public class IcebergSchemaUtilsTest {
         Map<String, TField> fields = topFields(dict(table, "id", "name"));
         Assertions.assertFalse(fields.get("id").isSetNameMapping());
         Assertions.assertFalse(fields.get("name").isSetNameMapping());
+        // #65784: no property -> the authoritative flag stays unset, so BE keeps the legacy name fallback (an
+        // old-FE plan's behavior on a new BE). MUTATION: unconditionally set the flag -> red.
+        Assertions.assertFalse(fields.get("id").isSetNameMappingIsAuthoritative());
+        Assertions.assertFalse(fields.get("name").isSetNameMappingIsAuthoritative());
+    }
+
+    @Test
+    public void partialNameMappingPreservedAsAuthoritativeEmptyList() {
+        // #65784 CORE FIX. With a PARTIAL table-level mapping (only field 1 "a" is named; field 2 "b" is
+        // deliberately absent), the unmapped field "b" must still carry an EXPLICIT EMPTY mapping + the
+        // authoritative flag — so BE materializes it as its default/NULL for a legacy file lacking field ids,
+        // instead of silently matching a physical column named "b" and reading unrelated data. Exercised at the
+        // builder with a hand-built partial map to isolate the fix from iceberg createTable id-reassignment (the
+        // property->extractNameMapping->dict flow is covered by nameMappingCarriedWhenTablePropertyPresent).
+        // MUTATION: re-gate on nameMapping.containsKey(fieldId) -> "b" carries no mapping -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "a", Types.IntegerType.get()),
+                Types.NestedField.required(2, "b", Types.IntegerType.get()));
+        Map<Integer, List<String>> partial = Collections.singletonMap(1, Collections.singletonList("a"));
+
+        // hasNameMapping=true: the table carries a (partial) mapping, so it is authoritative for EVERY field.
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Arrays.asList("a", "b"), partial, true, false));
+
+        // mapped field -> its alias, authoritative
+        Assertions.assertTrue(fields.get("a").isSetNameMapping());
+        Assertions.assertEquals(Collections.singletonList("a"), fields.get("a").getNameMapping());
+        Assertions.assertTrue(fields.get("a").isNameMappingIsAuthoritative());
+        // unmapped field -> EMPTY list SET (NOT omitted), authoritative
+        Assertions.assertTrue(fields.get("b").isSetNameMapping());
+        Assertions.assertTrue(fields.get("b").getNameMapping().isEmpty());
+        Assertions.assertTrue(fields.get("b").isNameMappingIsAuthoritative());
+    }
+
+    @Test
+    public void hasNameMappingDistinguishesAbsentFromPresentEmpty() {
+        // #65784 distinction (mirrors ExternalUtilTest.testInitSchemaInfoForAllColumnDistinguishesAbsentAndEmpty
+        // NameMapping): hasNameMapping=true with an EMPTY map (a table mapping that is PRESENT but maps nothing)
+        // is still authoritative — every field gets an empty list + the flag; hasNameMapping=false (property
+        // absent) sets NEITHER. Exercised at the builder to isolate the flag from iceberg JSON parsing.
+        Schema schema = new Schema(Types.NestedField.required(1, "a", Types.IntegerType.get()));
+
+        Map<String, TField> present = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Collections.singletonList("a"), Collections.emptyMap(), true, false));
+        Assertions.assertTrue(present.get("a").isSetNameMapping());
+        Assertions.assertTrue(present.get("a").getNameMapping().isEmpty());
+        Assertions.assertTrue(present.get("a").isNameMappingIsAuthoritative());
+
+        Map<String, TField> absent = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                Collections.singletonList("a"), Collections.emptyMap(), false, false));
+        Assertions.assertFalse(absent.get("a").isSetNameMapping());
+        Assertions.assertFalse(absent.get("a").isSetNameMappingIsAuthoritative());
     }
 
     @Test
@@ -456,7 +514,7 @@ public class IcebergSchemaUtilsTest {
         Table table = createTable("nested", nested,
                 Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, json));
 
-        Map<Integer, List<String>> mapping = IcebergSchemaUtils.extractNameMapping(table);
+        Map<Integer, List<String>> mapping = IcebergSchemaUtils.extractNameMapping(table).orElseThrow();
 
         Assertions.assertEquals(Collections.singletonList("id"), mapping.get(1));
         Assertions.assertEquals(Collections.singletonList("info"), mapping.get(2));
@@ -469,8 +527,9 @@ public class IcebergSchemaUtilsTest {
         // parse exception propagate -> the whole scan fails on a benign metadata quirk -> red.
         Table table = createTable("t1", SCHEMA,
                 Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
-        Map<Integer, List<String>> mapping = IcebergSchemaUtils.extractNameMapping(table);
-        Assertions.assertTrue(mapping.isEmpty());
+        // A malformed property yields Optional.empty() (absent, not a present-empty mapping) -> hasNameMapping
+        // false -> the scan proceeds on the legacy name fallback instead of breaking.
+        Assertions.assertFalse(IcebergSchemaUtils.extractNameMapping(table).isPresent());
     }
 
     // --- round-trip through the prop transport (what the generic node does) ---
