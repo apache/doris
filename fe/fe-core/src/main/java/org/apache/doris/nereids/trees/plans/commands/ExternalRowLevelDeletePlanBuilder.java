@@ -25,7 +25,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -53,7 +52,7 @@ import java.util.Optional;
  *   2. Generate DeleteFile containing the matching rows
  *   3. Commit the DeleteFile to Iceberg table using RowDelta API
  *
- * The legacy Command execution half was removed as dead post-cutover code.
+ * The legacy Command execution half was removed as dead code.
  */
 public class ExternalRowLevelDeletePlanBuilder {
 
@@ -62,7 +61,6 @@ public class ExternalRowLevelDeletePlanBuilder {
     protected final boolean isTempPart;
     protected final List<String> partitions;
     protected final LogicalPlan logicalQuery;
-    protected final DeleteCommandContext deleteCtx;
 
     /**
      * constructor
@@ -72,21 +70,19 @@ public class ExternalRowLevelDeletePlanBuilder {
             String tableAlias,
             boolean isTempPart,
             List<String> partitions,
-            LogicalPlan logicalQuery,
-            DeleteCommandContext deleteCtx) {
+            LogicalPlan logicalQuery) {
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.tableAlias = tableAlias;
         this.isTempPart = isTempPart;
         this.partitions = Utils.copyRequiredList(partitions);
         this.logicalQuery = logicalQuery;
-        this.deleteCtx = deleteCtx != null ? deleteCtx : new DeleteCommandContext();
     }
 
     /**
      * Complete the query plan by adding necessary columns for position delete operation.
      * Select $row_id (file_path, row_position, partition info).
      */
-    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                          ExternalTable icebergTable) {
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
@@ -109,7 +105,6 @@ public class ExternalRowLevelDeletePlanBuilder {
                 icebergTable,
                 icebergTable.getBaseSchema(true),  // cols
                 outputExprs,  // outputExprs
-                deleteCtx,
                 Optional.empty(),  // groupExpression
                 Optional.empty(),  // logicalProperties
                 queryPlan  // child
@@ -149,7 +144,4 @@ public class ExternalRowLevelDeletePlanBuilder {
         return new LogicalProject<>(projectItems, planWithRowId);
     }
 
-    public DeleteCommandContext getDeleteCtx() {
-        return deleteCtx;
-    }
 }

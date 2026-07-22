@@ -147,7 +147,7 @@ public class RowLevelDmlCommand {
     }
 
     /**
-     * O5-2 new write-constraint path. Dormant until P6.6: only fires when the executor exposes an SPI
+     * Write-constraint path: only fires when the executor exposes an SPI
      * {@link ConnectorTransaction}. Today iceberg DELETE/MERGE run on the legacy {@code IcebergTransaction}
      * (the base {@code getConnectorTransactionOrNull()} returns {@code null}), so this is a no-op; the legacy
      * 3-hop conflict-detection path ({@link RowLevelDmlTransform#setupConflictDetection}) remains the live one.

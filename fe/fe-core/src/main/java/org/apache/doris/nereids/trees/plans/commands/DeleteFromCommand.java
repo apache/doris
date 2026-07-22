@@ -69,7 +69,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -143,10 +142,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
             RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
-                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
+                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
             new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
             return;
         }
@@ -501,10 +498,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
             RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
-                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
+                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
             return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);

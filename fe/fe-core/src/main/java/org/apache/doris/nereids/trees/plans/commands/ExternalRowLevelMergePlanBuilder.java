@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
@@ -72,7 +71,7 @@ import java.util.Optional;
 
 /**
  * Iceberg MERGE INTO plan synthesizer, invoked via IcebergRowLevelDmlTransform.synthesize
- * (legacy execution half removed as dead post-cutover code).
+ * (legacy execution half removed as dead code).
  */
 public class ExternalRowLevelMergePlanBuilder {
     private static final String BRANCH_LABEL = "__DORIS_ICEBERG_MERGE_INTO_BRANCH_LABEL__";
@@ -85,7 +84,6 @@ public class ExternalRowLevelMergePlanBuilder {
     private final Expression onClause;
     private final List<MergeMatchedClause> matchedClauses;
     private final List<MergeNotMatchedClause> notMatchedClauses;
-    private final DeleteCommandContext deleteCtx;
 
     /**
      * constructor.
@@ -107,7 +105,6 @@ public class ExternalRowLevelMergePlanBuilder {
                 Objects.requireNonNull(matchedClauses, "matchedClauses should not be null"));
         this.notMatchedClauses = Utils.fastToImmutableList(
                 Objects.requireNonNull(notMatchedClauses, "notMatchedClauses should not be null"));
-        this.deleteCtx = new DeleteCommandContext();
     }
 
     private TableIf getTargetTable(ConnectContext ctx) {
@@ -381,7 +378,7 @@ public class ExternalRowLevelMergePlanBuilder {
         return plan;
     }
 
-    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
@@ -401,7 +398,6 @@ public class ExternalRowLevelMergePlanBuilder {
                 icebergTable,
                 icebergTable.getBaseSchema(true),
                 outputExprs,
-                deleteCtx,
                 Optional.empty(),
                 Optional.empty(),
                 projectPlan);

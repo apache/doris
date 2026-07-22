@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -39,29 +38,26 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Logical Iceberg Merge Sink for UPDATE operations.
+ * Logical external row-level merge sink for UPDATE/MERGE operations.
  * This sink is responsible for routing rows to position delete and data insert.
  */
 public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
-    private final DeleteCommandContext deleteContext;
 
     /**
      * Constructor.
      *
      * <p>{@code database}/{@code targetTable} are typed to the generic {@link ExternalDatabase}/
-     * {@link ExternalTable} (not the concrete iceberg types): pre-flip the synthesis passes the legacy
-     * {@code IcebergExternalTable}, post-flip it passes a {@code PluginDrivenExternalTable} for the same
-     * iceberg table. Every consumer ({@code ExplainCommand}, the implementation rule, the translator) only
-     * uses the generic {@code getId()}/schema API, so the widening is byte-identical pre-flip.</p>
+     * {@link ExternalTable} (not concrete iceberg types): the synthesis passes a
+     * {@code PluginDrivenExternalTable} for the iceberg table. Every consumer ({@code ExplainCommand}, the
+     * implementation rule, the translator) only uses the generic {@code getId()}/schema API.</p>
      */
     public LogicalExternalRowLevelMergeSink(ExternalDatabase database,
                                    ExternalTable targetTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
-                                   DeleteCommandContext deleteContext,
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
@@ -71,8 +67,6 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 "database != null in LogicalExternalRowLevelMergeSink");
         this.targetTable = Objects.requireNonNull(targetTable,
                 "targetTable != null in LogicalExternalRowLevelMergeSink");
-        this.deleteContext = Objects.requireNonNull(deleteContext,
-                "deleteContext != null in LogicalExternalRowLevelMergeSink");
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
@@ -80,19 +74,19 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, output,
-                deleteContext, Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalExternalRowLevelMergeSink only accepts one child");
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, Optional.empty(), Optional.empty(), children.get(0));
+                Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalExternalRowLevelMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, Optional.empty(), Optional.empty(), child());
+                Optional.empty(), Optional.empty(), child());
     }
 
     public ExternalDatabase getDatabase() {
@@ -101,10 +95,6 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
 
     public ExternalTable getTargetTable() {
         return targetTable;
-    }
-
-    public DeleteCommandContext getDeleteContext() {
-        return deleteContext;
     }
 
     @Override
@@ -121,13 +111,12 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
         LogicalExternalRowLevelMergeSink<?> that = (LogicalExternalRowLevelMergeSink<?>) o;
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
-                && Objects.equals(deleteContext, that.deleteContext)
                 && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, deleteContext);
+        return Objects.hash(super.hashCode(), database, targetTable, cols);
     }
 
     @Override
@@ -136,8 +125,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
-                "cols", cols,
-                "deleteFileType", deleteContext.getDeleteFileType());
+                "cols", cols);
     }
 
     @Override
@@ -148,13 +136,13 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, logicalProperties, children.get(0));
+                groupExpression, logicalProperties, children.get(0));
     }
 }

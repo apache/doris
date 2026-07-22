@@ -593,7 +593,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     /**
-     * Builds the plugin-driven sink for a post-flip iceberg row-level DML (DELETE / MERGE) whose target has
+     * Builds the plugin-driven sink for an iceberg row-level DML (DELETE / MERGE) whose target has
      * been flipped to a {@link PluginDrivenExternalTable}. Mirrors {@link #visitPhysicalConnectorTableSink}'s
      * connector resolution (catalog -&gt; connector -&gt; metadata -&gt; pinned table handle) but threads the
      * given {@link WriteOperation} so the connector's {@code planWrite} dispatches to its DELETE / MERGE BE sink

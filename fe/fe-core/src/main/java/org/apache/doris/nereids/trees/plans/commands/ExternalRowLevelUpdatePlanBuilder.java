@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -50,7 +49,7 @@ import java.util.stream.Collectors;
 /**
  * Merge-plan synthesizer for UPDATE on Iceberg tables, invoked via
  * IcebergRowLevelDmlTransform.synthesize. The legacy Command execution half
- * was removed as dead post-cutover code.
+ * was removed as dead code.
  *
  * UPDATE operations are implemented as a single scan + merge sink:
  *   1. Scan rows matching WHERE condition with row_id injected
@@ -64,7 +63,6 @@ public class ExternalRowLevelUpdatePlanBuilder {
     private final List<String> nameParts;
     private final String tableAlias;
     private final LogicalPlan logicalQuery;
-    private final DeleteCommandContext deleteCtx;
 
     /**
      * constructor
@@ -73,13 +71,11 @@ public class ExternalRowLevelUpdatePlanBuilder {
             List<String> nameParts,
             String tableAlias,
             List<EqualTo> assignments,
-            LogicalPlan logicalQuery,
-            DeleteCommandContext deleteCtx) {
+            LogicalPlan logicalQuery) {
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.assignments = Utils.copyRequiredList(assignments);
         this.tableAlias = tableAlias;
         this.logicalQuery = logicalQuery;
-        this.deleteCtx = deleteCtx != null ? deleteCtx : new DeleteCommandContext();
     }
 
     @VisibleForTesting
@@ -109,7 +105,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
         return new LogicalProject<>(projectItems, planWithRowId);
     }
 
-    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                        List<EqualTo> assignments, ExternalTable icebergTable) {
         String tableName = tableAlias != null
@@ -134,7 +130,6 @@ public class ExternalRowLevelUpdatePlanBuilder {
                 icebergTable,
                 icebergTable.getBaseSchema(true),
                 outputExprs,
-                deleteCtx,
                 Optional.empty(),
                 Optional.empty(),
                 queryPlan);
@@ -175,7 +170,4 @@ public class ExternalRowLevelUpdatePlanBuilder {
         return selectItems;
     }
 
-    public DeleteCommandContext getDeleteCtx() {
-        return deleteCtx;
-    }
 }

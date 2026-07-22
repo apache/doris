@@ -26,7 +26,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -66,8 +65,7 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
                 ImmutableList.of("test_catalog", "test_db", "test_table"),
                 null,
                 ImmutableList.of(),
-                basePlan,
-                new DeleteCommandContext());
+                basePlan);
 
         List<Column> columns = ImmutableList.of(new Column("c1", ScalarType.createType(PrimitiveType.INT)));
         LogicalPlan plan = command.buildMergeProjectPlan(ctx, basePlan, ImmutableList.of(), columns, "t");
@@ -105,8 +103,7 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
                 "t",
                 ImmutableList.of(),
                 new LogicalOneRowRelation(new RelationId(1),
-                        ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy"))),
-                new DeleteCommandContext());
+                        ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy"))));
 
         Map<String, org.apache.doris.nereids.trees.expressions.Expression> assignments =
                 new TreeMap<>(String.CASE_INSENSITIVE_ORDER);

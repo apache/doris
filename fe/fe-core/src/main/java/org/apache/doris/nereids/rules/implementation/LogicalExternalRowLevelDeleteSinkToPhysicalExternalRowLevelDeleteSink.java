@@ -39,7 +39,6 @@ public class LogicalExternalRowLevelDeleteSinkToPhysicalExternalRowLevelDeleteSi
                     sink.getTargetTable(),
                     sink.getCols(),
                     sink.getOutputExprs(),
-                    sink.getDeleteContext(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,

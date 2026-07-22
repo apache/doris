@@ -58,7 +58,7 @@ import java.util.function.Predicate;
  * the corresponding {@code ExternalRowLevel*PlanBuilder} and calls its (package-visible) synthesis method, so
  * the synthesized {@code LogicalExternalRowLevel{Delete,Merge}Sink} tree is the generic row-level DML sink.
  * The per-executor-only bits (conflict-filter stash, finalize) are routed here via
- * {@code instanceof}-free op switches; the O5-2 exclusion predicate mirrors legacy
+ * {@code instanceof}-free op switches; the exclusion predicate mirrors legacy
  * {@code IcebergConflictDetectionFilterUtils} (note the {@code equalsIgnoreCase} vs {@code equals} asymmetry).</p>
  */
 public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
@@ -73,7 +73,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
             "$file_path", "$row_position", "$partition_spec_id", "$partition_data");
 
     /**
-     * Slots excluded from the O5-2 target-only write constraint: the synthetic {@code $row_id} column and
+     * Slots excluded from the target-only write constraint: the synthetic {@code $row_id} column and
      * iceberg metadata columns. Mirrors legacy {@code IcebergConflictDetectionFilterUtils.isTargetOnlyPredicate}
      * exactly — keep the {@code equalsIgnoreCase} (rowid) vs {@code equals} (metadata) asymmetry.
      */
@@ -152,12 +152,12 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
             case DELETE:
                 return new ExternalRowLevelDeletePlanBuilder(
                         args.getNameParts(), args.getTableAlias(), args.isTempPart(),
-                        args.getPartitions(), args.getLogicalQuery(), args.getDeleteCtx())
+                        args.getPartitions(), args.getLogicalQuery())
                         .completeQueryPlan(ctx, args.getLogicalQuery(), icebergTable);
             case UPDATE:
                 return new ExternalRowLevelUpdatePlanBuilder(
                         args.getNameParts(), args.getTableAlias(), args.getAssignments(),
-                        args.getLogicalQuery(), args.getDeleteCtx())
+                        args.getLogicalQuery())
                         .buildMergePlan(ctx, args.getLogicalQuery(), args.getAssignments(), icebergTable);
             default:
                 return new ExternalRowLevelMergePlanBuilder(
@@ -171,7 +171,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     public BaseExternalTableInsertExecutor newExecutor(ConnectContext ctx, TableIf table, String label,
             NereidsPlanner planner, boolean emptyInsert, RowLevelDmlOp op) {
         // The connector-driven executor opens an SPI ConnectorTransaction (non-null), which activates the
-        // neutral O5-2 conflict path in RowLevelDmlCommand.applyWriteConstraintIfPresent. The op rides the
+        // neutral conflict path in RowLevelDmlCommand.applyWriteConstraintIfPresent. The op rides the
         // sink's WriteOperation (set by the translator), so one executor serves DELETE/MERGE; no
         // InsertCommandContext is needed for a row-level write.
         return new PluginDrivenInsertExecutor(ctx, (PluginDrivenExternalTable) table, label, planner,

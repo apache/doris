@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -47,7 +46,6 @@ public final class RowLevelDmlArgs {
     private final List<String> nameParts;
     private final String tableAlias;
     private final LogicalPlan logicalQuery;
-    private final DeleteCommandContext deleteCtx;
     // DELETE only
     private final boolean isTempPart;
     private final List<String> partitions;
@@ -64,7 +62,7 @@ public final class RowLevelDmlArgs {
     private final List<MergeNotMatchedClause> notMatchedClauses;
 
     private RowLevelDmlArgs(TableIf table, List<String> nameParts, String tableAlias, LogicalPlan logicalQuery,
-            DeleteCommandContext deleteCtx, boolean isTempPart, List<String> partitions, List<EqualTo> assignments,
+            boolean isTempPart, List<String> partitions, List<EqualTo> assignments,
             List<String> targetNameParts, Optional<String> targetAlias, Optional<LogicalPlan> cte, LogicalPlan source,
             Expression onClause, List<MergeMatchedClause> matchedClauses,
             List<MergeNotMatchedClause> notMatchedClauses) {
@@ -72,7 +70,6 @@ public final class RowLevelDmlArgs {
         this.nameParts = nameParts;
         this.tableAlias = tableAlias;
         this.logicalQuery = logicalQuery;
-        this.deleteCtx = deleteCtx;
         this.isTempPart = isTempPart;
         this.partitions = partitions;
         this.assignments = assignments;
@@ -87,15 +84,15 @@ public final class RowLevelDmlArgs {
 
     /** Arguments for a DELETE (mirrors the legacy {@code ExternalRowLevelDeletePlanBuilder} constructor inputs). */
     public static RowLevelDmlArgs forDelete(TableIf table, List<String> nameParts, String tableAlias,
-            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery, DeleteCommandContext deleteCtx) {
-        return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, deleteCtx, isTempPart, partitions,
+            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery) {
+        return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, isTempPart, partitions,
                 null, null, null, null, null, null, null, null);
     }
 
     /** Arguments for an UPDATE (mirrors the legacy {@code ExternalRowLevelUpdatePlanBuilder} constructor inputs). */
     public static RowLevelDmlArgs forUpdate(TableIf table, List<String> nameParts, String tableAlias,
-            List<EqualTo> assignments, LogicalPlan logicalQuery, DeleteCommandContext deleteCtx) {
-        return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, deleteCtx, false, null,
+            List<EqualTo> assignments, LogicalPlan logicalQuery) {
+        return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, false, null,
                 assignments, null, null, null, null, null, null, null);
     }
 
@@ -103,7 +100,7 @@ public final class RowLevelDmlArgs {
     public static RowLevelDmlArgs forMerge(TableIf table, List<String> targetNameParts, Optional<String> targetAlias,
             Optional<LogicalPlan> cte, LogicalPlan source, Expression onClause,
             List<MergeMatchedClause> matchedClauses, List<MergeNotMatchedClause> notMatchedClauses) {
-        return new RowLevelDmlArgs(table, null, null, null, null, false, null, null,
+        return new RowLevelDmlArgs(table, null, null, null, false, null, null,
                 targetNameParts, targetAlias, cte, source, onClause, matchedClauses, notMatchedClauses);
     }
 
@@ -121,10 +118,6 @@ public final class RowLevelDmlArgs {
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
-    }
-
-    public DeleteCommandContext getDeleteCtx() {
-        return deleteCtx;
     }
 
     public boolean isTempPart() {

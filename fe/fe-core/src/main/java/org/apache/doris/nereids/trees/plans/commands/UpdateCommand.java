@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -110,10 +109,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
-                    table, nameParts, tableAlias, assignments, logicalQuery, deleteCtx);
+                    table, nameParts, tableAlias, assignments, logicalQuery);
             new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).run(ctx, executor);
             return;
         }
@@ -282,10 +279,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            DeleteCommandContext deleteCtx = new DeleteCommandContext();
-            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
-                    table, nameParts, tableAlias, assignments, logicalQuery, deleteCtx);
+                    table, nameParts, tableAlias, assignments, logicalQuery);
             return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);

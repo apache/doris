@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -51,7 +50,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 
@@ -61,8 +59,6 @@ import java.util.TreeMap;
  */
 public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
-    private final DeleteCommandContext deleteContext;
-
     /**
      * Constructor
      */
@@ -70,11 +66,10 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
-                                    DeleteCommandContext deleteContext,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, deleteContext, groupExpression, logicalProperties,
+        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
     }
 
@@ -85,7 +80,6 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
-                                    DeleteCommandContext deleteContext,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     PhysicalProperties physicalProperties,
@@ -93,19 +87,13 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     CHILD_TYPE child) {
         super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_MERGE_SINK, database, targetTable, cols, outputExprs,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
-        this.deleteContext = Objects.requireNonNull(
-                deleteContext, "deleteContext != null in PhysicalExternalRowLevelMergeSink");
-    }
-
-    public DeleteCommandContext getDeleteContext() {
-        return deleteContext;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable,
-                cols, outputExprs, deleteContext, groupExpression,
+                cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -118,7 +106,7 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, getLogicalProperties(), child());
+                groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -126,14 +114,14 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, logicalProperties.get(), children.get(0));
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     @Override
@@ -144,16 +132,12 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
-        PhysicalExternalRowLevelMergeSink<?> that = (PhysicalExternalRowLevelMergeSink<?>) o;
-        return Objects.equals(deleteContext, that.deleteContext);
+        return super.equals(o);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), deleteContext);
+        return super.hashCode();
     }
 
     /**

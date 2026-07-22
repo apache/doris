@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -219,7 +218,7 @@ public class IcebergRowLevelDmlTransformTest {
 
         LogicalPlan query = (LogicalPlan) filterOver(table, "id");
         RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(table, ImmutableList.of("db", "t"), null,
-                false, ImmutableList.of(), query, new DeleteCommandContext());
+                false, ImmutableList.of(), query);
 
         LogicalPlan plan = transform.synthesize(null, args, RowLevelDmlOp.DELETE);
 

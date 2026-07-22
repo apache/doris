@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
@@ -70,34 +69,6 @@ public class ExplainIcebergDeleteCommandTest {
 
         Assertions.assertNotNull(plan);
         Assertions.assertTrue(plan instanceof DeleteFromCommand);
-    }
-
-    @Test
-    public void testPositionDeletePlanStructure() {
-        // Verify that position delete generates correct plan structure
-        DeleteCommandContext positionDeleteCtx = new DeleteCommandContext();
-        positionDeleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-
-        Assertions.assertEquals(
-                DeleteCommandContext.DeleteFileType.POSITION_DELETE,
-                positionDeleteCtx.getDeleteFileType()
-        );
-
-    }
-
-    @Test
-    public void testLogicalExternalRowLevelDeleteSinkCreation() {
-        // Test that LogicalExternalRowLevelDeleteSink can be created with proper context
-        DeleteCommandContext ctx = new DeleteCommandContext();
-        ctx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-
-        // This test verifies the DeleteCommandContext can be properly configured
-        // Actual plan generation would require full query analysis
-        Assertions.assertNotNull(ctx);
-        Assertions.assertEquals(
-                DeleteCommandContext.DeleteFileType.POSITION_DELETE,
-                ctx.getDeleteFileType()
-        );
     }
 
     @Test
@@ -193,14 +164,4 @@ public class ExplainIcebergDeleteCommandTest {
         }
     }
 
-    @Test
-    public void testDeleteContextConversion() {
-        // Test conversion from DeleteCommandContext to Thrift types
-        DeleteCommandContext posCtx = new DeleteCommandContext();
-        posCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-        Assertions.assertEquals(
-                org.apache.doris.thrift.TFileContent.POSITION_DELETES,
-                posCtx.toTFileContent()
-        );
-    }
 }
