@@ -140,12 +140,12 @@ public class RepositoryAuditEncryptionTest {
         String masked = encrypt(sql);
         Assertions.assertFalse(masked.contains("aws-ak"), masked);
         Assertions.assertFalse(masked.contains("aws-sk"), masked);
-        Assertions.assertFalse(masked.contains("external-id"), masked);
+        Assertions.assertTrue(masked.contains("external-id"), masked);
         Assertions.assertTrue(masked.contains("*XXX"), masked);
     }
 
     @Test
-    public void testCreateRoutineLoadMasksKinesisExternalId() {
+    public void testCreateRoutineLoadKeepsKinesisExternalId() {
         String sql = "CREATE ROUTINE LOAD test_db.job_kinesis ON tbl1 "
                 + "PROPERTIES(\"desired_concurrent_number\" = \"1\") "
                 + "FROM KINESIS("
@@ -154,17 +154,15 @@ public class RepositoryAuditEncryptionTest {
                 + "\"property.aws.role_arn\" = \"arn:aws:iam::123456789012:role/test\", "
                 + "\"property.aws.external.id\" = \"kinesis-external-id\")";
         String masked = encrypt(sql);
-        Assertions.assertFalse(masked.contains("kinesis-external-id"), masked);
-        Assertions.assertTrue(masked.contains("*XXX"), masked);
+        Assertions.assertTrue(masked.contains("kinesis-external-id"), masked);
     }
 
     @Test
-    public void testAlterRoutineLoadMasksKinesisExternalId() {
+    public void testAlterRoutineLoadKeepsKinesisExternalId() {
         String sql = "ALTER ROUTINE LOAD FOR job1 FROM KINESIS("
                 + "\"property.aws.role_arn\" = \"arn:aws:iam::123456789012:role/test\", "
                 + "\"property.aws.external.id\" = \"kinesis-external-id\")";
         String masked = encrypt(sql);
-        Assertions.assertFalse(masked.contains("kinesis-external-id"), masked);
-        Assertions.assertTrue(masked.contains("*XXX"), masked);
+        Assertions.assertTrue(masked.contains("kinesis-external-id"), masked);
     }
 }

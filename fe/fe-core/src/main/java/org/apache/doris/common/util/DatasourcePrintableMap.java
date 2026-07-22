@@ -71,10 +71,6 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("aws.secret_key");
         SENSITIVE_KEY.add("property.aws.session_key");
         SENSITIVE_KEY.add("aws.session_key");
-        SENSITIVE_KEY.add("property.aws.external_id");
-        SENSITIVE_KEY.add("aws.external_id");
-        SENSITIVE_KEY.add("property.aws.external.id");
-        SENSITIVE_KEY.add("aws.external.id");
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));

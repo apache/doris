@@ -61,6 +61,12 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ozone.secret_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ozone.session_token"));
 
+        // AWS external IDs are identifiers for the confused-deputy check, not credentials.
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("aws.external_id"));
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("property.aws.external_id"));
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("aws.external.id"));
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("property.aws.external.id"));
+
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("AWS_SECRET_KEY"));

@@ -55,10 +55,6 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.secret_key");
         ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("aws.session_key");
         ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.session_key");
-        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("aws.external_id");
-        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.external_id");
-        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("aws.external.id");
-        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.external.id");
     }
 
     private final Map<Pair<Integer, Integer>, String> indexInSqlToString;

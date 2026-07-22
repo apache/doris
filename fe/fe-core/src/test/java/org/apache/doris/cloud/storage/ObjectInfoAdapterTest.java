@@ -56,7 +56,7 @@ public class ObjectInfoAdapterTest {
     }
 
     @Test
-    public void testObjectInfoToStringMasksCredentials() {
+    public void testObjectInfoToStringMasksCredentialsButKeepsExternalId() {
         ObjectInfo objectInfo = new ObjectInfo(
                 Cloud.ObjectStoreInfoPB.Provider.S3,
                 "ak-value",
@@ -73,7 +73,7 @@ public class ObjectInfoAdapterTest {
         String printed = objectInfo.toString();
         Assert.assertFalse(printed.contains("ak-value"));
         Assert.assertFalse(printed.contains("sk-value"));
-        Assert.assertFalse(printed.contains("snapshot-external-id"));
+        Assert.assertTrue(printed.contains("snapshot-external-id"));
         Assert.assertFalse(printed.contains("session-token"));
         Assert.assertTrue(printed.contains("******"));
     }

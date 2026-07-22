@@ -140,7 +140,7 @@ public class ObjectInfo {
             + ", prefix='" + prefix + '\''
             + ", roleName='" + roleName + '\''
             + ", arn='" + arn + '\''
-            + ", externalId='" + MASKED_VALUE + '\''
+            + ", externalId='" + externalId + '\''
             + ", token='" + MASKED_VALUE + '\''
             + '}';
     }
