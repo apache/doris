@@ -24,17 +24,41 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "service/backend_options.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
+#include "storage/merger.h"
+#include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace cloud {
+
+bool is_single_rowset_compaction_candidate(const RowsetSharedPtr& rowset) {
+    return !rowset->rowset_meta()->has_delete_predicate() &&
+           rowset->rowset_meta()->is_segments_overlapping() &&
+           rowset->num_segments() >= config::cloud_single_rowset_compaction_min_segments;
+}
+
+bool should_use_single_rowset_grouped_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                                 const TabletSchema& tablet_schema,
+                                                 std::string_view compaction_policy) {
+    return compaction_policy == CUMULATIVE_SIZE_BASED_POLICY &&
+           tablet_schema.num_key_columns() > 0 && tablet_schema.cluster_key_uids().empty() &&
+           config::enable_cloud_single_rowset_compaction && input_rowsets.size() == 1 &&
+           is_single_rowset_compaction_candidate(input_rowsets.front());
+}
+
+} // namespace cloud
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
 bvar::LatencyRecorder g_cu_compaction_hold_delete_bitmap_lock_time_ms(
@@ -246,10 +270,13 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     // calculate new cumulative point
     int64_t input_cumulative_point = cloud_tablet()->cumulative_layer_point();
     auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
-    int64_t new_cumulative_point =
-            _engine.cumu_compaction_policy(compaction_policy)
-                    ->new_cumulative_point(cloud_tablet(), _output_rowset, _last_delete_version,
-                                           input_cumulative_point);
+    int64_t new_cumulative_point = input_cumulative_point;
+    if (!_single_rowset_compaction_segment_group_size.has_value()) {
+        new_cumulative_point =
+                _engine.cumu_compaction_policy(compaction_policy)
+                        ->new_cumulative_point(cloud_tablet(), _output_rowset, _last_delete_version,
+                                               input_cumulative_point);
+    }
     // commit compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -493,6 +520,7 @@ Status CloudCumulativeCompaction::garbage_collection() {
 
 Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
+    _single_rowset_compaction_segment_group_size.reset();
 
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
@@ -539,6 +567,19 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                                  config::cumulative_compaction_min_deltas, &_input_rowsets,
                                  &_last_delete_version, &compaction_score);
 
+    if (config::enable_cloud_single_rowset_compaction) {
+        for (const auto& rowset : _input_rowsets) {
+            if (cloud::should_use_single_rowset_grouped_compaction(
+                        {rowset}, *cloud_tablet()->tablet_schema(), compaction_policy)) {
+                auto grouped_input_rowset = rowset;
+                _input_rowsets = {std::move(grouped_input_rowset)};
+                _single_rowset_compaction_segment_group_size =
+                        config::cloud_single_rowset_compaction_segment_group_size;
+                return Status::OK();
+            }
+        }
+    }
+
     if (_input_rowsets.empty()) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
                 "no suitable versions: input rowsets empty");
@@ -552,6 +593,88 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 
     apply_txn_size_truncation_and_log("CloudCumulativeCompaction");
     return Status::OK();
+}
+
+Status CloudCumulativeCompaction::prepare_merge_input_rowsets(MergeInputRowsetsResult* result) {
+    if (!_single_rowset_compaction_segment_group_size.has_value()) {
+        return Status::OK();
+    }
+
+    const int64_t segment_group_size = *_single_rowset_compaction_segment_group_size;
+    if (segment_group_size <= 0) {
+        return Status::InvalidArgument(
+                "cloud_single_rowset_compaction_segment_group_size must be positive, value={}",
+                segment_group_size);
+    }
+    result->is_segment_grouped = true;
+    result->segment_group_size = segment_group_size;
+    return Status::OK();
+}
+
+Status CloudCumulativeCompaction::do_merge_input_rowsets(
+        const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+        MergeInputRowsetsResult* result) {
+    if (!result->is_segment_grouped) {
+        return Compaction::do_merge_input_rowsets(input_rs_readers, result);
+    }
+
+    const int64_t segment_group_size = result->segment_group_size;
+    const auto& input_rowset = _input_rowsets.front();
+    const int64_t segment_group_count =
+            (input_rowset->num_segments() + segment_group_size - 1) / segment_group_size;
+    for (int64_t segment_start = 0; segment_start < input_rowset->num_segments();
+         segment_start += segment_group_size) {
+        const int64_t segment_end =
+                std::min(segment_start + segment_group_size, input_rowset->num_segments());
+        const int32_t output_segment_start = _output_rs_writer->get_allocated_segment_id();
+
+        RowsetReaderSharedPtr rs_reader;
+        RETURN_IF_ERROR(input_rowset->create_reader(&rs_reader));
+        std::vector<RowsetReaderSharedPtr> group_readers;
+        group_readers.push_back(std::move(rs_reader));
+
+        Merger::Statistics group_stats;
+        group_stats.rowid_conversion = _stats.rowid_conversion;
+        RETURN_IF_ERROR(execute_merge(group_readers, segment_end - segment_start, &group_stats,
+                                      std::make_pair(segment_start, segment_end),
+                                      {.total_ranges = segment_group_count,
+                                       .range_index = segment_start / segment_group_size}));
+
+        _stats.output_rows += group_stats.output_rows;
+        _stats.merged_rows += group_stats.merged_rows;
+        _stats.filtered_rows += group_stats.filtered_rows;
+        _stats.bytes_read_from_local += group_stats.bytes_read_from_local;
+        _stats.bytes_read_from_remote += group_stats.bytes_read_from_remote;
+        _stats.cached_bytes_total += group_stats.cached_bytes_total;
+        _stats.cloud_local_read_time += group_stats.cloud_local_read_time;
+        _stats.cloud_remote_read_time += group_stats.cloud_remote_read_time;
+
+        const int32_t output_segment_end = _output_rs_writer->get_allocated_segment_id();
+        const int32_t output_group_size = output_segment_end - output_segment_start;
+        if (output_group_size > 0) {
+            ++result->output_segment_group_count;
+        }
+    }
+    return Status::OK();
+}
+
+void CloudCumulativeCompaction::update_output_rowset_after_build(
+        const MergeInputRowsetsResult& result) {
+    if (!result.is_segment_grouped) {
+        return;
+    }
+    if (result.output_segment_group_count > 1) {
+        _output_rowset->rowset_meta()->set_segments_overlap(OVERLAPPING);
+    }
+
+    const auto& input_rowset = _input_rowsets.front();
+    LOG_INFO("finish single rowset grouped compaction, tablet_id={}, version=[{}-{}]",
+             _tablet->tablet_id(), input_rowset->start_version(), input_rowset->end_version())
+            .tag("job_id", _uuid)
+            .tag("input_segments", input_rowset->num_segments())
+            .tag("segment_group_size", result.segment_group_size)
+            .tag("output_segments", _output_rowset->num_segments())
+            .tag("output_groups", result.output_segment_group_count);
 }
 
 void CloudCumulativeCompaction::update_cumulative_point() {

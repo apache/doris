@@ -18,6 +18,8 @@
 #pragma once
 
 #include <functional>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -62,15 +64,17 @@ public:
     // return OK and set statistics into `*stats_output`.
     // return others on error
 
-    static Status vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
-                                 const TabletSchema& cur_tablet_schema,
-                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                 RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+    static Status vmerge_rowsets(
+            BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& cur_tablet_schema,
+            const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+            RowsetWriter* dst_rowset_writer, Statistics* stats_output,
+            std::optional<std::pair<int64_t, int64_t>> segment_range = std::nullopt);
     static Status vertical_merge_rowsets(
             BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, int64_t merge_way_num,
-            Statistics* stats_output, VerticalCompactionProgressCallback progress_cb = nullptr);
+            Statistics* stats_output, VerticalCompactionProgressCallback progress_cb = nullptr,
+            std::optional<std::pair<int64_t, int64_t>> segment_range = std::nullopt);
 
     // for vertical compaction
     static void vertical_split_columns(const TabletSchema& tablet_schema,
@@ -85,7 +89,8 @@ public:
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment,
             Statistics* stats_output, std::vector<uint32_t> key_group_cluster_key_idxes,
             int64_t batch_size, CompactionSampleInfo* sample_info,
-            bool enable_sparse_optimization = false);
+            bool enable_sparse_optimization = false,
+            std::optional<std::pair<int64_t, int64_t>> segment_range = std::nullopt);
 
     // for segcompaction
     static Status vertical_compact_one_group(

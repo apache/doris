@@ -163,6 +163,25 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
 }
 
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       overlapping_output_uses_policy_to_advance_cumulative_point) {
+    _tablet_meta->set_tablet_state(TABLET_RUNNING);
+    _tablet_meta->set_time_series_compaction_level_threshold(1);
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 100;
+
+    auto output_rowset = create_rowset(Version(3, 3), 5, true, 256 * kMiB);
+    Version last_delete_version {-1, -1};
+
+    CloudSizeBasedCumulativeCompactionPolicy size_based_policy;
+    EXPECT_EQ(4, size_based_policy.new_cumulative_point(&tablet, output_rowset, last_delete_version,
+                                                        2));
+
+    CloudTimeSeriesCumulativeCompactionPolicy time_series_policy;
+    EXPECT_EQ(4, time_series_policy.new_cumulative_point(&tablet, output_rowset,
+                                                         last_delete_version, 2));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
        pick_input_rowsets_large_head_not_repeated_when_output_below_promotion) {
     CloudTablet _tablet(_engine, _tablet_meta);
     _tablet._base_size = 20L * kGiB;
