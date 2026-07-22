@@ -450,7 +450,6 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         Cloud.GetTableStreamReadStateResponse response;
         MetaServiceProxy proxy = MetaServiceProxy.getInstance();
         try {
-            proxy.requireTableStreamControlPlaneCapability();
             response = proxy.getTableStreamReadState(request.build());
         } catch (RpcException e) {
             throw new UserException("Failed to get Cloud Table Stream consumption state: " + e.getMessage(), e);

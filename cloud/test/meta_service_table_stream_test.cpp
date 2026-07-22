@@ -54,7 +54,8 @@ protected:
         identity_.set_stream_id(1004);
     }
 
-    void set_metadata_mode(MultiVersionStatus mode) {
+    void set_multi_version_status(MultiVersionStatus mode) {
+        multi_version_status_ = mode;
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         InstanceInfoPB instance;
@@ -66,15 +67,28 @@ protected:
         ASSERT_EQ(code, MetaServiceCode::OK) << message;
     }
 
-    void put_stream_mapping(Transaction* txn) {
+    void put_stream_mapping(Transaction* txn, const TableStreamIdentityPB& identity) {
         IndexIndexPB index;
-        index.set_db_id(identity_.base_db_id());
-        index.set_table_id(identity_.base_table_id());
+        index.set_db_id(identity.base_db_id());
+        index.set_table_id(identity.base_table_id());
         index.set_object_type(TABLE_STREAM);
-        index.set_stream_db_id(identity_.stream_db_id());
-        txn->put(versioned::index_index_key({instance_id_, identity_.stream_id()}),
-                 index.SerializeAsString());
+        index.set_stream_db_id(identity.stream_db_id());
+        const std::string value = index.SerializeAsString();
+        txn->put(table_stream_index_key({instance_id_, identity.stream_id()}), value);
+        txn->put(table_stream_inverted_key({instance_id_, identity.base_db_id(),
+                                            identity.base_table_id(), identity.stream_id()}),
+                 "");
+        if (multi_version_status_ == MULTI_VERSION_WRITE_ONLY ||
+            multi_version_status_ == MULTI_VERSION_READ_WRITE) {
+            txn->put(versioned::index_index_key({instance_id_, identity.stream_id()}), value);
+            txn->put(
+                    versioned::index_inverted_key({instance_id_, identity.base_db_id(),
+                                                   identity.base_table_id(), identity.stream_id()}),
+                    "");
+        }
     }
+
+    void put_stream_mapping(Transaction* txn) { put_stream_mapping(txn, identity_); }
 
     void put_partition_mapping(Transaction* txn, int64_t partition_id) {
         PartitionIndexPB partition;
@@ -218,6 +232,7 @@ protected:
     }
 
     void set_clone_source(const std::string& source_instance_id, Versionstamp snapshot_version) {
+        multi_version_status_ = MULTI_VERSION_READ_WRITE;
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         InstanceInfoPB instance;
@@ -235,10 +250,11 @@ protected:
     std::string instance_id_;
     std::string cloud_unique_id_;
     TableStreamIdentityPB identity_;
+    MultiVersionStatus multi_version_status_ = MULTI_VERSION_DISABLED;
 };
 
 TEST_F(MetaServiceTableStreamTest, ReadLatestAndUnknownOffsets) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -268,7 +284,7 @@ TEST_F(MetaServiceTableStreamTest, ReadLatestAndUnknownOffsets) {
 }
 
 TEST_F(MetaServiceTableStreamTest, ReadVersionedState) {
-    set_metadata_mode(MULTI_VERSION_READ_WRITE);
+    set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -348,7 +364,7 @@ TEST_F(MetaServiceTableStreamTest, ReadVersionedStateFromCloneChainInBatch) {
 }
 
 TEST_F(MetaServiceTableStreamTest, ReadLargePartitionBatch) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     constexpr int kPartitionCount = 1201;
     std::vector<int64_t> partition_ids;
     partition_ids.reserve(kPartitionCount);
@@ -375,7 +391,7 @@ TEST_F(MetaServiceTableStreamTest, ReadLargePartitionBatch) {
 }
 
 TEST_F(MetaServiceTableStreamTest, ReadMultipleBindingsInBatch) {
-    set_metadata_mode(MULTI_VERSION_READ_WRITE);
+    set_multi_version_status(MULTI_VERSION_READ_WRITE);
     constexpr int kBindingCount = 101;
     constexpr int64_t kPartitionId = 2001;
 
@@ -426,11 +442,10 @@ TEST_F(MetaServiceTableStreamTest, ReadMultipleBindingsInBatch) {
 }
 
 TEST_F(MetaServiceTableStreamTest, ReadWriteOnlyState) {
-    set_metadata_mode(MULTI_VERSION_WRITE_ONLY);
+    set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
-    put_partition_mapping(txn.get(), 2001);
     put_latest_partition_state(txn.get(), 2001, 28, 330, 300);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -470,7 +485,7 @@ TEST_F(MetaServiceTableStreamTest, RejectDuplicateBindingsAndPartitions) {
 }
 
 TEST_F(MetaServiceTableStreamTest, RejectEnabledModeAndRecyclingStream) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     InstanceInfoPB instance;
@@ -482,7 +497,7 @@ TEST_F(MetaServiceTableStreamTest, RejectEnabledModeAndRecyclingStream) {
     GetTableStreamReadStateResponse response = get_read_state({2001});
     EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
 
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
@@ -499,7 +514,7 @@ TEST_F(MetaServiceTableStreamTest, RejectEnabledModeAndRecyclingStream) {
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitUpdatesLatestOffsetAndIsIdempotent) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -527,7 +542,7 @@ TEST_F(MetaServiceTableStreamTest, CommitUpdatesLatestOffsetAndIsIdempotent) {
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitMultipleStreamsAtomically) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     TableStreamIdentityPB second_identity = identity_;
     second_identity.set_stream_db_id(1005);
     second_identity.set_stream_id(1006);
@@ -535,13 +550,7 @@ TEST_F(MetaServiceTableStreamTest, CommitMultipleStreamsAtomically) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
-    IndexIndexPB second_index;
-    second_index.set_db_id(second_identity.base_db_id());
-    second_index.set_table_id(second_identity.base_table_id());
-    second_index.set_object_type(TABLE_STREAM);
-    second_index.set_stream_db_id(second_identity.stream_db_id());
-    txn->put(versioned::index_index_key({instance_id_, second_identity.stream_id()}),
-             second_index.SerializeAsString());
+    put_stream_mapping(txn.get(), second_identity);
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     TableStreamOffsetPB second_offset;
     second_offset.set_partition_id(2001);
@@ -582,7 +591,7 @@ TEST_F(MetaServiceTableStreamTest, CommitMultipleStreamsAtomically) {
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitLargePartitionBatch) {
-    set_metadata_mode(MULTI_VERSION_WRITE_ONLY);
+    set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
     constexpr int kPartitionCount = 1201;
 
     std::unique_ptr<Transaction> txn;
@@ -590,7 +599,6 @@ TEST_F(MetaServiceTableStreamTest, CommitLargePartitionBatch) {
     put_stream_mapping(txn.get());
     for (int i = 0; i < kPartitionCount; ++i) {
         int64_t partition_id = 30000 + i;
-        put_partition_mapping(txn.get(), partition_id);
         put_latest_partition_state(txn.get(), partition_id, i + 1, 40000 + i, std::nullopt);
     }
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -619,7 +627,7 @@ TEST_F(MetaServiceTableStreamTest, CommitLargePartitionBatch) {
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitRejectsStaleAndInvalidOffsets) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -721,7 +729,7 @@ TEST_F(MetaServiceTableStreamTest, CommitUsesCloneEffectiveOffset) {
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitRejectsLatestOffsetWithoutVersionedOffset) {
-    set_metadata_mode(MULTI_VERSION_READ_WRITE);
+    set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -737,7 +745,7 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsLatestOffsetWithoutVersionedOffs
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitRejectsDifferentLatestAndVersionedOffsetValues) {
-    set_metadata_mode(MULTI_VERSION_READ_WRITE);
+    set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -769,7 +777,7 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsDifferentLatestAndVersionedOffse
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedModeAndMissingVisibleTso) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -794,7 +802,7 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedModeAndMissingVisible
     EXPECT_EQ(response.status().code(), MetaServiceCode::VERSION_NOT_FOUND);
     EXPECT_EQ(get_latest_offset(2001).offset_tso(), 100);
 
-    set_metadata_mode(MULTI_VERSION_ENABLED);
+    set_multi_version_status(MULTI_VERSION_ENABLED);
     txn_id = begin_target_transaction("consume-enabled-mode");
     response = consume_partition(txn_id, 2001, TABLE_STREAM_OFFSET_CONSUMED, 100, 110);
     EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
@@ -802,7 +810,7 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedModeAndMissingVisible
 }
 
 TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedTxnModesAndForcesImmediate) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -836,7 +844,7 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedTxnModesAndForcesImme
 }
 
 TEST_F(MetaServiceTableStreamTest, DropWritesTypedRecycleIndexInDisabledMode) {
-    set_metadata_mode(MULTI_VERSION_DISABLED);
+    set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());
@@ -866,13 +874,15 @@ TEST_F(MetaServiceTableStreamTest, DropWritesTypedRecycleIndexInDisabledMode) {
     EXPECT_EQ(recycle_index.db_id(), identity_.base_db_id());
     EXPECT_EQ(recycle_index.table_id(), identity_.base_table_id());
     EXPECT_EQ(recycle_index.stream_db_id(), identity_.stream_db_id());
+    EXPECT_EQ(txn->get(table_stream_index_key({instance_id_, identity_.stream_id()}), &value, true),
+              TxnErrorCode::TXN_OK);
     EXPECT_EQ(txn->get(versioned::index_index_key({instance_id_, identity_.stream_id()}), &value,
                        true),
-              TxnErrorCode::TXN_OK);
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST_F(MetaServiceTableStreamTest, DropWritesTypedOperationLogInVersionedMode) {
-    set_metadata_mode(MULTI_VERSION_READ_WRITE);
+    set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     put_stream_mapping(txn.get());

@@ -81,7 +81,6 @@ public class CloudInternalCatalogTableStreamTest {
                 catalog.runBeforeCreate(streamDb, stream, baseTable);
 
                 InOrder order = Mockito.inOrder(proxy);
-                order.verify(proxy).requireTableStreamControlPlaneCapability();
                 order.verify(proxy).prepareIndex(Mockito.any());
                 order.verify(proxy, Mockito.times(3)).commitPartition(Mockito.any());
                 order.verify(proxy).commitIndex(Mockito.any());
@@ -114,48 +113,15 @@ public class CloudInternalCatalogTableStreamTest {
     }
 
     @Test
-    public void testCreateRejectsMetaServiceWithoutCapabilityBeforePrepare() throws Exception {
-        List<Cloud.TableStreamOffsetPB> offsets = List.of(Cloud.TableStreamOffsetPB.newBuilder()
-                .setPartitionId(1)
-                .setState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
-                .setOffsetTso(101)
-                .build());
-        TestCloudInternalCatalog catalog = new TestCloudInternalCatalog(offsets);
-        Database streamDb = Mockito.mock(Database.class);
-        Mockito.when(streamDb.getId()).thenReturn(30L);
-        OlapTable baseTable = Mockito.mock(OlapTable.class);
-        Mockito.when(baseTable.getId()).thenReturn(20L);
-        Mockito.when(baseTable.getPartitionIds()).thenReturn(List.of(1L));
-        OlapTableStream stream = mockStream(10, 20, 40);
-        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
-        Mockito.doThrow(new org.apache.doris.rpc.RpcException("", "old MetaService"))
-                .when(proxy).requireTableStreamControlPlaneCapability();
-
-        try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            DdlException exception = Assertions.assertThrows(DdlException.class,
-                    () -> catalog.runBeforeCreate(streamDb, stream, baseTable));
-            Assertions.assertTrue(exception.getMessage().contains("old MetaService"));
-            Assertions.assertEquals(0, catalog.getCaptureCallCount());
-            Mockito.verify(proxy, Mockito.never()).prepareIndex(Mockito.any());
-        }
-    }
-
-    @Test
     public void testCreateRequiresAuthoritativeInitialTso() throws Exception {
         CloudInternalCatalog catalog = new CloudInternalCatalog();
         Database streamDb = Mockito.mock(Database.class);
         OlapTable baseTable = Mockito.mock(OlapTable.class);
         OlapTableStream stream = mockStream(10, 20, 40);
-        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
 
-        try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            DdlException exception = Assertions.assertThrows(DdlException.class,
-                    () -> catalog.beforeCreateTableStream(streamDb, stream, baseTable));
-            Assertions.assertTrue(exception.getMessage().contains("visible TSO API"));
-            Mockito.verify(proxy).requireTableStreamControlPlaneCapability();
-        }
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> catalog.beforeCreateTableStream(streamDb, stream, baseTable));
+        Assertions.assertTrue(exception.getMessage().contains("visible TSO API"));
     }
 
     private static OlapTableStream mockStream(long baseDbId, long baseTableId, long streamId) {
@@ -170,7 +136,6 @@ public class CloudInternalCatalogTableStreamTest {
 
     private static class TestCloudInternalCatalog extends CloudInternalCatalog {
         private final List<Cloud.TableStreamOffsetPB> offsets;
-        private int captureCallCount;
 
         private TestCloudInternalCatalog(List<Cloud.TableStreamOffsetPB> offsets) {
             this.offsets = new ArrayList<>(offsets);
@@ -179,12 +144,7 @@ public class CloudInternalCatalogTableStreamTest {
         @Override
         protected List<Cloud.TableStreamOffsetPB> captureTableStreamInitialOffsets(
                 OlapTableStream stream, OlapTable baseTable) {
-            captureCallCount++;
             return offsets;
-        }
-
-        private int getCaptureCallCount() {
-            return captureCallCount;
         }
 
         private void runBeforeCreate(Database streamDb, OlapTableStream stream, OlapTable baseTable)

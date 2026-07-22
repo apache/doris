@@ -708,8 +708,7 @@ mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_bytes("rpc_kv_clean_txn_label_
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes("rpc_kv_get_txn_id_get_bytes",{"instance_id"});
 
 // meta ranges
-mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count(
-        "fdb_kv_ranges_count", {"key_space", "category", "instance_id", "sub_category"});
+mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("fdb_kv_ranges_count", {"category","instance_id", "sub_category"});
 // begin snapshot
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_bytes("rpc_kv_begin_snapshot_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_bytes("rpc_kv_begin_snapshot_put_bytes",{"instance_id"});

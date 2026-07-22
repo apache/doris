@@ -119,12 +119,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (!(stream instanceof OlapTableStream) || !(baseTable instanceof OlapTable)) {
             throw new DdlException("Cloud Table Stream requires an OLAP base table");
         }
-        try {
-            MetaServiceProxy.getInstance().requireTableStreamControlPlaneCapability();
-        } catch (RpcException e) {
-            throw new DdlException("Cloud Table Stream capability check failed: " + e.getMessage(), e);
-        }
-
         OlapTableStream olapStream = (OlapTableStream) stream;
         OlapTable olapBaseTable = (OlapTable) baseTable;
         List<Cloud.TableStreamOffsetPB> initialOffsets = captureTableStreamInitialOffsets(

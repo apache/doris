@@ -57,6 +57,8 @@ static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending
 static const char* META_KEY_INFIX_MOW_TABLET_JOB        = "mow_tablet_job";
 static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
 static const char* META_KEY_INFIX_PACKED_FILE          = "packed_file";
+static const char* META_KEY_INFIX_TABLE_STREAM         = "table_stream";
+static const char* META_KEY_INFIX_TABLE_STREAM_INVERTED = "table_stream_inverted";
 static const char* META_KEY_INFIX_TABLE_STREAM_OFFSET  = "table_stream_offset";
 
 static const char* RECYCLE_KEY_INFIX_INDEX              = "index";
@@ -147,7 +149,7 @@ static void encode_prefix(const T& t, std::string* key) {
         InstanceKeyInfo,
         TxnLabelKeyInfo, TxnInfoKeyInfo, TxnIndexKeyInfo, TxnRunningKeyInfo,
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
-        TableStreamOffsetKeyInfo,
+        TableStreamIndexKeyInfo, TableStreamInvertedKeyInfo, TableStreamOffsetKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
@@ -176,6 +178,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>
                       || std::is_same_v<T, MowTabletJobInfo>
                       || std::is_same_v<T, PackedFileKeyInfo>
+                      || std::is_same_v<T, TableStreamIndexKeyInfo>
+                      || std::is_same_v<T, TableStreamInvertedKeyInfo>
                       || std::is_same_v<T, TableStreamOffsetKeyInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
@@ -370,6 +374,20 @@ void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::st
     encode_prefix(in, out);                              // 0x01 "meta" ${instance_id}
     encode_bytes(META_KEY_INFIX_SCHEMA_DICTIONARY, out); // "tablet_schema_pb_dict"
     encode_int64(std::get<1>(in), out);                  // index_id
+}
+
+void table_stream_index_key(const TableStreamIndexKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                         // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TABLE_STREAM, out); // "table_stream"
+    encode_int64(std::get<1>(in), out);             // stream_id
+}
+
+void table_stream_inverted_key(const TableStreamInvertedKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                                  // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TABLE_STREAM_INVERTED, out); // "table_stream_inverted"
+    encode_int64(std::get<1>(in), out);                      // base_db_id
+    encode_int64(std::get<2>(in), out);                      // base_table_id
+    encode_int64(std::get<3>(in), out);                      // stream_id
 }
 
 static void encode_table_stream_offset_key_prefix(const TableStreamOffsetKeyInfo& in,

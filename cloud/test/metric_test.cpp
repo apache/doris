@@ -26,7 +26,6 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
-#include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -363,24 +362,4 @@ TEST(MetricTest, FdbMetricExporterTest) {
         ASSERT_EQ(g_bvar_fdb_cluster_workload.get({"keys", "read_hz"}), 56.6);
         ASSERT_EQ(g_bvar_fdb_cluster_workload.get({"keys", "read_counter"}), 728858585);
     }
-}
-
-TEST(MetricTest, KvRangeBoundariesKeepKeySpaceDimension) {
-    using namespace doris::cloud;
-
-    const std::string prefix {FdbTxnKv::fdb_partition_key_prefix()};
-    const TableStreamOffsetKeyInfo latest_info {"instance-1", 1, 2, 3, 4, 5};
-    const versioned::TableStreamOffsetKeyInfo versioned_info {"instance-1", 1, 2, 3, 4, 5};
-    std::vector<std::string> boundaries {
-            prefix + table_stream_offset_key(latest_info),
-            prefix + table_stream_offset_key(latest_info) + "\xff",
-            prefix + versioned::table_stream_offset_key(versioned_info),
-    };
-
-    std::unordered_map<std::string, size_t> range_counts;
-    get_kv_range_boundaries_count(boundaries, range_counts);
-
-    EXPECT_EQ(range_counts["0x01|meta|instance-1|table_stream_offset"], 2);
-    EXPECT_EQ(range_counts["0x03|meta|instance-1|table_stream_offset"], 1);
-    EXPECT_EQ(range_counts.size(), 2);
 }

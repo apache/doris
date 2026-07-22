@@ -205,6 +205,10 @@ static std::string parse_tablet_stats(const ValueBuf& buf) {
     return json;
 }
 
+static std::string parse_current_empty_value(const ValueBuf& buf) {
+    return buf.value().empty() ? "{}" : "";
+}
+
 static std::string parse_empty_value(const std::string& buf) {
     if (!buf.empty()) {
         return "";
@@ -257,6 +261,8 @@ static std::unordered_map<std::string_view,
     {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get());                             }, parse<VersionPB>                , parse_json<VersionPB>}},
     {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get());                                 }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
     {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get());                          }, parse<doris::RowsetMetaCloudPB> , parse_json<doris::RowsetMetaCloudPB>}},
+    {"TableStreamIndexKey",        {{"instance_id", "stream_id"},                                     [](param_type& p) { return table_stream_index_key(KeyInfoSetter<TableStreamIndexKeyInfo>{p}.get());                    }, parse<IndexIndexPB>              , parse_json<IndexIndexPB>}},
+    {"TableStreamInvertedKey",     {{"instance_id", "base_db_id", "base_table_id", "stream_id"},   [](param_type& p) { return table_stream_inverted_key(KeyInfoSetter<TableStreamInvertedKeyInfo>{p}.get());              }, parse_current_empty_value        , nullptr}},
     {"TableStreamOffsetKey",       {{"instance_id", "base_db_id", "base_table_id", "stream_db_id", "stream_id", "partition_id"}, [](param_type& p) { return table_stream_offset_key(KeyInfoSetter<TableStreamOffsetKeyInfo>{p}.get()); }, parse<TableStreamOffsetPB>, parse_json<TableStreamOffsetPB>}},
     {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get());                                 }, parse<doris::TabletMetaCloudPB> , parse_json<doris::TabletMetaCloudPB>}},
     {"MetaTabletIdxKey",           {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_tablet_idx_key(KeyInfoSetter<MetaTabletIdxKeyInfo>{p}.get());                          }, parse<TabletIndexPB>            , parse_json<TabletIndexPB>}},
@@ -647,17 +653,19 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     }
 
     auto& json_parsing_function = std::get<3>(it->second);
-    std::shared_ptr<google::protobuf::Message> pb_to_save = json_parsing_function(body);
-    if (pb_to_save == nullptr) {
-        LOG(WARNING) << "invalid input json value for key_type=" << key_type;
-        return http_json_reply(
-                MetaServiceCode::INVALID_ARGUMENT,
-                fmt::format("invalid input json value, cannot parse json to pb, key_type={}",
-                            key_type));
+    std::shared_ptr<google::protobuf::Message> pb_to_save;
+    if (json_parsing_function) {
+        pb_to_save = json_parsing_function(body);
+        if (pb_to_save == nullptr) {
+            LOG(WARNING) << "invalid input json value for key_type=" << key_type;
+            return http_json_reply(
+                    MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("invalid input json value, cannot parse json to pb, key_type={}",
+                                key_type));
+        }
+        LOG(INFO) << "parsed pb to save key_type=" << key_type << " key=" << hex(key)
+                  << " pb_to_save=" << proto_to_json(*pb_to_save);
     }
-
-    LOG(INFO) << "parsed pb to save key_type=" << key_type << " key=" << hex(key)
-              << " pb_to_save=" << proto_to_json(*pb_to_save);
 
     // ATTN:
     // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
@@ -695,8 +703,9 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
             LOG(INFO) << "original_value_json=" << original_value_json;
         }
     }
-    std::string serialized_value_to_save = pb_to_save->SerializeAsString();
-    if (serialized_value_to_save.empty()) {
+    std::string serialized_value_to_save =
+            json_parsing_function ? pb_to_save->SerializeAsString() : body;
+    if (json_parsing_function && serialized_value_to_save.empty()) {
         LOG(WARNING) << "failed to serialize, key=" << hex(key);
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR,
                                fmt::format("failed to serialize, key={}", hex(key)));

@@ -1009,9 +1009,18 @@ bool MetaChecker::do_table_stream_meta_check() {
         return false;
     }
     CloneChainReader reader(instance_id_, txn_kv_.get(), resource_mgr_.get());
+    const bool is_versioned_read = resource_mgr_->is_version_read_enabled(instance_id_);
     for (const auto& [stream_id, stream] : fe_streams) {
         IndexIndexPB index;
-        err = reader.get_index_index(txn.get(), stream_id, &index, true);
+        if (is_versioned_read) {
+            err = reader.get_index_index(txn.get(), stream_id, &index, true);
+        } else {
+            std::string value;
+            err = txn->get(table_stream_index_key({instance_id_, stream_id}), &value, true);
+            if (err == TxnErrorCode::TXN_OK && !index.ParseFromString(value)) {
+                err = TxnErrorCode::TXN_INVALID_DATA;
+            }
+        }
         if (err != TxnErrorCode::TXN_OK || !matches(stream, index)) {
             LOG_WARNING("FE Table Stream does not match its effective MS typed Index binding")
                     .tag("instance_id", instance_id_)
@@ -1022,8 +1031,11 @@ bool MetaChecker::do_table_stream_meta_check() {
         }
     }
 
-    std::string begin = versioned::index_index_key({instance_id_, 0});
-    const std::string end = versioned::index_index_key({instance_id_, INT64_MAX});
+    std::string begin = is_versioned_read ? versioned::index_index_key({instance_id_, 0})
+                                          : table_stream_index_key({instance_id_, 0});
+    const std::string end = is_versioned_read
+                                    ? versioned::index_index_key({instance_id_, INT64_MAX})
+                                    : table_stream_index_key({instance_id_, INT64_MAX});
     bool scan_result =
             scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view value) {
                 IndexIndexPB index;

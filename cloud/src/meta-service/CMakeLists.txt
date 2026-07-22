@@ -35,6 +35,7 @@ add_library(MetaService
     meta_service_snapshot.cpp
     meta_service_tablet_stats.cpp
     meta_service_table_stream.cpp
+    table_stream_metadata_reader.cpp
     meta_service_partition.cpp
     meta_service_txn.cpp
     meta_service_util.cpp

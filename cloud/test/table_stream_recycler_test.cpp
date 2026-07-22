@@ -44,6 +44,11 @@ void put_stream_mapping(Transaction* txn) {
     index.set_table_id(kBaseTableId);
     index.set_object_type(IndexObjectTypePB::TABLE_STREAM);
     index.set_stream_db_id(kStreamDbId);
+    txn->put(table_stream_index_key({std::string(kInstanceId), kStreamId}),
+             index.SerializeAsString());
+    txn->put(table_stream_inverted_key(
+                     {std::string(kInstanceId), kBaseDbId, kBaseTableId, kStreamId}),
+             "");
     txn->put(versioned::index_index_key({std::string(kInstanceId), kStreamId}),
              index.SerializeAsString());
     txn->put(versioned::index_inverted_key(
@@ -129,6 +134,11 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsetsAndMappings) {
 
     EXPECT_FALSE(
             key_exists(txn_kv.get(), recycle_index_key({std::string(kInstanceId), kStreamId})));
+    EXPECT_FALSE(key_exists(txn_kv.get(),
+                            table_stream_index_key({std::string(kInstanceId), kStreamId})));
+    EXPECT_FALSE(
+            key_exists(txn_kv.get(), table_stream_inverted_key({std::string(kInstanceId), kBaseDbId,
+                                                                kBaseTableId, kStreamId})));
     EXPECT_FALSE(key_exists(txn_kv.get(),
                             versioned::index_index_key({std::string(kInstanceId), kStreamId})));
     EXPECT_FALSE(key_exists(
@@ -229,6 +239,8 @@ TEST(TableStreamRecyclerTest, RecyclePartitionDeletesOnlyThatPartitionOffsets) {
               0);
     EXPECT_TRUE(key_exists(txn_kv.get(),
                            versioned::index_index_key({std::string(kInstanceId), kStreamId})));
+    EXPECT_TRUE(key_exists(txn_kv.get(),
+                           table_stream_index_key({std::string(kInstanceId), kStreamId})));
 }
 
 TEST(TableStreamRecyclerTest, RecyclePartitionUsesInheritedStreamMapping) {
@@ -249,6 +261,7 @@ TEST(TableStreamRecyclerTest, RecyclePartitionUsesInheritedStreamMapping) {
     txn->put(instance_key({std::string(source_instance_id)}), source_instance.SerializeAsString());
     InstanceInfoPB child_instance;
     child_instance.set_instance_id(std::string(kInstanceId));
+    child_instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
     child_instance.set_source_instance_id(std::string(source_instance_id));
     child_instance.set_source_snapshot_id(Versionstamp(20, 0).to_string());
     txn->put(instance_key({std::string(kInstanceId)}), child_instance.SerializeAsString());

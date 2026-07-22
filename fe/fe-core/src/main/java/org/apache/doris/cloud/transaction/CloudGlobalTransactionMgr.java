@@ -716,13 +716,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     Config.calculate_delete_bitmap_task_timeout_seconds);
         }
 
-        if (!streamUpdateInfos.isEmpty()) {
-            try {
-                MetaServiceProxy.getInstance().requireTableStreamControlPlaneCapability();
-            } catch (RpcException e) {
-                throw new UserException("Cloud Table Stream capability check failed: " + e.getMessage(), e);
-            }
-        }
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setDbId(dbId)

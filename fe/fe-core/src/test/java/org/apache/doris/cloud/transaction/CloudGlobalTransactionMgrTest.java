@@ -39,7 +39,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -248,7 +247,6 @@ public class CloudGlobalTransactionMgrTest {
                     Lists.newArrayList(table), 123533, Lists.newArrayList(), 10_000, null,
                     Lists.newArrayList(updateInfo));
 
-            Mockito.verify(mockProxy).requireTableStreamControlPlaneCapability();
             ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
@@ -256,41 +254,6 @@ public class CloudGlobalTransactionMgrTest {
             Assert.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
             Assert.assertEquals(partitionUpdate,
                     requestCaptor.getValue().getTableStreamUpdates(0).getPartitionUpdates(0));
-        }
-    }
-
-    @Test
-    public void testCommitTableStreamUpdateRejectsMetaServiceWithoutCapability() throws Exception {
-        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
-        Mockito.doThrow(new RpcException("", "old MetaService"))
-                .when(mockProxy).requireTableStreamControlPlaneCapability();
-        try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
-            Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
-                    .setBaseDbId(10)
-                    .setBaseTableId(20)
-                    .setStreamDbId(30)
-                    .setStreamId(40)
-                    .build();
-            Cloud.TableStreamPartitionUpdatePB partitionUpdate =
-                    Cloud.TableStreamPartitionUpdatePB.newBuilder()
-                            .setPartitionId(50)
-                            .setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
-                            .setExpectedOffsetTso(60)
-                            .setNextOffsetTso(70)
-                            .build();
-            TableStreamUpdateInfo updateInfo = new TableStreamUpdateInfo(30L, 40L,
-                    new CloudOlapTableStreamUpdate(identity, java.util.Map.of(50L, partitionUpdate)));
-            Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
-                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
-
-            UserException exception = Assertions.assertThrows(UserException.class,
-                    () -> masterTransMgr.commitAndPublishTransaction(
-                            masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
-                            Lists.newArrayList(table), 123533, Lists.newArrayList(), 10_000, null,
-                            Lists.newArrayList(updateInfo)));
-            Assertions.assertTrue(exception.getMessage().contains("old MetaService"));
-            Mockito.verify(mockProxy, Mockito.never()).commitTxn(Mockito.any());
         }
     }
 

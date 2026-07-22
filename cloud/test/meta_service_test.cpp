@@ -617,9 +617,6 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                    &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        ASSERT_EQ(res.server_capabilities_size(), 1);
-        EXPECT_EQ(res.server_capabilities(0),
-                  MetaServiceCapabilityPB::META_SERVICE_CAPABILITY_TABLE_STREAM_CONTROL_PLANE);
     }
 }
 
@@ -13551,7 +13548,7 @@ TEST(MetaServiceTest, TableStreamCreateDisabled) {
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     EXPECT_EQ(txn->get(recycle_index_key({instance_id, stream_id}), &value),
               TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(txn->get(versioned::index_index_key({instance_id, stream_id}), &value),
+    ASSERT_EQ(txn->get(table_stream_index_key({instance_id, stream_id}), &value),
               TxnErrorCode::TXN_OK);
     IndexIndexPB index_index;
     ASSERT_TRUE(index_index.ParseFromString(value));
@@ -13559,9 +13556,14 @@ TEST(MetaServiceTest, TableStreamCreateDisabled) {
     EXPECT_EQ(index_index.db_id(), db_id);
     EXPECT_EQ(index_index.table_id(), table_id);
     EXPECT_EQ(index_index.stream_db_id(), stream_db_id);
+    EXPECT_EQ(
+            txn->get(table_stream_inverted_key({instance_id, db_id, table_id, stream_id}), &value),
+            TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(versioned::index_index_key({instance_id, stream_id}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
     EXPECT_EQ(txn->get(versioned::index_inverted_key({instance_id, db_id, table_id, stream_id}),
                        &value),
-              TxnErrorCode::TXN_OK);
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
     Versionstamp version;
     EXPECT_EQ(versioned_get(txn.get(), versioned::meta_index_key({instance_id, stream_id}),
                             &version, &value),
@@ -13615,11 +13617,11 @@ TEST(MetaServiceTest, TableStreamCreateVersionedModes) {
         meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
         ASSERT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
 
-        put_table_stream_test_partition_mapping(meta_service.get(), instance_id, db_id, table_id,
-                                                partition_id);
         put_table_stream_test_partition_version(meta_service.get(), instance_id, db_id, table_id,
                                                 partition_id, status);
         if (status == MULTI_VERSION_READ_WRITE) {
+            put_table_stream_test_partition_mapping(meta_service.get(), instance_id, db_id,
+                                                    table_id, partition_id);
             partition_response.Clear();
             meta_service->commit_partition(&ctrl, &partition_request, &partition_response, nullptr);
             ASSERT_EQ(partition_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
@@ -13658,6 +13660,8 @@ TEST(MetaServiceTest, TableStreamCreateVersionedModes) {
                                 &offset_version, &value),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(versioned::index_index_key({instance_id, stream_id}), &value),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(table_stream_index_key({instance_id, stream_id}), &value),
                   TxnErrorCode::TXN_OK);
         IndexIndexPB index_index;
         ASSERT_TRUE(index_index.ParseFromString(value));

@@ -2327,6 +2327,9 @@ int InstanceRecycler::finalize_recycle_stream(int64_t stream_id,
     }
 
     versioned_remove_all(txn.get(), versioned::meta_index_key({instance_id_, stream_id}));
+    txn->remove(table_stream_index_key({instance_id_, stream_id}));
+    txn->remove(table_stream_inverted_key(
+            {instance_id_, recycle_index.db_id(), recycle_index.table_id(), stream_id}));
     txn->remove(versioned::index_index_key({instance_id_, stream_id}));
     txn->remove(versioned::index_inverted_key(
             {instance_id_, recycle_index.db_id(), recycle_index.table_id(), stream_id}));
@@ -2402,6 +2405,31 @@ int InstanceRecycler::get_recycle_source_snapshot(std::string_view current_insta
 
 int InstanceRecycler::collect_table_stream_index_candidates(
         int64_t db_id, int64_t table_id, std::vector<TableStreamIndexCandidate>* candidates) {
+    const MultiVersionStatus multi_version_status = instance_info_.multi_version_status();
+    const bool is_versioned_read =
+            multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
+            multi_version_status == MultiVersionStatus::MULTI_VERSION_ENABLED;
+    if (!is_versioned_read) {
+        const std::string begin = table_stream_inverted_key({instance_id_, db_id, table_id, 0});
+        const std::string end =
+                table_stream_inverted_key({instance_id_, db_id, table_id, INT64_MAX});
+        auto collect_candidate = [this, candidates](std::string_view key, std::string_view) -> int {
+            const std::string original_key(key);
+            key.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+            if (decode_key(&key, &fields) != 0 || fields.size() != 6 ||
+                !std::holds_alternative<int64_t>(std::get<0>(fields[5]))) {
+                LOG_WARNING("malformed table stream inverted mapping")
+                        .tag("key", hex(original_key));
+                return -1;
+            }
+            candidates->push_back({instance_id_, Versionstamp::max(),
+                                   std::get<int64_t>(std::get<0>(fields[5])), false});
+            return 0;
+        };
+        return scan_and_recycle(begin, end, std::move(collect_candidate));
+    }
+
     std::unordered_set<std::string> visited_instances;
     std::string chain_instance_id = instance_id_;
     Versionstamp chain_snapshot_version = Versionstamp::max();
@@ -2462,9 +2490,16 @@ int InstanceRecycler::resolve_table_stream_binding_batch(
         std::vector<TableStreamBinding>* stream_bindings) {
     std::vector<std::string> index_keys;
     index_keys.reserve(end_index - begin_index);
+    const MultiVersionStatus multi_version_status = instance_info_.multi_version_status();
+    const bool is_versioned_read =
+            multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
+            multi_version_status == MultiVersionStatus::MULTI_VERSION_ENABLED;
     for (size_t i = begin_index; i < end_index; ++i) {
-        index_keys.push_back(
-                versioned::index_index_key({candidates[i].instance_id, candidates[i].index_id}));
+        index_keys.push_back(is_versioned_read
+                                     ? versioned::index_index_key(
+                                               {candidates[i].instance_id, candidates[i].index_id})
+                                     : table_stream_index_key({candidates[i].instance_id,
+                                                               candidates[i].index_id}));
     }
 
     std::unique_ptr<Transaction> txn;

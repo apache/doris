@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.TestWithFeService;
@@ -450,14 +449,6 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
                 Mockito.when(proxy.getTableStreamReadState(Mockito.any())).thenReturn(response);
-                Mockito.doThrow(new RpcException("", "UNIMPLEMENTED: Method not found"))
-                        .doNothing()
-                        .when(proxy).requireTableStreamControlPlaneCapability();
-
-                org.apache.doris.nereids.exceptions.AnalysisException unsupported = Assertions.assertThrows(
-                        org.apache.doris.nereids.exceptions.AnalysisException.class,
-                        () -> new ResolveCloudTableStreamReadState().rewriteRoot(analyzedPlan, null));
-                Assertions.assertTrue(unsupported.getMessage().contains("UNIMPLEMENTED"));
 
                 new ResolveCloudTableStreamReadState().rewriteRoot(analyzedPlan, null);
                 List<TableStreamUpdateInfo> streamUpdateInfos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
@@ -476,7 +467,6 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
                 ArgumentCaptor<Cloud.GetTableStreamReadStateRequest> requestCaptor =
                         ArgumentCaptor.forClass(Cloud.GetTableStreamReadStateRequest.class);
-                Mockito.verify(proxy, Mockito.times(2)).requireTableStreamControlPlaneCapability();
                 Mockito.verify(proxy).getTableStreamReadState(requestCaptor.capture());
                 Assertions.assertEquals(1, requestCaptor.getValue().getBindingsCount());
                 Assertions.assertEquals(List.of(partitionId),

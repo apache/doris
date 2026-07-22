@@ -35,19 +35,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class MetaServiceProxyTest {
     private String originEndpoint;
-    private String originCloudUniqueId;
     private long originReconnectIntervalMs;
     private long originRetryCnt;
 
     @Before
     public void setUp() {
         originEndpoint = Config.meta_service_endpoint;
-        originCloudUniqueId = Config.cloud_unique_id;
         originReconnectIntervalMs = Config.meta_service_rpc_reconnect_interval_ms;
         originRetryCnt = Config.meta_service_rpc_retry_cnt;
 
         Config.meta_service_endpoint = "127.0.0.1:12345";
-        Config.cloud_unique_id = "cloud-table-stream-capability-test";
         Config.meta_service_rpc_reconnect_interval_ms = 0;
         Config.meta_service_rpc_retry_cnt = 1;
     }
@@ -55,7 +52,6 @@ public class MetaServiceProxyTest {
     @After
     public void tearDown() {
         Config.meta_service_endpoint = originEndpoint;
-        Config.cloud_unique_id = originCloudUniqueId;
         Config.meta_service_rpc_reconnect_interval_ms = originReconnectIntervalMs;
         Config.meta_service_rpc_retry_cnt = originRetryCnt;
     }
@@ -82,47 +78,6 @@ public class MetaServiceProxyTest {
                 Cloud.GetVersionResponse::getStatus);
         Assert.assertEquals(Cloud.MetaServiceCode.OK, response.getStatus().getCode());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
-    }
-
-    @Test
-    public void testTableStreamCapabilityIsCachedAfterSuccessfulProbe() throws RpcException {
-        MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = mockNormalClient();
-        Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
-        serviceMap.put(Config.meta_service_endpoint, client);
-        Cloud.GetInstanceResponse response = Cloud.GetInstanceResponse.newBuilder()
-                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.OK))
-                .addServerCapabilities(Cloud.MetaServiceCapabilityPB
-                        .META_SERVICE_CAPABILITY_TABLE_STREAM_CONTROL_PLANE)
-                .build();
-        Mockito.when(client.getInstance(Mockito.any())).thenReturn(response);
-
-        proxy.requireTableStreamControlPlaneCapability();
-        proxy.requireTableStreamControlPlaneCapability();
-
-        Mockito.verify(client).getInstance(Mockito.argThat(request ->
-                Config.cloud_unique_id.equals(request.getCloudUniqueId())));
-    }
-
-    @Test
-    public void testTableStreamCapabilityRejectsOldMetaService() {
-        MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = mockNormalClient();
-        Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
-        serviceMap.put(Config.meta_service_endpoint, client);
-        Cloud.GetInstanceResponse oldResponse = Cloud.GetInstanceResponse.newBuilder()
-                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.OK))
-                .build();
-        Mockito.when(client.getInstance(Mockito.any())).thenReturn(oldResponse);
-
-        try {
-            proxy.requireTableStreamControlPlaneCapability();
-            Assert.fail("should reject a MetaService without the capability field");
-        } catch (RpcException e) {
-            Assert.assertTrue(e.getMessage().contains("Upgrade all MetaService nodes"));
-        }
     }
 
     @Test

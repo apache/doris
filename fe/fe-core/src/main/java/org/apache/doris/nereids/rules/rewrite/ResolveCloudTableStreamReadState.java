@@ -104,7 +104,6 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
         Cloud.GetTableStreamReadStateResponse response;
         MetaServiceProxy proxy = MetaServiceProxy.getInstance();
         try {
-            proxy.requireTableStreamControlPlaneCapability();
             response = proxy.getTableStreamReadState(request.build());
         } catch (RpcException e) {
             throw new AnalysisException("Failed to get Cloud Table Stream read state: " + e.getMessage(), e);

@@ -49,6 +49,8 @@
 // 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
 // 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator_id}                      -> MowTabletJobPB
 // 0x01 "meta" ${instance_id} "packed_file" ${packed_file_path}                                   -> PackedFileInfoPB
+// 0x01 "meta" ${instance_id} "table_stream" ${stream_id}                                        -> IndexIndexPB
+// 0x01 "meta" ${instance_id} "table_stream_inverted" ${base_db_id} ${base_table_id} ${stream_id} -> ${empty_value}
 // 0x01 "meta" ${instance_id} "table_stream_offset" ${base_db_id} ${base_table_id} ${stream_db_id} ${stream_id} ${partition_id} -> TableStreamOffsetPB
 //
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}               -> TabletStatsPB
@@ -176,6 +178,13 @@ using MetaRowsetTmpKeyInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string,  in
 
 //                                                      0:instance_id  1:base_db_id  2:base_table_id  3:stream_db_id  4:stream_id  5:partition_id
 using TableStreamOffsetKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t, int64_t>>;
+
+//                                                      0:instance_id  1:stream_id
+using TableStreamIndexKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t>>;
+
+//                                                      0:instance_id  1:base_db_id  2:base_table_id  3:stream_id
+using TableStreamInvertedKeyInfo =
+        BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:table_id  2:index_id  3:part_id  4:tablet_id
 using MetaTabletKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,    int64_t,    int64_t,   int64_t>>;
@@ -387,6 +396,8 @@ void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out);
 void packed_file_key(const PackedFileKeyInfo& in, std::string* out);
+void table_stream_index_key(const TableStreamIndexKeyInfo& in, std::string* out);
+void table_stream_inverted_key(const TableStreamInvertedKeyInfo& in, std::string* out);
 void table_stream_offset_key(const TableStreamOffsetKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
@@ -401,6 +412,16 @@ static inline std::string mow_tablet_job_key(const MowTabletJobInfo& in) { std::
 static inline std::string packed_file_key(const PackedFileKeyInfo& in) {
     std::string s;
     packed_file_key(in, &s);
+    return s;
+}
+static inline std::string table_stream_index_key(const TableStreamIndexKeyInfo& in) {
+    std::string s;
+    table_stream_index_key(in, &s);
+    return s;
+}
+static inline std::string table_stream_inverted_key(const TableStreamInvertedKeyInfo& in) {
+    std::string s;
+    table_stream_inverted_key(in, &s);
     return s;
 }
 static inline std::string table_stream_offset_key(const TableStreamOffsetKeyInfo& in) {

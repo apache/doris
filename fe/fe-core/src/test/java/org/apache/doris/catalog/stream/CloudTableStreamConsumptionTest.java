@@ -100,7 +100,6 @@ public class CloudTableStreamConsumptionTest extends TestWithFeService {
 
             List<TRow> rows = new ArrayList<>();
             Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(rows);
-            Mockito.verify(proxy).requireTableStreamControlPlaneCapability();
             rows.sort(Comparator.comparing(row -> row.getColumnValue().get(3).getStringVal()));
             Assertions.assertEquals(2, rows.size());
             Assertions.assertEquals("p1", rows.get(0).getColumnValue().get(3).getStringVal());

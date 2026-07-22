@@ -1943,6 +1943,51 @@ TEST(KeysTest, VersionedLogKeyTest) {
     }
 }
 
+TEST(KeysTest, TableStreamMappingKeyTest) {
+    using namespace doris::cloud;
+
+    const std::string instance_id = "instance_id";
+    constexpr int64_t base_db_id = 101;
+    constexpr int64_t base_table_id = 102;
+    constexpr int64_t stream_id = 104;
+
+    std::string key = table_stream_index_key({instance_id, stream_id});
+    std::string_view key_sv(key);
+    std::string meta_prefix;
+    std::string decoded_instance_id;
+    std::string mapping_infix;
+    int64_t decoded_stream_id = 0;
+    remove_user_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &meta_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &mapping_infix), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_stream_id), 0);
+    ASSERT_TRUE(key_sv.empty());
+    EXPECT_EQ(meta_prefix, "meta");
+    EXPECT_EQ(decoded_instance_id, instance_id);
+    EXPECT_EQ(mapping_infix, "table_stream");
+    EXPECT_EQ(decoded_stream_id, stream_id);
+
+    key = table_stream_inverted_key({instance_id, base_db_id, base_table_id, stream_id});
+    key_sv = key;
+    int64_t decoded_base_db_id = 0;
+    int64_t decoded_base_table_id = 0;
+    remove_user_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &meta_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &mapping_infix), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_base_db_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_base_table_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_stream_id), 0);
+    ASSERT_TRUE(key_sv.empty());
+    EXPECT_EQ(meta_prefix, "meta");
+    EXPECT_EQ(decoded_instance_id, instance_id);
+    EXPECT_EQ(mapping_infix, "table_stream_inverted");
+    EXPECT_EQ(decoded_base_db_id, base_db_id);
+    EXPECT_EQ(decoded_base_table_id, base_table_id);
+    EXPECT_EQ(decoded_stream_id, stream_id);
+}
+
 TEST(KeysTest, TableStreamOffsetKeyTest) {
     using namespace doris::cloud;
 

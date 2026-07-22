@@ -48,8 +48,11 @@ protected:
         index.set_table_id(base_table_id);
         index.set_object_type(TABLE_STREAM);
         index.set_stream_db_id(stream_db_id);
+        txn->put(table_stream_index_key({instance_id, stream_id}), index.SerializeAsString());
         txn->put(versioned::index_index_key({instance_id, stream_id}), index.SerializeAsString());
         if (put_inverse) {
+            txn->put(table_stream_inverted_key({instance_id, base_db_id, base_table_id, stream_id}),
+                     "");
             txn->put(versioned::index_inverted_key(
                              {instance_id, base_db_id, base_table_id, stream_id}),
                      "");

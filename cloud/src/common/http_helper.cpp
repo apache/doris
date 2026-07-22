@@ -33,10 +33,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
-#include <cstring>
-#include <optional>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -47,9 +44,6 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-service/meta_service_rate_limit_helper.h"
-#include "meta-store/blob_message.h"
-#include "meta-store/keys.h"
-#include "meta-store/versioned_value.h"
 #include "recycler/recycler.h"
 #include "recycler/recycler_service.h"
 namespace doris::cloud {
@@ -235,18 +229,6 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                 {"set_value",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_set_value((MS*)s, c); },
-                  .role = HttpRole::META_SERVICE}},
-                {"get_operation_log",
-                 {.handler =
-                          [](void* s, brpc::Controller* c) {
-                              return process_get_operation_log((MS*)s, c);
-                          },
-                  .role = HttpRole::META_SERVICE}},
-                {"list_operation_logs",
-                 {.handler =
-                          [](void* s, brpc::Controller* c) {
-                              return process_list_operation_logs((MS*)s, c);
-                          },
                   .role = HttpRole::META_SERVICE}},
                 {"show_meta_ranges",
                  {.handler =
@@ -887,129 +869,6 @@ HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller* ctrl)
 
 HttpResponse process_set_value(MetaServiceImpl* service, brpc::Controller* ctrl) {
     return process_http_set_value(service->txn_kv().get(), ctrl);
-}
-
-static bool parse_operation_log_versionstamp(std::string_view encoded, Versionstamp* versionstamp) {
-    if (encoded.size() != 20) {
-        return false;
-    }
-    std::string bytes = unhex(encoded);
-    if (bytes.size() != 10) {
-        return false;
-    }
-    std::array<uint8_t, 10> data;
-    std::memcpy(data.data(), bytes.data(), data.size());
-    *versionstamp = Versionstamp(data);
-    return true;
-}
-
-static std::string operation_log_to_json(Versionstamp versionstamp,
-                                         const OperationLogPB& operation_log) {
-    return fmt::format(R"({{"versionstamp":"{}","operation_log":{}}})", versionstamp.to_string(),
-                       proto_to_json(operation_log));
-}
-
-HttpResponse process_get_operation_log(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    const auto& uri = ctrl->http_request().uri();
-    std::string_view instance_id = http_query(uri, "instance_id");
-    std::string_view versionstamp_param = http_query(uri, "versionstamp");
-    if (instance_id.empty() || versionstamp_param.empty()) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "instance_id and versionstamp are required");
-    }
-
-    Versionstamp versionstamp;
-    if (!parse_operation_log_versionstamp(versionstamp_param, &versionstamp)) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "versionstamp must be a 20-character hexadecimal string");
-    }
-
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = service->txn_kv()->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        return http_json_reply(MetaServiceCode::KV_TXN_CREATE_ERR,
-                               fmt::format("failed to create transaction, err={}", err));
-    }
-
-    const std::string key = encode_versioned_key(versioned::log_key({instance_id}), versionstamp);
-    ValueBuf value;
-    err = blob_get(txn.get(), key, &value, true);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        return http_json_reply(
-                MetaServiceCode::KV_TXN_GET_ERR,
-                fmt::format("operation log not found, versionstamp={}", versionstamp.to_string()));
-    }
-    if (err != TxnErrorCode::TXN_OK) {
-        return http_json_reply(MetaServiceCode::KV_TXN_GET_ERR,
-                               fmt::format("failed to get operation log, err={}", err));
-    }
-
-    OperationLogPB operation_log;
-    if (!value.to_pb(&operation_log)) {
-        return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR,
-                               "failed to parse OperationLogPB");
-    }
-    return http_text_reply(MetaServiceCode::OK, "",
-                           operation_log_to_json(versionstamp, operation_log));
-}
-
-HttpResponse process_list_operation_logs(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    const auto& uri = ctrl->http_request().uri();
-    std::string_view instance_id = http_query(uri, "instance_id");
-    if (instance_id.empty()) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is required");
-    }
-
-    Versionstamp start = Versionstamp::min();
-    Versionstamp end = Versionstamp::max();
-    if (std::string_view param = http_query(uri, "start_versionstamp");
-        !param.empty() && !parse_operation_log_versionstamp(param, &start)) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "start_versionstamp must be a 20-character hexadecimal string");
-    }
-    if (std::string_view param = http_query(uri, "end_versionstamp");
-        !param.empty() && !parse_operation_log_versionstamp(param, &end)) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "end_versionstamp must be a 20-character hexadecimal string");
-    }
-    if (start > end) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               "start_versionstamp must not exceed end_versionstamp");
-    }
-
-    const std::string log_key = versioned::log_key({instance_id});
-    const std::string begin_key = encode_versioned_key(log_key, start);
-    const std::string end_key = encode_versioned_key(log_key, Versionstamp::next(end));
-    auto iter = blob_get_range(service->txn_kv(), begin_key, end_key, true);
-
-    std::string body = R"({"operation_logs":[)";
-    bool first = true;
-    for (; iter->valid(); iter->next()) {
-        std::string_view key = iter->key();
-        Versionstamp versionstamp;
-        if (!decode_versioned_key(&key, &versionstamp)) {
-            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                                   fmt::format("invalid operation log key={}", hex(iter->key())));
-        }
-        OperationLogPB operation_log;
-        if (!iter->parse_value(&operation_log)) {
-            return http_json_reply(
-                    MetaServiceCode::PROTOBUF_PARSE_ERR,
-                    fmt::format("failed to parse operation log key={}", hex(iter->key())));
-        }
-        if (!first) {
-            body.push_back(',');
-        }
-        first = false;
-        body += operation_log_to_json(versionstamp, operation_log);
-    }
-    if (iter->error_code() != TxnErrorCode::TXN_OK) {
-        return http_json_reply(
-                MetaServiceCode::KV_TXN_GET_ERR,
-                fmt::format("failed to list operation logs, err={}", iter->error_code()));
-    }
-    body += "]}";
-    return http_text_reply(MetaServiceCode::OK, "", body);
 }
 
 // show all key ranges and their count.

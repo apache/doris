@@ -1600,15 +1600,9 @@ message GetInstanceRequest {
     optional string request_ip = 3;
 }
 
-enum MetaServiceCapabilityPB {
-    META_SERVICE_CAPABILITY_UNSPECIFIED = 0;
-    META_SERVICE_CAPABILITY_TABLE_STREAM_CONTROL_PLANE = 1;
-}
-
 message GetInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
     optional InstanceInfoPB instance = 2;
-    repeated MetaServiceCapabilityPB server_capabilities = 3;
 }
 
 message AlterClusterRequest {

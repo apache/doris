@@ -26,10 +26,10 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-service/table_stream_metadata_reader.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
-#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 #include "meta_service.h"
@@ -84,33 +84,6 @@ static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string&
     return txn->get(key, &val);
 }
 
-static bool get_table_stream_multi_version_status(Transaction* txn, const std::string& instance_id,
-                                                  MultiVersionStatus* multi_version_status,
-                                                  MetaServiceCode& code, std::string& msg) {
-    std::string instance_val;
-    TxnErrorCode err = txn->get(instance_key({instance_id}), &instance_val);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get instance for table stream, err={}", err);
-        return false;
-    }
-
-    InstanceInfoPB instance;
-    if (!instance.ParseFromString(instance_val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = "malformed instance value for table stream";
-        return false;
-    }
-
-    *multi_version_status = instance.multi_version_status();
-    if (*multi_version_status == MultiVersionStatus::MULTI_VERSION_ENABLED) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "table stream is unavailable while multi-version status is ENABLED";
-        return false;
-    }
-    return true;
-}
-
 static bool is_table_stream_versioned_write(MultiVersionStatus multi_version_status) {
     return multi_version_status == MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
            multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE;
@@ -139,6 +112,13 @@ static bool table_stream_recycle_index_matches(const RecycleIndexPB& recycle_ind
            recycle_index.has_db_id() && recycle_index.db_id() == request.db_id() &&
            recycle_index.table_id() == request.table_id() && recycle_index.has_stream_db_id() &&
            recycle_index.stream_db_id() == request.stream_db_id();
+}
+
+static bool table_stream_index_matches(const IndexIndexPB& index, const IndexRequest& request) {
+    return index.object_type() == IndexObjectTypePB::TABLE_STREAM && index.has_db_id() &&
+           index.db_id() == request.db_id() && index.has_table_id() &&
+           index.table_id() == request.table_id() && index.has_stream_db_id() &&
+           index.stream_db_id() == request.stream_db_id();
 }
 
 static bool table_stream_recycle_index_matches(const RecycleIndexPB& recycle_index,
@@ -221,17 +201,32 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         msg = "failed to create txn";
         return;
     }
+
     if (is_table_stream) {
         MultiVersionStatus multi_version_status;
-        if (!get_table_stream_multi_version_status(txn.get(), instance_id, &multi_version_status,
-                                                   code, msg)) {
+        TableStreamReadResult status_result = read_table_stream_multi_version_status(
+                txn.get(), instance_id, TableStreamReadIntent::CONFLICT, &multi_version_status);
+        if (!status_result.ok()) {
+            code = status_result.code;
+            msg = std::move(status_result.message);
             return;
         }
 
         const int64_t stream_id = request->index_ids(0);
-        std::string index_index_val;
-        err = txn->get(versioned::index_index_key({instance_id, stream_id}), &index_index_val);
+        std::string mapping_value;
+        err = txn->get(table_stream_index_key({instance_id, stream_id}), &mapping_value);
         if (err == TxnErrorCode::TXN_OK) {
+            IndexIndexPB index;
+            if (!index.ParseFromString(mapping_value)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "malformed table stream mapping";
+                return;
+            }
+            if (!table_stream_index_matches(index, *request)) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "table stream prepare request does not match committed index";
+                return;
+            }
             code = MetaServiceCode::ALREADY_EXISTED;
             msg = "table stream index already existed";
             return;
@@ -241,87 +236,48 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
             msg = fmt::format("failed to check table stream index existence, err={}", err);
             return;
         }
+    } else {
+        bool is_versioned_read = is_version_read_enabled(instance_id);
+        CloneChainReader reader(instance_id, resource_mgr_.get());
+        err = is_versioned_read ? reader.is_index_exists(txn.get(), request->index_ids(0))
+                                : index_exists(txn.get(), instance_id, request);
+        // If index has existed, this might be a stale request
+        if (err == TxnErrorCode::TXN_OK) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = "index already existed";
+            return;
+        }
+        if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to check index existence, err={}", err);
+            return;
+        }
+    }
 
-        RecycleIndexPB recycle_index;
+    RecycleIndexPB recycle_index;
+    recycle_index.set_table_id(request->table_id());
+    recycle_index.set_creation_time(::time(nullptr));
+    recycle_index.set_expiration(request->expiration());
+    recycle_index.set_state(RecycleIndexPB::PREPARED);
+    if (is_table_stream) {
         recycle_index.set_db_id(request->db_id());
-        recycle_index.set_table_id(request->table_id());
-        recycle_index.set_creation_time(::time(nullptr));
-        recycle_index.set_expiration(request->expiration());
-        recycle_index.set_state(RecycleIndexPB::PREPARED);
         recycle_index.set_object_type(IndexObjectTypePB::TABLE_STREAM);
         recycle_index.set_stream_db_id(request->stream_db_id());
-        std::string recycle_index_val;
-        if (!recycle_index.SerializeToString(&recycle_index_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize table stream recycle index";
-            return;
-        }
-
-        const std::string recycle_key = recycle_index_key({instance_id, stream_id});
-        std::string existing_val;
-        err = txn->get(recycle_key, &existing_val);
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            txn->put(recycle_key, recycle_index_val);
-        } else if (err == TxnErrorCode::TXN_OK) {
-            RecycleIndexPB existing_recycle_index;
-            if (!existing_recycle_index.ParseFromString(existing_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed table stream recycle index value";
-                return;
-            }
-            if (!table_stream_recycle_index_matches(existing_recycle_index, *request)) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "table stream prepare request does not match existing PREPARED index";
-                return;
-            }
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get table stream recycle index, err={}", err);
-            return;
-        }
-
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::COMMIT>(err);
-            msg = fmt::format("failed to commit table stream prepare txn: {}", err);
-        }
-        return;
     }
-    bool is_versioned_read = is_version_read_enabled(instance_id);
-    CloneChainReader reader(instance_id, resource_mgr_.get());
-    if (!is_versioned_read) {
-        err = index_exists(txn.get(), instance_id, request);
-    } else {
-        err = reader.is_index_exists(txn.get(), request->index_ids(0));
-    }
-    // If index has existed, this might be a stale request
-    if (err == TxnErrorCode::TXN_OK) {
-        code = MetaServiceCode::ALREADY_EXISTED;
-        msg = "index already existed";
-        return;
-    }
-    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to check index existence, err={}", err);
+    std::string recycle_index_value;
+    if (!recycle_index.SerializeToString(&recycle_index_value)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize recycle index";
         return;
     }
 
-    std::string to_save_val;
-    {
-        RecycleIndexPB pb;
-        pb.set_table_id(request->table_id());
-        pb.set_creation_time(::time(nullptr));
-        pb.set_expiration(request->expiration());
-        pb.set_state(RecycleIndexPB::PREPARED);
-        pb.SerializeToString(&to_save_val);
-    }
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             LOG_INFO("put recycle index").tag("key", hex(key));
-            txn->put(key, to_save_val);
+            txn->put(key, recycle_index_value);
             continue;
         }
         if (err != TxnErrorCode::TXN_OK) {
@@ -335,6 +291,11 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "malformed recycle index value";
             LOG_WARNING(msg).tag("index_id", index_id);
+            return;
+        }
+        if (is_table_stream && !table_stream_recycle_index_matches(pb, *request)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "table stream prepare request does not match existing PREPARED index";
             return;
         }
         if (pb.state() != RecycleIndexPB::PREPARED) {
@@ -382,120 +343,27 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         return;
     }
 
-    if (is_table_stream) {
-        MultiVersionStatus multi_version_status;
-        if (!get_table_stream_multi_version_status(txn.get(), instance_id, &multi_version_status,
-                                                   code, msg)) {
-            return;
-        }
-        const bool is_versioned_write = is_table_stream_versioned_write(multi_version_status);
-        const int64_t stream_id = request->index_ids(0);
-        const std::string recycle_key = recycle_index_key({instance_id, stream_id});
-        const std::string index_meta_key = versioned::meta_index_key({instance_id, stream_id});
-        const std::string index_index_key = versioned::index_index_key({instance_id, stream_id});
-        const std::string index_inverted_key = versioned::index_inverted_key(
-                {instance_id, request->db_id(), request->table_id(), stream_id});
-
-        std::string recycle_val;
-        err = txn->get(recycle_key, &recycle_val);
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            std::string index_index_val;
-            err = txn->get(index_index_key, &index_index_val);
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "table stream index has been recycled";
-                return;
-            }
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get table stream index mapping, err={}", err);
-                return;
-            }
-
-            IndexIndexPB index_index;
-            if (!index_index.ParseFromString(index_index_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed table stream index mapping";
-                return;
-            }
-            if (index_index.object_type() != IndexObjectTypePB::TABLE_STREAM ||
-                index_index.db_id() != request->db_id() ||
-                index_index.table_id() != request->table_id() || !index_index.has_stream_db_id() ||
-                index_index.stream_db_id() != request->stream_db_id()) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "table stream commit request does not match committed index";
-                return;
-            }
-
-            std::string ignored_val;
-            err = txn->get(index_inverted_key, &ignored_val);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::INVALID_ARGUMENT
-                                                              : cast_as<ErrCategory::READ>(err);
-                msg = "committed table stream is missing its inverted index mapping";
-                return;
-            }
-            return;
-        }
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get table stream recycle index, err={}", err);
-            return;
-        }
-
-        RecycleIndexPB recycle_index;
-        if (!recycle_index.ParseFromString(recycle_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "malformed table stream recycle index value";
-            return;
-        }
-        if (!table_stream_recycle_index_matches(recycle_index, *request)) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "table stream commit request does not match PREPARED index";
-            return;
-        }
-
-        IndexIndexPB index_index;
-        index_index.set_db_id(request->db_id());
-        index_index.set_table_id(request->table_id());
-        index_index.set_object_type(IndexObjectTypePB::TABLE_STREAM);
-        index_index.set_stream_db_id(request->stream_db_id());
-        std::string index_index_val;
-        if (!index_index.SerializeToString(&index_index_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize table stream index mapping";
-            return;
-        }
-
-        txn->remove(recycle_key);
-        txn->put(index_index_key, index_index_val);
-        txn->put(index_inverted_key, "");
-        if (is_versioned_write) {
-            versioned_put(txn.get(), index_meta_key, "");
-
-            CommitIndexLogPB commit_index_log;
-            commit_index_log.set_db_id(request->db_id());
-            commit_index_log.set_table_id(request->table_id());
-            commit_index_log.add_index_ids(stream_id);
-            OperationLogPB operation_log;
-            operation_log.mutable_commit_index()->Swap(&commit_index_log);
-            versioned::blob_put(txn.get(), versioned::log_key({instance_id}), operation_log);
-        }
-
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::COMMIT>(err);
-            msg = fmt::format("failed to commit table stream index txn: {}", err);
-        }
-        return;
-    }
-
     CommitIndexLogPB commit_index_log;
     commit_index_log.set_db_id(request->db_id());
     commit_index_log.set_table_id(request->table_id());
 
-    bool is_versioned_read = is_version_read_enabled(instance_id);
-    bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read;
+    bool is_versioned_write;
+    if (is_table_stream) {
+        MultiVersionStatus multi_version_status;
+        TableStreamReadResult status_result = read_table_stream_multi_version_status(
+                txn.get(), instance_id, TableStreamReadIntent::CONFLICT, &multi_version_status);
+        if (!status_result.ok()) {
+            code = status_result.code;
+            msg = std::move(status_result.message);
+            return;
+        }
+        is_versioned_read = multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE;
+        is_versioned_write = is_table_stream_versioned_write(multi_version_status);
+    } else {
+        is_versioned_read = is_version_read_enabled(instance_id);
+        is_versioned_write = is_version_write_enabled(instance_id);
+    }
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "db_id is required for versioned write, please upgrade your FE version";
@@ -511,7 +379,35 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            if (!is_versioned_read) {
+            if (is_table_stream) {
+                std::string mapping_value;
+                err = txn->get(table_stream_index_key({instance_id, index_id}), &mapping_value);
+                if (err == TxnErrorCode::TXN_OK) {
+                    IndexIndexPB index;
+                    if (!index.ParseFromString(mapping_value)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        msg = "malformed table stream mapping";
+                        return;
+                    }
+                    if (!table_stream_index_matches(index, *request)) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = "table stream commit request does not match committed index";
+                        return;
+                    }
+                    std::string ignored_value;
+                    err = txn->get(table_stream_inverted_key({instance_id, request->db_id(),
+                                                              request->table_id(), index_id}),
+                                   &ignored_value);
+                    if (err == TxnErrorCode::TXN_OK) {
+                        return;
+                    }
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::INVALID_ARGUMENT
+                                   : cast_as<ErrCategory::READ>(err);
+                    msg = "committed table stream is missing its inverted mapping";
+                    return;
+                }
+            } else if (!is_versioned_read) {
                 err = index_exists(txn.get(), instance_id, request);
             } else {
                 err = reader.is_index_exists(txn.get(), index_id);
@@ -543,6 +439,11 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
             LOG_WARNING(msg).tag("index_id", index_id);
             return;
         }
+        if (is_table_stream && !table_stream_recycle_index_matches(pb, *request)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "table stream commit request does not match PREPARED index";
+            return;
+        }
         if (pb.state() != RecycleIndexPB::PREPARED) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = fmt::format("invalid recycle index state: {}",
@@ -552,24 +453,37 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         LOG_INFO("remove recycle index").tag("key", hex(key));
         txn->remove(key);
 
-        // Save the index meta/index keys
-        if (is_versioned_write) {
-            int64_t db_id = request->db_id();
-            int64_t table_id = request->table_id();
+        // Save the current and versioned index mappings.
+        if (is_table_stream || is_versioned_write) {
+            const int64_t db_id = request->db_id();
+            const int64_t table_id = request->table_id();
+            IndexIndexPB index_index_pb;
+            index_index_pb.set_db_id(db_id);
+            index_index_pb.set_table_id(table_id);
+            if (is_table_stream) {
+                index_index_pb.set_object_type(IndexObjectTypePB::TABLE_STREAM);
+                index_index_pb.set_stream_db_id(request->stream_db_id());
+            }
+            std::string index_index_value;
+            if (!index_index_pb.SerializeToString(&index_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize IndexIndexPB";
+                LOG_WARNING(msg).tag("index_id", index_id);
+                return;
+            }
+
+            if (is_table_stream) {
+                txn->put(table_stream_index_key({instance_id, index_id}), index_index_value);
+                txn->put(table_stream_inverted_key({instance_id, db_id, table_id, index_id}), "");
+            }
+            if (!is_versioned_write) {
+                continue;
+            }
+
             std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
             std::string index_index_key = versioned::index_index_key({instance_id, index_id});
             std::string index_inverted_key =
                     versioned::index_inverted_key({instance_id, db_id, table_id, index_id});
-            IndexIndexPB index_index_pb;
-            index_index_pb.set_db_id(db_id);
-            index_index_pb.set_table_id(table_id);
-            std::string index_index_value;
-            if (!index_index_pb.SerializeToString(&index_index_value)) {
-                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                msg = fmt::format("failed to serialize IndexIndexPB");
-                LOG_WARNING(msg).tag("index_id", index_id);
-                return;
-            }
             versioned_put(txn.get(), index_meta_key, "");
             txn->put(index_inverted_key, "");
             txn->put(index_index_key, index_index_value);
@@ -660,7 +574,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         commit_index_log.set_update_table_version(true);
     }
 
-    if (commit_index_log.index_ids_size() > 0 && is_version_write_enabled(instance_id)) {
+    if (commit_index_log.index_ids_size() > 0 && is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
         OperationLogPB operation_log;
         if (is_versioned_read) {
@@ -1060,8 +974,11 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
 
     if (request->object_type() == IndexObjectTypePB::TABLE_STREAM) {
         MultiVersionStatus multi_version_status;
-        if (!get_table_stream_multi_version_status(txn.get(), instance_id, &multi_version_status,
-                                                   code, msg)) {
+        TableStreamReadResult status_result = read_table_stream_multi_version_status(
+                txn.get(), instance_id, TableStreamReadIntent::CONFLICT, &multi_version_status);
+        if (!status_result.ok()) {
+            code = status_result.code;
+            msg = std::move(status_result.message);
             return;
         }
         const bool is_versioned_write = is_table_stream_versioned_write(multi_version_status);
@@ -1093,117 +1010,47 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
             offsets.emplace(offset.partition_id(), &offset);
         }
 
-        CloneChainReader clone_chain_reader(instance_id, resource_mgr_.get());
-        MetaReader meta_reader(instance_id);
-
-        std::vector<std::string> recycle_partition_keys;
-        std::vector<std::string> latest_offset_keys;
-        recycle_partition_keys.reserve(partition_ids.size());
-        latest_offset_keys.reserve(partition_ids.size());
         TableStreamIdentityPB identity;
         identity.set_base_db_id(request->db_id());
         identity.set_base_table_id(request->table_id());
         identity.set_stream_db_id(recycle_index.stream_db_id());
         identity.set_stream_id(stream_id);
+
+        TableStreamPartitionSetPB binding;
+        binding.mutable_identity()->CopyFrom(identity);
         for (int64_t partition_id : partition_ids) {
-            recycle_partition_keys.push_back(recycle_partition_key({instance_id, partition_id}));
-            latest_offset_keys.push_back(table_stream_offset_key(
-                    {instance_id, request->db_id(), request->table_id(),
-                     recycle_index.stream_db_id(), stream_id, partition_id}));
+            binding.add_partition_ids(partition_id);
         }
+        const std::vector<TableStreamPartitionSetPB> bindings {binding};
 
-        std::vector<std::optional<std::string>> recycle_partition_values;
-        err = txn->batch_get(&recycle_partition_values, recycle_partition_keys,
-                             Transaction::BatchGetOptions(false));
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to read partition recycle state, err={}", err);
+        CloneChainReader clone_chain_reader(instance_id, resource_mgr_.get());
+        TableStreamMetadataReader metadata_reader(txn.get(), instance_id, multi_version_status,
+                                                  &clone_chain_reader);
+        TableStreamPartitionVersionMap source_versions;
+        TableStreamReadResult read_result = metadata_reader.read_and_validate_partitions(
+                bindings, TableStreamReadIntent::CONFLICT, &source_versions);
+        if (!read_result.ok()) {
+            code = read_result.code;
+            msg = std::move(read_result.message);
             return;
         }
 
-        std::unordered_map<int64_t, PartitionIndexPB> partition_indexes;
-        std::unordered_set<int64_t> existing_partitions;
-        if (is_versioned_write) {
-            if (multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE) {
-                err = clone_chain_reader.get_partition_indexes(txn.get(), partition_ids,
-                                                               &partition_indexes, false);
-            } else {
-                err = meta_reader.get_partition_indexes(txn.get(), partition_ids,
-                                                        &partition_indexes, false);
-            }
-            if (err != TxnErrorCode::TXN_OK) {
-                code = err == TxnErrorCode::TXN_INVALID_DATA ? MetaServiceCode::PROTOBUF_PARSE_ERR
-                                                             : cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to read partition mappings, err={}", err);
-                return;
-            }
-            if (multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE) {
-                err = clone_chain_reader.get_existing_partitions(txn.get(), partition_ids,
-                                                                 &existing_partitions, false);
-                if (err != TxnErrorCode::TXN_OK) {
-                    code = cast_as<ErrCategory::READ>(err);
-                    msg = fmt::format("failed to read partition visibility, err={}", err);
-                    return;
-                }
-            }
-        }
-
-        std::unordered_map<int64_t, VersionPB> source_versions;
-        if (multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE) {
-            err = clone_chain_reader.get_partition_versions(txn.get(), partition_ids,
-                                                            &source_versions, nullptr, true);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = err == TxnErrorCode::TXN_INVALID_DATA ? MetaServiceCode::PROTOBUF_PARSE_ERR
-                                                             : cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to read source partition versions, err={}", err);
-                return;
-            }
-        } else {
-            std::vector<std::string> version_keys;
-            version_keys.reserve(partition_ids.size());
-            for (int64_t partition_id : partition_ids) {
-                version_keys.push_back(partition_version_key(
-                        {instance_id, request->db_id(), request->table_id(), partition_id}));
-            }
-            std::vector<std::optional<std::string>> version_values;
-            err = txn->batch_get(&version_values, version_keys, Transaction::BatchGetOptions(true));
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to read source partition versions, err={}", err);
-                return;
-            }
-            for (size_t i = 0; i < version_values.size(); ++i) {
-                if (!version_values[i].has_value()) {
-                    continue;
-                }
-                VersionPB source_version;
-                if (!source_version.ParseFromString(*version_values[i])) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = fmt::format("malformed source version for partition {}",
-                                      partition_ids[i]);
-                    return;
-                }
-                source_versions.emplace(partition_ids[i], std::move(source_version));
-            }
-        }
-
-        std::vector<std::optional<std::string>> latest_offset_values;
-        err = txn->batch_get(&latest_offset_values, latest_offset_keys,
-                             Transaction::BatchGetOptions(false));
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to read latest table stream offsets, err={}", err);
+        TableStreamOffsetMap latest_offsets;
+        read_result = metadata_reader.read_latest_offsets(bindings, TableStreamReadIntent::CONFLICT,
+                                                          &latest_offsets);
+        if (!read_result.ok()) {
+            code = read_result.code;
+            msg = std::move(read_result.message);
             return;
         }
 
-        std::unordered_map<int64_t, TableStreamOffsetPB> versioned_offsets;
+        TableStreamOffsetMap versioned_offsets;
         if (is_versioned_write) {
-            err = meta_reader.get_table_stream_offsets(txn.get(), identity, partition_ids,
-                                                       &versioned_offsets, nullptr, false);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = err == TxnErrorCode::TXN_INVALID_DATA ? MetaServiceCode::PROTOBUF_PARSE_ERR
-                                                             : cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to read versioned table stream offsets, err={}", err);
+            read_result = metadata_reader.read_local_versioned_offsets(
+                    bindings, TableStreamReadIntent::CONFLICT, &versioned_offsets);
+            if (!read_result.ok()) {
+                code = read_result.code;
+                msg = std::move(read_result.message);
                 return;
             }
         }
@@ -1211,58 +1058,17 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
         size_t num_writes = 0;
         for (size_t i = 0; i < partition_ids.size(); ++i) {
             int64_t partition_id = partition_ids[i];
-            if (recycle_partition_values[i].has_value()) {
-                RecyclePartitionPB recycle_partition;
-                if (!recycle_partition.ParseFromString(*recycle_partition_values[i])) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    msg = "malformed recycle partition value during table stream create";
-                    return;
-                }
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = fmt::format("partition {} is not visible, recycle state={}", partition_id,
-                                  RecyclePartitionPB::State_Name(recycle_partition.state()));
-                return;
-            }
-
-            if (is_versioned_write) {
-                auto partition_index_it = partition_indexes.find(partition_id);
-                if (partition_index_it == partition_indexes.end()) {
-                    code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = fmt::format("partition {} does not exist", partition_id);
-                    return;
-                }
-                const PartitionIndexPB& partition_index = partition_index_it->second;
-                if (partition_index.db_id() != request->db_id() ||
-                    partition_index.table_id() != request->table_id()) {
-                    code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = fmt::format("partition {} does not belong to base table", partition_id);
-                    return;
-                }
-                if (multi_version_status == MultiVersionStatus::MULTI_VERSION_READ_WRITE) {
-                    if (!existing_partitions.contains(partition_id)) {
-                        code = MetaServiceCode::INVALID_ARGUMENT;
-                        msg = fmt::format("partition {} is not visible at the snapshot",
-                                          partition_id);
-                        return;
-                    }
-                }
-            }
-
             auto offset_it = offsets.find(partition_id);
             DCHECK(offset_it != offsets.end());
             const TableStreamOffsetPB& offset = *offset_it->second;
 
-            auto source_version_it = source_versions.find(partition_id);
-            if (source_version_it == source_versions.end()) {
-                code = MetaServiceCode::VERSION_NOT_FOUND;
-                msg = fmt::format("source version is missing for partition {}", partition_id);
-                return;
-            }
+            const auto& stream_versions = source_versions.at(stream_id);
+            auto source_version_it = stream_versions.find(partition_id);
+            DCHECK(source_version_it != stream_versions.end());
             const VersionPB& source_version = source_version_it->second;
-            if (!source_version.has_version() || !source_version.has_visible_tso() ||
-                offset.offset_tso() > source_version.visible_tso()) {
+            if (offset.offset_tso() > source_version.visible_tso()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = fmt::format("invalid source version or initial offset for partition {}",
+                msg = fmt::format("initial offset exceeds visible TSO for partition {}",
                                   partition_id);
                 return;
             }
@@ -1279,10 +1085,18 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
                     request->table_id(), recycle_index.stream_db_id(),
                     stream_id,           partition_id};
             const std::string latest_offset_key = table_stream_offset_key(offset_key_info);
-            if (!latest_offset_values[i].has_value()) {
+            const TableStreamOffsetPB* existing_latest_offset = nullptr;
+            const auto latest_stream_it = latest_offsets.find(stream_id);
+            if (latest_stream_it != latest_offsets.end()) {
+                const auto latest_offset_it = latest_stream_it->second.find(partition_id);
+                if (latest_offset_it != latest_stream_it->second.end()) {
+                    existing_latest_offset = &latest_offset_it->second;
+                }
+            }
+            if (existing_latest_offset == nullptr) {
                 txn->put(latest_offset_key, offset_val);
                 ++num_writes;
-            } else if (*latest_offset_values[i] != offset_val) {
+            } else if (existing_latest_offset->SerializeAsString() != offset_val) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = fmt::format("table stream offset {} was initialized differently",
                                   partition_id);
@@ -1292,11 +1106,18 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
             if (is_versioned_write) {
                 const std::string versioned_offset_key =
                         versioned::table_stream_offset_key(offset_key_info);
-                auto versioned_offset_it = versioned_offsets.find(partition_id);
-                if (versioned_offset_it == versioned_offsets.end()) {
+                const TableStreamOffsetPB* existing_versioned_offset = nullptr;
+                const auto versioned_stream_it = versioned_offsets.find(stream_id);
+                if (versioned_stream_it != versioned_offsets.end()) {
+                    const auto versioned_offset_it = versioned_stream_it->second.find(partition_id);
+                    if (versioned_offset_it != versioned_stream_it->second.end()) {
+                        existing_versioned_offset = &versioned_offset_it->second;
+                    }
+                }
+                if (existing_versioned_offset == nullptr) {
                     versioned_put(txn.get(), versioned_offset_key, offset_val);
                     ++num_writes;
-                } else if (versioned_offset_it->second.SerializeAsString() != offset_val) {
+                } else if (existing_versioned_offset->SerializeAsString() != offset_val) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     msg = fmt::format(
                             "versioned table stream offset {} was initialized differently",
