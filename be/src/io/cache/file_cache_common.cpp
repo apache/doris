@@ -20,8 +20,6 @@
 
 #include "io/cache/file_cache_common.h"
 
-#include <limits>
-
 #include "common/config.h"
 #include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
@@ -137,18 +135,6 @@ std::string UInt128Wrapper::to_string() const {
 
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size,
                                                                      int64_t tablet_id) const {
-    DORIS_CHECK(_cache != nullptr);
-    DORIS_CHECK(size > 0);
-    const size_t block_size = _cache->max_file_block_size();
-    DORIS_CHECK(block_size > 0);
-    DORIS_CHECK(offset <= std::numeric_limits<size_t>::max() - size);
-    const size_t range_end = offset + size;
-    const size_t aligned_offset = offset - offset % block_size;
-    const size_t end_remainder = range_end % block_size;
-    const size_t end_padding = end_remainder == 0 ? 0 : block_size - end_remainder;
-    DORIS_CHECK(range_end <= std::numeric_limits<size_t>::max() - end_padding);
-    const size_t aligned_end = range_end + end_padding;
-
     CacheContext ctx;
     ctx.cache_type = _expiration_time == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
     ctx.expiration_time = _expiration_time;
@@ -156,8 +142,7 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
     ctx.tablet_id = tablet_id;
     ReadStatistics stats;
     ctx.stats = &stats;
-    auto holder =
-            _cache->get_or_set(_cache_hash, aligned_offset, aligned_end - aligned_offset, ctx);
+    auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);
     return std::make_unique<FileBlocksHolder>(std::move(holder));
 }
 
