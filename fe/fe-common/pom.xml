@@ -115,9 +115,12 @@ under the License.
             </exclusions>
             <scope>provided</scope>
         </dependency>
+        <!-- jackson: used directly by JsonUtil / SnapshotSplit. Previously satisfied only transitively
+             via io.trino:trino-main (now removed); declared explicitly here. fe-common re-exports it to
+             downstream modules (e.g. fe-catalog) that also relied on the old trino-borne jackson. -->
         <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-main</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -127,8 +130,8 @@ under the License.
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-iostreams</artifactId>
         </dependency>
-        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
-    when upgrade doris antlr-runtime version, should take care of trino-parser.-->
+        <!-- antlr4-runtime: runtime for fe-common's own generated parser
+             (DorisSqlSeparator.g4, used by SqlUtils); version pinned to ${antlr4.version}. -->
         <dependency>
             <groupId>org.antlr</groupId>
             <artifactId>antlr4-runtime</artifactId>
