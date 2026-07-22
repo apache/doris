@@ -102,6 +102,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.mysql.cj.conf.ConnectionUrl;
+import com.mysql.cj.conf.PropertyKey;
 import io.debezium.connector.mysql.MySqlConnection;
 import io.debezium.connector.mysql.MySqlConnectorConfig;
 import io.debezium.connector.mysql.MySqlPartition;
@@ -1018,8 +1019,13 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
         // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
         dbzProps.setProperty("enable.time.adjuster", "false");
-        dbzProps.setProperty("converters", "dorisYear");
-        dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
+        // The converter is valid only when snapshot JDBC exposes YEAR values as numbers.
+        if ("false"
+                .equalsIgnoreCase(
+                        jdbcProperteis.getProperty(PropertyKey.yearIsDateType.getKeyName()))) {
+            dbzProps.setProperty("converters", "dorisYear");
+            dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
+        }
 
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));

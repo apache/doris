@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader.mysql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -166,13 +167,31 @@ public class MySqlSourceReaderTest {
     }
 
     @Test
-    void mysqlConfigRegistersYearConverter() throws Exception {
-        MySqlSourceConfig config = sourceConfig("initial");
+    void mysqlConfigRegistersYearConverterOnlyWhenYearIsDateTypeIsFalse() throws Exception {
+        MySqlSourceConfig falseConfig =
+                sourceConfig(
+                        "initial",
+                        Map.of(
+                                DataSourceConfigKeys.JDBC_URL,
+                                "jdbc:mysql://localhost:3306/testdb?yearIsDateType=false"));
 
-        assertEquals("dorisYear", config.getDbzProperties().getProperty("converters"));
+        assertEquals("dorisYear", falseConfig.getDbzProperties().getProperty("converters"));
         assertEquals(
                 "org.apache.doris.cdcclient.source.reader.mysql.MySqlYearConverter",
-                config.getDbzProperties().getProperty("dorisYear.type"));
+                falseConfig.getDbzProperties().getProperty("dorisYear.type"));
+
+        MySqlSourceConfig trueConfig =
+                sourceConfig(
+                        "initial",
+                        Map.of(
+                                DataSourceConfigKeys.JDBC_URL,
+                                "jdbc:mysql://localhost:3306/testdb?yearIsDateType=true"));
+        assertNull(trueConfig.getDbzProperties().getProperty("converters"));
+        assertNull(trueConfig.getDbzProperties().getProperty("dorisYear.type"));
+
+        MySqlSourceConfig missingConfig = sourceConfig("initial");
+        assertNull(missingConfig.getDbzProperties().getProperty("converters"));
+        assertNull(missingConfig.getDbzProperties().getProperty("dorisYear.type"));
     }
 
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
