@@ -32,12 +32,12 @@
 | 8  | B4 | CONFIRMED | ✅ | `ConnectorTransaction` 泄漏 odps/iceberg 专属方法 → 下沉两个窄能力接口（RewriteCapableTransaction / WriteBlockAllocating*Transaction）+ 消费侧 instanceof；fe-core Transaction 亦收窄。设计 [`design-transaction-capability-convergence.md`](design-transaction-capability-convergence.md) |
 | 9  | B4 | CONFIRMED | ✅ | `ConnectorBucketSpec` "iceberg_bucket" 死文档已改正（+"hive_hash" 也是错的，真值 doris_default/doris_random）；iceberg fail-loud 早已由 rejectDistribution 实现 |
 | 27 | B4 | PARTIAL | ⬜ | reader-type 3 份手搓副本 + 3 种线上编码（force_jni 回归已 REFUTED） |
-| 10 | B5 | PARTIAL | 🚫 | iceberg writeDefault 未接 + Column 元数据默认恒 null（initialDefault 已正确下发） |
-| 11 | B5 | PARTIAL | 🚫 | paimon CREATE CHAR/VARCHAR→MAX、DATETIME scale→micros（刻意 legacy parity） |
-| 12 | B5 | PARTIAL | 🚫 | paimon 嵌套 struct comment 丢弃（DV-035 已签字；nullability 已 FIX-L13 修复） |
-| 13 | B5 | PARTIAL | 🚫 | `initialValues` LIST/RANGE 恒空 vestigial 槽（有意分层，零消费者） |
-| 16 | B5 | PARTIAL | 🚫 | `getNewestUpdateTimeMillis` 微秒/毫秒命名错配（CacheAnalyzer 安全抑制 SqlCache） |
-| 19 | B5 | PARTIAL | 🚫 | 读路径嵌套 nullable/comment 不进 StructField（legacy parity，功能影响为零） |
+| 10 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做）**：接 iceberg writeDefault（INSERT 省列套用写默认 + Column 默认进 DESC）；initialDefault 现走字典路径勿动 |
+| 11 | B5 | PARTIAL | 🚫 | paimon CREATE CHAR/VARCHAR→MAX、DATETIME scale→micros（刻意 legacy parity）——**用户选择不升级** |
+| 12 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做）**：paimon 嵌套 struct comment 传下去（DataField 4 参）；nullability 已 FIX-L13 修 |
+| 13 | B5 | PARTIAL | 🚫 | `initialValues` LIST/RANGE 恒空 vestigial 槽（有意分层，零消费者）——**用户选择不升级** |
+| 16 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做，含 SqlCache 抑制根因，碰缓存正确性→先出设计签字）**：改名去单位语义 + 让 iceberg 表能安全用上 SqlCache |
+| 19 | B5 | PARTIAL | 🚫 | 读路径嵌套 nullable/comment 不进 StructField（legacy parity，功能影响为零）——**用户选择不升级** |
 | 3  | B6 | STALE_FIXED | ☑️ | paimon JNI/COUNT 已改 per-file 后缀 format + 回归测试 |
 | 4  | B6 | STALE_FIXED | ☑️ | hive 分区值 KEY+VALUE 双 unescape 已修（#65473）+ 单测 |
 | 5  | B6 | REFUTED | ☑️ | iceberg 行数三点全反：snapshot summary / 扣 position delete / equality gate -1 |
@@ -167,17 +167,35 @@
 
 ---
 
-## B5 · 可选增强（需产品签字，默认不动）🚫
+## B5 · 可选增强（需产品签字）
 
 > 均非缺陷：或有意 legacy parity、或边缘能力未接、或已签字接受的偏差。**每项动手前先向用户确认是否升级**（参本项目 hudi/paimon "完整对齐 vs 有意提升" 的签字先例）。升级必同步改被 mutation 单测钉死的断言。
+>
+> **🖊️ 用户 2026-07-22 签字决定（详细背景+例子已当面讲过）：升级 #10、#12、#16 三项（⬜，下一 session 统一处理）；#11、#13、#19 维持不做（🚫）。三项各自动手前仍须重侦察当前代码。#16 的 SqlCache 抑制根因碰缓存正确性，须先出中文设计签字再改。**
 
-| # | 一句话 | 若要做 | 文档 |
+### ⬜ 已签字升级（下一 session 处理）
+
+**#12 — paimon 嵌套 struct 字段 comment 传下去**（最小改，先做）
+- 现状：`PaimonTypeMapping.toPaimonRowType`（**HEAD `:284`**）用 3 参 `new DataField(id, name, type.copy(nullable))` 建嵌套字段，comment 未传（nullability 已 FIX-L13 修）。
+- 做：改用 4 参 `new DataField(id, name, type.copy(isChildNullable(i)), type.getChildComment(i))`；把单测 `PaimonTypeMappingToPaimonTest.nestedNullabilityPreservedForStructField`（原注释"有意丢 comment"）改成断言 description 保留。
+- 例子：`CREATE TABLE t(s STRUCT<a:INT COMMENT 'note', b:STRING>)` → 回读 SHOW CREATE 时嵌套 a 应带注释。纯展示层，无正确性影响。文档 [B](analysis-B-schema-column-identity.md#12)。
+
+**#10 — 接 iceberg writeDefault**（边缘写路径能力增强）
+- 现状：iceberg `parseSchema`（**基线 `IcebergConnectorMetadata.java:1890-1897`**，须重侦察现值）第 5 参 `defaultValue` 硬编码 null；`writeDefault()` 全树 0 读。`ConnectorColumn` 单 `defaultValue` 槽。**读默认 initialDefault 已经 #65502 正确走字典下发 BE，勿动**。
+- 做：`parseSchema` 用 `field.writeDefault()` 转 Doris 字符串填 `ConnectorColumn.defaultValue`；使 INSERT 省列套用写默认、DESC 展示列默认。加单测。属能力增强非纠错。文档 [B](analysis-B-schema-column-identity.md#10)。
+- 例子：iceberg v3 表列 c `DEFAULT 42`，`INSERT INTO t(other) VALUES(...)` 省略 c → 修后落 42（现落 NULL 或 NOT NULL 报错）。
+
+**#16 — 探针命名去单位语义 + 让 iceberg 表能安全用上 SqlCache**（⚠️ 碰缓存正确性，先设计签字）
+- 现状：`ConnectorMvccPartitionView.getNewestUpdateTimeMillis()`（**HEAD `:70/:113`**）名义 millis、iceberg 实际返回 **micros**；消费者 `CacheAnalyzer.java:~489/258/263` 把该微秒值与 wall-clock 毫秒 `Math.max` + 差值判 gate → iceberg 微秒(~1.7e15)恒 > epoch 毫秒 → "静默≥30s"闸门永不通过 → **iceberg 表永不启用 SqlCache**（correctness-safe 抑制 + master parity）。
+- 做（**两部分**）：① 改名去单位语义（如 `getNewestUpdateMonotonicMarker`），同步 `ConnectorMvccPartitionView` / `PluginDrivenMvccSnapshot:~173` / `IcebergPartitionUtils:~603` + 测试；② **根因**=`CacheAnalyzer.latestPartitionTime` 同时承载"毫秒时间戳"与"不透明版本 token"两义、把 token 与 `now` 混算。**用户要求把 SqlCache 抑制也修好**——须让 iceberg 表能安全用上 SqlCache，**但绝不能引入错误缓存命中（陈旧结果）**。
+- ⚠️ **铁律**：这是缓存正确性敏感区，**下一 session 先出中文设计**（如何区分 token vs wall-clock、如何在不误命中陈旧结果的前提下重新启用 iceberg SqlCache），**用户签字后再动手**。文档 [E](analysis-E-stats-mvcc-timetravel.md#16)。
+
+### 🚫 维持不做（用户 2026-07-22 选择不升级）
+
+| # | 一句话 | 若将来要做 | 文档 |
 |---|---|---|---|
-| 10 | iceberg writeDefault 未接、Column 元数据默认恒 null（initialDefault 已经 #65502 正确下发 BE，勿动） | `parseSchema` 用 `field.writeDefault()` 填 `ConnectorColumn.defaultValue`；仅补写默认/展示，非纠错 | [B](analysis-B-schema-column-identity.md#10) |
-| 11 | paimon CREATE CHAR/VARCHAR→VarChar(MAX)、DATETIME scale→micros（decimal 正常）；mutation 单测钉死 | `PaimonTypeMapping` 改 `CharType(len)`/`VarCharType(len)`/`TimestampType(scale)`，同步改测试；打破 parity 须签字 | [B](analysis-B-schema-column-identity.md#11) |
-| 12 | paimon 嵌套 struct **comment** 丢弃（DV-035 已签字；**nullability 已 FIX-L13 修复、不成立**） | DataField 改 4 参构造传 `getChildComment(i)`，改单测断言 | [B](analysis-B-schema-column-identity.md#12) |
+| 11 | paimon CREATE CHAR/VARCHAR→VarChar(MAX)、DATETIME scale→micros（decimal 正常）；mutation 单测钉死 | `PaimonTypeMapping` 改 `CharType(len)`/`VarCharType(len)`/`TimestampType(scale)`，同步改测试；打破 parity 须再签字 | [B](analysis-B-schema-column-identity.md#11) |
 | 13 | `initialValues` 对 LIST/RANGE 显式值恒空未 lower（有意分层、零消费者、Hive 靠 `hasExplicitPartitionValues` fail-loud） | 要么删 vestigial 槽消 SPI 错配，要么未来真需外表预建分区时补 lowering + 连接器消费 | [C](analysis-C-partition.md#13) |
-| 16 | `getNewestUpdateTimeMillis` 名 millis 实 micros；CacheAnalyzer wall-clock 混算 → iceberg SqlCache **被安全抑制**（correctness-safe + master parity） | 重命名去单位语义（`getNewestUpdateMonotonicMarker`）；根因=CacheAnalyzer `latestPartitionTime` 双义。纯整洁化，删旧代码期不宜优先 | [E](analysis-E-stats-mvcc-timetravel.md#16) |
 | 19 | 读路径嵌套 struct nullable/comment 不进 Doris `StructField`（legacy parity，查询正确性影响为零，仅 DESCRIBE 展示不一致） | 改连接器读映射用 4 参 `structOf` 采 iceberg `.isOptional()/.doc()`、paimon `.isNullable()/.description()` + `convertStructType` 4 参 StructField | [B](analysis-B-schema-column-identity.md#19) |
 
 ---

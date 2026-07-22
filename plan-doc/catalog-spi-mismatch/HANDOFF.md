@@ -77,14 +77,26 @@
 
 ## 5. 当前进度快照
 
-**进度：B1/B2/B3/B4 的全部可执行项已完成并提交+验证。剩余只有 B5（可选增强，待产品签字）与 #27（默认不做）。**
+**进度：B1/B2/B3/B4 全部可执行项已完成并提交+验证。B5 用户已签字挑了 3 项待做（下一 session 统一处理），其余 B5 + #27 维持不做。**
 
-- B1：✅ #2（时间旅行列句柄崩溃，框架级带快照重载 + 通用节点 + 兜底，commit `3de586e87ca`，e2e 用户已验证通过）
-- B2：✅ #1（hudi decimal 谓词，`ae525a88c1c`）、✅ #14（paimon partition_values TVF，`1c3f86646f3`）
-- B3：✅ #21（删 ConnectorDeleteFile，`5f63c3af9b6`）、✅ #23（删 ConnectorDomain/Range，`186f28e57df`）、✅ #25（补 MvccSnapshot equals/hashCode，`0885de225a5`）、✅ #28（清过时 dormant 注释，`914f191c830`）
-- B4：✅ #7（收窄 getWriteContext javadoc，`656b03c9d86`）、✅ #8（事务源专属方法下沉窄能力接口 + instanceof，`13daac21606`）、✅ #9（改正 ConnectorBucketSpec 死文档，`895b71b9e8e`）、⬜ #27（reader-type 三副本：架构观察成立但回归已 REFUTED，**默认不做**，需独立设计任务再议）
-- B5：🚫 #10、#11、#12、#13、#16、#19（待用户签字的可选增强）
-- B6：☑️ #3、#4、#5、#6、#17（已闭环）｜🚫 ~~#15~~ **已修**（time-travel 统计行数偏斜，`724a874b1df`，随 #2 一并做）、#18、#20、#22、#24、#26（有意/潜伏，记录不动）
+### 👉 下一 session 的待办 = B5 已签字的 3 项（见 [`TASKLIST.md`](TASKLIST.md) B5 节，含实现指针+例子）
+
+**建议顺序：先 #12（最小改），再 #10（能力增强），最后 #16（碰缓存正确性，须先出设计签字）。**
+
+- **#12** paimon 嵌套 struct 字段 comment 传下去 —— `PaimonTypeMapping:284` 改 4 参 DataField + 改单测。最小改。
+- **#10** 接 iceberg writeDefault —— `parseSchema` 用 `field.writeDefault()` 填 `ConnectorColumn.defaultValue`（initialDefault 字典路径勿动）。能力增强。
+- **#16** 探针改名去单位语义 + **修 iceberg SqlCache 被抑制的根因** —— ⚠️ **碰缓存正确性，动手前必先出中文设计并让用户签字**（如何区分"版本 token vs wall-clock 毫秒"、如何重新启用 iceberg SqlCache 而**绝不误命中陈旧结果**）。
+
+> 每项动手前仍按第 4 节工作法**重侦察当前代码**（analysis-* 基线是旧分支，行号会漂）。
+
+### 已完成/不做的全景
+
+- B1：✅ #2（时间旅行列句柄崩溃，`3de586e87ca`，e2e 用户已验证通过）
+- B2：✅ #1（`ae525a88c1c`）、✅ #14（`1c3f86646f3`）
+- B3：✅ #21（`5f63c3af9b6`）、✅ #23（`186f28e57df`）、✅ #25（`0885de225a5`）、✅ #28（`914f191c830`）
+- B4：✅ #7（`656b03c9d86`）、✅ #8（`13daac21606`）、✅ #9（`895b71b9e8e`）、⬜ #27（reader-type：默认不做，需独立设计）
+- B5：⬜ **#10、#12、#16（用户已签字升级，下一 session 做）**｜🚫 #11、#13、#19（用户选择不做）
+- B6：☑️ #3、#4、#5、#6、#17（已闭环）｜🚫 ~~#15~~ **已修**（`724a874b1df`，随 #2 一并做）、#18、#20、#22、#24、#26（有意/潜伏，记录不动）
   - **有意留白 / 建议另立**：iceberg/maxcompute 各自 cutover 的同款过时 dormant 注释（#28 未扫的别连接器）；#27 若真要统一 reader-type 枚举。
 
 > 每完成一条，更新 [`TASKLIST.md`](TASKLIST.md) 对应行的状态与结论，并在此处同步 batch 级进度。
