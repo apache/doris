@@ -119,10 +119,27 @@ suite("test_auto_dynamic", "nonConcurrent") {
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
     // The interval is global, so a preceding short-interval scheduler cycle may still be in flight.
     sleep(8000)
-    sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
 
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
+    def insertException = null
+    test {
+        sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
+        check { result, exception, startTime, endTime ->
+            insertException = exception
+        }
+    }
+    if (insertException != null) {
+        part_result = sql " show partitions from auto_dynamic "
+        def partitionNames = part_result.collect { it[1] }
+        def expectedSurvivingPartitions = ["p20240101000000", "p29000101000000", "p30000101000000"]
+        // A stale short-interval run can only delete the out-of-range p1900 partition before commit.
+        assertTrue(!partitionNames.contains("p19000101000000")
+            && partitionNames.containsAll(expectedSurvivingPartitions),
+            "Unexpected insert failure: ${insertException}, partitions: ${partitionNames}")
+        return true
+    }
+
     try {
+        sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
         sleep(10000)
         part_result = sql " show partitions from auto_dynamic "
         log.info("${part_result}".toString())
