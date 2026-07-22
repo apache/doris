@@ -379,7 +379,7 @@ public class MTMVTaskTest {
                         }
                     });
 
-            Deencapsulation.invoke(task, "exec", Sets.newHashSet(poneName), Collections.emptyMap(),
+            Deencapsulation.invoke(task, "refreshPartitions", Sets.newHashSet(poneName), Collections.emptyMap(),
                     Optional.empty());
         } finally {
             ConnectContext.remove();

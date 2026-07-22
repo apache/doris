@@ -635,7 +635,7 @@ public class MTMVTask extends AbstractTask {
                     .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
                             execPartitionNames);
             try {
-                IvmPlanSignature planSignature = executeWithRetry(execPartitionNames, tableWithPartKey,
+                IvmPlanSignature planSignature = refreshPartitionsWithRetry(execPartitionNames, tableWithPartKey,
                         rewriteContext);
                 if (useIvmFallbackStreams) {
                     if (fullRefreshPlanSignature == null) {
@@ -681,10 +681,11 @@ public class MTMVTask extends AbstractTask {
         return resetPartitionIds;
     }
 
-    private IvmPlanSignature executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey,
+    private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
+            Map<TableIf, String> tableWithPartKey,
             Optional<IvmRewriteContext> rewriteContext)
             throws Exception {
-        return executeWithRetry(() -> exec(execPartitionNames, tableWithPartKey, rewriteContext),
+        return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey, rewriteContext),
                 "partition refresh, execPartitionNames=" + execPartitionNames);
     }
 
@@ -739,7 +740,8 @@ public class MTMVTask extends AbstractTask {
                 Util.getRootCauseMessage(exception));
     }
 
-    private IvmPlanSignature exec(Set<String> refreshPartitionNames, Map<TableIf, String> tableWithPartKey,
+    private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
+            Map<TableIf, String> tableWithPartKey,
             Optional<IvmRewriteContext> rewriteContext)
             throws Exception {
         // Create MTMV context first so that new StatementContext() captures the
