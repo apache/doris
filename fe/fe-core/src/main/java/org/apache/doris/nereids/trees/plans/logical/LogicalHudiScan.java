@@ -121,6 +121,13 @@ public class LogicalHudiScan extends LogicalFileScan {
         return incrementalRelation;
     }
 
+    @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        LogicalHudiScan that = (LogicalHudiScan) other;
+        // IncrementalRelation contains the resolved Hudi timeline and split state and has no value equality.
+        return super.hasSameScanState(other) && Objects.equals(incrementalRelation, that.incrementalRelation);
+    }
+
     /**
      * replace incremental params as AND expression
      * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278') =>

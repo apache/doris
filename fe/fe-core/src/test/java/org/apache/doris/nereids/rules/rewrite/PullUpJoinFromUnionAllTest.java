@@ -23,11 +23,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hudi.source.IncrementalRelation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -98,15 +101,44 @@ class PullUpJoinFromUnionAllTest {
     }
 
     @Test
-    void comparatorRejectsDifferentManuallySpecifiedPartitions() {
-        LogicalOlapScan firstPartitionScan = PlanConstructor.newLogicalOlapScanWithSameId(
-                12, "common_partition", 0, ImmutableList.of(1L));
-        LogicalOlapScan secondPartitionScan = PlanConstructor.newLogicalOlapScanWithSameId(
-                12, "common_partition", 0, ImmutableList.of(2L));
+    void comparatorRejectsDifferentSelectedPartitions() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(12L);
+        Mockito.when(table.getName()).thenReturn("common_partition");
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        Mockito.when(table.getPartition(1L)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.getPartition(2L)).thenReturn(Mockito.mock(Partition.class));
+
+        LogicalOlapScan firstPartitionScan = newPartitionedScan(table)
+                .withSelectedPartitionIds(ImmutableList.of(1L), true);
+        LogicalOlapScan secondPartitionScan = newPartitionedScan(table)
+                .withSelectedPartitionIds(ImmutableList.of(2L), true);
 
         PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
                 new PullUpJoinFromUnionAll().new LogicalPlanComparator();
         Assertions.assertFalse(comparator.isLogicalEqual(firstPartitionScan, secondPartitionScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentHudiIncrementalRelations() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(18L);
+        Mockito.when(table.getName()).thenReturn("common_hudi");
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+
+        IncrementalRelation relation = Mockito.mock(IncrementalRelation.class);
+        IncrementalRelation differentRelation = Mockito.mock(IncrementalRelation.class);
+        LogicalHudiScan scan = newHudiScan(table, relation);
+        LogicalHudiScan sameRelationScan = newHudiScan(table, relation);
+        LogicalHudiScan differentRelationScan = newHudiScan(table, differentRelation);
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertTrue(comparator.isLogicalEqual(scan, sameRelationScan));
+        Assertions.assertFalse(comparator.isLogicalEqual(scan, differentRelationScan));
     }
 
     @Test
@@ -307,6 +339,15 @@ class PullUpJoinFromUnionAllTest {
         return PlanConstructor.newLogicalOlapScan(tableId, tableName, 0);
     }
 
+    private static LogicalOlapScan newPartitionedScan(OlapTable table) {
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
+    }
+
+    private static LogicalHudiScan newHudiScan(ExternalTable table, IncrementalRelation incrementalRelation) {
+        return new TestLogicalHudiScan(PlanConstructor.getNextRelationId(), table, incrementalRelation);
+    }
+
     private static LogicalOlapScan newScanWithTableSample(long tableId, String tableName,
             org.apache.doris.nereids.trees.TableSample tableSample) {
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(),
@@ -456,5 +497,13 @@ class PullUpJoinFromUnionAllTest {
             references.add((SlotReference) slot);
         }
         return references.build();
+    }
+
+    private static class TestLogicalHudiScan extends LogicalHudiScan {
+        private TestLogicalHudiScan(RelationId id, ExternalTable table, IncrementalRelation incrementalRelation) {
+            super(id, table, ImmutableList.of("db"), LogicalFileScan.SelectedPartitions.NOT_PRUNED,
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(incrementalRelation),
+                    ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), "", Optional.empty());
+        }
     }
 }
