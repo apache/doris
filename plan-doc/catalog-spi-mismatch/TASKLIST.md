@@ -34,7 +34,7 @@
 | 27 | B4 | PARTIAL | ⬜ | reader-type 3 份手搓副本 + 3 种线上编码（force_jni 回归已 REFUTED） |
 | 10 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做）**：接 iceberg writeDefault（INSERT 省列套用写默认 + Column 默认进 DESC）；initialDefault 现走字典路径勿动 |
 | 11 | B5 | PARTIAL | 🚫 | paimon CREATE CHAR/VARCHAR→MAX、DATETIME scale→micros（刻意 legacy parity）——**用户选择不升级** |
-| 12 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做）**：paimon 嵌套 struct comment 传下去（DataField 4 参）；nullability 已 FIX-L13 修 |
+| 12 | B5 | PARTIAL | ✅ | paimon 嵌套 struct comment 全链路打通（写侧 DataField 4 参 + 读侧 structOf 4 参 + fe-core convertStructType 4 参 StructField，DESC 可见）；单测 3 新 + e2e |
 | 13 | B5 | PARTIAL | 🚫 | `initialValues` LIST/RANGE 恒空 vestigial 槽（有意分层，零消费者）——**用户选择不升级** |
 | 16 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做，含 SqlCache 抑制根因，碰缓存正确性→先出设计签字）**：改名去单位语义 + 让 iceberg 表能安全用上 SqlCache |
 | 19 | B5 | PARTIAL | 🚫 | 读路径嵌套 nullable/comment 不进 StructField（legacy parity，功能影响为零）——**用户选择不升级** |
@@ -175,10 +175,10 @@
 
 ### ⬜ 已签字升级（下一 session 处理）
 
-**#12 — paimon 嵌套 struct 字段 comment 传下去**（最小改，先做）
-- 现状：`PaimonTypeMapping.toPaimonRowType`（**HEAD `:284`**）用 3 参 `new DataField(id, name, type.copy(nullable))` 建嵌套字段，comment 未传（nullability 已 FIX-L13 修）。
-- 做：改用 4 参 `new DataField(id, name, type.copy(isChildNullable(i)), type.getChildComment(i))`；把单测 `PaimonTypeMappingToPaimonTest.nestedNullabilityPreservedForStructField`（原注释"有意丢 comment"）改成断言 description 保留。
-- 例子：`CREATE TABLE t(s STRUCT<a:INT COMMENT 'note', b:STRING>)` → 回读 SHOW CREATE 时嵌套 a 应带注释。纯展示层，无正确性影响。文档 [B](analysis-B-schema-column-identity.md#12)。
+**#12 — paimon 嵌套 struct 字段 comment 传下去** ✅ 完成
+- **实证发现**：读写不对称——写侧丢 comment、读侧连 comment+nullability 一起丢；且 fe-core 通用转换器 `ConnectorColumnConverter.convertStructType` 用 2 参 StructField，是所有连接器 DESC 都不显示嵌套注释的真正根因。用户 2026-07-22 签字：写侧+读侧+fe-core 转换器一起改，让 DESC 可见。
+- **做**：① 写侧 `toPaimonRowType` 4 参 DataField；② 读侧 `toStructType` 4 参 structOf（`isNullable()`/`description()`）；③ fe-core `convertStructType` 4 参 StructField（`getChildComment`/`isChildNullable`，向后兼容：未带数据的连接器逐字节不变）。
+- **测**：写侧 `nestedStructFieldCommentPreserved`、读侧 `nestedStructFieldCommentAndNullabilityCarried`、fe-core `convertStructTypeCarriesFieldNullabilityAndComment` 各 1 新测；e2e `test_paimon_nested_struct_comment.groovy`（DESC/SHOW CREATE 显示 + `$schemas.fields` 佐证落盘）。paimon 16 + fe-core 28 单测全绿。见 `fix-paimon-nested-struct-comment-{design,summary}.md`。文档 [B](analysis-B-schema-column-identity.md#12)。
 
 **#10 — 接 iceberg writeDefault**（边缘写路径能力增强）
 - 现状：iceberg `parseSchema`（**基线 `IcebergConnectorMetadata.java:1890-1897`**，须重侦察现值）第 5 参 `defaultValue` 硬编码 null；`writeDefault()` 全树 0 读。`ConnectorColumn` 单 `defaultValue` 槽。**读默认 initialDefault 已经 #65502 正确走字典下发 BE，勿动**。
