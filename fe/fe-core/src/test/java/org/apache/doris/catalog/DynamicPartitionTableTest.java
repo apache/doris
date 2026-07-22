@@ -2405,6 +2405,28 @@ public class DynamicPartitionTableTest {
         try {
             connectContext.getSessionVariable().setTimeZone("America/Chicago");
 
+            // Inject a fixed clock before creating the table so that both
+            // the CREATE-time scheduler pass (via createTable → DDL path)
+            // and the explicit executeDynamicPartitionFirstTime call below
+            // see the same instant.  Choose 2026-07-21 08:00:00Z when
+            // Asia/Shanghai is at 16:00 (same calendar day as UTC).  At
+            // this instant:
+            //
+            //   UTC now = 2026-07-21 08:00Z
+            //   start=-1 reserved lower (new, UTC)   = 2026-07-20 00:00Z
+            //   start=-1 reserved lower (old, +08:00) = 2026-07-19 16:00Z
+            //
+            //   p_old = [2026-07-19 00:00Z, 2026-07-20 00:00Z)
+            //
+            //   New code:  reserved [2026-07-20 00:00Z, ∞) → no intersect → DROP
+            //   Old code:  reserved [2026-07-19 16:00Z, ∞) → intersect  → KEEP
+            //
+            // The assertion below therefore always fails on the old
+            // implementation, not just for 16 hours of the day.
+            ZonedDateTime fixedNow = ZonedDateTime.of(
+                    2026, 7, 21, 8, 0, 0, 0, ZoneOffset.UTC);
+            DynamicPartitionScheduler.testNow = fixedNow;
+
             String createOlapTblStmt = "CREATE TABLE test.`tstz_drop_cutoff` (\n"
                     + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
                     + "  `k2` int NULL COMMENT \"\"\n"
@@ -2428,25 +2450,6 @@ public class DynamicPartitionTableTest {
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable table = (OlapTable) db.getTableOrAnalysisException("tstz_drop_cutoff");
-
-            // Inject a fixed clock so the test is deterministic regardless of
-            // wall-clock time.  Choose 2026-07-21 08:00:00Z when Asia/Shanghai
-            // is at 16:00 (same calendar day as UTC).  At this instant:
-            //
-            //   UTC now = 2026-07-21 08:00Z
-            //   start=-1 reserved lower (new, UTC)   = 2026-07-20 00:00Z
-            //   start=-1 reserved lower (old, +08:00) = 2026-07-19 16:00Z
-            //
-            //   p_old = [2026-07-19 00:00Z, 2026-07-20 00:00Z)
-            //
-            //   New code:  reserved [2026-07-20 00:00Z, ∞) → no intersect → DROP
-            //   Old code:  reserved [2026-07-19 16:00Z, ∞) → intersect  → KEEP
-            //
-            // The assertion below therefore always fails on the old
-            // implementation, not just for 16 hours of the day.
-            ZonedDateTime fixedNow = ZonedDateTime.of(
-                    2026, 7, 21, 8, 0, 0, 0, ZoneOffset.UTC);
-            DynamicPartitionScheduler.testNow = fixedNow;
 
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             String oldLower = fixedNow.minusDays(2).withHour(0).withMinute(0)
