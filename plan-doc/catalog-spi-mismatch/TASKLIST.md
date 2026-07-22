@@ -24,10 +24,10 @@
 | 2  | B1 | CONFIRMED | ⬜ | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash** |
 | 1  | B2 | PARTIAL | ✅ | hudi decimal 分区谓词走 String.valueOf，未同步 hive 已修分支 → 潜在误剪（已镜像 hive BigDecimal 分支 + 单测）|
 | 14 | B2 | PARTIAL | ✅ | paimon `partition_values()` TVF 读 raw spec → DATE 显 epoch-day、null 显 `__DEFAULT_PARTITION__`（已在连接器渲染值 map + 单测）|
-| 21 | B3 | CONFIRMED | ⬜ | `ConnectorDeleteFile` 欠建模且零 caller = 死代码，删 |
-| 23 | B3 | CONFIRMED | ⬜ | `ConnectorDomain`/`ConnectorRange` 死抽象（columnDomains 恒空），删 |
-| 25 | B3 | CONFIRMED | ⬜ | `ConnectorMvccSnapshot` 独缺 equals/hashCode，补一致性 |
-| 28 | B3 | STALE_FIXED | ⚠️ | detect-and-delegate 已修；仅剩 HiveConnector "Dormant" 过时注释（**疑已清理**） |
+| 21 | B3 | CONFIRMED | ✅ | `ConnectorDeleteFile` 欠建模且零 caller = 死代码（已删，commit `5f63c3af9b6`）|
+| 23 | B3 | CONFIRMED | ✅ | `ConnectorDomain`/`ConnectorRange` 死抽象（columnDomains 恒空，已删 + 收窄 FilterConstraint，commit `186f28e57df`）|
+| 25 | B3 | CONFIRMED | ✅ | `ConnectorMvccSnapshot` 补 equals/hashCode/toString + 单测（commit `0885de225a5`）|
+| 28 | B3 | ~~STALE_FIXED~~ **CONFIRMED** | ✅ | **纠正：并非已修**（原 recon 找错模块 fe-connector-hms）——hms 已 live，~35 处过时"dormant"注释已清（commit `914f191c830`）|
 | 7  | B4 | CONFIRMED | ⬜ | `getWriteContext()` 错标 free-form bag，实为静态分区 spec |
 | 8  | B4 | CONFIRMED | ⬜ | `ConnectorTransaction` 泄漏 odps/iceberg 专属方法（write-block 还双泄漏进 fe-core） |
 | 9  | B4 | CONFIRMED | ⬜ | `ConnectorBucketSpec` "iceberg_bucket" 死文档 + 表级分布 vs per-field 类别错误 |
@@ -93,7 +93,8 @@
 
 ## B3 · 死代码 / 注释清理（无功能风险，建议其次）
 
-### #21 — 删死代码 ConnectorDeleteFile ⬜
+### #21 — 删死代码 ConnectorDeleteFile ✅
+- **完成**（commit `5f63c3af9b6`）：删 `ConnectorDeleteFile.java` + `ConnectorScanRange.getDeleteFiles():List<ConnectorDeleteFile>` 默认方法。重侦察确认全树零 override/零 caller；保留同名但生产在用的 `ConnectorScanPlanProvider.getDeleteFiles(TTableFormatFileDesc):List<String>`（iceberg/paimon override）。fe-connector-api 编译通过。
 - **核实**：CONFIRMED（high）｜文档 [D](analysis-D-scan-split-file.md#21)
 - **现象**：`ConnectorDeleteFile` 只建模 (path, format, recordCount, properties)，缺 content-type/序列号/bounds/field-id/DV offset；iceberg 完全绕开用内部 typed `IcebergScanRange.DeleteFile`。`ConnectorScanRange.getDeleteFiles()` 默认返 `emptyList()`，**全树无 override、无 caller** = 死代码。
 - **建议动作**：删 `ConnectorDeleteFile` 类 + `ConnectorScanRange.getDeleteFiles()` 默认方法。
@@ -101,14 +102,16 @@
 - **验证**：编译 + 全量单测通过（删死代码零运行时风险）。
 - **目标代码（HEAD 均在）**：`fe-connector-api/.../scan/ConnectorDeleteFile.java`；`ConnectorScanRange.java:149`（`default List<ConnectorDeleteFile> getDeleteFiles()`）。
 
-### #23 — 删死抽象 ConnectorDomain / ConnectorRange ⬜
+### #23 — 删死抽象 ConnectorDomain / ConnectorRange ✅
+- **完成**（commit `186f28e57df`）：删 `ConnectorDomain.java`/`ConnectorRange.java`；`ConnectorFilterConstraint` 删 columnDomains 字段 + 双构造合一 + 删 getColumnDomains + 删无用 import + 收窄 javadoc；唯一生产调用者 `PluginDrivenScanNode:1941` 改单参构造。重侦察确认全树零 external ref、9 处测试构造均单参、仅一处生产用双参。connector-api + hive/hudi/trino（main+test）+ fe-core 编译通过；分区剪枝测试 26 全绿。
 - **核实**：CONFIRMED（medium）｜文档 [A](analysis-A-literal-predicate.md#23)
 - **现象**：`ConnectorDomain`+`ConnectorRange`（javadoc 自称 "fast partition pruning"）零构造、零读取；唯一生产侧 `ConnectorFilterConstraint.columnDomains` 恒被填 `emptyMap()`，三个消费者（hive/hudi/trino applyFilter）全部只读 `getExpression()`，无一调 `getColumnDomains()`。彻底死代码，误导后人（还埋 CHAR padding 坑）。
 - **建议动作**：删 `ConnectorDomain` + `ConnectorRange` + `ConnectorFilterConstraint.columnDomains` 字段/构造参/`getColumnDomains()`/相关 javadoc。**保留** `ConnectorFilterConstraint` 其余（`getExpression()` 在用）。
 - **验证**：编译 + 单测；确认 `ConnectorFilterConstraint` 单参构造/`getExpression` 路径不受影响。
 - **目标代码（HEAD 均在）**：`.../pushdown/ConnectorDomain.java`、`ConnectorRange.java`；`ConnectorFilterConstraint.java`（`:32` javadoc、`:42` 字段、`:45-49` 构造、`:67-68` getter）。
 
-### #25 — 补 ConnectorMvccSnapshot equals/hashCode ⬜
+### #25 — 补 ConnectorMvccSnapshot equals/hashCode ✅
+- **完成**（commit `0885de225a5`）：补 equals/hashCode/toString 覆盖 6 字段，仿 mvcc/ 兄弟类风格；`java.util.Objects` 已 import，单文件、不碰调用方。重侦察确认全树无 value-key 用法（非 Map/Set key、无 distinct/去重），零运行时影响；两个 fe-core wrapper 仍走 identity。加 `ConnectorMvccSnapshotTest` 两个新测试（每字段参与相等性 + toString 全字段），5 测试全绿；checkstyle 0 违规。
 - **核实**：CONFIRMED（high，纯形态 smell，零运行时影响）｜文档 [E](analysis-E-stats-mvcc-timetravel.md#25)
 - **现象**：MVCC/stats 值对象家族四兄弟（Partition/PartitionView/TimeTravelSpec/TableStatistics）都有 equals+hashCode+toString，**唯 `ConnectorMvccSnapshot` 独缺**。当前无任何 value-key 用法（不作 Map/Set key、不 distinct），故零影响。
 - **建议动作**：补 equals/hashCode（+toString），覆盖 6 字段（snapshotId/timestampMillis/schemaId/lastModifiedFreshness/description/properties），与兄弟类同风格。已 import `java.util.Objects`，单文件、不碰调用方。
@@ -116,11 +119,14 @@
 - **目标代码（HEAD）**：`fe-connector-api/.../mvcc/ConnectorMvccSnapshot.java`（已确认**无** equals/hashCode）。
 - **可选**：鉴于零运行时影响，也可评估直接标 backlog 不修。
 
-### #28 — 清理 HiveConnector 过时 "Dormant" 注释 ⚠️
-- **核实**：STALE_FIXED（core detect-and-delegate 已修）｜文档 [G](analysis-G-reader-path-dispatch.md#28)
-- **现象**：核心 finding（type=hms 进 SPI 后 iceberg/hudi 表被当裸 hive 读）已由 **#65473 原子修复**（hms 进 `SPI_READY_TYPES` 与 detect-and-delegate 同 commit 落地），预测 bug 从未出现。**仅剩注释漂移**：`HiveConnector.java` / `HiveConnectorMetadata.java` 里 "Dormant/Inert until hms enters SPI_READY_TYPES / never called for this connector" 已过时（功能已 live）。
-- **⚠️ 先 verify**：本次 recon 中这些**具体注释在 `HiveConnector.java` 已 grep 不到**（`Inert until hms` / `never called for this connector` 零命中）——疑已被 `#65893` 清理。**动手前先确认是否还有残留**；若已无 → 直接标 ☑️ 记一句证据。
-- **勿误删**：其它文件（`Env.java`、`MetastoreEventSyncDriver.java`、`CachingHmsClient.java`、若干测试、`IcebergRewriteDataFilesAction.java` 等）的 "Dormant" 注释是关于**别的休眠子系统**（event sync / caching client / P6.6 cutover），非本 finding 范围，**保留**。
+### #28 — 清理 HiveConnector 过时 "Dormant" 注释 ✅（原判 STALE 被纠正）
+- **完成**（commit `914f191c830`，comment-only 21 文件 ~35 处）：⚠️ **纠正历史结论**——原 recon 断言"已修/疑已清理"是**误判**：它去 `fe-connector-hms` 找 `HiveConnector.java`，但那两个文件其实在 `fe-connector-hive`，导致 grep 空手而误判 STALE。当前 HEAD 上过时注释**全在**。
+- **核心事实（亲验）**：`CatalogFactory.SPI_READY_TYPES` 已含 `"hms"`；连接器分派**纯**靠 `catalog instanceof PluginDrivenExternalCatalog`，**无独立 write/DDL/P7.x 运行时门槛**；legacy 类（HMSExternalCatalog/HMSExternalTable/HiveInsertExecutor/PhysicalHiveTableSink/MetastoreEventsProcessor/HiveScanNode）**已删**。故 flipped hms 目录的**读/写/DDL/scan/procedure 全路径已 live**，所有"dormant until hms enters SPI_READY_TYPES / until the flip / until P7.4/P7.5 cutover"注释均事实性过时。
+- **处置**：删/改这些过时门槛子句，跨 HiveConnector、HiveConnectorMetadata、HiveWritePlanProvider、HiveFileListingCache、HiveReadTransactionManager、CachingHmsClient、ConnectorExecuteAction + hive 连接器测试套，对齐仓库自身 post-cutover 措辞（"Live since the hms flip"，参 HiveScanPlanProvider / HiveConnectorTransaction）。hive+hms 编译（main+test）+ checkstyle 全过。
+- **保留**：真实运行期"dormant path"注释（从不委派的网关不建 sibling — HiveConnector:756 / HiveConnectorSiblingTest:130）。
+- **有意留白**（子系统状态超本次核实范围，未动）：① MVCC/MTMV 每分区 freshness substep 注释（HiveConnectorMetadata:1150、HiveConnectorMetadataFreshnessTest:40）；② metastore event-sync 注释（MetastoreEventSyncDriver / Env、HmsEventParserTest）。
+- **待后续（另立）**：iceberg/maxcompute **各自** cutover 的同款过时注释（IcebergConnectorTransaction / IcebergWritePlanProvider / MaxComputeConnectorMetadata 等 + IcebergConnectorTest）——同种 rot 但属别的连接器子系统，本次未扫，建议单独一轮。
+- **核实**：~~STALE_FIXED~~ → **CONFIRMED / 已修复**｜文档 [G](analysis-G-reader-path-dispatch.md#28)
 
 ---
 
