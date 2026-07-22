@@ -17,9 +17,15 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -38,6 +44,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
@@ -49,6 +56,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatchers;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -61,6 +69,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
@@ -69,6 +78,62 @@ public class PaimonScanNodeTest {
 
     @Mock
     private PaimonFileExternalCatalog paimonFileExternalCatalog;
+
+    @Test
+    public void testFilesCreationTimeLowerBoundBecomesPaimonScanOption() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table table = Mockito.mock(Table.class);
+        Table filteredTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(systemTable.getSysTableType()).thenReturn("files");
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(filteredTable);
+        node.setSource(source);
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.GE,
+                new SlotRef(null, "creation_time"),
+                new DateLiteral(2026, 7, 21, 1, 2, 3, 456000, Type.DATETIMEV2)));
+
+        Table processedTable = (Table) invokePrivateMethod(node, "getProcessedTable");
+
+        Assert.assertSame(filteredTable, processedTable);
+        ArgumentCaptor<Map<String, String>> optionsCaptor = ArgumentCaptor.forClass(Map.class);
+        Mockito.verify(table).copy(optionsCaptor.capture());
+        Assert.assertEquals("1784595723456",
+                optionsCaptor.getValue().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+    }
+
+    @Test
+    public void testExtractFilesCreationTimeUsesStrongestSafeLowerBound() throws Exception {
+        SlotRef creationTime = new SlotRef(null, "creation_time");
+        DateLiteral older = new DateLiteral(2026, 7, 20, 1, 2, 3, 456000, Type.DATETIMEV2);
+        DateLiteral newer = new DateLiteral(2026, 7, 21, 1, 2, 3, 456000, Type.DATETIMEV2);
+        Expr lowerBound = new BinaryPredicate(BinaryPredicate.Operator.GE, creationTime, older);
+        Expr strictReversedLowerBound = new BinaryPredicate(BinaryPredicate.Operator.LT, newer, creationTime);
+        Expr upperBound = new BinaryPredicate(BinaryPredicate.Operator.LE, creationTime,
+                new DateLiteral(2026, 7, 22, 1, 2, 3, 456000, Type.DATETIMEV2));
+
+        OptionalLong result = PaimonScanNode.extractFileCreationTimeLowerBound(
+                Arrays.asList(lowerBound, strictReversedLowerBound, upperBound));
+
+        Assert.assertTrue(result.isPresent());
+        Assert.assertEquals(1784595723457L, result.getAsLong());
+    }
+
+    @Test
+    public void testExtractFilesCreationTimeDoesNotPushLowerBoundThroughOr() throws Exception {
+        Expr creationTimeLowerBound = new BinaryPredicate(BinaryPredicate.Operator.GE,
+                new SlotRef(null, "creation_time"),
+                new DateLiteral(2026, 7, 21, 1, 2, 3, 456000, Type.DATETIMEV2));
+        Expr otherColumn = new BinaryPredicate(BinaryPredicate.Operator.GE,
+                new SlotRef(null, "record_count"), new org.apache.doris.analysis.IntLiteral(10));
+        Expr disjunction = new CompoundPredicate(CompoundPredicate.Operator.OR,
+                creationTimeLowerBound, otherColumn);
+
+        Assert.assertFalse(PaimonScanNode.extractFileCreationTimeLowerBound(
+                Collections.singletonList(disjunction)).isPresent());
+    }
 
     @Test
     public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {

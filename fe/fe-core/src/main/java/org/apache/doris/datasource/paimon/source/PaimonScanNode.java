@@ -17,6 +17,12 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
@@ -53,7 +59,9 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
@@ -63,6 +71,7 @@ import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.types.TimestampType;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -72,6 +81,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -103,6 +113,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             DORIS_ENABLE_FILE_READER_ASYNC);
     private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
     private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
+    private static final String PAIMON_FILES_SYSTEM_TABLE_TYPE = "files";
+    private static final String PAIMON_FILE_CREATION_TIME_COLUMN = "creation_time";
 
     private enum SplitReadType {
         JNI,
@@ -918,6 +930,17 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (getQueryTableSnapshot() != null) {
                 throw new UserException("Paimon system tables do not support time travel.");
             }
+            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            if (PAIMON_FILES_SYSTEM_TABLE_TYPE.equalsIgnoreCase(systemTable.getSysTableType())) {
+                OptionalLong creationTimeMillis = extractFileCreationTimeLowerBound(conjuncts);
+                if (creationTimeMillis.isPresent()) {
+                    // Keep the Doris predicate as a residual: this option may only remove files
+                    // that cannot satisfy the same creation_time lower bound.
+                    return baseTable.copy(Collections.singletonMap(
+                            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(),
+                            String.valueOf(creationTimeMillis.getAsLong())));
+                }
+            }
         }
         if (theScanParams != null && getQueryTableSnapshot() != null) {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
@@ -927,5 +950,77 @@ public class PaimonScanNode extends FileQueryScanNode {
             return baseTable.copy(getIncrReadParams());
         }
         return baseTable;
+    }
+
+    @VisibleForTesting
+    static OptionalLong extractFileCreationTimeLowerBound(List<Expr> conjuncts) {
+        OptionalLong result = OptionalLong.empty();
+        for (Expr conjunct : conjuncts) {
+            result = maxLowerBound(result, extractFileCreationTimeLowerBound(conjunct));
+        }
+        return result;
+    }
+
+    private static OptionalLong extractFileCreationTimeLowerBound(Expr expr) {
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate predicate = (CompoundPredicate) expr;
+            if (predicate.getOp() != CompoundPredicate.Operator.AND) {
+                return OptionalLong.empty();
+            }
+            return maxLowerBound(extractFileCreationTimeLowerBound(predicate.getChild(0)),
+                    extractFileCreationTimeLowerBound(predicate.getChild(1)));
+        }
+        if (!(expr instanceof BinaryPredicate)) {
+            return OptionalLong.empty();
+        }
+
+        BinaryPredicate predicate = (BinaryPredicate) expr;
+        BinaryPredicate.Operator operator = predicate.getOp();
+        SlotRef slot = PaimonPredicateConverter.convertDorisExprToSlotRef(predicate.getChild(0));
+        LiteralExpr literal = convertToLiteral(predicate.getChild(1));
+        if (slot == null || literal == null) {
+            slot = PaimonPredicateConverter.convertDorisExprToSlotRef(predicate.getChild(1));
+            literal = convertToLiteral(predicate.getChild(0));
+            operator = operator.commutative();
+        }
+        if (slot == null || literal == null
+                || !PAIMON_FILE_CREATION_TIME_COLUMN.equalsIgnoreCase(slot.getColumnName())
+                || (operator != BinaryPredicate.Operator.GE && operator != BinaryPredicate.Operator.GT)) {
+            return OptionalLong.empty();
+        }
+
+        Object value = new TimestampType(3).accept(new PaimonValueConverter(literal));
+        if (!(value instanceof Timestamp)) {
+            return OptionalLong.empty();
+        }
+        long millis = ((Timestamp) value).getMillisecond();
+        if (operator == BinaryPredicate.Operator.GT) {
+            if (millis == Long.MAX_VALUE) {
+                return OptionalLong.empty();
+            }
+            // Paimon records file creation time in milliseconds, so > T is exactly >= T + 1 ms.
+            millis++;
+        }
+        return OptionalLong.of(millis);
+    }
+
+    private static LiteralExpr convertToLiteral(Expr expr) {
+        if (expr instanceof LiteralExpr) {
+            return (LiteralExpr) expr;
+        }
+        if (expr instanceof CastExpr && expr.getChild(0) instanceof LiteralExpr) {
+            return (LiteralExpr) expr.getChild(0);
+        }
+        return null;
+    }
+
+    private static OptionalLong maxLowerBound(OptionalLong left, OptionalLong right) {
+        if (!left.isPresent()) {
+            return right;
+        }
+        if (!right.isPresent()) {
+            return left;
+        }
+        return OptionalLong.of(Math.max(left.getAsLong(), right.getAsLong()));
     }
 }
