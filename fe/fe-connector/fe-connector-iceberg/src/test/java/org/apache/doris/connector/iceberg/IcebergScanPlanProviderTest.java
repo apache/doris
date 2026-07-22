@@ -723,6 +723,24 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void populateScanLevelParamsAdvertisesIcebergScanSemanticsV1() throws Exception {
+        // #65784: every iceberg scan this connector plans must stamp iceberg_scan_semantics_version=1 on the
+        // real params. BE gates the result-changing v1 semantics (authoritative name mapping + logical
+        // initial-default materialization) on it via supports_iceberg_scan_semantics_v1, so an OLD-FE plan
+        // (marker absent) keeps legacy behavior on a NEW BE. Mirrors legacy IcebergScanNode
+        // .enableCurrentIcebergScanSemantics(). MUTATION: drop the setIcebergScanSemanticsVersion call -> unset
+        // -> red. The marker must be stamped independently of the dict, so exercise it with an EMPTY props map.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, Collections.emptyMap());
+
+        Assertions.assertTrue(params.isSetIcebergScanSemanticsVersion());
+        Assertions.assertEquals(1, params.getIcebergScanSemanticsVersion());
+    }
+
+    @Test
     public void getScanNodePropertiesForcesEqualityDeleteKeyColumnIntoDict() throws Exception {
         // #65502: an equality-delete KEY column is a hidden scan dependency — BE resolves a key that is missing
         // from an OLD data file via the field-id dict (to get the column type + iceberg initial default); without
