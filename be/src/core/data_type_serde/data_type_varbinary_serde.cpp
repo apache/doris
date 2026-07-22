@@ -18,8 +18,8 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
 #include "core/column/column_varbinary.h"
-#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 
 namespace doris {
 namespace {
