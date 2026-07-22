@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -76,6 +77,13 @@ public:
     }
 
 protected:
+    // Captures partition values FE sent via `columns_from_path*` on the range,
+    // so `on_after_read_block` can back-fill them into the block. Mirrors the
+    // paimon-cpp reader — a Paimon DataSplit read via the C bindings may not
+    // emit partition columns in its arrow output, and the engine expects them
+    // present in every block.
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
+    Status on_after_read_block(Block* block, size_t* read_rows) override;
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
@@ -107,6 +115,10 @@ private:
     // of the paimon_read_builder_with_filter C call is surfaced as an error.
     Status _apply_predicate();
 
+    // Fills partition columns in the block from FE-provided path values,
+    // for rows just produced by `_do_get_next_block`.
+    Status _fill_partition_columns(Block* block, size_t num_rows);
+
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;
     [[maybe_unused]] RuntimeProfile* _profile = nullptr;
@@ -116,6 +128,12 @@ private:
     VExprContextSPtrs _push_down_conjuncts;
     std::unique_ptr<PaimonHandles> _handles;
 
+    // Partition columns handed down via `columns_from_path*` on the range.
+    // Key: partition column name (matches SlotDescriptor::col_name).
+    // Value: (raw path value string, slot descriptor for type conversion).
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_values;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
     int64_t _remaining_table_level_row_count = -1;
     bool _reader_eof = false;
