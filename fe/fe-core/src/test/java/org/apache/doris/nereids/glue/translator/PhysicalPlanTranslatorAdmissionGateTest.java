@@ -32,7 +32,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PluginDrivenTableSink;
@@ -51,7 +51,7 @@ import java.util.Set;
  * Pins the two generic write-admission gates the neutral translator enforces over
  * {@link Connector#supportedWriteOperations()} (P6 write-capability unification, Task 6): the INSERT gate in
  * {@link PhysicalPlanTranslator#visitPhysicalConnectorTableSink} and the row-level-DML gate in the plugin arm
- * of {@link PhysicalPlanTranslator#visitPhysicalIcebergDeleteSink} — WITH DISTINCT rejection messages, so a
+ * of {@link PhysicalPlanTranslator#visitPhysicalExternalRowLevelDeleteSink} — WITH DISTINCT rejection messages, so a
  * connector declaring only {@code {INSERT}} is admitted for a plain write but rejected for DELETE/MERGE, not
  * lumped into one coarse "no writes supported" gate. This is the granularity regression guard for Task 3's
  * admission rewrite: a mutation that merges the two gates (or swaps their messages) turns these red.
@@ -114,14 +114,14 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PluginDrivenExternalTable table = pluginTable(EnumSet.of(WriteOperation.INSERT));
 
         @SuppressWarnings("unchecked")
-        PhysicalIcebergDeleteSink<Plan> sink = Mockito.mock(PhysicalIcebergDeleteSink.class);
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> translator.visitPhysicalIcebergDeleteSink(sink, context));
+                () -> translator.visitPhysicalExternalRowLevelDeleteSink(sink, context));
         Assertions.assertTrue(ex.getMessage().contains("does not support row-level DML operations"),
                 "got: " + ex.getMessage());
         Assertions.assertFalse(ex.getMessage().contains("does not support INSERT operations"),

@@ -626,7 +626,7 @@ public class IcebergWritePlanProviderTest {
     // ───────────────────────────── getWritePartitioning (connector declares, ② C3b-core) ─────────────────────────────
     //
     // WHY: post-flip the iceberg merge-write distribution (DistributionSpecMerge) is built fe-core-side, but
-    // its native partition-spec walk (PhysicalIcebergMergeSink.buildInsertPartitionFields ->
+    // its native partition-spec walk (PhysicalExternalRowLevelMergeSink.buildInsertPartitionFields ->
     // icebergTable.getIcebergTable().spec()) is DEAD once iceberg is a PluginDrivenExternalCatalog (the native
     // table is unreachable across the connector's isolated classloader). The connector therefore declares the
     // partitioning in an engine-neutral carrier; the engine resolves source-column names to expr ids locally.
@@ -697,9 +697,9 @@ public class IcebergWritePlanProviderTest {
     // WHY: post-flip the iceberg DML hidden column __DORIS_ICEBERG_ROWID_COL__ that legacy
     // IcebergExternalTable.getFullSchema injected is unreachable — a PluginDrivenExternalTable carries no
     // iceberg knowledge. The connector therefore declares it as an engine-neutral invisible ConnectorColumn;
-    // fe-core converts + appends it (gated request-side) while a DML over the table is in flight. This pins
-    // the carried STRUCT shape (name / 4 fields / types / invisible / not-null) against the legacy
-    // fe-core IcebergRowId.createHiddenColumn() (its mirror is the fe-core ConnectorColumnConverter contract pin).
+    // fe-core converts + appends it (gated request-side) while a DML over the table is in flight. The connector
+    // is the sole source of this identity; this pins the carried STRUCT shape (name / 4 fields / types /
+    // invisible / not-null), mirrored by the fe-core ConnectorColumnConverter contract pin.
 
     @Test
     public void getSyntheticWriteColumnsDeclaresRowIdStruct() {
@@ -712,7 +712,7 @@ public class IcebergWritePlanProviderTest {
         ConnectorColumn rowId = cols.get(0);
         Assertions.assertEquals("__DORIS_ICEBERG_ROWID_COL__", rowId.getName());
         Assertions.assertFalse(rowId.isVisible(), "the row-id column must be hidden (invisible)");
-        Assertions.assertFalse(rowId.isNullable(), "matches legacy IcebergRowId not-null");
+        Assertions.assertFalse(rowId.isNullable(), "the row-id column must be not-null");
 
         ConnectorType type = rowId.getType();
         Assertions.assertEquals("STRUCT", type.getTypeName());

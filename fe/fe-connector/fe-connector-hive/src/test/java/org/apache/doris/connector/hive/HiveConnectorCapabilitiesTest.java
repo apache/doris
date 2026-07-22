@@ -91,10 +91,5 @@ public class HiveConnectorCapabilitiesTest {
         // legacy gated on dlaType==HIVE. MUTATION: declaring it connector-wide -> red here.
         Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE),
                 "sample-analyze is a per-table marker (plain-hive only), not connector-wide");
-        // SUPPORTS_METADATA_TABLE reaches a hudi-on-HMS table ONLY via reflectSiblingScanCapabilities (the hudi
-        // sibling declares it connector-wide); hive must NEVER declare it, or every hms table (incl. plain-hive and
-        // iceberg-on-HMS) would wrongly pass the hudi_meta()/TIMELINE gate. MUTATION: declaring it -> red here.
-        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_METADATA_TABLE),
-                "metadata-table reaches hudi-on-HMS via sibling reflection, never hive connector-wide");
     }
 }

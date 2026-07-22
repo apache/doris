@@ -77,8 +77,8 @@ public class ExecuteActionFactory {
      */
     public static String[] getSupportedActions(TableIf table) {
         if (table instanceof PluginDrivenExternalTable) {
-            // Mirrors createAction's PluginDriven routing (dormant until P6.6). No live caller today — this is the
-            // forward-looking pathfinder so SHOW-style discovery exports the connector's procedure names at flip.
+            // Mirrors createAction's PluginDriven routing (no live caller today) — this is the forward-looking
+            // pathfinder so SHOW-style discovery exports the connector's procedure names.
             PluginDrivenExternalCatalog catalog =
                     (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) table).getCatalog();
             ConnectorProcedureOps procedureOps = catalog.getConnector().getProcedureOps();

@@ -820,6 +820,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        // Reject a DISTRIBUTE BY clause up front (before the executeAuthenticated try, whose catch would rewrap
+        // the message). Moved off fe-core CreateTableInfo.validate — the connector owns the paimon DDL rule.
+        rejectDistribution(request);
         Identifier id = Identifier.create(request.getDbName(), request.getTableName());
         Schema schema = PaimonSchemaBuilder.build(request);
         try {
@@ -832,6 +835,20 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     "Failed to create Paimon table " + id + ": " + e.getMessage(), e);
         }
         LOG.info("created Paimon table {}", id);
+    }
+
+    /**
+     * Rejects a {@code DISTRIBUTE BY} clause: paimon has no hash/random distribution, buckets are expressed via
+     * {@code bucket(num, column)} in {@code PARTITIONED BY}. {@code request.getBucketSpec() != null} iff the user
+     * wrote {@code DISTRIBUTE BY}, and {@code PaimonSchemaBuilder} deliberately ignores {@code bucketSpec}, so
+     * without this reject the clause would silently succeed. Message kept byte-identical to the former fe-core
+     * wording. Package-private for unit test; reached only via {@link #createTable} in production.
+     */
+    void rejectDistribution(ConnectorCreateTableRequest request) {
+        if (request.getBucketSpec() != null) {
+            throw new DorisConnectorException("Paimon doesn't support 'DISTRIBUTE BY', "
+                    + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
+        }
     }
 
     /**

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -54,8 +53,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     protected static final Logger LOG = LogManager.getLogger(MaterializeProbeVisitor.class);
 
     private static Set<Class> SUPPORT_RELATION_TYPES = ImmutableSet.of(
-            OlapTable.class,
-            HiveTable.class
+            OlapTable.class
     );
 
     /**

@@ -40,8 +40,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
@@ -61,8 +61,8 @@ import java.util.Optional;
 
 /**
  * Unit tests for the dual-mode routing added to the iceberg row-level DML translator visitors
- * ({@link PhysicalPlanTranslator#visitPhysicalIcebergDeleteSink} /
- * {@code visitPhysicalIcebergMergeSink}) for the iceberg SPI cutover (commit-bridge S5d).
+ * ({@link PhysicalPlanTranslator#visitPhysicalExternalRowLevelDeleteSink} /
+ * {@code visitPhysicalExternalRowLevelMergeSink}) for the iceberg SPI cutover (commit-bridge S5d).
  *
  * <p>Pre-flip the target is a native {@code IcebergExternalTable} and the visitor builds the native
  * {@code IcebergDeleteSink} / {@code IcebergMergeSink} (byte-identical; its native end-to-end test
@@ -96,13 +96,13 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         Plugin plugin = pluginTable();
 
         @SuppressWarnings("unchecked")
-        PhysicalIcebergDeleteSink<Plan> sink = Mockito.mock(PhysicalIcebergDeleteSink.class);
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(plugin.table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
-        translator.visitPhysicalIcebergDeleteSink(sink, context);
+        translator.visitPhysicalExternalRowLevelDeleteSink(sink, context);
 
         PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
         Assertions.assertEquals(WriteOperation.DELETE, Deencapsulation.getField(pluginSink, "writeOperation"),
@@ -127,14 +127,14 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         Plugin plugin = pluginTable();
 
         @SuppressWarnings("unchecked")
-        PhysicalIcebergMergeSink<Plan> sink = Mockito.mock(PhysicalIcebergMergeSink.class);
+        PhysicalExternalRowLevelMergeSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelMergeSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(plugin.table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn(ImmutableList.<Slot>of(dataSlot, opSlot, rowidSlot)).when(sink).getOutput();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
-        translator.visitPhysicalIcebergMergeSink(sink, context);
+        translator.visitPhysicalExternalRowLevelMergeSink(sink, context);
 
         PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
         Assertions.assertEquals(WriteOperation.MERGE, Deencapsulation.getField(pluginSink, "writeOperation"),
@@ -177,14 +177,14 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         Plugin plugin = pluginTable();
 
         @SuppressWarnings("unchecked")
-        PhysicalIcebergMergeSink<Plan> sink = Mockito.mock(PhysicalIcebergMergeSink.class);
+        PhysicalExternalRowLevelMergeSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelMergeSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(plugin.table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn(ImmutableList.<Slot>of(dataSlot, opSlot, rowidSlot)).when(sink).getOutput();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
-        translator.visitPhysicalIcebergMergeSink(sink, context);
+        translator.visitPhysicalExternalRowLevelMergeSink(sink, context);
 
         SlotDescriptor opDesc = context.findSlotRef(opSlot.getExprId()).getDesc();
         Assertions.assertEquals(MergeOperation.OPERATION_COLUMN, opDesc.getMaterializedColumnName(),
@@ -214,7 +214,7 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
 
         PlanFragment childFragment = Mockito.mock(PlanFragment.class);
         @SuppressWarnings("unchecked")
-        PhysicalIcebergDeleteSink<Plan> sink = Mockito.mock(PhysicalIcebergDeleteSink.class);
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(plugin.table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
@@ -223,7 +223,7 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         try (MockedStatic<MvccUtil> mvcc = Mockito.mockStatic(MvccUtil.class)) {
             mvcc.when(() -> MvccUtil.getSnapshotFromContext(plugin.table)).thenReturn(Optional.of(pinned));
-            translator.visitPhysicalIcebergDeleteSink(sink, context);
+            translator.visitPhysicalExternalRowLevelDeleteSink(sink, context);
         }
 
         PluginDrivenTableSink pluginSink = capturePluginSink(childFragment);
