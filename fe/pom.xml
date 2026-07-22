@@ -220,6 +220,7 @@ under the License.
         <module>fe-foundation</module>
         <module>fe-kerberos</module>
         <module>fe-common</module>
+        <module>fe-trino-connector-common</module>
         <module>fe-catalog</module>
         <module>fe-filesystem</module>
         <module>fe-extension-spi</module>
@@ -898,6 +899,11 @@ under the License.
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>fe-trino-connector-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
