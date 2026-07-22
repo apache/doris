@@ -231,6 +231,7 @@ public class CacheFactoryTest {
         Assertions.assertTrue(futureValue.isDone());
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
         Assertions.assertEquals(1, counter.get());
+        CompletableFuture<Optional<CacheValue>> cachedFuture = futureValue;
         // advance 11 seconds to pass the refreshAfterWrite
         ticker.advance(11, TimeUnit.SECONDS);
         // trigger refresh
@@ -238,8 +239,11 @@ public class CacheFactoryTest {
         // refresh in background, so still get value1
         Assertions.assertTrue(futureValue.isDone());
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
-        // Wait for the refresh triggered above instead of relying on executor scheduling time.
-        Awaitility.await().atMost(10, TimeUnit.SECONDS).until(() -> counter.get() == 2);
+        // Wait until the refresh is published to the cache instead of observing loader-side progress.
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).until(() -> {
+            CompletableFuture<Optional<CacheValue>> refreshedFuture = loadingCache.get(1);
+            return refreshedFuture != cachedFuture && refreshedFuture.isDone();
+        });
         futureValue = loadingCache.get(1);
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
         // refreshed, so counter +1
