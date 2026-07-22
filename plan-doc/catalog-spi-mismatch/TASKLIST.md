@@ -32,7 +32,7 @@
 | 8  | B4 | CONFIRMED | ✅ | `ConnectorTransaction` 泄漏 odps/iceberg 专属方法 → 下沉两个窄能力接口（RewriteCapableTransaction / WriteBlockAllocating*Transaction）+ 消费侧 instanceof；fe-core Transaction 亦收窄。设计 [`design-transaction-capability-convergence.md`](design-transaction-capability-convergence.md) |
 | 9  | B4 | CONFIRMED | ✅ | `ConnectorBucketSpec` "iceberg_bucket" 死文档已改正（+"hive_hash" 也是错的，真值 doris_default/doris_random）；iceberg fail-loud 早已由 rejectDistribution 实现 |
 | 27 | B4 | PARTIAL | ⬜ | reader-type 3 份手搓副本 + 3 种线上编码（force_jni 回归已 REFUTED） |
-| 10 | B5 | PARTIAL | ⬜ | **用户已签字升级（下一 session 做）**：接 iceberg writeDefault（INSERT 省列套用写默认 + Column 默认进 DESC）；initialDefault 现走字典路径勿动 |
+| 10 | B5 | PARTIAL | ✅ | 接 iceberg writeDefault：`parseSchema` 用 `field.writeDefault()` 填 `ConnectorColumn.defaultValue`（新 helper `IcebergSchemaUtils.writeDefaultToDorisString`，二进制/复杂跳过、tz 对齐读路径、不回退读默认）；单测 + e2e。initialDefault 字典路径未碰 |
 | 11 | B5 | PARTIAL | 🚫 | paimon CREATE CHAR/VARCHAR→MAX、DATETIME scale→micros（刻意 legacy parity）——**用户选择不升级** |
 | 12 | B5 | PARTIAL | ✅ | paimon 嵌套 struct comment 全链路打通（写侧 DataField 4 参 + 读侧 structOf 4 参 + fe-core convertStructType 4 参 StructField，DESC 可见）；单测 3 新 + e2e |
 | 13 | B5 | PARTIAL | 🚫 | `initialValues` LIST/RANGE 恒空 vestigial 槽（有意分层，零消费者）——**用户选择不升级** |
@@ -180,10 +180,11 @@
 - **做**：① 写侧 `toPaimonRowType` 4 参 DataField；② 读侧 `toStructType` 4 参 structOf（`isNullable()`/`description()`）；③ fe-core `convertStructType` 4 参 StructField（`getChildComment`/`isChildNullable`，向后兼容：未带数据的连接器逐字节不变）。
 - **测**：写侧 `nestedStructFieldCommentPreserved`、读侧 `nestedStructFieldCommentAndNullabilityCarried`、fe-core `convertStructTypeCarriesFieldNullabilityAndComment` 各 1 新测；e2e `test_paimon_nested_struct_comment.groovy`（DESC/SHOW CREATE 显示 + `$schemas.fields` 佐证落盘）。paimon 16 + fe-core 28 单测全绿。见 `fix-paimon-nested-struct-comment-{design,summary}.md`。文档 [B](analysis-B-schema-column-identity.md#12)。
 
-**#10 — 接 iceberg writeDefault**（边缘写路径能力增强）
-- 现状：iceberg `parseSchema`（**基线 `IcebergConnectorMetadata.java:1890-1897`**，须重侦察现值）第 5 参 `defaultValue` 硬编码 null；`writeDefault()` 全树 0 读。`ConnectorColumn` 单 `defaultValue` 槽。**读默认 initialDefault 已经 #65502 正确走字典下发 BE，勿动**。
-- 做：`parseSchema` 用 `field.writeDefault()` 转 Doris 字符串填 `ConnectorColumn.defaultValue`；使 INSERT 省列套用写默认、DESC 展示列默认。加单测。属能力增强非纠错。文档 [B](analysis-B-schema-column-identity.md#10)。
-- 例子：iceberg v3 表列 c `DEFAULT 42`，`INSERT INTO t(other) VALUES(...)` 省略 c → 修后落 42（现落 NULL 或 NOT NULL 报错）。
+**#10 — 接 iceberg writeDefault** ✅ 完成
+- 现状（实证 HEAD `IcebergConnectorMetadata:1987-1994`）：第 5 参 `defaultValue` 硬编码 null；`writeDefault()` 全树 0 读。**读默认 initialDefault 走独立 BE 字典路径（#65502），未碰**。
+- **做**：`IcebergSchemaUtils` 加 helper `writeDefaultToDorisString`（复用 `serializeInitialDefault`，非空+顶层标量+非二进制才转，否则 null）；`parseSchema` 第 5 参改调它。边界（用户签字）：仅顶层标量、二进制类跳过、timestamptz 对齐读路径、写默认为空不回退读默认。
+- **测**：`IcebergSchemaUtilsTest.writeDefaultCarriedAsDorisString`（int/string/boolean/date/timestamp/timestamptz + binary/complex/null 跳过）24 全绿；e2e `test_iceberg_write_default.groovy`（v3 `ALTER ADD COLUMN DEFAULT 42` → DESC 显 42 + 省列 INSERT 得 42）。见 `fix-iceberg-write-default-{design,summary}.md`。
+- 例子：iceberg v3 表列 c `DEFAULT 42`，`INSERT INTO t(id) VALUES(...)` 省略 c → 修后落 42（现落 NULL）。文档 [B](analysis-B-schema-column-identity.md#10)。
 
 **#16 — 探针命名去单位语义 + 让 iceberg 表能安全用上 SqlCache**（⚠️ 碰缓存正确性，先设计签字）
 - 现状：`ConnectorMvccPartitionView.getNewestUpdateTimeMillis()`（**HEAD `:70/:113`**）名义 millis、iceberg 实际返回 **micros**；消费者 `CacheAnalyzer.java:~489/258/263` 把该微秒值与 wall-clock 毫秒 `Math.max` + 差值判 gate → iceberg 微秒(~1.7e15)恒 > epoch 毫秒 → "静默≥30s"闸门永不通过 → **iceberg 表永不启用 SqlCache**（correctness-safe 抑制 + master parity）。

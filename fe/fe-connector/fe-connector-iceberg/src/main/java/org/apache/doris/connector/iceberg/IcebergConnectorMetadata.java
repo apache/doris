@@ -2146,13 +2146,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // isKey is always true (external-table semantics: DESC shows Key=true),
             // and isAllowNull is always true regardless of the Iceberg required/optional flag (rows can
             // still read NULL under schema-evolution default-fill; do NOT propagate the NOT NULL constraint).
+            // The column default is the field's iceberg WRITE default (v3), so INSERT with the column omitted
+            // applies it and DESC shows it; this is the FE Column metadata only and is orthogonal to the read
+            // default (initialDefault) that flows to BE via the schema dictionary (#65502).
             ConnectorColumn column = new ConnectorColumn(
                     field.name(),
                     IcebergTypeMapping.fromIcebergType(
                             field.type(), enableVarbinary, enableTimestampTz),
                     field.doc() != null ? field.doc() : "",
                     true,
-                    null,
+                    IcebergSchemaUtils.writeDefaultToDorisString(
+                            field.type(), field.writeDefault(), enableTimestampTz),
                     true);
             // Carry the stable iceberg field-id as the column's uniqueId (legacy
             // IcebergUtils.updateIcebergColumnUniqueId set the top-level Column.uniqueId = field.fieldId()).
