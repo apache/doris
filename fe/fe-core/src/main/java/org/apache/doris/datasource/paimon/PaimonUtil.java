@@ -76,6 +76,7 @@ import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
+import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
@@ -90,6 +91,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -164,14 +166,13 @@ public class PaimonUtil {
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
-            StringBuilder sb = new StringBuilder();
             // Paimon partition specs contain logical values, which may include path separators.
             // Build partition values directly instead of parsing them as a Hive partition path.
             List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
+            LinkedHashMap<String, String> orderedPartitionSpec = new LinkedHashMap<>();
             for (Column partitionColumn : partitionColumns) {
                 String partitionColumnName = partitionColumn.getName();
                 String partitionValue = spec.get(partitionColumnName);
-                sb.append(partitionColumnName).append("=");
                 // When partition.legacy-name = true (default), Paimon stores DATE type as days since
                 // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
                 // When partition.legacy-name = false, the value is already a human read date string.
@@ -179,21 +180,26 @@ public class PaimonUtil {
                     partitionValue = DateTimeUtils.formatDate(Integer.parseInt(partitionValue));
                 }
                 partitionValues.add(partitionValue);
-                sb.append(partitionValue).append("/");
+                orderedPartitionSpec.put(partitionColumnName, partitionValue);
             }
-            if (sb.length() > 0) {
-                sb.deleteCharAt(sb.length() - 1);
-            }
-            String partitionName = sb.toString();
-            nameToPartition.put(partitionName, partition);
+            String partitionPath = PartitionPathUtils.generatePartitionPath(orderedPartitionSpec);
+            String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
+            Partition previousPartition = nameToPartition.putIfAbsent(partitionName, partition);
+            Preconditions.checkState(previousPartition == null,
+                    "Duplicate Paimon partition name: " + partitionName);
+            PartitionItem partitionItem;
             try {
                 // partition values return by paimon api, may have problem,
                 // to avoid affecting the query, we catch exceptions here
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionValues, types));
+                partitionItem = toListPartitionItem(partitionValues, types);
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
                         partitionColumns, partition.spec(), e);
+                continue;
             }
+            PartitionItem previousPartitionItem = nameToPartitionItem.putIfAbsent(partitionName, partitionItem);
+            Preconditions.checkState(previousPartitionItem == null,
+                    "Duplicate Paimon partition item name: " + partitionName);
         }
         return partitionInfo;
     }

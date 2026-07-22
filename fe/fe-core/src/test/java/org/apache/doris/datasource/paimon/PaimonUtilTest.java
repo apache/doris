@@ -136,6 +136,9 @@ public class PaimonUtilTest {
         Assert.assertFalse(partitionInfo.isPartitionInvalid());
         Assert.assertEquals(1, partitionInfo.getNameToPartition().size());
         Assert.assertEquals(1, partitionInfo.getNameToPartitionItem().size());
+        String partitionName = "source=dataset%2Fteam-a%2Fsegment-01"
+                + "/part_str=%2Fymd%3D20260701%2Fhour%3D%5B0-9%5D%5B0-9%5D%2F%2A.jsonl/pass=s1";
+        Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
         PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().values().iterator().next();
         List<String> actualValues = ((ListPartitionItem) partitionItem).getItems().get(0)
                 .getPartitionValuesAsStringList();
@@ -160,8 +163,8 @@ public class PaimonUtilTest {
         PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
                 partitionColumns, Collections.singletonList(partition), false);
 
-        String partitionName = "source=dataset/team-a/segment-01"
-                + "/part_str=/ymd=20260721/pass=s1";
+        String partitionName = "source=dataset%2Fteam-a%2Fsegment-01"
+                + "/part_str=%2Fymd%3D20260721/pass=s1";
         Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
         PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().get(partitionName);
         List<String> actualValues = ((ListPartitionItem) partitionItem).getItems().get(0)
@@ -185,6 +188,53 @@ public class PaimonUtilTest {
         PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().get(partitionName);
         Assert.assertEquals(Collections.singletonList("2024-01-15"),
                 ((ListPartitionItem) partitionItem).getItems().get(0).getPartitionValuesAsStringList());
+    }
+
+    @Test
+    public void testGeneratePartitionInfoUsesCollisionFreePartitionNames() {
+        List<Column> partitionColumns = Arrays.asList(
+                new Column("a", Type.STRING),
+                new Column("b", Type.STRING));
+        Map<String, String> firstSpec = new LinkedHashMap<>();
+        firstSpec.put("a", "x/b=y");
+        firstSpec.put("b", "z");
+        Map<String, String> secondSpec = new LinkedHashMap<>();
+        secondSpec.put("a", "x");
+        secondSpec.put("b", "y/b=z");
+        Partition firstPartition = new Partition(firstSpec, 1L, 1L, 1L, 1L, false);
+        Partition secondPartition = new Partition(secondSpec, 2L, 2L, 2L, 2L, false);
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                partitionColumns, Arrays.asList(firstPartition, secondPartition), false);
+
+        String firstPartitionName = "a=x%2Fb%3Dy/b=z";
+        String secondPartitionName = "a=x/b=y%2Fb%3Dz";
+        Assert.assertFalse(partitionInfo.isPartitionInvalid());
+        Assert.assertEquals(2, partitionInfo.getNameToPartition().size());
+        Assert.assertEquals(2, partitionInfo.getNameToPartitionItem().size());
+        Assert.assertSame(firstPartition, partitionInfo.getNameToPartition().get(firstPartitionName));
+        Assert.assertSame(secondPartition, partitionInfo.getNameToPartition().get(secondPartitionName));
+        Assert.assertEquals(Arrays.asList("x/b=y", "z"),
+                ((ListPartitionItem) partitionInfo.getNameToPartitionItem().get(firstPartitionName))
+                        .getItems().get(0).getPartitionValuesAsStringList());
+        Assert.assertEquals(Arrays.asList("x", "y/b=z"),
+                ((ListPartitionItem) partitionInfo.getNameToPartitionItem().get(secondPartitionName))
+                        .getItems().get(0).getPartitionValuesAsStringList());
+    }
+
+    @Test
+    public void testGeneratePartitionInfoRejectsDuplicatePartitionNames() {
+        List<Column> partitionColumns = Collections.singletonList(new Column("part", Type.STRING));
+        Map<String, String> firstSpec = Collections.singletonMap("part", "same");
+        Map<String, String> secondSpec = Collections.singletonMap("part", "same");
+        Partition firstPartition = new Partition(firstSpec, 1L, 1L, 1L, 1L, false);
+        Partition secondPartition = new Partition(secondSpec, 2L, 2L, 2L, 2L, false);
+
+        IllegalStateException exception = Assert.assertThrows(IllegalStateException.class,
+                () -> PaimonUtil.generatePartitionInfo(
+                        partitionColumns, Arrays.asList(firstPartition, secondPartition), false));
+
+        Assert.assertTrue(exception.getMessage().contains("Duplicate Paimon partition name"));
     }
 
     @Test
