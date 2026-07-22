@@ -35,6 +35,7 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -220,6 +221,32 @@ public class HudiPartitionPruningTest {
                 metadata.applyFilter(null, handle, new ConnectorFilterConstraint(dateEq));
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(Collections.singletonList("2024-01-01"), prunedPaths(result));
+    }
+
+    @Test
+    public void testDecimalPartitionPredicatePrunesTrailingZeros() {
+        // WHY: a DECIMAL predicate literal arrives as a BigDecimal carrying the column's declared scale
+        // (decimal(8,4) -> "1.0000"), while the stored Hudi partition value is Hive-canonical trailing-zero
+        // trimmed ("1"). String.valueOf(BigDecimal) keeps the scale, so the prune string-compare misses and
+        // every row under d=1 is silently dropped. extractLiteralValue must render "1" via
+        // stripTrailingZeros().toPlainString() to string-equal the stored value. Mirrors the sibling
+        // HiveConnectorMetadata fix (#65473).
+        // MUTATION: dropping the `instanceof BigDecimal` branch (falling through to String.valueOf) ->
+        // literal renders "1.0000", ["1.0000"].contains("1") == false -> partition dropped -> prunedPaths
+        // empty -> red.
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(PARTITIONS), Collections.emptyMap(),
+                new StubMetaClientExecutor(Arrays.asList("1", "2")));
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("d"))
+                .build();
+        ConnectorComparison decimalEq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("d", ConnectorType.of("DECIMALV3")),
+                new ConnectorLiteral(ConnectorType.of("DECIMALV3"), new BigDecimal("1.0000")));
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(decimalEq));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("1"), prunedPaths(result));
     }
 
     // ========== helpers ==========

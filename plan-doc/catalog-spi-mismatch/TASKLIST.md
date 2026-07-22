@@ -22,7 +22,7 @@
 | # | 批次 | 核实 | 状态 | 一句话 |
 |---|---|---|---|---|
 | 2  | B1 | CONFIRMED | ⬜ | getColumnHandles 无 snapshot 参 → paimon time-travel+混合投影 → **BE crash** |
-| 1  | B2 | PARTIAL | ⬜ | hudi decimal 分区谓词走 String.valueOf，未同步 hive 已修分支 → 潜在误剪 |
+| 1  | B2 | PARTIAL | ✅ | hudi decimal 分区谓词走 String.valueOf，未同步 hive 已修分支 → 潜在误剪（已镜像 hive BigDecimal 分支 + 单测）|
 | 14 | B2 | PARTIAL | ⬜ | paimon `partition_values()` TVF 读 raw spec → DATE 显 epoch-day、null 显 `__DEFAULT_PARTITION__` |
 | 21 | B3 | CONFIRMED | ⬜ | `ConnectorDeleteFile` 欠建模且零 caller = 死代码，删 |
 | 23 | B3 | CONFIRMED | ⬜ | `ConnectorDomain`/`ConnectorRange` 死抽象（columnDomains 恒空），删 |
@@ -69,7 +69,8 @@
 
 ## B2 · 活跃产错小修（小步低风险，建议先做）
 
-### #1 — hudi decimal 分区谓词未同步 hive 修复 ⬜
+### #1 — hudi decimal 分区谓词未同步 hive 修复 ✅
+- **完成**：镜像 hive `extractLiteralValue` 的 `BigDecimal` 分支（`stripTrailingZeros().toPlainString()`）+ `import java.math.BigDecimal;` 进 `HudiConnectorMetadata`；加 `HudiPartitionPruningTest.testDecimalPartitionPredicatePrunesTrailingZeros`（scaled `"1.0000"` 命中存储 `"1"`）。连接器内、零 fe-core 改动。`HudiPartitionPruningTest` 13 测试全绿。见 `fix-hudi-decimal-partition-predicate-{design,summary}.md`。
 - **核实**：PARTIAL（high）｜文档 [A](analysis-A-literal-predicate.md#1)
 - **现象**：`ConnectorLiteral` 无 typed canonical 访问器，各连接器各自从 Java 值重建 canonical string。hive 已修（`stripTrailingZeros().toPlainString()`），**hudi 的 decimal 分支仍走 `String.valueOf`** → `WHERE d = 1` 传入 BigDecimal `1.0000` 得 `"1.0000"`，与存储分区值 `"1"` 失配 → 分区被误剪、丢行。datetime 分支 hudi 已镜像、不受影响。
 - **建议动作**：把 hive 的 BigDecimal 分支镜像进 `HudiConnectorMetadata.extractLiteralValue`（与其已镜像的 LocalDateTime 分支并列）。小步低风险。
