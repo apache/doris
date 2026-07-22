@@ -185,9 +185,8 @@ bool PipelineFragmentContext::notify_close() {
             if (_need_notify_close) {
                 // Fragment was cancelled and waiting for notify to close.
                 // Record that we need to remove from fragment mgr, but do it
-                // after releasing _task_mutex to avoid ABBA deadlock with
-                // dump_pipeline_tasks() (which acquires _pipeline_map lock
-                // first, then _task_mutex via debug_string()).
+                // after releasing _task_mutex so fragment-local locks are not
+                // nested with the context-map shard lock.
                 need_remove = true;
             }
             all_closed = true;
@@ -2199,7 +2198,7 @@ Status PipelineFragmentContext::submit() {
                 need_remove = _close_fragment_instance();
             }
         }
-        // Call remove_pipeline_context() outside _task_mutex to avoid ABBA deadlock.
+        // Keep the fragment-local and context-map lock scopes separate.
         if (need_remove) {
             _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
         }
@@ -2232,9 +2231,8 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
 // Returns true if the caller should call remove_pipeline_context() **after** releasing
 // _task_mutex. We must not call remove_pipeline_context() here because it acquires
 // _pipeline_map's shard lock, and this function is called while _task_mutex is held.
-// Acquiring _pipeline_map while holding _task_mutex creates an ABBA deadlock with
-// dump_pipeline_tasks(), which acquires _pipeline_map first and then _task_mutex
-// (via debug_string()).
+// Keep these lock scopes separate so map operations cannot introduce a reverse
+// lock order with fragment-local operations.
 bool PipelineFragmentContext::_close_fragment_instance() {
     if (_is_fragment_instance_closed) {
         return false;
@@ -2305,7 +2303,7 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
             need_remove = _close_fragment_instance();
         }
     }
-    // Call remove_pipeline_context() outside _task_mutex to avoid ABBA deadlock.
+    // Keep the fragment-local and context-map lock scopes separate.
     if (need_remove) {
         _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
