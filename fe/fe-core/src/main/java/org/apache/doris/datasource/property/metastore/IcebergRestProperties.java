@@ -21,6 +21,7 @@ import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergDelegatedCredentialUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.ReauthenticatingRestSessionCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -32,6 +33,7 @@ import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
@@ -41,6 +43,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
@@ -66,7 +69,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     // asCatalog(SessionContext) / asViewCatalog(SessionContext), without reflecting RESTCatalog's private
     // sessionCatalog field. This is the single underlying catalog shared by the default and user-session
     // paths; IcebergMetadataOps reads it via getRestSessionCatalog() and owns no other REST catalog.
-    private RESTSessionCatalog restSessionCatalog;
+    // When the catalog authenticates with its own identity this is a ReauthenticatingRestSessionCatalog
+    // wrapping the RESTSessionCatalog, so an expired/rejected token is recovered by rebuilding the client
+    // instead of failing every request until the FE restarts.
+    private BaseViewSessionCatalog restSessionCatalog;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -241,7 +247,22 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         // it ourselves keeps that capability without reflection. The "type" key is dropped because the
         // Iceberg SDK rejects "type" together with a concrete catalog impl.
         catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
-        this.restSessionCatalog = buildRestSessionCatalog(catalogName, catalogProps, configuration);
+        RESTSessionCatalog rawSessionCatalog = buildRestSessionCatalog(catalogName, catalogProps, configuration);
+        if (sessionContext == null || !sessionContext.hasDelegatedCredential()) {
+            // The catalog authenticates with its own identity (e.g. an oauth2 client credential). If that
+            // credential's token expires and the client cannot refresh it (auth server briefly unreachable at
+            // refresh time), the RESTSessionCatalog is left rejecting every request with a 401 until the FE
+            // restarts. Wrap it so a 401 rebuilds the client (fresh token) and retries once. The rebuild
+            // supplier re-resolves from the same catalog-identity properties, so it can never capture a
+            // per-user delegated credential.
+            Map<String, String> frozenProps = Collections.unmodifiableMap(new HashMap<>(catalogProps));
+            this.restSessionCatalog = new ReauthenticatingRestSessionCatalog(rawSessionCatalog,
+                    () -> buildRestSessionCatalog(catalogName, frozenProps, configuration));
+        } else {
+            // Catalog initialization under a per-user delegated credential: recovery must not re-mint the
+            // client with that user's token, so no wrapper — behavior is unchanged from before.
+            this.restSessionCatalog = rawSessionCatalog;
+        }
         // The default (non-delegated) Catalog is asCatalog(empty), identical to what RESTCatalog exposes.
         return restSessionCatalog.asCatalog(SessionCatalog.SessionContext.createEmpty());
     }
@@ -263,7 +284,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
      * catalog has not been initialized yet. Callers use it to obtain per-request catalogs via
      * {@code asCatalog(SessionContext)} / {@code asViewCatalog(SessionContext)}.
      */
-    public RESTSessionCatalog getRestSessionCatalog() {
+    public BaseViewSessionCatalog getRestSessionCatalog() {
         return restSessionCatalog;
     }
 
@@ -272,14 +293,14 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
      * Safe to call multiple times and before initialization.
      */
     public void closeRestSessionCatalog() {
-        if (restSessionCatalog != null) {
+        if (restSessionCatalog instanceof Closeable) {
             try {
-                restSessionCatalog.close();
+                ((Closeable) restSessionCatalog).close();
             } catch (IOException e) {
                 LOG.warn("Failed to close Iceberg REST session catalog", e);
             }
-            restSessionCatalog = null;
         }
+        restSessionCatalog = null;
     }
 
     @Override

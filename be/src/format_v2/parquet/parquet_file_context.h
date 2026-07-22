@@ -21,6 +21,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -65,6 +68,39 @@ struct ParquetPageCacheStats {
 };
 
 namespace detail {
+
+class ParquetPageCacheRangeIndex {
+public:
+    static constexpr size_t DEFAULT_MAX_RANGES = 65536;
+
+    explicit ParquetPageCacheRangeIndex(size_t max_ranges = DEFAULT_MAX_RANGES);
+
+    void insert(ParquetPageCacheRange range);
+    void erase(ParquetPageCacheRange range);
+
+    std::vector<ParquetPageCacheRange> ranges() const;
+    size_t size() const;
+
+private:
+    const size_t _max_ranges;
+    mutable std::mutex _mutex;
+    std::vector<ParquetPageCacheRange> _ranges;
+};
+
+class ParquetPageCacheRangeDirectory {
+public:
+    static constexpr size_t DEFAULT_MAX_FILES = 4096;
+
+    explicit ParquetPageCacheRangeDirectory(size_t max_files = DEFAULT_MAX_FILES);
+
+    std::shared_ptr<ParquetPageCacheRangeIndex> get_or_create(const std::string& file_key);
+    size_t size() const;
+
+private:
+    const size_t _max_files;
+    mutable std::mutex _mutex;
+    std::unordered_map<std::string, std::shared_ptr<ParquetPageCacheRangeIndex>> _indexes;
+};
 
 // Build the copy plan for a ReadAt(position, nbytes) request from the range metadata of
 // previously cached entries.

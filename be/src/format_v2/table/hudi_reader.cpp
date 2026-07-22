@@ -34,7 +34,17 @@ Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
         options.current_range.table_format_params.hudi_params.__isset.schema_id) {
         _split_schema_id = options.current_range.table_format_params.hudi_params.schema_id;
     }
-    return format::TableReader::prepare_split(options);
+    RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // This native reader only receives Hudi base-file splits that do not require merging delta
+    // logs. Hudi creates a new versioned base file for updates and compaction instead of modifying
+    // an existing Parquet/ORC base file in place, so missing mtime does not make its page-cache key
+    // ambiguous. Merge-on-read log files remain on the JNI path because they may be appended and
+    // must never be marked immutable here.
+    mark_current_data_file_immutable();
+    return Status::OK();
 }
 
 format::TableColumnMappingMode HudiReader::mapping_mode() const {
@@ -69,6 +79,11 @@ Status HudiHybridReader::get_block(Block* block, bool* eos) {
 bool HudiHybridReader::current_split_pruned() const {
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->current_split_pruned();
+}
+
+bool HudiHybridReader::current_split_uses_metadata_count() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->current_split_uses_metadata_count();
 }
 
 Status HudiHybridReader::abort_split() {
@@ -135,6 +150,7 @@ Status HudiHybridReader::_init_child_reader(format::TableReader* reader,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
+            .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal

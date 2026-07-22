@@ -67,6 +67,8 @@ public:
     inline size_t written_len() const override { return _file_format_transformer->written_len(); }
 
 private:
+    friend class VIcebergPartitionWriterTest;
+
     std::string _get_target_file_name();
 
     Status _build_iceberg_commit_data(TIcebergCommitData* commit_data);
@@ -91,6 +93,7 @@ private:
     TFileFormatType::type _file_format_type;
     TFileCompressType::type _compress_type;
     const std::map<std::string, std::string>& _hadoop_conf;
+    bool _collect_column_stats = true;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

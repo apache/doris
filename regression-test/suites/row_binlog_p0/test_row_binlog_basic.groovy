@@ -293,6 +293,14 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         FROM binlog("table" = "test_mow_seq_with_binlog")
         ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
+
+    test {
+        sql """
+            SELECT __DORIS_SEQUENCE_COL__
+            FROM binlog("table" = "test_mow_seq_with_binlog")
+        """
+        exception "Unknown column"
+    }
     
     sql "SET skip_delete_bitmap = false"
 }

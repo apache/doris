@@ -17,7 +17,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF6
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF1 ca_address_sk->c_current_addr_sk
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (customer.c_birth_country = upper(customer_address.ca_country)))) build RFs:RF1 ca_address_sk->c_current_addr_sk
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer] apply RFs: RF1
 ----------------------------PhysicalProject

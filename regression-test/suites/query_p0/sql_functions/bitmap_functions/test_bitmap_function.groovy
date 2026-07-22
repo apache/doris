@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_bitmap_function") {
+    def low_bitmap = "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32"
+    def overlap_bitmap = "32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64"
+    def disjoint_bitmap = "33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65"
+    def high_bitmap = "4294967296,4294967297,4294967298,4294967299,4294967300,4294967301,4294967302,4294967303,4294967304,4294967305,4294967306,4294967307,4294967308,4294967309,4294967310,4294967311,4294967312,4294967313,4294967314,4294967315,4294967316,4294967317,4294967318,4294967319,4294967320,4294967321,4294967322,4294967323,4294967324,4294967325,4294967326,4294967327,4294967328"
+    def two_map_bitmap = "${low_bitmap},${high_bitmap}"
+
     // BITMAP_AND
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt """
@@ -39,10 +45,17 @@ suite("test_bitmap_function") {
     // BITMAP_HAS_ANY
     qt_sql """ select bitmap_has_any(to_bitmap(1),to_bitmap(2)) cnt """
     qt_sql """ select bitmap_has_any(to_bitmap(1),to_bitmap(1)) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${overlap_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${disjoint_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${high_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${two_map_bitmap}'), bitmap_from_string('${low_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${two_map_bitmap}')) cnt """
 
     // BITMAP_HAS_ALL
     qt_sql """ select bitmap_has_all(bitmap_from_string("0, 1, 2"), bitmap_from_string("1, 2")) cnt """
     qt_sql """ select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2")) cnt """
+    qt_sql """ select bitmap_has_all(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${low_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_all(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${overlap_bitmap}')) cnt """
 
     // BITMAP_HASH
     qt_sql_bitmap_hash1 """ select bitmap_count(bitmap_hash('hello')) """

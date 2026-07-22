@@ -1513,7 +1513,7 @@ def parse_args():
     parser.add_argument("--pr-number", default="")
     parser.add_argument("--head-sha", default="")
     parser.add_argument("--base-sha", default="")
-    parser.add_argument("--model", default="gpt-5.5")
+    parser.add_argument("--model", default="gpt-5.6-sol")
     parser.add_argument("--reasoning-effort", default="")
     parser.add_argument("--environment", default="github-actions")
     parser.add_argument("--max-input-chars", type=int, default=200_000)

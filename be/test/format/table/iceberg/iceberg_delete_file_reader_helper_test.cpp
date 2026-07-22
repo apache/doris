@@ -27,18 +27,24 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "exec/common/endian.h"
+#include "format/table/deletion_vector_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "testutil/mock/mock_runtime_state.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -49,6 +55,36 @@ constexpr const char* kMixedPositionDeleteFile =
         "mixed_encoding_position_delete.parquet";
 constexpr const char* kTargetDataFilePath =
         "s3://warehouse/wh/test_db/000_target_data_file.parquet";
+
+class CloudFileCacheConfigGuard {
+public:
+    CloudFileCacheConfigGuard()
+            : _cloud_unique_id(config::cloud_unique_id),
+              _enable_file_cache(config::enable_file_cache) {}
+
+    ~CloudFileCacheConfigGuard() {
+        config::cloud_unique_id = _cloud_unique_id;
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+private:
+    std::string _cloud_unique_id;
+    bool _enable_file_cache;
+};
+
+TUniqueId make_query_id() {
+    TUniqueId query_id;
+    query_id.hi = 300;
+    query_id.lo = 400;
+    return query_id;
+}
+
+TNetworkAddress make_fe_addr() {
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+    return fe_addr;
+}
 
 class CollectPositionDeleteVisitor final : public IcebergPositionDeleteVisitor {
 public:
@@ -79,8 +115,8 @@ TIcebergDeleteFileDesc make_iceberg_deletion_vector(const std::string& path, int
     return delete_file;
 }
 
-int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
-                                           const std::vector<uint64_t>& deleted_positions) {
+std::vector<char> build_iceberg_deletion_vector_blob(
+        const std::vector<uint64_t>& deleted_positions) {
     roaring::Roaring64Map rows;
     for (const auto position : deleted_positions) {
         rows.add(position);
@@ -94,7 +130,14 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     BigEndian::Store32(blob.data(), total_length);
     constexpr char DV_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
     memcpy(blob.data() + 4, DV_MAGIC, 4);
-    BigEndian::Store32(blob.data() + 8 + bitmap_size, 0);
+    const uint32_t crc = HashUtil::zlib_crc_hash(blob.data() + 4, total_length, 0);
+    BigEndian::Store32(blob.data() + 8 + bitmap_size, crc);
+    return blob;
+}
+
+int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
+                                           const std::vector<uint64_t>& deleted_positions) {
+    const auto blob = build_iceberg_deletion_vector_blob(deleted_positions);
 
     std::ofstream output(file_path, std::ios::binary);
     EXPECT_TRUE(output.is_open());
@@ -139,7 +182,7 @@ void write_position_delete_parquet(const std::string& path,
     std::shared_ptr<arrow::io::FileOutputStream> output;
     ASSERT_TRUE(arrow::io::FileOutputStream::Open(path).Value(&output).ok());
     PARQUET_THROW_NOT_OK(
-            parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
 }
 
 IcebergDeleteFileReaderOptions make_delete_file_reader_options(
@@ -238,6 +281,42 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorCacheKeyEscapesPathBoundar
               build_iceberg_deletion_vector_cache_key(second_data_file_path, second_delete_file));
 }
 
+TEST(IcebergDeleteFileReaderHelperTest, ValidateDeletionVectorDescriptor) {
+    size_t bytes_read = 0;
+
+    TIcebergDeleteFileDesc missing_path;
+    missing_path.__set_content_offset(0);
+    missing_path.__set_content_size_in_bytes(12);
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(missing_path, bytes_read).ok());
+
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
+                         make_iceberg_deletion_vector("dv.puffin", -1, 12), bytes_read)
+                         .ok());
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
+                         make_iceberg_deletion_vector("dv.puffin", 0, 11), bytes_read)
+                         .ok());
+    EXPECT_TRUE(
+            validate_iceberg_deletion_vector_descriptor(
+                    make_iceberg_deletion_vector("dv.puffin", 0, MAX_ICEBERG_DELETION_VECTOR_BYTES),
+                    bytes_read)
+                    .ok());
+    EXPECT_EQ(static_cast<size_t>(MAX_ICEBERG_DELETION_VECTOR_BYTES), bytes_read);
+    const auto unsupported_status = validate_iceberg_deletion_vector_descriptor(
+            make_iceberg_deletion_vector("dv.puffin", 0, MAX_ICEBERG_DELETION_VECTOR_BYTES + 1),
+            bytes_read);
+    EXPECT_TRUE(unsupported_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << unsupported_status;
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
+                         make_iceberg_deletion_vector("dv.puffin",
+                                                      std::numeric_limits<int64_t>::max() - 10, 12),
+                         bytes_read)
+                         .ok());
+
+    EXPECT_TRUE(validate_iceberg_deletion_vector_descriptor(
+                        make_iceberg_deletion_vector("dv.puffin", 7, 12), bytes_read)
+                        .ok());
+    EXPECT_EQ(bytes_read, 12);
+}
+
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsMissingFile) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_deletion_vector_missing_test";
@@ -263,9 +342,9 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsMissingFile) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsShortRead) {
+TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorRejectsRangePastFile) {
     const auto test_dir = std::filesystem::temp_directory_path() /
-                          "doris_iceberg_deletion_vector_short_read_test";
+                          "doris_iceberg_deletion_vector_range_past_file_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
@@ -283,8 +362,46 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsShortRead) {
     auto status = read_iceberg_deletion_vector(
             make_iceberg_deletion_vector(dv_path, 0, dv_size + 1), options, &rows_to_delete);
 
-    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("range exceeds file size"), std::string::npos);
+    EXPECT_NE(status.to_string().find(dv_path), std::string::npos);
     EXPECT_EQ(rows_to_delete.cardinality(), 0);
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileRange) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_deletion_vector_opened_file_range_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {1, 3});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    IcebergDeleteFileIOContext io_context(&state);
+
+    {
+        TFileRangeDesc exact_range = build_iceberg_delete_file_range(dv_path);
+        exact_range.start_offset = 4;
+        exact_range.size = dv_size - exact_range.start_offset;
+        DeletionVectorReader exact_reader(&state, &profile, scan_params, exact_range,
+                                          &io_context.io_ctx);
+        const auto exact_status = exact_reader.open();
+        EXPECT_TRUE(exact_status.ok()) << exact_status;
+
+        TFileRangeDesc oversized_range = exact_range;
+        oversized_range.size = MAX_ICEBERG_DELETION_VECTOR_BYTES;
+        DeletionVectorReader oversized_reader(&state, &profile, scan_params, oversized_range,
+                                              &io_context.io_ctx);
+        const auto oversized_status = oversized_reader.open();
+        EXPECT_TRUE(oversized_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << oversized_status;
+        EXPECT_NE(oversized_status.to_string().find("range exceeds file size"), std::string::npos);
+        EXPECT_NE(oversized_status.to_string().find(dv_path), std::string::npos);
+    }
+
     std::filesystem::remove_all(test_dir);
 }
 
@@ -326,6 +443,19 @@ TEST(IcebergDeleteFileReaderHelperTest, DecodeDeletionVectorRejectsCorruptPayloa
 
     EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
     EXPECT_NE(status.to_string().find("magic number mismatch"), std::string::npos);
+    EXPECT_EQ(rows_to_delete.cardinality(), 0);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, DecodeDeletionVectorRejectsCrcMismatch) {
+    auto corrupted = build_iceberg_deletion_vector_blob({1, 3});
+    corrupted.back() ^= 1;
+
+    roaring::Roaring64Map rows_to_delete;
+    auto status = decode_iceberg_deletion_vector_buffer(corrupted.data(), corrupted.size(),
+                                                        &rows_to_delete);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("CRC32 mismatch"), std::string::npos);
     EXPECT_EQ(rows_to_delete.cardinality(), 0);
 }
 
@@ -417,6 +547,56 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorConcurrentReadsAreStab
         EXPECT_TRUE(status.ok()) << status;
     }
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, IoContextPropagatesQueryLimiterForSelect) {
+    CloudFileCacheConfigGuard config_guard;
+    config::cloud_unique_id = "iceberg_delete_file_io_context_ut";
+    config::enable_file_cache = true;
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    const auto query_id = make_query_id();
+    const auto fe_addr = make_fe_addr();
+    auto query_ctx = MockQueryContext::create(query_id, ExecEnv::GetInstance(), query_options,
+                                              fe_addr, true, fe_addr);
+    ASSERT_NE(query_ctx->remote_scan_cache_write_limiter(), nullptr);
+
+    MockRuntimeState state;
+    state._query_id = query_id;
+    state.set_query_options(query_options);
+    state._query_ctx_uptr = query_ctx;
+    state._query_ctx = query_ctx.get();
+
+    IcebergDeleteFileIOContext io_context(&state);
+
+    EXPECT_EQ(io_context.io_ctx.query_id, &state.query_id());
+    EXPECT_EQ(io_context.io_ctx.reader_type, ReaderType::READER_QUERY);
+    EXPECT_EQ(io_context.io_ctx.file_cache_stats, &io_context.file_cache_stats);
+    EXPECT_EQ(io_context.io_ctx.file_reader_stats, &io_context.file_reader_stats);
+    EXPECT_EQ(io_context.io_ctx.remote_scan_cache_write_limiter,
+              query_ctx->remote_scan_cache_write_limiter());
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, IoContextDoesNotMarkLoadAsQueryReader) {
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state.set_query_options(query_options);
+    state._query_ctx = nullptr;
+
+    IcebergDeleteFileIOContext io_context(&state);
+
+    EXPECT_EQ(io_context.io_ctx.query_id, &state.query_id());
+    EXPECT_EQ(io_context.io_ctx.reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(io_context.io_ctx.file_cache_stats, &io_context.file_cache_stats);
+    EXPECT_EQ(io_context.io_ctx.file_reader_stats, &io_context.file_reader_stats);
+    EXPECT_EQ(io_context.io_ctx.remote_scan_cache_write_limiter, nullptr);
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFile) {

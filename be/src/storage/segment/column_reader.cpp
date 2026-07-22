@@ -3037,6 +3037,12 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 Status DefaultValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
+    if (!need_to_read()) {
+        _convert_to_place_holder_column(dst, *n);
+        return Status::OK();
+    }
+
+    _recovery_from_place_holder_column(dst);
     *has_null = _default_value_field.is_null();
     _insert_many_default(dst, *n);
     return Status::OK();
@@ -3044,6 +3050,12 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, 
 
 Status DefaultValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                   MutableColumnPtr& dst) {
+    if (!need_to_read()) {
+        _convert_to_place_holder_column(dst, count);
+        return Status::OK();
+    }
+
+    _recovery_from_place_holder_column(dst);
     _insert_many_default(dst, count);
     return Status::OK();
 }

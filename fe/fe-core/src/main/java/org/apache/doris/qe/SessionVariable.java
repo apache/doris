@@ -202,6 +202,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
+    public static final String ENABLE_QUERY_CACHE_INCREMENTAL = "enable_query_cache_incremental";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
     public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
@@ -518,6 +519,9 @@ public class SessionVariable implements Serializable, Writable {
             = "enable_topn_lazy_mat_phase2_no_write_file_cache";
 
     public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
+
+    public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
+            "file_cache_query_limit_bytes";
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
@@ -1163,7 +1167,7 @@ public class SessionVariable implements Serializable, Writable {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = {
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = {
             "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
             "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
     public boolean enableFileScannerV2 = true;
@@ -1541,16 +1545,57 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE, fuzzy = true)
+    // Forwarded because query cache normalization runs wherever the statement is
+    // planned: a forwarded statement is planned by the master in a fresh
+    // ConnectContext, which starts from the master's global value and then sees
+    // only what getForwardVariables() sends, so without this a session-level
+    // setting (or a SET_VAR hint) never reaches the planner: the cache follows
+    // the master's global instead, and enable_query_cache_incremental, which
+    // requires this switch, would arrive alone and never take effect.
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE, fuzzy = true, needForward = true)
     public boolean enableQueryCache = false;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_FORCE_REFRESH)
+    // Allow BE to reuse a stale query cache entry by scanning only the delta
+    // rowsets since the cached version and merging them with the cached partial
+    // aggregation blocks. Only takes effect when the cache point aggregation is
+    // non-finalize (its output is merged again upstream) and the selected index
+    // is append-only: DUP_KEYS, or merge-on-write UNIQUE_KEYS whose delta did
+    // not rewrite pre-existing keys (BE checks the delete bitmap per tablet);
+    // BE falls back to a full recompute whenever the delta cannot be captured
+    // (compacted away), contains delete predicates or rewrites history rows.
+    // Experimental: shown as `experimental_enable_query_cache_incremental` and
+    // settable with or without the prefix; to be promoted to EXPERIMENTAL_ONLINE
+    // once it graduates.
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE_INCREMENTAL,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true,
+            description = {"是否允许 BE 以增量合并的方式复用过期的 Query Cache 条目：只扫描缓存版本之后的"
+                    + "增量 rowset，并与缓存的聚合中间结果一起交给上游合并。仅对聚合直压扫描且不做 finalize "
+                    + "的缓存点生效，且选中索引须为追加写：DUP_KEYS 表，或增量窗口内未改写既有主键的写时合并"
+                    + "（merge-on-write）UNIQUE_KEYS 表（BE 按 tablet 检查 delete bitmap）；增量不可捕获（如"
+                    + "已被 compaction 合并）、含 DELETE 谓词或改写了历史行时自动回退全量重算。需与 "
+                    + "enable_query_cache 同时开启。",
+                    "Whether BE may reuse a stale query cache entry by incremental merge: scan only"
+                    + " the delta rowsets since the cached version and emit them together with the"
+                    + " cached partial aggregation blocks for the upstream merge. Only takes effect"
+                    + " when the cache point is a non-finalize aggregation directly over the scan"
+                    + " and the selected index is append-only: DUP_KEYS, or merge-on-write"
+                    + " UNIQUE_KEYS whose delta did not rewrite pre-existing keys (BE checks the"
+                    + " delete bitmap per tablet); falls back to a full recompute whenever the"
+                    + " delta cannot be captured (e.g. compacted away), contains delete predicates"
+                    + " or rewrites history rows. Requires enable_query_cache."})
+    public boolean enableQueryCacheIncremental = false;
+
+    // Forwarded for the same reason as enable_query_cache: the master builds
+    // the query cache param when it plans a forwarded statement, so without
+    // this a forwarded statement would silently ignore a forced refresh and
+    // size the entries by the master's defaults instead of the session's.
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_FORCE_REFRESH, needForward = true)
     private boolean queryCacheForceRefresh = false;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES)
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES, needForward = true)
     private long queryCacheEntryMaxBytes = 5242880;
 
-    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS)
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS, needForward = true)
     private long queryCacheEntryMaxRows = 500000;
 
     @VarAttrDef.VarAttr(name = ENABLE_CONDITION_CACHE)
@@ -3160,6 +3205,14 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    @VarAttrDef.VarAttr(name = FILE_CACHE_QUERY_LIMIT_BYTES, needForward = true,
+            description = {"单个查询在每个 BE 上最多允许 read-through 写入 file cache 的远端 scan bytes。"
+                    + "< 0 表示关闭，= 0 表示查询开始即不写 file cache，> 0 表示达到阈值后不写 file cache。",
+                    "Maximum remote scan bytes allowed to write file cache per query on each BE. "
+                            + "< 0 disables it, = 0 disables file cache writes from query start, "
+                            + "> 0 disables file cache writes after the threshold is reached."})
+    public long fileCacheQueryLimitBytes = -1;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -3830,6 +3883,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
+        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
+        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
+        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
+        this.enableFileScannerV2 = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -4663,6 +4720,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableQueryCache(boolean enableQueryCache) {
         this.enableQueryCache = enableQueryCache;
+    }
+
+    public boolean getEnableQueryCacheIncremental() {
+        return enableQueryCacheIncremental;
+    }
+
+    public void setEnableQueryCacheIncremental(boolean enableQueryCacheIncremental) {
+        this.enableQueryCacheIncremental = enableQueryCacheIncremental;
     }
 
     public boolean isQueryCacheForceRefresh() {
@@ -5822,7 +5887,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
 
         tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
-
+        tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
         return tResult;
     }
 

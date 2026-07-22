@@ -177,9 +177,39 @@ std::vector<format::LocalColumnIndex> request_scan_columns(const format::FileSca
     scan_columns.reserve(request.predicate_columns.size() + request.non_predicate_columns.size());
     scan_columns.insert(scan_columns.end(), request.predicate_columns.begin(),
                         request.predicate_columns.end());
-    scan_columns.insert(scan_columns.end(), request.non_predicate_columns.begin(),
-                        request.non_predicate_columns.end());
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            scan_columns.push_back(column);
+        }
+    }
     return scan_columns;
+}
+
+std::vector<format::LocalColumnIndex> physical_non_predicate_columns(
+        const format::FileScanRequest& request) {
+    std::vector<format::LocalColumnIndex> columns;
+    columns.reserve(request.non_predicate_columns.size());
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            columns.push_back(column);
+        }
+    }
+    return columns;
+}
+
+void materialize_count_star_placeholders(const format::FileScanRequest& request, size_t rows,
+                                         Block* file_block) {
+    DORIS_CHECK(file_block != nullptr);
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            continue;
+        }
+        const auto block_position = request.local_positions.at(column.column_id()).value();
+        auto placeholder = file_block->get_by_position(block_position).column->assert_mutable();
+        DCHECK(placeholder->empty());
+        placeholder->insert_many_defaults(rows);
+        file_block->replace_by_position(block_position, std::move(placeholder));
+    }
 }
 
 std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
@@ -655,6 +685,12 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_selected_ranges.clear();
     _current_range_idx = 0;
     _current_range_rows_read = 0;
+    // Readers are row-group scoped. If every remaining row was filtered, no future output can
+    // observe the non-predicate readers' position, so dropping them together with their pending lag
+    // avoids a useless end-of-row-group SkipRecords call. Example: predicate readers advance from 0
+    // to 10,000 while lazy readers stay at 0; clearing both readers here is sufficient because the
+    // next row group constructs a new set starting at its own row 0.
+    _pending_non_predicate_skip_rows = 0;
     _current_predicate_prefetched = false;
     _current_non_predicate_prefetched = false;
     _current_merge_range_active = false;
@@ -744,6 +780,9 @@ Status ParquetScanScheduler::open_next_row_group(
     }
     for (const auto& col : request.non_predicate_columns) {
         const auto local_id = col.local_id();
+        if (request.is_count_star_placeholder(col.column_id())) {
+            continue;
+        }
         if (local_id == format::ROW_POSITION_COLUMN_ID) {
             _current_non_predicate_columns[local_id] =
                     column_reader_factory.create_row_position_column_reader(
@@ -769,7 +808,8 @@ Status ParquetScanScheduler::open_next_row_group(
         // With no row-level filters there is no lazy-read decision to wait for, so start warming
         // output chunks immediately after their readers are created. Filtered scans still defer
         // this until at least one row survives the predicate phase.
-        prefetch_current_row_group_columns(file_context, file_schema, request.non_predicate_columns,
+        prefetch_current_row_group_columns(file_context, file_schema,
+                                           physical_non_predicate_columns(request),
                                            &_current_non_predicate_prefetched);
     }
     *has_row_group = true;
@@ -787,10 +827,23 @@ Status ParquetScanScheduler::skip_current_row_group_rows(int64_t rows) {
     for (const auto& column_reader : _current_predicate_columns | std::views::values) {
         RETURN_IF_ERROR(column_reader->skip(rows));
     }
-    for (const auto& column_reader : _current_non_predicate_columns | std::views::values) {
-        RETURN_IF_ERROR(column_reader->skip(rows));
-    }
+    // Keep page-index/condition-cache gaps pending for lazy columns as well. For example, after a
+    // fully filtered [0, 32) batch and a pruned [32, 96) gap, predicate readers are at 96 while lazy
+    // readers remain at 0; one later skip(96) is cheaper than skip(32) followed by skip(64).
+    DORIS_CHECK(_pending_non_predicate_skip_rows <= std::numeric_limits<int64_t>::max() - rows);
+    _pending_non_predicate_skip_rows += rows;
     _current_row_group_rows_read += rows;
+    return Status::OK();
+}
+
+Status ParquetScanScheduler::flush_pending_non_predicate_skip_rows() {
+    if (_pending_non_predicate_skip_rows == 0) {
+        return Status::OK();
+    }
+    for (const auto& column_reader : _current_non_predicate_columns | std::views::values) {
+        RETURN_IF_ERROR(column_reader->skip(_pending_non_predicate_skip_rows));
+    }
+    _pending_non_predicate_skip_rows = 0;
     return Status::OK();
 }
 
@@ -1355,6 +1408,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     _raw_rows_read += batch_rows;
     if (_current_predicate_columns.empty() && _current_non_predicate_columns.empty()) {
         *rows = static_cast<size_t>(batch_rows);
+        materialize_count_star_placeholders(request, *rows, file_block);
         if (_scan_profile.selected_rows != nullptr) {
             COUNTER_UPDATE(_scan_profile.selected_rows, batch_rows);
         }
@@ -1395,17 +1449,33 @@ Status ParquetScanScheduler::read_current_row_group_batch(
                                             .column->filter(output_filter, selected_rows)));
         }
     }
+    if (selected_rows == 0) {
+        // Predicate readers have consumed this physical batch, but touching every lazy column here
+        // turns a long rejected prefix into `empty_batches * lazy_columns` Arrow calls. Record only
+        // the positional lag. If [0, 32), [32, 64), and [64, 96) are empty, the first surviving
+        // batch performs one skip(96) per lazy column. If the row group ends instead, reset drops the
+        // lazy readers without flushing because no value from them can be observed.
+        DORIS_CHECK(_pending_non_predicate_skip_rows <=
+                    std::numeric_limits<int64_t>::max() - batch_rows);
+        _pending_non_predicate_skip_rows += batch_rows;
+        *rows = 0;
+        return Status::OK();
+    }
     if (!_current_merge_range_active && selected_rows > 0 &&
         !_current_non_predicate_columns.empty()) {
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
         // the same decision point where the v2 reader switches from predicate-only reads to
         // materializing non-predicate columns, so fully filtered batches avoid unnecessary IO.
-        prefetch_current_row_group_columns(file_context, file_schema, request.non_predicate_columns,
+        prefetch_current_row_group_columns(file_context, file_schema,
+                                           physical_non_predicate_columns(request),
                                            &_current_non_predicate_prefetched);
     }
 
     {
         SCOPED_TIMER(_scan_profile.column_read_time);
+        // Bring lazy readers to the first row of the current physical batch before interpreting its
+        // selection vector. This also merges pending range gaps with fully filtered batches.
+        RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
             auto position_it = request.local_positions.find(format::LocalColumnId(fid));
             DORIS_CHECK(position_it != request.local_positions.end());
@@ -1438,6 +1508,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
             file_block->replace_by_position(block_position, std::move(column));
         }
     }
+    materialize_count_star_placeholders(request, selected_rows, file_block);
     *rows = static_cast<size_t>(selected_rows);
     return Status::OK();
 }

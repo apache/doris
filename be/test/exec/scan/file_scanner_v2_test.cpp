@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -34,15 +36,24 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
+#include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 namespace {
+
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
 
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
@@ -52,6 +63,14 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
         table_desc.__set_table_format_type(std::move(table_format));
         range.__set_table_format_params(std::move(table_desc));
     }
+    return range;
+}
+
+TFileRangeDesc iceberg_position_deletes_range(TFileFormatType::type format_type, int content) {
+    auto range = range_with_format("iceberg", format_type);
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_content(content);
+    range.table_format_params.__set_iceberg_params(std::move(iceberg_params));
     return range;
 }
 
@@ -78,6 +97,29 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     paimon_params.__set_paimon_predicate("legacy-predicate");
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
     return range;
+}
+
+TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
+    EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
+                                               TPushAggOp::type::COUNT, std::vector<int32_t> {}));
+
+    // A missing field is an old FE plan with unknown COUNT semantics, not COUNT(*).
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::nullopt));
+    // V1 cannot evaluate COUNT(col) NULL/CAST semantics before replacing the reader with
+    // CountReader, so an explicit argument must use the normal scan path.
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::vector<int32_t> {7}));
+
+    // The COUNT argument field must not affect other storage-layer aggregate operations.
+    EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
+                                                TPushAggOp::type::MINMAX, std::nullopt));
+}
+
+TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
 }
 
 struct RetryableCloseState {
@@ -126,10 +168,57 @@ private:
     const std::string _expr_name = "UnsafePartitionPredicate";
 };
 
+class UndigestibleRuntimePredicate final : public VExpr {
+public:
+    UndigestibleRuntimePredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    uint64_t get_digest(uint64_t) const override { return 0; }
+
+private:
+    const std::string _expr_name = "undigestible_runtime_predicate";
+};
+
 VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
     const auto node = bool_in_pred_node();
     return VExprContext::create_shared(
             RuntimeFilterExpr::create_shared(node, std::move(impl), 0.4, false, filter_id));
+}
+
+class CloudFileCacheConfigGuard {
+public:
+    CloudFileCacheConfigGuard()
+            : _cloud_unique_id(config::cloud_unique_id),
+              _enable_file_cache(config::enable_file_cache) {}
+
+    ~CloudFileCacheConfigGuard() {
+        config::cloud_unique_id = _cloud_unique_id;
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+private:
+    std::string _cloud_unique_id;
+    bool _enable_file_cache;
+};
+
+TUniqueId make_query_id() {
+    TUniqueId query_id;
+    query_id.hi = 100;
+    query_id.lo = 200;
+    return query_id;
+}
+
+TNetworkAddress make_fe_addr() {
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+    return fe_addr;
 }
 
 TExprNode bool_in_pred_node() {
@@ -148,6 +237,54 @@ TExprNode bool_in_pred_node() {
     node.__set_opcode(TExprOpcode::FILTER_IN);
     node.__set_is_nullable(false);
     return node;
+}
+
+VExprContextSPtr int_in_runtime_filter(const std::vector<int32_t>& values, int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, false));
+    for (const auto value : values) {
+        filter->insert(&value);
+    }
+    const auto node = bool_in_pred_node();
+    auto impl = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    impl->add_child(slot_ref(1, 0, std::make_shared<DataTypeInt32>(), "rf_key"));
+    return runtime_filter_context(std::move(impl), filter_id);
+}
+
+VExprContextSPtr int_bloom_runtime_filter(const std::vector<int32_t>& values, int filter_id) {
+    std::shared_ptr<BloomFilterFuncBase> filter(
+            create_bloom_filter(PrimitiveType::TYPE_INT, false));
+    RuntimeFilterParams params;
+    params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+    params.column_return_type = PrimitiveType::TYPE_INT;
+    params.bloom_filter_size = 1024;
+    filter->init_params(&params);
+    EXPECT_TRUE(filter->init_with_fixed_length(1024).ok());
+    auto value_column = ColumnInt32::create();
+    for (const auto value : values) {
+        value_column->insert_value(value);
+    }
+    ColumnPtr values_column_ptr = std::move(value_column);
+    filter->insert_fixed_len(values_column_ptr, 0);
+
+    TExprNode node = bool_in_pred_node();
+    node.__set_node_type(TExprNodeType::BLOOM_PRED);
+    node.__set_opcode(TExprOpcode::RT_FILTER);
+    auto impl = VBloomPredicate::create_shared(node);
+    impl->set_filter(std::move(filter));
+    impl->add_child(slot_ref(1, 0, std::make_shared<DataTypeInt32>(), "rf_key"));
+    return runtime_filter_context(std::move(impl), filter_id);
+}
+
+VExprContextSPtr int_minmax_runtime_filter(int32_t upper_bound, int filter_id) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    VExprSPtr impl;
+    TExprNode node;
+    EXPECT_TRUE(create_vbin_predicate(int_type, TExprOpcode::LE, impl, &node, false).ok());
+    impl->add_child(slot_ref(1, 0, int_type, "rf_key"));
+    VExprSPtr literal;
+    EXPECT_TRUE(create_literal(int_type, &upper_bound, literal).ok());
+    impl->add_child(std::move(literal));
+    return runtime_filter_context(std::move(impl), filter_id);
 }
 
 } // namespace
@@ -217,6 +354,56 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
+}
+
+// Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
+// formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
+TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    const auto parquet_position_delete = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergPositionDeleteContent);
+    const auto parquet_deletion_vector = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergDeletionVectorContent);
+    const auto orc_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_ORC,
+                                                                    kIcebergPositionDeleteContent);
+    const auto avro_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_AVRO,
+                                                                     kIcebergPositionDeleteContent);
+
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
+}
+
+// Ready IN/Bloom/MinMax runtime filters all expose their payload through get_digest(). Rebuilding
+// the scanner digest must therefore be stable for the same payload and isolated for a different
+// payload. An RF without a complete digest remains the zero-digest safety fallback.
+TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
+    constexpr uint64_t seed = 12345;
+    const auto digest = [](uint64_t initial_seed, const VExprContextSPtr& conjunct) {
+        return Scanner::TEST_build_condition_cache_digest(initial_seed, {conjunct});
+    };
+
+    EXPECT_EQ(digest(seed, int_in_runtime_filter({7, 9}, 1)),
+              digest(seed, int_in_runtime_filter({9, 7}, 1)));
+    EXPECT_NE(digest(seed, int_in_runtime_filter({7, 9}, 1)),
+              digest(seed, int_in_runtime_filter({8, 10}, 1)));
+
+    EXPECT_EQ(digest(seed, int_bloom_runtime_filter({7, 9}, 2)),
+              digest(seed, int_bloom_runtime_filter({7, 9}, 2)));
+    EXPECT_NE(digest(seed, int_bloom_runtime_filter({7, 9}, 2)),
+              digest(seed, int_bloom_runtime_filter({8, 10}, 2)));
+
+    EXPECT_EQ(digest(seed, int_minmax_runtime_filter(9, 3)),
+              digest(seed, int_minmax_runtime_filter(9, 3)));
+    EXPECT_NE(digest(seed, int_minmax_runtime_filter(9, 3)),
+              digest(seed, int_minmax_runtime_filter(10, 3)));
+
+    EXPECT_EQ(digest(seed,
+                     runtime_filter_context(std::make_shared<UndigestibleRuntimePredicate>(), 4)),
+              0);
 }
 
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
@@ -302,6 +489,55 @@ TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
     const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
     EXPECT_NE(status.to_string().find("lakesoul"), std::string::npos);
+}
+
+// Scenario: external file scan IO contexts are query readers for SELECT so the shared file-cache
+// gate can apply the query-level remote scan write limiter.
+TEST(FileScannerV2Test, FileScanIoContextPropagatesQueryLimiterForSelect) {
+    CloudFileCacheConfigGuard config_guard;
+    config::cloud_unique_id = "file_scanner_io_context_ut";
+    config::enable_file_cache = true;
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    const auto query_id = make_query_id();
+    const auto fe_addr = make_fe_addr();
+    auto query_ctx = MockQueryContext::create(query_id, ExecEnv::GetInstance(), query_options,
+                                              fe_addr, true, fe_addr);
+    ASSERT_NE(query_ctx->remote_scan_cache_write_limiter(), nullptr);
+
+    MockRuntimeState state;
+    state._query_id = query_id;
+    state.set_query_options(query_options);
+    state._query_ctx_uptr = query_ctx;
+    state._query_ctx = query_ctx.get();
+
+    auto io_ctx = create_file_scan_io_context(&state);
+
+    EXPECT_EQ(io_ctx->query_id, &state.query_id());
+    EXPECT_EQ(io_ctx->reader_type, ReaderType::READER_QUERY);
+    EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter,
+              query_ctx->remote_scan_cache_write_limiter());
+}
+
+// Scenario: LOAD file scans keep non-query reader semantics even when the byte-limit option exists.
+TEST(FileScannerV2Test, FileScanIoContextDoesNotMarkLoadAsQueryReader) {
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state.set_query_options(query_options);
+    state._query_ctx = nullptr;
+
+    auto io_ctx = create_file_scan_io_context(&state);
+
+    EXPECT_EQ(io_ctx->query_id, &state.query_id());
+    EXPECT_EQ(io_ctx->reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter, nullptr);
 }
 
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and
@@ -494,6 +730,16 @@ TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
 }
 
+TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("empty file"), false));
+    // Deletion-vector and Parquet readers also use EOF to unwind an interrupted read. Once either
+    // scanner stop flag is visible, the same status is no longer evidence of an empty file.
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("stop read."), true));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed"), false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
+}
+
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.
@@ -559,8 +805,8 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to
-// TableReader. Explicit slot-id mappings use the required_slots order; missing mappings fall back
-// to the slot id itself for legacy descriptors.
+// TableReader. Explicit slot-id mappings use the required_slots order; missing mappings are an
+// error because a scanner slot id is not a table-global ordinal.
 TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     {
@@ -576,11 +822,8 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     {
         auto expr = slot_ref(7, 99, int_type, "legacy_value");
         const auto status = FileScannerV2::TEST_rewrite_slot_refs_to_global_index(&expr, {});
-        ASSERT_TRUE(status.ok()) << status;
-        const auto* rewritten = assert_cast<const VSlotRef*>(expr.get());
-        EXPECT_EQ(rewritten->slot_id(), 7);
-        EXPECT_EQ(rewritten->column_id(), 7);
-        EXPECT_EQ(rewritten->column_name(), "legacy_value");
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Can not resolve source slot id 7"), std::string::npos);
     }
     {
         auto cast_expr = format::Cast::create_shared(int_type);

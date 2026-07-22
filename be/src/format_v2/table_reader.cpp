@@ -41,6 +41,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
@@ -117,6 +118,7 @@ std::string current_file_debug_string(const std::unique_ptr<ScanTask>& task) {
     out << "FileDescription{path=" << file.path << ", file_size=" << file.file_size
         << ", range_start_offset=" << file.range_start_offset << ", range_size=" << file.range_size
         << ", mtime=" << file.mtime << ", fs_name=" << file.fs_name
+        << ", is_immutable=" << file.is_immutable
         << ", file_cache_admission=" << file.file_cache_admission << "}";
     return out.str();
 }
@@ -140,6 +142,93 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
         return nullptr;
     }
     return field_ptr.field_ptr.get();
+}
+
+ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
+    ColumnDefinition identity;
+    if (field.__isset.id) {
+        identity.identifier = Field::create_field<TYPE_INT>(field.id);
+    }
+    identity.name = field.__isset.name ? field.name : "";
+    identity.name_mapping =
+            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
+    identity.has_name_mapping =
+            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
+    if (!field.__isset.nestedField) {
+        return identity;
+    }
+    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
+        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
+            if (const auto* child = get_field_ptr(child_ptr); child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+            }
+        }
+    } else if (field.nestedField.__isset.array_field &&
+               field.nestedField.array_field.__isset.item_field) {
+        if (const auto* child = get_field_ptr(field.nestedField.array_field.item_field);
+            child != nullptr) {
+            identity.children.push_back(build_schema_identity_from_external_field(*child));
+            identity.children.back().name = "element";
+        }
+    } else if (field.nestedField.__isset.map_field) {
+        if (field.nestedField.map_field.__isset.key_field) {
+            if (const auto* child = get_field_ptr(field.nestedField.map_field.key_field);
+                child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+                identity.children.back().name = "key";
+            }
+        }
+        if (field.nestedField.map_field.__isset.value_field) {
+            if (const auto* child = get_field_ptr(field.nestedField.map_field.value_field);
+                child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+                identity.children.back().name = "value";
+            }
+        }
+    }
+    return identity;
+}
+
+const ColumnDefinition* find_identity_child(const ColumnDefinition& projected_child,
+                                            const ColumnDefinition& identity_parent) {
+    const auto child_it = std::ranges::find_if(
+            identity_parent.children, [&](const ColumnDefinition& identity_child) {
+                if (projected_child.has_identifier_field_id() &&
+                    identity_child.has_identifier_field_id()) {
+                    return projected_child.get_identifier_field_id() ==
+                           identity_child.get_identifier_field_id();
+                }
+                if (to_lower(projected_child.name) == to_lower(identity_child.name)) {
+                    return true;
+                }
+                return std::ranges::any_of(
+                        identity_child.name_mapping, [&](const std::string& alias) {
+                            return to_lower(projected_child.name) == to_lower(alias);
+                        });
+            });
+    return child_it == identity_parent.children.end() ? nullptr : &*child_it;
+}
+
+void attach_full_schema_identity(ColumnDefinition* projected, const ColumnDefinition& identity) {
+    DORIS_CHECK(projected != nullptr);
+    // Access-path children control materialization, but wrapper discovery needs sibling IDs that
+    // were pruned from that projection. Keep the complete identity tree on a separate channel.
+    projected->identity_children = identity.children;
+    for (auto& projected_child : projected->children) {
+        if (const auto* identity_child = find_identity_child(projected_child, identity);
+            identity_child != nullptr) {
+            attach_full_schema_identity(&projected_child, *identity_child);
+        }
+    }
+}
+
+void clear_initial_default_metadata(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    column->initial_default_value.reset();
+    column->initial_default_value_is_base64 = false;
+    for (auto& child : column->children) {
+        clear_initial_default_metadata(&child);
+    }
 }
 
 bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
@@ -188,6 +277,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .has_name_mapping = field.__isset.name_mapping_is_authoritative &&
+                                field.name_mapping_is_authoritative,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -297,12 +388,32 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
+    if (!supports_iceberg_scan_semantics_v1(params)) {
+        // Old BEs used one ordered current-name/alias pass. Preserve that result for old-FE plans
+        // until the explicit scan-semantics marker makes exact-name precedence cluster-wide.
+        for (const auto& field_ptr : schema->root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr && external_field_matches_name(*field, column.name)) {
+                return field;
+            }
+        }
+        return nullptr;
+    }
+    // A reused name identifies the newly added field, not an older sibling that retained that
+    // spelling as an alias. Exhaust exact current names before consulting historical aliases.
     for (const auto& field_ptr : schema->root_field.fields) {
         const auto* field = get_field_ptr(field_ptr);
-        if (field == nullptr) {
-            continue;
+        if (field != nullptr && field->__isset.name &&
+            to_lower(field->name) == to_lower(column.name)) {
+            return field;
         }
-        if (external_field_matches_name(*field, column.name)) {
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.name_mapping &&
+            std::ranges::any_of(field->name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(column.name);
+            })) {
             return field;
         }
     }
@@ -485,8 +596,20 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
         return Status::OK();
     }
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
+    const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    if (!use_current_semantics) {
+        // IDs and encoded defaults predate the result-changing semantics. Strip only the new
+        // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
+        clear_initial_default_metadata(&*context->schema_column);
+    }
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
+    column->has_name_mapping = context->schema_column->has_name_mapping;
+    // Projected roots already carry a generic FE default expression, but Iceberg binary defaults
+    // need the raw Base64 marker so missing-file materialization can decode rather than copy text.
+    column->initial_default_value = context->schema_column->initial_default_value;
+    column->initial_default_value_is_base64 =
+            context->schema_column->initial_default_value_is_base64;
     return Status::OK();
 }
 
@@ -526,8 +649,20 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
-    _condition_cache_digest = options.condition_cache_digest;
+    _push_down_count_columns = options.push_down_count_columns;
+    _initial_condition_cache_digest = options.condition_cache_digest;
+    _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
+    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+        for (auto& projected_column : _projected_columns) {
+            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
+            if (schema_field != nullptr) {
+                attach_full_schema_identity(
+                        &projected_column,
+                        build_schema_identity_from_external_field(*schema_field));
+            }
+        }
+    }
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
@@ -630,10 +765,11 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
         !file_request.delete_conjuncts.empty()) {
         return false;
     }
-    // Runtime filters can arrive late and their payload is not guaranteed to be represented by the
-    // scan-local digest. Without a read-only mode, a MISS could insert a bitmap for P AND RF under
-    // the digest for only P. This mirrors the old FileScanner guard.
-    return !contains_runtime_filter(file_request.conjuncts);
+    // Only scanner-driven splits provide a digest rebuilt from the exact RF snapshot. Keep the
+    // conservative behavior for standalone TableReader callers: their initial digest may describe
+    // only static predicate P and must not store P AND RF under that key.
+    return _condition_cache_digest_covers_current_split ||
+           !contains_runtime_filter(file_request.conjuncts);
 }
 
 Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_request) {
@@ -827,6 +963,17 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
+    _condition_cache_digest_covers_current_split = options.condition_cache_digest.has_value();
+    if (options.condition_cache_digest.has_value()) {
+        // The split snapshot may include RFs that arrived after TableReader::init(). Use the digest
+        // computed from that exact snapshot. Example: an initial P digest must not be used to store
+        // the bitmap for P AND late RF{7, 9}; the scanner supplies digest(P AND RF{7, 9}) here.
+        _condition_cache_digest = *options.condition_cache_digest;
+    } else {
+        // An explicit scanner digest is split-scoped. Restore the init-time digest when a later
+        // standalone split omits it instead of leaking the previous split's RF payload into its key.
+        _condition_cache_digest = _initial_condition_cache_digest;
+    }
     if (options.conjuncts.has_value()) {
         _conjuncts = *options.conjuncts;
     }
@@ -847,6 +994,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
+    _current_split_uses_metadata_count = false;
     _current_reader_reached_eof = false;
     RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,
                                                         &_current_split_pruned));
@@ -861,12 +1009,18 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // active and no predicate can arrive later. The metadata path can return several batches for
     // one split; after its first synthetic batch there is no way to recover the real rows if a
     // runtime filter arrives before the next scheduler turn.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && options.all_runtime_filters_applied &&
+    // Table-level metadata only contains the number of rows; it cannot evaluate an expression or
+    // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
+    // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
+    // whose COUNT semantics are unknown during a BE-first rolling upgrade.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
         _conjuncts.empty() && options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =
                 options.current_range.table_format_params.table_level_row_count;
+        _current_split_uses_metadata_count = _is_table_level_count_active();
     }
     if (_is_table_level_count_active()) {
         return Status::OK();

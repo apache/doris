@@ -27,18 +27,20 @@
 
 #include "arrow/type.h"
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/storage_field_type.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/cast/cast_to_decimal.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "orc/Int128.hh"
-#include "storage/tablet/tablet_schema.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -456,6 +458,9 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
@@ -848,7 +853,7 @@ template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
                                                        ColumnString::Chars& chars,
                                                        int64_t row_num) const {
-    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
+    const uint8_t type = static_cast<uint8_t>(primitive_type_to_storage_field_type(T));
     const auto& data_ref = assert_cast<const ColumnDecimal<T>&>(src_column).get_data_at(row_num);
     const auto& prec = static_cast<uint8_t>(precision);
     const auto& sc = static_cast<uint8_t>(scale);

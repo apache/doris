@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -35,6 +36,27 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LogicalFileScanTest {
+
+    @Test
+    public void testNestedColumnPruningForIcebergSystemTables() {
+        IcebergSysExternalTable positionDeletes = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(positionDeletes.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(positionDeletes.isPositionDeletesTable()).thenReturn(true);
+        LogicalFileScan positionDeletesScan = new LogicalFileScan(new RelationId(1), positionDeletes,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Assertions.assertTrue(positionDeletesScan.supportPruneNestedColumn());
+
+        IcebergSysExternalTable jniSystemTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(jniSystemTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(jniSystemTable.isPositionDeletesTable()).thenReturn(false);
+        LogicalFileScan jniSystemTableScan = new LogicalFileScan(new RelationId(2), jniSystemTable,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Assertions.assertFalse(jniSystemTableScan.supportPruneNestedColumn());
+    }
 
     @Test
     public void testComputeOutputIncludesInvisibleRowLineageColumnsForIcebergTable() {

@@ -22,6 +22,11 @@ import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessControl
 import java.util.Map;
 
 public class RangerDorisAccessControllerFactory implements AccessControllerFactory {
+    private static class SingletonHolder {
+        // Every controller starts a Ranger policy refresher, so all Env instances must share one controller.
+        private static final RangerDorisAccessController INSTANCE = new RangerDorisAccessController("doris");
+    }
+
     @Override
     public String factoryIdentifier() {
         return "ranger-doris";
@@ -29,6 +34,6 @@ public class RangerDorisAccessControllerFactory implements AccessControllerFacto
 
     @Override
     public RangerDorisAccessController createAccessController(Map<String, String> prop) {
-        return new RangerDorisAccessController("doris");
+        return SingletonHolder.INSTANCE;
     }
 }

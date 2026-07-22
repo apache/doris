@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -394,9 +395,47 @@ struct ScalarColumnReaderTestAccess {
     static void set_row_group_rows_read(ScalarColumnReader* reader, int64_t rows) {
         reader->_row_group_rows_read = rows;
     }
+
+    static Status append_dictionary_filtered_values(
+            const ScalarColumnReader& reader,
+            const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
+            const IColumn::Filter& dictionary_filter, MutableColumnPtr& column,
+            IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter) {
+        return reader.append_dictionary_filtered_values(chunks, dictionary_filter, column,
+                                                        row_filter, matched_rows, used_filter);
+    }
 };
 
 namespace {
+
+ParquetColumnSchema string_schema(std::string name = "string") {
+    ParquetColumnSchema schema;
+    schema.local_id = 0;
+    schema.name = std::move(name);
+    schema.type = std::make_shared<DataTypeString>();
+    schema.type_descriptor.physical_type = ::parquet::Type::BYTE_ARRAY;
+    schema.type_descriptor.doris_type = schema.type;
+    return schema;
+}
+
+std::shared_ptr<::arrow::Array> dictionary_array(const std::vector<int8_t>& indices,
+                                                 const std::vector<std::string>& values) {
+    ::arrow::Int8Builder index_builder;
+    EXPECT_TRUE(index_builder.AppendValues(indices).ok());
+    auto index_result = index_builder.Finish();
+    EXPECT_TRUE(index_result.ok()) << index_result.status();
+
+    ::arrow::StringBuilder dictionary_builder;
+    EXPECT_TRUE(dictionary_builder.AppendValues(values).ok());
+    auto dictionary_result = dictionary_builder.Finish();
+    EXPECT_TRUE(dictionary_result.ok()) << dictionary_result.status();
+
+    auto result = ::arrow::DictionaryArray::FromArrays(
+            ::arrow::dictionary(::arrow::int8(), ::arrow::utf8()), *index_result,
+            *dictionary_result);
+    EXPECT_TRUE(result.ok()) << result.status();
+    return *result;
+}
 
 std::unique_ptr<ScalarColumnReader> make_scripted_scalar_reader(
         ParquetColumnSchema schema, std::unique_ptr<ParquetNestedScalarBatch> batch) {
@@ -439,6 +478,21 @@ GlobalRowLoacationV2 decode_rowid(const ColumnString& column, size_t row) {
     GlobalRowLoacationV2 location(0, 0, 0, 0);
     std::memcpy(&location, ref.data, sizeof(GlobalRowLoacationV2));
     return location;
+}
+
+TEST(ParquetScalarColumnReaderTest, DictionaryIndexOutsideFilterIsCorruption) {
+    ScalarColumnReader reader(string_schema("dictionary_value"), nullptr);
+    MutableColumnPtr column = ColumnString::create();
+    IColumn::Filter row_filter;
+    int64_t matched_rows = 0;
+    bool used_filter = false;
+    const std::vector<std::shared_ptr<::arrow::Array>> chunks = {
+            dictionary_array({0, 1}, {"keep", "out-of-range"})};
+
+    const auto status = ScalarColumnReaderTestAccess::append_dictionary_filtered_values(
+            reader, chunks, IColumn::Filter {1}, column, &row_filter, &matched_rows, &used_filter);
+    EXPECT_EQ(ErrorCode::CORRUPTION, status.code()) << status;
+    EXPECT_NE(status.to_string().find("Invalid parquet dictionary index 1"), std::string::npos);
 }
 
 } // namespace
@@ -1150,6 +1204,20 @@ TEST(ParquetColumnReaderFactoryTest, RejectsInvalidLeafIdBeforeCreatingRecordRea
     const auto status = factory.create(schema, &reader);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Invalid parquet leaf column id"), std::string::npos);
+}
+
+TEST(ParquetColumnReaderFactoryTest, RejectsProjectedUnsupportedLogicalType) {
+    ParquetColumnSchema schema = int64_schema("unsupported_time");
+    schema.kind = ParquetColumnSchemaKind::PRIMITIVE;
+    schema.type_descriptor.unsupported_reason =
+            "Parquet TIME with isAdjustedToUTC=true is not supported";
+
+    ParquetColumnReaderFactory factory(nullptr, 1);
+    std::unique_ptr<ParquetColumnReader> reader;
+    const auto status = factory.create(schema, &reader);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(schema.type_descriptor.unsupported_reason),
+              std::string::npos);
 }
 
 TEST(ParquetColumnReaderFactoryTest, RejectsStructInvalidAndEmptyProjection) {

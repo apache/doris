@@ -62,7 +62,14 @@ std::string FileScanRequest::debug_string() const {
         out << column_id << ":" << block_position;
     }
     out << "}, conjunct_count=" << conjuncts.size()
-        << ", delete_conjunct_count=" << delete_conjuncts.size() << "}";
+        << ", delete_conjunct_count=" << delete_conjuncts.size()
+        << ", count_star_placeholder_columns={";
+    const char* delimiter = "";
+    for (const auto column_id : count_star_placeholder_columns) {
+        out << delimiter << column_id.value();
+        delimiter = ",";
+    }
+    out << "}}";
     return out.str();
 }
 

@@ -293,6 +293,7 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
     result.physical_type = column->physical_type();
     result.converted_type = column->converted_type();
     result.fixed_length = column->type_length();
+    result.physical_doris_type = physical_type_to_doris_type(column);
 
     if (auto logical_type = logical_type_to_doris_type(column, &result); logical_type != nullptr) {
         result.doris_type = logical_type;
@@ -306,7 +307,7 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
         result.doris_type = nullptr;
         result.supports_record_reader = false;
     } else {
-        result.doris_type = physical_type_to_doris_type(column);
+        result.doris_type = result.physical_doris_type;
         if (result.physical_type == ::parquet::Type::INT96) {
             result.extra_type_info = ParquetExtraTypeInfo::IMPALA_TIMESTAMP;
         }

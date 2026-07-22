@@ -38,7 +38,17 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
     if (paimon_params.__isset.schema_id) {
         _split_schema_id = paimon_params.schema_id;
     }
-    return format::TableReader::prepare_split(options);
+    RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // Paimon commits data-file changes by adding and logically deleting files in snapshots.
+    // Compaction also writes replacement files and commits them in a new snapshot instead of
+    // modifying an existing Parquet/ORC file in place. Native Paimon data files are therefore
+    // safe to cache by path and size when the split does not provide mtime. Serialized JNI splits
+    // do not reach this reader.
+    mark_current_data_file_immutable();
+    return Status::OK();
 }
 
 format::TableColumnMappingMode PaimonReader::mapping_mode() const {
@@ -65,11 +75,13 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
         return Status::OK();
     }
     const auto& deletion_file = table_desc.deletion_file;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
 
     desc->key = build_paimon_deletion_vector_cache_key(deletion_file);
     desc->path = deletion_file.path;
     desc->start_offset = deletion_file.offset;
-    desc->size = deletion_file.length + 4;
+    desc->size = static_cast<int64_t>(bytes_read);
     desc->file_size = -1;
     desc->format = DeleteFileDesc::Format::PAIMON;
     *has_delete_file = true;
@@ -94,6 +106,11 @@ Status PaimonHybridReader::get_block(Block* block, bool* eos) {
 bool PaimonHybridReader::current_split_pruned() const {
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->current_split_pruned();
+}
+
+bool PaimonHybridReader::current_split_uses_metadata_count() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->current_split_uses_metadata_count();
 }
 
 Status PaimonHybridReader::abort_split() {
@@ -163,6 +180,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
+            .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal

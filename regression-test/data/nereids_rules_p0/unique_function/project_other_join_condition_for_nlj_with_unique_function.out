@@ -3,32 +3,32 @@
 PhysicalResultSink
 --PhysicalProject[t1.id, t2.id]
 ----NestedLoopJoin[LEFT_OUTER_JOIN]((cast(id as DOUBLE) + random()) < cast(id as DOUBLE))
-------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t1.id]
+------PhysicalProject[cast(t1.id as DOUBLE) AS `cast(id as DOUBLE)`, t1.id]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
+------PhysicalProject[cast(t2.id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
 --------PhysicalOlapScan[t2]
 
 -- !cross_rand_one_side --
 PhysicalResultSink
 --PhysicalProject[t1.id, t2.id]
 ----NestedLoopJoin[INNER_JOIN]((cast(id as DOUBLE) + random()) > cast(id as DOUBLE))
-------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t1.id]
+------PhysicalProject[cast(t1.id as DOUBLE) AS `cast(id as DOUBLE)`, t1.id]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
+------PhysicalProject[cast(t2.id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
 --------PhysicalOlapScan[t2]
 
 -- !cross_rand_both_sides --
 PhysicalResultSink
 --PhysicalProject[t1.id, t2.id]
 ----NestedLoopJoin[INNER_JOIN]((cast(id as DOUBLE) + random()) > (cast(id as DOUBLE) + random()))
-------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t1.id]
+------PhysicalProject[cast(t1.id as DOUBLE) AS `cast(id as DOUBLE)`, t1.id]
 --------PhysicalOlapScan[t1]
-------PhysicalProject[cast(id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
+------PhysicalProject[cast(t2.id as DOUBLE) AS `cast(id as DOUBLE)`, t2.id]
 --------PhysicalOlapScan[t2]
 
 -- !hash_and_other_with_volatile_equal --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((cast(id as BIGINT) = (cast(id as BIGINT) + random(1, 10))))
+--hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((cast(t1.id as BIGINT) = (cast(t2.id as BIGINT) + random(1, 10))))
 ----PhysicalProject[t1.id]
 ------PhysicalOlapScan[t1]
 ----PhysicalProject[t2.id]

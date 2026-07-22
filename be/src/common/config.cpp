@@ -72,6 +72,9 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DEFINE_Bool(enable_arrow_input_validation, "true");
+
 DEFINE_Int32(cdc_client_port, "9096");
 
 DEFINE_String(cdc_client_java_opts, "");
@@ -464,6 +467,10 @@ DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 
+// Enable PDEP-based bit unpacking. Disable it on CPUs where PDEP is microcoded and slower than
+// the scalar implementation, such as AMD Zen+ and Zen 2.
+DEFINE_Bool(enable_bmi2_optimizations, "true");
+
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
 
@@ -719,7 +726,7 @@ DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
-// not introduce seeks.  The literature seems to agree that with 8 MB reads, random
+// not introduce seeks. The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
@@ -1218,6 +1225,8 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_mBool(enable_file_cache_query_limit, "false");
+// Whether segment footer and segment metadata count toward file cache query limit.
+DEFINE_mBool(enable_file_cache_query_limit_segment_meta, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
@@ -1534,6 +1543,9 @@ DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 
 DEFINE_mInt64(s3_put_token_limit, "0");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
+DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
@@ -1696,6 +1708,12 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
+// Max number of incremental merges accumulated on one query cache entry before
+// a full recompute is forced. Each incremental merge appends the delta partial
+// blocks to the entry, so the entry gets more fragmented (and the upstream merge
+// aggregation does more work) as deltas accumulate; a periodic full recompute
+// compacts the entry back to a minimal set of blocks.
+DEFINE_mInt32(query_cache_max_incremental_merge_count, "8");
 
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");

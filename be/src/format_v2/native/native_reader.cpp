@@ -231,6 +231,16 @@ Status NativeReader::_read_next_pblock(std::string* buffer, bool* eof) const {
         return Status::OK();
     }
 
+    const auto remaining_prefix_bytes = _file_size - _current_offset;
+    if (remaining_prefix_bytes < sizeof(uint64_t)) {
+        // Header-only is the one valid empty-file representation and returned above. Once any
+        // prefix byte exists, all eight bytes are mandatory. For example, `header + 4 bytes` is a
+        // truncated Native file, not EOF that FileScannerV2 may skip as an empty split.
+        return Status::InternalError(
+                "truncated native block length in file {} at offset {}, expect {}, remaining {}",
+                _file_description->path, _current_offset, sizeof(uint64_t), remaining_prefix_bytes);
+    }
+
     uint64_t block_len = 0;
     Slice len_slice(reinterpret_cast<char*>(&block_len), sizeof(block_len));
     size_t bytes_read = 0;
@@ -247,8 +257,22 @@ Status NativeReader::_read_next_pblock(std::string* buffer, bool* eof) const {
     }
     _current_offset += sizeof(block_len);
     if (block_len == 0) {
-        *eof = (_current_offset >= _file_size);
-        return Status::OK();
+        // A header-only file reaches the `_current_offset >= _file_size` branch above and is a
+        // valid empty Native file. Once an explicit length prefix is present, however, zero is not
+        // an EOF marker in the Native format. For example, `header + uint64(0)` is truncated input,
+        // not a zero-row split, and must not escape as EOF for FileScannerV2 to count as empty.
+        return Status::InternalError("zero-length native block in file {} at offset {}",
+                                     _file_description->path, _current_offset - sizeof(block_len));
+    }
+
+    const auto remaining_block_bytes = cast_set<uint64_t>(_file_size - _current_offset);
+    if (block_len > remaining_block_bytes) {
+        // Validate before allocating `block_len` bytes. Besides reporting a precise corruption
+        // error, this prevents a truncated file with a damaged length prefix from requesting an
+        // allocation much larger than the physical file.
+        return Status::InternalError(
+                "truncated native block body in file {} at offset {}, expect {}, remaining {}",
+                _file_description->path, _current_offset, block_len, remaining_block_bytes);
     }
 
     buffer->assign(block_len, '\0');
