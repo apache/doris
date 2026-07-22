@@ -1358,6 +1358,18 @@ public class OlapScanNode extends ScanNode {
             setPartitionBoundaries(msg.olap_scan_node);
         }
 
+        // Populate tablet -> bucket index mapping for BE-side runtime filter tablet
+        // pruning. Only serialize when this scan node actually has at least one IN
+        // runtime filter whose target can drive tablet pruning according to the
+        // FE-side classifier, so we don't bloat thrift for tables with many tablets
+        // but no usable RF target.
+        // Gated by session variable `enable_runtime_filter_tablet_prune`.
+        if (rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterTabletPrune()
+                && hasRfDrivingTabletPruning()) {
+            setTabletBucketInfos(msg.olap_scan_node);
+        }
+
         super.toThrift(msg);
     }
 
@@ -1372,6 +1384,59 @@ public class OlapScanNode extends ScanNode {
             }
         }
         return false;
+    }
+
+    private boolean hasRfDrivingTabletPruning() {
+        // tabletId2BucketSeq is only filled by computeTabletInfo on the non-point-query
+        // path; point queries (lazyEvaluateRangeLocations) clear it and are excluded here.
+        if (tabletId2BucketSeq.isEmpty()) {
+            return false;
+        }
+        PlanNodeId myId = this.getId();
+        for (RuntimeFilter rf : runtimeFilters) {
+            if (rf.canPruneTabletsFor(myId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void setTabletBucketInfos(TOlapScanNode olapScanNode) {
+        int bucketNum = getUniformSelectedPartitionBucketNum();
+        if (bucketNum <= 0) {
+            return;
+        }
+        olapScanNode.setTabletIdToBucketIndex(Maps.newHashMap(tabletId2BucketSeq));
+        olapScanNode.setDistributionBucketNum(bucketNum);
+    }
+
+    // Bucket counts are per-partition (a partition can be added with its own
+    // DISTRIBUTED BY ... BUCKETS clause, and dynamic partition tables may roll out
+    // partitions with different bucket counts). tabletId2BucketSeq stores each
+    // tablet's index within its own partition's bucket list, so those indexes are
+    // only comparable when all selected partitions share one bucket count. Returns
+    // the shared bucket count, or -1 when bucket counts differ (tablet pruning must
+    // then be skipped: hashing RF values with a wrong modulus would wrongly skip
+    // tablets and lose data).
+    private int getUniformSelectedPartitionBucketNum() {
+        int bucketNum = -1;
+        for (Long partitionId : selectedPartitionIds) {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                return -1;
+            }
+            DistributionInfo distributionInfo = partition.getDistributionInfo();
+            if (!(distributionInfo instanceof HashDistributionInfo)) {
+                return -1;
+            }
+            int partitionBucketNum = distributionInfo.getBucketNum();
+            if (bucketNum == -1) {
+                bucketNum = partitionBucketNum;
+            } else if (bucketNum != partitionBucketNum) {
+                return -1;
+            }
+        }
+        return bucketNum;
     }
 
     private void setPartitionBoundaries(TOlapScanNode olapScanNode) {

@@ -147,6 +147,12 @@ public final class RuntimeFilter {
             = new HashMap<>();
     private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
 
+    // Target scan nodes whose tablets this filter can prune at runtime on BE.
+    // Filled by RuntimeFilterTabletPruneClassifier at translation time; only IN
+    // filters whose target is a direct SlotRef on the scan's single-column hash
+    // distribution key qualify (BE must enumerate the filter values to hash them).
+    private final Set<PlanNodeId> tabletPruningTargetScanIds = new HashSet<>();
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -391,6 +397,21 @@ public final class RuntimeFilter {
             }
         }
 
+        // Target scan nodes whose tablets this filter can prune at runtime.
+        // Populated upstream by RuntimeFilterTabletPruneClassifier; BE combines
+        // this with TOlapScanNode.tablet_id_to_bucket_index/distribution_bucket_num
+        // to skip tablets no filter value hashes into.
+        // Gated by session variable `enable_runtime_filter_tablet_prune`.
+        boolean enableRfTabletPrune = rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterTabletPrune();
+        if (enableRfTabletPrune && !tabletPruningTargetScanIds.isEmpty()) {
+            Set<Integer> planIds = new HashSet<>();
+            for (PlanNodeId id : tabletPruningTargetScanIds) {
+                planIds.add(id.asInt());
+            }
+            tFilter.setPlanIdToCanPruneTablets(planIds);
+        }
+
         return tFilter;
     }
 
@@ -420,6 +441,24 @@ public final class RuntimeFilter {
      */
     public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
         return partitionPruningTargetScanIds.contains(scanNodeId);
+    }
+
+    /**
+     * Record that a target can drive tablet pruning and needs the scan's
+     * tablet -> bucket index mapping serialized.
+     */
+    public void markTargetCanPruneTablets(PlanNodeId scanNodeId) {
+        tabletPruningTargetScanIds.add(scanNodeId);
+    }
+
+    /**
+     * Returns true iff this RF can drive tablet pruning for the given target
+     * scan node. Used by OlapScanNode.toThrift to decide whether it is worth
+     * serializing tablet_id_to_bucket_index to BE. The single source of truth
+     * for that decision lives in RuntimeFilterTabletPruneClassifier.
+     */
+    public boolean canPruneTabletsFor(PlanNodeId scanNodeId) {
+        return tabletPruningTargetScanIds.contains(scanNodeId);
     }
 
     public boolean hasTargets() {
