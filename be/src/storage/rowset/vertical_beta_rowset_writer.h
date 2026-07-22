@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <type_traits>
@@ -48,6 +49,10 @@ public:
 
     // flush when all column finished, flush column footer
     Status final_flush() override;
+
+    int32_t get_allocated_segment_id() override {
+        return this->_num_segment.load(std::memory_order_relaxed);
+    }
 
     int64_t num_rows() const override { return _total_key_group_rows; }
 
