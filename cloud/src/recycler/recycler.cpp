@@ -4314,16 +4314,15 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
-        // Empty rowsets have no segment objects to delete, so they do not need a resource id.
-        if (rs_meta.num_segments() <= 0) {
-            LOG_INFO("rowset meta has no segments, skip this rowset")
-                    .tag("rs_meta", rs_meta.ShortDebugString())
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id);
-            recycle_rowsets_number += 1;
-            continue;
-        }
         if (!rs_meta.has_resource_id() || rs_meta.resource_id().empty()) {
+            if (rs_meta.num_segments() <= 0) {
+                LOG_INFO("rowset meta has no segments and no resource id, skip this rowset")
+                        .tag("rs_meta", rs_meta.ShortDebugString())
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id);
+                recycle_rowsets_number += 1;
+                continue;
+            }
             LOG_WARNING("rowset meta has a missing or empty resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString())
                     .tag("instance_id", instance_id_)
