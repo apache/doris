@@ -540,6 +540,26 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSetIcebergParamsUsesSplitFileFormat() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        String dataPath = "file:///tmp/data-file.orc";
+        IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
+                2, Collections.emptyMap(), new ArrayList<>(), dataPath);
+        split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.ORC);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
+                TFileRangeDesc.class, IcebergSplit.class);
+        method.setAccessible(true);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        method.invoke(node, rangeDesc, split);
+
+        // Iceberg tables may mix file formats, so each range must preserve its split format.
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
     public void testPositionDeleteSystemTableValidatesDeletionVectorMetadata() throws Exception {
         DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
         Mockito.when(deleteFile.path()).thenReturn("file:///tmp/delete-shared.puffin");
