@@ -173,6 +173,13 @@ const format::MaterializedBlockStats& PaimonHybridReader::last_materialized_bloc
                                             : format::TableReader::last_materialized_block_stats();
 }
 
+int64_t PaimonHybridReader::condition_cache_hit_count() const {
+    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // returning only the active child would make FileScannerV2's monotonic delta go backwards.
+    return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+}
+
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);

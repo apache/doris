@@ -652,11 +652,12 @@ Status execute_compact_delete_conjuncts(const VExprContextSPtrs& delete_conjunct
     *can_filter_all = false;
     for (const auto& delete_conjunct : delete_conjuncts) {
         DORIS_CHECK(delete_conjunct != nullptr);
+        const size_t original_columns = file_block->columns();
         int result_column_id = -1;
         RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
                                                          &result_column_id));
-        DORIS_CHECK(result_column_id >= 0 &&
-                    result_column_id < static_cast<int>(file_block->columns()));
+        RETURN_IF_ERROR(detail::validate_ephemeral_expr_result_column(
+                original_columns, result_column_id, file_block->columns()));
         const auto& delete_filter = assert_cast<const ColumnUInt8&>(
                                             *file_block->get_by_position(result_column_id).column)
                                             .get_data();
@@ -702,11 +703,12 @@ Status execute_delete_conjuncts(const format::FileScanRequest& request, int64_t 
             break;
         }
         DORIS_CHECK(delete_conjunct != nullptr);
+        const size_t original_columns = file_block->columns();
         int result_column_id = -1;
         RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
                                                          &result_column_id));
-        DORIS_CHECK(result_column_id >= 0 &&
-                    result_column_id < static_cast<int>(file_block->columns()));
+        RETURN_IF_ERROR(detail::validate_ephemeral_expr_result_column(
+                original_columns, result_column_id, file_block->columns()));
         const auto& delete_filter = assert_cast<const ColumnUInt8&>(
                                             *file_block->get_by_position(result_column_id).column)
                                             .get_data();
@@ -726,6 +728,19 @@ Status execute_delete_conjuncts(const format::FileScanRequest& request, int64_t 
 }
 
 } // namespace
+
+Status detail::validate_ephemeral_expr_result_column(size_t original_columns, int result_column_id,
+                                                     size_t current_columns) {
+    // Delete predicates may erase only a temporary expression result. A bare SlotRef returns an
+    // input column id, which must remain in the block for later predicates and materialization.
+    if (UNLIKELY(result_column_id < 0 || static_cast<size_t>(result_column_id) < original_columns ||
+                 static_cast<size_t>(result_column_id) >= current_columns)) {
+        return Status::InternalError(
+                "Delete conjunct result column {} is not ephemeral (original={}, current={})",
+                result_column_id, original_columns, current_columns);
+    }
+    return Status::OK();
+}
 
 uint16_t apply_compact_filter_to_selection(const IColumn::Filter& filter,
                                            SelectionVector* selection, uint16_t selected_rows) {

@@ -323,13 +323,7 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
     if (_nested && _profile.nested_batches != nullptr) {
         COUNTER_UPDATE(_profile.nested_batches, 1);
     }
-    // Retained-capacity inspection walks the native reader tree. Check it periodically instead of
-    // on every small batch; row-group destruction is still the hard lifetime bound for scratch.
-    constexpr size_t SCRATCH_CHECK_BATCH_INTERVAL = 16;
-    if (++_batches_since_scratch_check >= SCRATCH_CHECK_BATCH_INTERVAL) {
-        _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
-        _batches_since_scratch_check = 0;
-    }
+    release_batch_scratch_if_needed();
     if (*rows_read != rows) {
         return Status::Corruption("Native parquet reader returned {} rows, expected {} for {}",
                                   *rows_read, rows, _name);
@@ -397,7 +391,18 @@ Status NativeColumnReader::read_with_fixed_width_filter(int64_t rows, const uint
                 *rows_read, rows, _name);
     }
     *used_filter = true;
+    release_batch_scratch_if_needed();
     return Status::OK();
+}
+
+void NativeColumnReader::release_batch_scratch_if_needed() {
+    // PLAIN predicate batches bypass materialization but share the same persistent decoder tree,
+    // so both read paths must advance the retained-capacity aging clock.
+    constexpr size_t SCRATCH_CHECK_BATCH_INTERVAL = 16;
+    if (++_batches_since_scratch_check >= SCRATCH_CHECK_BATCH_INTERVAL) {
+        _native_reader->release_batch_scratch(MAX_RETAINED_BATCH_SCRATCH_BYTES);
+        _batches_since_scratch_check = 0;
+    }
 }
 
 Status NativeColumnReader::validate_selected_span(int64_t rows) {

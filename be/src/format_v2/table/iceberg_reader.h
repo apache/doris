@@ -69,6 +69,7 @@ public:
 
 protected:
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
+        options->enable_row_lineage_virtual_columns = true;
         options->allow_idless_complex_wrapper_projection =
                 supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
     }
