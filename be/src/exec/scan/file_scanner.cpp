@@ -1066,6 +1066,10 @@ Status FileScanner::_get_next_reader() {
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
         const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
+        const bool is_table_level_count = _get_push_down_agg_type() == TPushAggOp::type::COUNT &&
+                                          range.__isset.table_format_params &&
+                                          range.table_format_params.table_level_row_count >= 0;
+        bool count_reader_initialized = false;
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1140,6 +1144,13 @@ Status FileScanner::_get_next_reader() {
                     init_status =
                             static_cast<GenericReader*>(cpp_reader.get())->init_reader(&jni_ctx);
                     _cur_reader = std::move(cpp_reader);
+                } else if (is_table_level_count) {
+                    // The FE-provided count is complete, so this split does not need Paimon's
+                    // table-level Java scanner. Keep any scanner cached from an earlier data split
+                    // available for the next data split.
+                    _cur_reader = std::make_unique<CountReader>(
+                            range.table_format_params.table_level_row_count, _state->batch_size());
+                    count_reader_initialized = true;
                 } else {
                     if (_cached_paimon_jni_reader != nullptr) {
                         auto* cached_reader =
@@ -1373,9 +1384,6 @@ Status FileScanner::_get_next_reader() {
         // For table-level COUNT pushdown, offsets are undefined so we must skip
         // _set_fill_or_truncate_columns (it uses [start_offset, end_offset] to
         // filter row groups, which would produce incorrect empty results).
-        bool is_table_level_count = _get_push_down_agg_type() == TPushAggOp::type::COUNT &&
-                                    range.__isset.table_format_params &&
-                                    range.table_format_params.table_level_row_count >= 0;
         if (!is_table_level_count) {
             Status status = _set_fill_or_truncate_columns(need_to_get_parsed_schema);
             if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
@@ -1388,7 +1396,8 @@ Status FileScanner::_get_next_reader() {
 
         // Unified COUNT(*) pushdown: replace the real reader with CountReader
         // decorator if the reader accepts COUNT and can provide a total row count.
-        if (_cur_reader->get_push_down_agg_type() == TPushAggOp::type::COUNT) {
+        if (!count_reader_initialized &&
+            _cur_reader->get_push_down_agg_type() == TPushAggOp::type::COUNT) {
             int64_t total_rows = -1;
             if (is_table_level_count) {
                 // FE-provided count (may account for table-format deletions)

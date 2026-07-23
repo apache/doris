@@ -46,7 +46,9 @@
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/count_reader.h"
 #include "format_v2/expr/cast.h"
+#include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -96,6 +98,16 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     paimon_params.__set_paimon_split("legacy-split");
     paimon_params.__set_paimon_predicate("legacy-predicate");
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+TFileRangeDesc paimon_jni_count_range(std::string split, int64_t row_count) {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_JNI);
+    paimon_params.__set_paimon_split(std::move(split));
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    range.table_format_params.__set_table_level_row_count(row_count);
     return range;
 }
 
@@ -180,6 +192,47 @@ public:
         _cur_reader = std::move(current);
         _cached_paimon_jni_reader = std::move(cached);
     }
+};
+
+class PaimonCountSplitSource final : public SplitSourceConnector {
+public:
+    PaimonCountSplitSource(TFileScanRangeParams params, std::vector<TFileRangeDesc> ranges)
+            : _params(std::move(params)), _ranges(std::move(ranges)) {}
+
+    Status get_next(bool* has_next, TFileRangeDesc* range) override {
+        *has_next = _next_range < _ranges.size();
+        if (*has_next) {
+            *range = _ranges[_next_range++];
+        }
+        return Status::OK();
+    }
+
+    int num_scan_ranges() override { return static_cast<int>(_ranges.size()); }
+
+    TFileScanRangeParams* get_params() override { return &_params; }
+
+private:
+    TFileScanRangeParams _params;
+    std::vector<TFileRangeDesc> _ranges;
+    size_t _next_range = 0;
+};
+
+class PaimonCountFileScanner final : public FileScanner {
+public:
+    PaimonCountFileScanner(RuntimeState* state, FileScanLocalState* local_state,
+                           std::shared_ptr<SplitSourceConnector> split_source,
+                           RuntimeProfile* profile,
+                           const std::unordered_map<std::string, int>* colname_to_slot_id)
+            : FileScanner(state, local_state, -1, std::move(split_source), profile, nullptr,
+                          colname_to_slot_id) {}
+
+    bool current_count_reader_owns_inner_reader() const {
+        const auto* count_reader = dynamic_cast<const CountReader*>(_cur_reader.get());
+        DORIS_CHECK(count_reader != nullptr);
+        return count_reader->inner_reader() != nullptr;
+    }
+
+    bool has_cached_paimon_reader() const { return _cached_paimon_jni_reader != nullptr; }
 };
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -498,6 +551,82 @@ TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_FALSE(
             FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+TEST(FileScannerTest, PaimonTableLevelCountSplitsDoNotOpenJniReader) {
+    ObjectPool object_pool;
+    DescriptorTblBuilder descriptor_builder(&object_pool);
+    descriptor_builder.declare_tuple()
+            << std::make_tuple(std::make_shared<DataTypeInt64>(), "count");
+    auto* descriptor_table = descriptor_builder.build();
+
+    TQueryOptions query_options;
+    query_options.__set_batch_size(1024);
+    RuntimeState state(query_options, TQueryGlobals());
+    state.set_desc_tbl(descriptor_table);
+
+    TPlanNode plan_node;
+    plan_node.__set_node_id(0);
+    plan_node.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan_node.__set_num_children(0);
+    plan_node.__set_limit(-1);
+    plan_node.__set_row_tuples({0});
+    plan_node.__set_push_down_agg_type_opt(TPushAggOp::type::COUNT);
+    plan_node.__set_push_down_count_slot_ids(std::vector<int32_t> {});
+    TFileScanNode file_scan_node;
+    file_scan_node.__set_tuple_id(0);
+    plan_node.__set_file_scan_node(std::move(file_scan_node));
+
+    auto scan_operator =
+            std::make_shared<FileScanOperatorX>(&object_pool, plan_node, 0, *descriptor_table, 1);
+    scan_operator->_output_tuple_desc = descriptor_table->get_tuple_descriptor(0);
+    ASSERT_TRUE(scan_operator->init(plan_node, &state).ok());
+    ASSERT_TRUE(scan_operator->prepare(&state).ok());
+
+    RuntimeProfile global_profile("paimon_count_file_scanner");
+    auto local_state = FileScanLocalState::create_unique(&state, scan_operator.get());
+    LocalStateInfo local_state_info {.parent_profile = &global_profile,
+                                     .scan_ranges = {},
+                                     .shared_state = nullptr,
+                                     .shared_state_map = {},
+                                     .task_idx = 0};
+    ASSERT_TRUE(local_state->init(&state, local_state_info).ok());
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_src_tuple_id(-1);
+    scan_params.__set_dest_tuple_id(0);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    auto split_source = std::make_shared<PaimonCountSplitSource>(
+            std::move(scan_params),
+            std::vector<TFileRangeDesc> {paimon_jni_count_range("count-split-a", 3),
+                                         paimon_jni_count_range("count-split-b", 5)});
+    std::unordered_map<std::string, int> colname_to_slot_id;
+    PaimonCountFileScanner scanner(&state, local_state.get(), std::move(split_source),
+                                   local_state->scanner_profile(), &colname_to_slot_id);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+
+    Block first_block;
+    bool eof = false;
+    ASSERT_TRUE(scanner.get_block(&state, &first_block, &eof).ok());
+    EXPECT_EQ(first_block.rows(), 3);
+    EXPECT_FALSE(eof);
+    EXPECT_FALSE(scanner.current_count_reader_owns_inner_reader());
+    EXPECT_FALSE(scanner.has_cached_paimon_reader());
+
+    Block second_block;
+    ASSERT_TRUE(scanner.get_block(&state, &second_block, &eof).ok());
+    EXPECT_EQ(second_block.rows(), 5);
+    EXPECT_FALSE(eof);
+    EXPECT_FALSE(scanner.current_count_reader_owns_inner_reader());
+    EXPECT_FALSE(scanner.has_cached_paimon_reader());
+
+    Block final_block;
+    ASSERT_TRUE(scanner.get_block(&state, &final_block, &eof).ok());
+    EXPECT_EQ(final_block.rows(), 0);
+    EXPECT_TRUE(eof);
+
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_TRUE(local_state->close(&state).ok());
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
