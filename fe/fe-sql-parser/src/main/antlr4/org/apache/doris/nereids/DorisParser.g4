@@ -2104,6 +2104,7 @@ nonReserved
     | DOW
     | DOY
     | DUAL
+    | DUMP
     | DYNAMIC
     | E
     | ENABLE

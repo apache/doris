@@ -558,6 +558,71 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testParseDumpAsIdentifier() {
+        // `dump` is a non-reserved keyword (PLAN REPLAYER DUMP). After moving
+        // DUMP into the nonReserved list it must still be usable as a regular
+        // identifier in every position where identifiers are allowed: column
+        // alias, column reference, table alias, where clause, qualified ref,
+        // function argument, CTE name, subquery alias.
+        //
+        // Each case asserts both that the parser succeeds AND that the parsed
+        // tree literally contains the identifier "dump" — relying on parseSingle
+        // not throwing alone wouldn't catch a regression where DUMP gets eaten
+        // by an unrelated production.
+        NereidsParser parser = new NereidsParser();
+
+        // 1. column alias
+        parsePlan("SELECT 1 AS dump FROM t")
+                .matches(
+                        logicalProject().when(p -> "dump".equals(p.getProjects().get(0).getName()))
+                );
+
+        // 2. column reference: SELECT dump FROM t — the projected slot must be
+        //    named "dump". parseSingle wraps the plan in a sink, step into its
+        //    child to find the project.
+        Plan plan2 = parser.parseSingle("SELECT dump FROM t");
+        LogicalProject<?> project2 = (LogicalProject<?>) plan2.child(0);
+        Assertions.assertEquals(1, project2.getProjects().size());
+        Assertions.assertEquals("dump", project2.getProjects().get(0).getName());
+
+        // 3. table alias: FROM t AS dump
+        Plan plan3 = parser.parseSingle("SELECT * FROM t AS dump");
+        Assertions.assertTrue(plan3.treeString().toLowerCase().contains("dump"),
+                "tree should reference the alias 'dump': " + plan3.treeString());
+
+        // 4. column ref in WHERE clause
+        Plan plan4 = parser.parseSingle("SELECT * FROM t WHERE dump = 1");
+        Assertions.assertTrue(plan4.treeString().toLowerCase().contains("dump"),
+                "tree should reference column 'dump': " + plan4.treeString());
+
+        // 5. qualified column on aliased table: dump.col
+        Plan plan5 = parser.parseSingle("SELECT dump.col FROM t AS dump");
+        Assertions.assertTrue(plan5.treeString().toLowerCase().contains("dump"),
+                "tree should reference qualified 'dump.col': " + plan5.treeString());
+
+        // 6. function argument
+        Plan plan6 = parser.parseSingle("SELECT count(dump) FROM t");
+        Assertions.assertTrue(plan6.treeString().toLowerCase().contains("dump"),
+                "tree should reference 'dump' inside count(): " + plan6.treeString());
+
+        // 7. CTE name + reference back
+        Plan plan7 = parser.parseSingle("WITH dump AS (SELECT 1 AS x) SELECT * FROM dump");
+        Assertions.assertTrue(plan7.treeString().toLowerCase().contains("dump"),
+                "tree should reference CTE 'dump': " + plan7.treeString());
+
+        // 8. subquery alias-like pattern: dump appears as inner alias and outer ref
+        Plan plan8 = parser.parseSingle("SELECT dump FROM (SELECT 1 AS dump) sub");
+        Assertions.assertTrue(plan8.treeString().toLowerCase().contains("dump"),
+                "tree should reference subquery column 'dump': " + plan8.treeString());
+
+        // 9. The original DUMP keyword usage — PLAN REPLAYER DUMP — must still
+        //    parse: the lexer still produces a DUMP token, grammar routes it
+        //    through replayType.
+        Plan plan9 = parser.parseSingle("PLAN REPLAYER DUMP SELECT 1");
+        Assertions.assertNotNull(plan9, "PLAN REPLAYER DUMP <query> should still parse");
+    }
+
+    @Test
     public void testParseStmtType() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "select a from b";
