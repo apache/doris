@@ -180,6 +180,9 @@ final class RuntimeFilterPartitionPruneClassifier {
         if (targetColumn == partitionColumn) {
             return true;
         }
+        // Metadata reload and deep copy do not preserve Column object identity.
+        // Prefer stable unique IDs when present; legacy schemas without unique
+        // IDs must fall back to structural equality.
         int targetUniqueId = targetColumn.getUniqueId();
         int partitionUniqueId = partitionColumn.getUniqueId();
         if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
