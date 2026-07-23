@@ -385,8 +385,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
         std::string hex = CastToString::from_uint128(data);
         bw.write(hex.data(), hex.size());
     } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
-        auto str = CastToString::from_number(data);
-        bw.write(str.data(), str.size());
+        CastToString::push_number(data, bw);
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<typename PrimitiveTypeTraits<T>::CppType>::is_iec559) {
         bw.write_number(data);
