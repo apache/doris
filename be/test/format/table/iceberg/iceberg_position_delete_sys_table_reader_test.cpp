@@ -57,6 +57,24 @@ protected:
     void _collect_profile_before_close() override { ++collect_calls; }
 };
 
+class FillColumnsTrackingReader final : public GenericReader {
+public:
+    int set_fill_columns_calls = 0;
+
+    Status get_next_block(Block* /*block*/, size_t* /*read_rows*/, bool* /*eof*/) override {
+        return Status::OK();
+    }
+
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+            /*partition_columns*/,
+            const std::unordered_map<std::string, VExprContextSPtr>& /*missing_columns*/,
+            const std::unordered_map<std::string, bool>& /*partition_value_is_null*/) override {
+        ++set_fill_columns_calls;
+        return Status::OK();
+    }
+};
+
 class RejectAllRowsPredicate final : public VExpr {
 public:
     RejectAllRowsPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
@@ -222,6 +240,27 @@ TEST(IcebergPositionDeleteSysTableReaderTest, StopsBeforeExpandingDeletionVector
     ASSERT_TRUE(reader.get_next_block(&block, &read_rows, &eof).ok());
     EXPECT_EQ(0, read_rows);
     EXPECT_TRUE(eof);
+}
+
+TEST(IcebergPositionDeleteSysTableReaderTest, FinalizesNestedReaderColumns) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("test_profile");
+    TFileRangeDesc range;
+    TFileScanRangeParams params;
+    std::vector<SlotDescriptor*> file_slot_descs;
+    auto scanner_io_ctx = std::make_shared<io::IOContext>();
+
+    IcebergPositionDeleteSysTableReader reader(file_slot_descs, &state, &profile, range, &params,
+                                               scanner_io_ctx, nullptr);
+    auto nested_reader = std::make_unique<FillColumnsTrackingReader>();
+    auto* nested_reader_ptr = nested_reader.get();
+    reader._position_reader = std::move(nested_reader);
+
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    ASSERT_TRUE(reader.set_fill_columns(partition_columns, missing_columns).ok());
+    EXPECT_EQ(1, nested_reader_ptr->set_fill_columns_calls);
 }
 
 TEST(IcebergPositionDeleteSysTableReaderTest, ValidatesRangeAndDeleteFileMetadata) {

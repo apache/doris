@@ -213,6 +213,20 @@ Status IcebergPositionDeleteSysTableReader::get_columns(
     return Status::OK();
 }
 
+Status IcebergPositionDeleteSysTableReader::set_fill_columns(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+        const std::unordered_map<std::string, bool>& partition_value_is_null) {
+    if (_position_reader == nullptr) {
+        return Status::OK();
+    }
+    // Native readers finalize their physical read-column plan in set_fill_columns even when all
+    // maps are empty. Skipping this leaves the nested reader yielding empty non-EOF batches.
+    return _position_reader->set_fill_columns(partition_columns, missing_columns,
+                                              partition_value_is_null);
+}
+
 bool IcebergPositionDeleteSysTableReader::count_read_rows() {
     return _delete_file_kind == DeleteFileKind::POSITION_DELETE;
 }
