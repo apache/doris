@@ -59,14 +59,13 @@ merge_pr_to_target_branch_latest() {
     git reset --hard origin/"${target_branch}"
     git pull origin "${target_branch}"
     git submodule update --init --recursive --depth 1
-    local target_branch_commit_id
-    target_branch_commit_id=$(git rev-parse HEAD)
+    parquet_benchmark_base_sha=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"
     git config user.name "ci"
     echo "git fetch origin refs/pull/${pr_num_from_trigger}/head"
     git fetch origin "refs/pull/${pr_num_from_trigger}/head"
     git merge --no-edit --allow-unrelated-histories FETCH_HEAD
-    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into master: ${target_branch_commit_id}"
+    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into master: ${parquet_benchmark_base_sha}"
     CONFLICTS=$(git ls-files -u | wc -l)
     if [[ "${CONFLICTS}" -gt 0 ]]; then
         echo "ERROR: merge refs/pull/${pr_num_from_trigger}/head into master failed. Aborting"
@@ -105,6 +104,13 @@ if ${merge_target_branch_latest:-true}; then
     fi
 else
     echo "INFO: skip merge_pr_to_target_branch_latest"
+fi
+if [[ -z "${parquet_benchmark_base_sha:-}" ]]; then
+    parquet_benchmark_base_sha=$(git -C "${teamcity_build_checkoutDir}" rev-parse "origin/${target_branch}")
+fi
+if [[ ! "${parquet_benchmark_base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "ERROR: invalid Parquet benchmark base SHA: ${parquet_benchmark_base_sha}"
+    exit 1
 fi
 mount_swapfile=""
 if [[ -f /root/swapfile ]]; then mount_swapfile="-v /root/swapfile:/swapfile --memory-swap -1"; fi
@@ -152,8 +158,7 @@ sudo docker run -i --rm \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log \
-                    && mkdir -p parquet-benchmark-results \
-                    && bash build.sh --benchmark --output /root/doris/parquet-benchmark-output 2>&1 | tee parquet-benchmark-results/build.log"
+                    && bash regression-test/pipeline/performance/build-parquet-microbenchmark.sh ${parquet_benchmark_base_sha}"
 docker_status=$?
 set +x
 if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then

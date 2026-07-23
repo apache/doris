@@ -36,7 +36,8 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 doris_home=$(cd "${script_dir}/../../.." && pwd)
-benchmark_binary="${PARQUET_BENCHMARK_BINARY:-${doris_home}/parquet-benchmark-output/be/lib/benchmark_test}"
+head_binary="${PARQUET_BENCHMARK_HEAD_BINARY:-${doris_home}/parquet-benchmark-output/head/be/lib/benchmark_test}"
+base_binary="${PARQUET_BENCHMARK_BASE_BINARY:-${doris_home}/parquet-benchmark-output/base/be/lib/benchmark_test}"
 result_dir="${PARQUET_BENCHMARK_RESULT_DIR:-${doris_home}/parquet-benchmark-results}"
 case_list="${result_dir}/cases.txt"
 
@@ -58,6 +59,12 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
     if sudo docker run -i --rm \
         --name "${docker_name}" \
         -e PARQUET_MICROBENCHMARK_IN_CONTAINER=true \
+        -e PARQUET_BENCHMARK_CPU="${PARQUET_BENCHMARK_CPU:-8}" \
+        -e PARQUET_BENCHMARK_MIN_TIME="${PARQUET_BENCHMARK_MIN_TIME:-0.5s}" \
+        -e PARQUET_BENCHMARK_WARMUP_TIME="${PARQUET_BENCHMARK_WARMUP_TIME:-0.2s}" \
+        -e PARQUET_REGRESSION_THRESHOLD_PCT="${PARQUET_REGRESSION_THRESHOLD_PCT:-15}" \
+        -e PARQUET_WARNING_THRESHOLD_PCT="${PARQUET_WARNING_THRESHOLD_PCT:-5}" \
+        -e PARQUET_MAX_CV_PCT="${PARQUET_MAX_CV_PCT:-3}" \
         -v "${teamcity_build_checkoutDir}":/root/doris \
         "${docker_image}" \
         /bin/bash /root/doris/regression-test/pipeline/performance/run-parquet-microbenchmark.sh; then
@@ -72,10 +79,12 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
     exit "${benchmark_status}"
 fi
 
-if [[ ! -x "${benchmark_binary}" ]]; then
-    echo "ERROR: Parquet benchmark binary not found: ${benchmark_binary}"
-    exit 1
-fi
+for benchmark_binary in "${head_binary}" "${base_binary}"; do
+    if [[ ! -x "${benchmark_binary}" ]]; then
+        echo "ERROR: Parquet benchmark binary not found: ${benchmark_binary}"
+        exit 1
+    fi
+done
 if ! command -v jq >/dev/null 2>&1; then
     echo "ERROR: jq is required to validate benchmark JSON"
     exit 1
@@ -91,7 +100,7 @@ export TMPDIR="${fixture_root}"
 
 # This is an executability gate for the complete matrix. The 1 ms samples are published for
 # diagnostics only and must not be used to claim a performance improvement or regression.
-"${benchmark_binary}" --benchmark_list_tests >"${case_list}"
+"${head_binary}" --benchmark_list_tests >"${case_list}"
 decoder_count=$(grep -c '^ParquetDecoder/' "${case_list}" || true)
 reader_count=$(grep -c '^ParquetReader/' "${case_list}" || true)
 if [[ "${decoder_count}" -ne 152 || "${reader_count}" -ne 137 ]]; then
@@ -99,12 +108,12 @@ if [[ "${decoder_count}" -ne 152 || "${reader_count}" -ne 137 ]]; then
     exit 1
 fi
 
-run_and_validate() {
+run_smoke_and_validate() {
     local group="$1"
     local expected_count="$2"
     local output_file="$3"
 
-    "${benchmark_binary}" \
+    "${head_binary}" \
         --benchmark_filter="^${group}/" \
         --benchmark_min_time=0.001s \
         --benchmark_out="${output_file}" \
@@ -117,7 +126,81 @@ run_and_validate() {
     ' "${output_file}" >/dev/null
 }
 
-run_and_validate ParquetDecoder 152 "${result_dir}/decoder-smoke.json"
-run_and_validate ParquetReader 137 "${result_dir}/reader-smoke.json"
+run_smoke_and_validate ParquetDecoder 152 "${result_dir}/decoder-smoke.json"
+run_smoke_and_validate ParquetReader 137 "${result_dir}/reader-smoke.json"
 
 echo "INFO: Parquet microbenchmark smoke passed: 152 decoder cases, 137 reader cases"
+
+gate_cases=(
+    "ParquetDecoder/plain/int64/sel_100/clustered"
+    "ParquetDecoder/plain/int64/sel_1/alternating"
+    "ParquetDecoder/plain/byte_array/sel_100/clustered"
+    "ParquetDecoder/dictionary/int32/sel_1/alternating"
+    "ParquetDecoder/dictionary/byte_array/sel_10/clustered"
+    "ParquetDecoder/dictionary/byte_array/sel_10/alternating"
+    "ParquetDecoder/byte_stream_split/double/sel_100/clustered"
+    "ParquetDecoder/byte_stream_split/fixed_len_byte_array/sel_10/alternating"
+    "ParquetDecoder/delta_binary_packed/int64/sel_50/clustered"
+    "ParquetDecoder/delta_length_byte_array/byte_array/sel_10/alternating"
+    "ParquetDecoder/delta_byte_array/byte_array/sel_10/alternating"
+    "ParquetReader/open_to_first_block/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/full_scan/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/limit_1/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/limit_1000/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/dictionary/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/byte_stream_split/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/delta_binary_packed/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/null_90/clustered/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/null_10/alternating/sel_90/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/null_10/alternating/sel_10/predicate_projected/width_512/predicate_511"
+)
+
+base_case_list="${result_dir}/base-cases.txt"
+"${base_binary}" --benchmark_list_tests >"${base_case_list}"
+for case_name in "${gate_cases[@]}"; do
+    if ! grep -Fxq "${case_name}" "${case_list}" || ! grep -Fxq "${case_name}" "${base_case_list}"; then
+        echo "ERROR: performance gate case missing from base or PR: ${case_name}"
+        exit 1
+    fi
+done
+
+gate_filter=$(printf '^%s$|' "${gate_cases[@]}")
+gate_filter="${gate_filter%|}"
+benchmark_cpu="${PARQUET_BENCHMARK_CPU:-8}"
+if ! [[ "${benchmark_cpu}" =~ ^[0-9]+$ ]] || ! command -v taskset >/dev/null 2>&1 \
+        || ! taskset -c "${benchmark_cpu}" true; then
+    echo "ERROR: benchmark CPU ${benchmark_cpu} is not online"
+    exit 1
+fi
+
+run_gate_phase() {
+    local phase="$1"
+    local binary="$2"
+    taskset -c "${benchmark_cpu}" "${binary}" \
+        --benchmark_filter="${gate_filter}" \
+        --benchmark_min_time="${PARQUET_BENCHMARK_MIN_TIME:-0.5s}" \
+        --benchmark_min_warmup_time="${PARQUET_BENCHMARK_WARMUP_TIME:-0.2s}" \
+        --benchmark_repetitions=5 \
+        --benchmark_out="${result_dir}/${phase}.json" \
+        --benchmark_out_format=json
+}
+
+# Same-agent, fixed-CPU ABBA ordering limits machine drift and order/cache bias.
+run_gate_phase base-a1 "${base_binary}"
+run_gate_phase head-b1 "${head_binary}"
+run_gate_phase head-b2 "${head_binary}"
+run_gate_phase base-a2 "${base_binary}"
+
+python3 "${script_dir}/compare-parquet-microbenchmark.py" \
+    --base-a1 "${result_dir}/base-a1.json" \
+    --head-b1 "${result_dir}/head-b1.json" \
+    --head-b2 "${result_dir}/head-b2.json" \
+    --base-a2 "${result_dir}/base-a2.json" \
+    --output-json "${result_dir}/comparison.json" \
+    --output-markdown "${result_dir}/comparison.md" \
+    --regression-threshold-pct "${PARQUET_REGRESSION_THRESHOLD_PCT:-15}" \
+    --warning-threshold-pct "${PARQUET_WARNING_THRESHOLD_PCT:-5}" \
+    --max-cv-pct "${PARQUET_MAX_CV_PCT:-3}"
+
+echo "INFO: Parquet microbenchmark performance gate passed"
