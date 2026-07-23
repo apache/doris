@@ -127,14 +127,45 @@ class IvmUtilTest {
 
     @Test
     void testStreamName() {
-        Assertions.assertEquals("__doris_ivm_stream_123_t1", IvmUtil.streamName(123L, "t1"));
-        Assertions.assertEquals("__doris_ivm_stream_456_base_table", IvmUtil.streamName(456L, "base_table"));
+        List<String> qualifiers = ImmutableList.of("internal", "test", "t1");
+        Assertions.assertEquals("__doris_ivm_stream_123_782al5xuzxh3qcgg9apwm95wt",
+                IvmUtil.streamName(123L, qualifiers));
+        Assertions.assertEquals(IvmUtil.streamName(123L, qualifiers), IvmUtil.streamName(123L, qualifiers));
     }
 
     @Test
     void testStreamNamePrefixConsistency() {
-        String name = IvmUtil.streamName(1L, "t");
+        String name = IvmUtil.streamName(1L, ImmutableList.of("internal", "db", "t"));
         Assertions.assertTrue(name.startsWith(IvmUtil.IVM_STREAM_PREFIX));
+        Assertions.assertTrue(name.matches("__doris_ivm_stream_1_[0-9a-z]{25}"));
+    }
+
+    @Test
+    void testStreamNameUsesFullQualifiers() {
+        String left = IvmUtil.streamName(1L, ImmutableList.of("internal", "left_db", "same_name"));
+        String right = IvmUtil.streamName(1L, ImmutableList.of("internal", "right_db", "same_name"));
+        String external = IvmUtil.streamName(1L, ImmutableList.of("external", "left_db", "same_name"));
+        Assertions.assertNotEquals(left, right);
+        Assertions.assertNotEquals(left, external);
+    }
+
+    @Test
+    void testStreamNameUsesUtf8ByteLength() {
+        Assertions.assertEquals("__doris_ivm_stream_1_2eudmi94v9xn1pg8fjaozmag8",
+                IvmUtil.streamName(1L, ImmutableList.of("internal", "数据库", "表")));
+    }
+
+    @Test
+    void testStreamNameMaximumLength() {
+        String name = IvmUtil.streamName(Long.MAX_VALUE,
+                ImmutableList.of("internal", "database", "table"));
+        Assertions.assertEquals(64, name.length());
+    }
+
+    @Test
+    void testStreamNameRequiresFullQualifiers() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IvmUtil.streamName(1L, ImmutableList.of("database", "table")));
     }
 
     // ==================== buildRowIdHash tests ====================
