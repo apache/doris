@@ -29,6 +29,8 @@ java_major_version() {
 
     spec_version="$("${java_cmd}" -XshowSettings:properties -version 2>&1 \
         | awk -F'= ' '/java.specification.version =/ {print $2; exit}')"
+    # Cygwin's Java properties output uses CRLF line endings.
+    spec_version="${spec_version//$'\r'/}"
     if [[ "${spec_version}" == 1.* ]]; then
         spec_version="${spec_version#1.}"
     fi
