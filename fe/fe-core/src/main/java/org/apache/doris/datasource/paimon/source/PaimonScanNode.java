@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
@@ -58,7 +59,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.predicate.Predicate;
@@ -70,9 +70,9 @@ import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.TableScan;
-import org.apache.paimon.types.TimestampType;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -117,8 +117,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     @VisibleForTesting
     static final String DORIS_FILE_CREATION_TIME_LOCAL_MILLIS =
             "doris.scan.file-creation-time-local-millis";
-    static final String DORIS_FILE_CREATION_TIME_EXISTING_MILLIS =
-            "doris.scan.file-creation-time-existing-millis";
 
     private enum SplitReadType {
         JNI,
@@ -174,7 +172,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     private Map<String, String> backendStorageProperties;
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
     private OptionalLong fileCreationTimeLowerBound = OptionalLong.empty();
-    private OptionalLong existingFileCreationTimeLowerBound = OptionalLong.empty();
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -245,10 +242,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (fileCreationTimeLowerBound.isPresent()) {
             options.put(DORIS_FILE_CREATION_TIME_LOCAL_MILLIS,
                     String.valueOf(fileCreationTimeLowerBound.getAsLong()));
-            if (existingFileCreationTimeLowerBound.isPresent()) {
-                options.put(DORIS_FILE_CREATION_TIME_EXISTING_MILLIS,
-                        String.valueOf(existingFileCreationTimeLowerBound.getAsLong()));
-            }
         }
         if (!options.isEmpty()) {
             params.setPaimonOptions(options);
@@ -950,13 +943,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
             if (PAIMON_FILES_SYSTEM_TABLE_TYPE.equalsIgnoreCase(systemTable.getSysTableType())) {
                 fileCreationTimeLowerBound = extractFileCreationTimeLowerBound(conjuncts);
-                String existingLowerBound = systemTable.getTableProperties()
-                        .get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key());
-                if (fileCreationTimeLowerBound.isPresent() && existingLowerBound != null) {
-                    // Keep the configured epoch cutoff separate: the BE must convert the query's
-                    // local time first, then preserve whichever restriction is stronger.
-                    existingFileCreationTimeLowerBound = OptionalLong.of(Long.parseLong(existingLowerBound));
-                }
             }
         }
         if (theScanParams != null && getQueryTableSnapshot() != null) {
@@ -1006,11 +992,20 @@ public class PaimonScanNode extends FileQueryScanNode {
             return OptionalLong.empty();
         }
 
-        Object value = new TimestampType(3).accept(new PaimonValueConverter(literal));
-        if (!(value instanceof Timestamp)) {
+        if (!(literal instanceof DateLiteral)) {
             return OptionalLong.empty();
         }
-        long millis = ((Timestamp) value).getMillisecond();
+        DateLiteral date = (DateLiteral) literal;
+        // Proleptic local-time arithmetic preserves sub-second values before the Unix epoch;
+        // Calendar-based second division truncates negative timestamps toward zero.
+        long millis = Timestamp.fromLocalDateTime(LocalDateTime.of(
+                Math.toIntExact(date.getYear()),
+                Math.toIntExact(date.getMonth()),
+                Math.toIntExact(date.getDay()),
+                Math.toIntExact(date.getHour()),
+                Math.toIntExact(date.getMinute()),
+                Math.toIntExact(date.getSecond()),
+                Math.toIntExact(date.getMicrosecond() * 1000))).getMillisecond();
         if (operator == BinaryPredicate.Operator.GT) {
             if (millis == Long.MAX_VALUE) {
                 return OptionalLong.empty();

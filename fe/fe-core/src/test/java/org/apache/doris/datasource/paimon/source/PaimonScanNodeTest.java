@@ -96,8 +96,6 @@ public class PaimonScanNodeTest {
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(table);
         Mockito.when(systemTable.getSysTableType()).thenReturn("files");
-        Mockito.when(systemTable.getTableProperties()).thenReturn(Collections.singletonMap(
-                "scan.file-creation-time-millis", "1784596000000"));
         node.setSource(source);
         node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.GE,
                 new SlotRef(null, "creation_time"),
@@ -106,14 +104,13 @@ public class PaimonScanNodeTest {
         Table processedTable = (Table) invokePrivateMethod(node, "getProcessedTable");
 
         Assert.assertSame(table, processedTable);
+        Mockito.verify(systemTable, Mockito.never()).getTableProperties();
         setField(FileQueryScanNode.class, node, "params", new TFileScanRangeParams());
         invokePrivateMethod(node, "setScanLevelPaimonOptions");
         Mockito.verify(table, Mockito.never()).copy(ArgumentMatchers.anyMap());
         Assert.assertEquals("1784595723456",
                 node.getFileScanRangeParams().getPaimonOptions()
                         .get(PaimonScanNode.DORIS_FILE_CREATION_TIME_LOCAL_MILLIS));
-        Assert.assertEquals("1784596000000", node.getFileScanRangeParams().getPaimonOptions()
-                .get(PaimonScanNode.DORIS_FILE_CREATION_TIME_EXISTING_MILLIS));
     }
 
     @Test
@@ -172,6 +169,19 @@ public class PaimonScanNodeTest {
 
         Assert.assertTrue(result.isPresent());
         Assert.assertEquals(1784595723457L, result.getAsLong());
+    }
+
+    @Test
+    public void testExtractFilesCreationTimeBeforeUnixEpoch() throws Exception {
+        Expr lowerBound = new BinaryPredicate(BinaryPredicate.Operator.GE,
+                new SlotRef(null, "creation_time"),
+                new DateLiteral(1969, 12, 31, 23, 59, 59, 500000, Type.DATETIMEV2));
+
+        OptionalLong result = PaimonScanNode.extractFileCreationTimeLowerBound(
+                Collections.singletonList(lowerBound));
+
+        Assert.assertTrue(result.isPresent());
+        Assert.assertEquals(-500L, result.getAsLong());
     }
 
     @Test
