@@ -76,7 +76,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
-            description = "The uri of the iceberg rest catalog service.")
+            description = "The uri of the iceberg rest catalog service.",
+            checkSsrf = true)
     private String icebergRestUri = "";
 
     @ConnectorProperty(names = {"iceberg.rest.prefix"},
@@ -120,7 +121,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.server-uri"},
             required = false,
-            description = "The oauth2 server uri for fetching token.")
+            description = "The oauth2 server uri for fetching token.",
+            checkSsrf = true)
     private String icebergRestOauth2ServerUri;
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token-refresh-enabled"},

@@ -105,6 +105,28 @@ public class MaxComputeExternalCatalogTest {
         Assert.assertTrue(exception.getMessage().contains("schema list is accessible"));
     }
 
+    @Test
+    public void testCheckSsrfRejectsLoopbackEndpoint() {
+        // MaxCompute overrides checkWhenCreating() and would skip SSRF when test_connection=false;
+        // checkSsrf() runs on the common creation path and must reject a loopback mc.endpoint.
+        Map<String, String> props = new HashMap<>();
+        props.put(MCProperties.ENDPOINT, "http://127.0.0.1:8080/api");
+        MaxComputeExternalCatalog catalog = new MaxComputeExternalCatalog(1L, "mc_catalog", null, props, "");
+
+        DdlException exception = Assert.assertThrows(DdlException.class, catalog::checkSsrf);
+        Assert.assertTrue(exception.getMessage().contains("127.0.0.1"));
+    }
+
+    @Test
+    public void testCheckSsrfRejectsLoopbackOdpsEndpoint() {
+        Map<String, String> props = new HashMap<>();
+        props.put(MCProperties.ODPS_ENDPOINT, "http://127.0.0.1:8080/api");
+        MaxComputeExternalCatalog catalog = new MaxComputeExternalCatalog(1L, "mc_catalog", null, props, "");
+
+        DdlException exception = Assert.assertThrows(DdlException.class, catalog::checkSsrf);
+        Assert.assertTrue(exception.getMessage().contains("127.0.0.1"));
+    }
+
     private static Map<String, String> createRequiredProperties(boolean enableNamespaceSchema) {
         Map<String, String> props = new HashMap<>();
         addRequiredProperties(props);

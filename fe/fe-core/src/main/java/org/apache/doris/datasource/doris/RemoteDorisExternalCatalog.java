@@ -74,6 +74,15 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
         }
     }
 
+    @Override
+    protected List<String> getSsrfCheckEndpointUris() {
+        // fe_http_hosts / fe_thrift_hosts / fe_arrow_hosts are user-supplied remote FE
+        // endpoints later contacted by RemoteDorisRestClient / FeServiceClient / Arrow Flight.
+        // They are plain comma-separated host:port properties, not @ConnectorProperty fields.
+        return collectNonBlankProps(RemoteDorisProperties.FE_HTTP_HOSTS,
+                RemoteDorisProperties.FE_THRIFT_HOSTS, RemoteDorisProperties.FE_ARROW_HOSTS);
+    }
+
     public List<String> getFeNodes() {
         return parseHttpHosts(catalogProperty.getOrDefault(RemoteDorisProperties.FE_HTTP_HOSTS, ""));
     }

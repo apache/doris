@@ -256,6 +256,15 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         }
     }
 
+    @Override
+    protected List<String> getSsrfCheckEndpointUris() {
+        // mc.endpoint / mc.odps_endpoint / mc.tunnel_endpoint are user-supplied outbound
+        // endpoints later passed to odps.setEndpoint(); validate any that are configured.
+        // The region-derived default endpoint is a public Aliyun host, so it is not checked.
+        return collectNonBlankProps(MCProperties.ENDPOINT, MCProperties.ODPS_ENDPOINT,
+                MCProperties.TUNNEL_SDK_ENDPOINT);
+    }
+
     protected void validateMaxComputeConnection(boolean enableNamespaceSchema) {
         if (enableNamespaceSchema) {
             validateMaxComputeProjectAndNamespaceSchema();

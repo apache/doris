@@ -41,6 +41,7 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
+import org.apache.doris.datasource.connectivity.CatalogSsrfChecker;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -52,6 +53,8 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
@@ -85,6 +88,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -324,18 +328,80 @@ public abstract class ExternalCatalog
 
     // Will be called when creating catalog(not replaying).
     // Subclass can override this method to do some check when creating catalog.
+    // Note: SSRF validation (checkSsrf) is intentionally NOT invoked here. It runs on the
+    // common, non-overridable creation path in CatalogFactory so that it still applies to
+    // catalog types (e.g. MaxCompute, plugin-driven) that override this method and would
+    // otherwise bypass it.
     public void checkWhenCreating() throws DdlException {
         boolean testConnection = Boolean.parseBoolean(
                 catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
 
         if (testConnection) {
+            MetastoreProperties msProps = catalogProperty.getMetastoreProperties();
+            Map<StorageProperties.Type, StorageProperties> spMap = catalogProperty.getStoragePropertiesMap();
             CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
-                    name,
-                    catalogProperty.getMetastoreProperties(),
-                    catalogProperty.getStoragePropertiesMap()
-            );
+                    name, msProps, spMap);
             testCoordinator.runTests();
         }
+    }
+
+    // SSRF: reject user-supplied URIs (HMS / HDFS / S3 endpoint / Iceberg REST / Glue ...)
+    // that point at internal or loopback hosts, before any outbound connection is made.
+    // Always runs (regardless of test_connection) and is invoked both from the common
+    // creation path in CatalogFactory and on ALTER, so it cannot be bypassed by a subclass
+    // that overrides checkWhenCreating().
+    public void checkSsrf() throws DdlException {
+        // Catalog-type-specific endpoints that are plain catalog properties rather than
+        // @ConnectorProperty fields (e.g. MaxCompute / Doris endpoints) are validated here
+        // first, so they are covered even when MetastoreProperties parsing does not apply to
+        // this catalog type.
+        List<String> endpointUris = getSsrfCheckEndpointUris();
+        if (endpointUris != null && !endpointUris.isEmpty()) {
+            CatalogSsrfChecker.checkUris(name, endpointUris);
+        }
+
+        // Best-effort property parsing for the annotation-driven SSRF check. Some catalog
+        // types (e.g. the in-tree `test` catalog, or type=doris) intentionally use values
+        // that MetastoreProperties.create() rejects; before this method the failure was
+        // hidden by the lazy `test_connection=false` path, so we preserve that compatibility
+        // here — such catalogs simply have no annotated URIs to validate and fall through.
+        MetastoreProperties msProps;
+        Map<StorageProperties.Type, StorageProperties> spMap;
+        try {
+            msProps = catalogProperty.getMetastoreProperties();
+            spMap = catalogProperty.getStoragePropertiesMap();
+        } catch (RuntimeException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Skipping annotated SSRF check for catalog '{}': {}", name, e.getMessage());
+            }
+            return;
+        }
+        CatalogSsrfChecker.check(name, msProps, spMap);
+    }
+
+    /**
+     * Endpoint URIs to SSRF-check that are configured as plain catalog properties rather
+     * than {@code @ConnectorProperty} fields on MetastoreProperties / StorageProperties.
+     * Catalog types whose outbound endpoints are plain properties (e.g. MaxCompute, Doris)
+     * override this; the default is empty.
+     */
+    protected List<String> getSsrfCheckEndpointUris() {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Collect the non-blank values of the given catalog property keys into a list,
+     * preserving key order. Helper for {@link #getSsrfCheckEndpointUris()} overrides.
+     */
+    protected List<String> collectNonBlankProps(String... keys) {
+        List<String> values = Lists.newArrayList();
+        for (String key : keys) {
+            String value = catalogProperty.getOrDefault(key, "");
+            if (StringUtils.isNotBlank(value)) {
+                values.add(value);
+            }
+        }
+        return values;
     }
 
     /**

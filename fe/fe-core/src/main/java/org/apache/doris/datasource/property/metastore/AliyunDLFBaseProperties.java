@@ -51,7 +51,8 @@ public class AliyunDLFBaseProperties {
 
     @ConnectorProperty(names = {"dlf.endpoint", "dlf.catalog.endpoint"},
             required = false,
-            description = "The region of the Aliyun DLF.")
+            description = "The region of the Aliyun DLF.",
+            checkSsrf = true)
     protected String dlfEndpoint = "";
 
     @ConnectorProperty(names = {"dlf.catalog.uid", "dlf.uid"},

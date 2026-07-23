@@ -20,6 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -36,6 +38,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
@@ -143,6 +147,38 @@ public class ExternalCatalogTest extends TestWithFeService {
         prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "TRUE");
         catalog.modifyCatalogProps(prop);
         Assertions.assertTrue(catalog.enableAutoAnalyze());
+    }
+
+    @Test
+    public void testAlterCatalogPropsRunsSsrfCheckAndRollsBack() throws Exception {
+        String catalogName = "alter_ssrf_hms";
+        SecurityChecker mockChecker = Mockito.mock(SecurityChecker.class);
+        try (MockedStatic<SecurityChecker> mockedStatic = Mockito.mockStatic(SecurityChecker.class)) {
+            mockedStatic.when(SecurityChecker::getInstance).thenReturn(mockChecker);
+
+            NereidsParser nereidsParser = new NereidsParser();
+            String createStmt = "create catalog " + catalogName + " properties(\n"
+                    + "    \"type\" = \"hms\",\n"
+                    + "    \"hive.metastore.uris\" = \"thrift://safe-host:9083\"\n"
+                    + ");";
+            LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+            Assertions.assertTrue(logicalPlan instanceof CreateCatalogCommand);
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+
+            Mockito.doThrow(new RuntimeException("URL points to private IP"))
+                    .when(mockChecker).startSSRFChecking("http://127.0.0.1:9083");
+            Map<String, String> newProps = Maps.newHashMap();
+            newProps.put("hive.metastore.uris", "thrift://127.0.0.1:9083");
+
+            DdlException ex = Assertions.assertThrows(DdlException.class,
+                    () -> mgr.alterCatalogProps(catalogName, newProps));
+
+            Assertions.assertTrue(ex.getMessage().contains("SSRF check failed"),
+                    "message should explain SSRF failure, was: " + ex.getMessage());
+            Assertions.assertEquals("thrift://safe-host:9083",
+                    mgr.getCatalog(catalogName).getProperties().get("hive.metastore.uris"));
+            Mockito.verify(mockChecker).startSSRFChecking("http://127.0.0.1:9083");
+        }
     }
 
     @Test

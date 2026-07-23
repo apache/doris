@@ -68,7 +68,8 @@ public class GCSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"gs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
-            description = "The endpoint of GCS.")
+            description = "The endpoint of GCS.",
+            checkSsrf = true)
     protected String endpoint = "https://storage.googleapis.com";
 
     @Getter

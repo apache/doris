@@ -41,7 +41,8 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
-            description = "The endpoint of OBS.")
+            description = "The endpoint of OBS.",
+            checkSsrf = true)
     protected String endpoint = "";
 
     @Getter
