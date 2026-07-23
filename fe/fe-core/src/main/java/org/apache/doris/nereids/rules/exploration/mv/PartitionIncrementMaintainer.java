@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -58,8 +59,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -69,6 +70,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -170,7 +172,7 @@ public class PartitionIncrementMaintainer {
                 context.collectFailedTableSet(union);
                 context.addFailReason("not union all output pass partition increment check");
             }
-            return super.visit(union, context);
+            return null;
         }
 
         @Override
@@ -198,8 +200,7 @@ public class PartitionIncrementMaintainer {
                 Set<Set<Slot>> shuttledEqualSlotSet = context.getShuttledEqualSlotSet();
                 for (Set<Slot> equalSlotSet : shuttledEqualSlotSet) {
                     if (equalSlotSet.contains(consumerSlot)) {
-                        Expression shuttledSlot = ExpressionUtils.shuttleExpressionWithLineage(
-                                producerSlot, producerPlan);
+                        Expression shuttledSlot = context.shuttleExpressionWithLineage(producerSlot, producerPlan);
                         if (shuttledSlot instanceof Slot) {
                             equalSlotSet.add((Slot) shuttledSlot);
                         }
@@ -239,7 +240,7 @@ public class PartitionIncrementMaintainer {
                     continue;
                 }
                 Pair<Set<Slot>, Set<Slot>> partitionEqualSlotPair =
-                        calEqualSet((SlotReference) partitionSlotToCheck, join);
+                        calEqualSet((SlotReference) partitionSlotToCheck, join, context);
                 if (!partitionEqualSlotPair.value().isEmpty()) {
                     context.getShuttledEqualSlotSet().add(partitionEqualSlotPair.value());
                 }
@@ -259,6 +260,9 @@ public class PartitionIncrementMaintainer {
             // check join type and partition column side
             Set<Slot> leftColumnSet = join.child(0).getOutputSet();
             Set<NamedExpression> namedExpressions = new HashSet<>(context.getPartitionAndRefExpressionMap().keySet());
+            boolean needVisitJoinChildren = false;
+            boolean needCollectInvalidRight = false;
+            boolean needCollectInvalidLeft = false;
             for (NamedExpression partitionSlotToCheck : namedExpressions) {
                 if (!(partitionSlotToCheck instanceof SlotReference)) {
                     continue;
@@ -266,21 +270,30 @@ public class PartitionIncrementMaintainer {
                 boolean useLeft = leftColumnSet.contains(partitionSlotToCheck);
                 JoinType joinType = join.getJoinType();
                 if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
-                    visit(join, context);
+                    needVisitJoinChildren = true;
                 } else if ((joinType.isLeftJoin()
                         || joinType.isLeftSemiJoin()
                         || joinType.isLeftAntiJoin()) && useLeft) {
-                    context.collectInvalidTableSet(join.right());
-                    visit(join, context);
+                    needCollectInvalidRight = true;
+                    needVisitJoinChildren = true;
                 } else if ((joinType.isRightJoin()
                         || joinType.isRightAntiJoin()
                         || joinType.isRightSemiJoin()) && !useLeft) {
-                    context.collectInvalidTableSet(join.left());
-                    visit(join, context);
+                    needCollectInvalidLeft = true;
+                    needVisitJoinChildren = true;
                 } else {
                     context.addFailReason(String.format("partition column is in un supported join null generate side, "
                             + "current join type is %s, partitionSlot is %s", joinType, partitionSlotToCheck));
                 }
+            }
+            if (needCollectInvalidRight) {
+                context.collectInvalidTableSet(join.right());
+            }
+            if (needCollectInvalidLeft) {
+                context.collectInvalidTableSet(join.left());
+            }
+            if (needVisitJoinChildren) {
+                visit(join, context);
             }
             return null;
         }
@@ -526,31 +539,24 @@ public class PartitionIncrementMaintainer {
          */
         private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
                 PartitionIncrementCheckContext context) {
-            Set<Entry<NamedExpression, RelatedTableColumnInfo>> partitionAndExprEntrySet
-                    = new HashSet<>(context.getPartitionAndRefExpressionMap().entrySet());
+            List<Entry<NamedExpression, RelatedTableColumnInfo>> partitionAndExprEntryList
+                    = new ArrayList<>(context.getPartitionAndRefExpressionMap().entrySet());
+            List<Expression> partitionExpressions = new ArrayList<>(partitionAndExprEntryList.size());
+            for (Entry<NamedExpression, RelatedTableColumnInfo> entry : partitionAndExprEntryList) {
+                partitionExpressions.add(entry.getValue().getPartitionExpression().orElse(entry.getKey()));
+            }
+            List<? extends Expression> partitionExpressionActualList =
+                    context.shuttleAndNormalizeExpressionWithLineage(partitionExpressions, context.getOriginalPlan());
+            List<? extends Expression> expressionsShuttledToCheck =
+                    context.shuttleAndNormalizeExpressionWithLineage(expressionsToCheck, context.getOriginalPlan());
             boolean checked = false;
-            for (Map.Entry<NamedExpression, RelatedTableColumnInfo> partitionExpressionEntry
-                    : partitionAndExprEntrySet) {
-                NamedExpression partitionNamedExpression = partitionExpressionEntry.getKey();
+            for (int i = 0; i < partitionAndExprEntryList.size(); i++) {
+                Map.Entry<NamedExpression, RelatedTableColumnInfo> partitionExpressionEntry =
+                        partitionAndExprEntryList.get(i);
                 RelatedTableColumnInfo partitionTableColumnInfo = partitionExpressionEntry.getValue();
-                Optional<Expression> partitionExpressionOpt = partitionTableColumnInfo.getPartitionExpression();
-                Expression partitionExpressionActual = partitionExpressionOpt
-                        .map(expr -> ExpressionUtils.shuttleExpressionWithLineage(expr,
-                                context.getOriginalPlan()))
-                        .orElseGet(() -> ExpressionUtils.shuttleExpressionWithLineage(partitionNamedExpression,
-                                context.getOriginalPlan()));
-                // merge date_trunc
-                partitionExpressionActual = new ExpressionNormalization().rewrite(partitionExpressionActual,
-                        new ExpressionRewriteContext(context.getCascadesContext()));
+                Expression partitionExpressionActual = partitionExpressionActualList.get(i);
                 OUTER_CHECK:
-                for (Expression projectSlotToCheck : expressionsToCheck) {
-                    Expression expressionShuttledToCheck =
-                            ExpressionUtils.shuttleExpressionWithLineage(projectSlotToCheck,
-                                    context.getOriginalPlan());
-                    // merge date_trunc
-                    expressionShuttledToCheck = new ExpressionNormalization().rewrite(expressionShuttledToCheck,
-                            new ExpressionRewriteContext(context.getCascadesContext()));
-
+                for (Expression expressionShuttledToCheck : expressionsShuttledToCheck) {
                     Set<SlotReference> expressionToCheckSlots =
                             expressionShuttledToCheck.collectToSet(SlotReference.class::isInstance);
                     Set<SlotReference> partitionColumnSlots =
@@ -668,6 +674,8 @@ public class PartitionIncrementMaintainer {
      * The context used in IncrementChecker
      */
     public static final class PartitionIncrementCheckContext {
+        private static final ExpressionNormalization EXPRESSION_NORMALIZATION = new ExpressionNormalization();
+
         // This is used to record partition slot, and the value of map is ref date expression and bool value which
         // identify it's original partition or not, the key of map is the namedExpression to check
         private final Map<NamedExpression, RelatedTableColumnInfo> partitionAndRefExpressionMap
@@ -683,8 +691,15 @@ public class PartitionIncrementMaintainer {
         private final Set<Set<Slot>> shuttledEqualSlotSet = new HashSet<>();
         private final Map<CTEId, Plan> producerCteIdToPlanMap;
         private final Plan originalPlan;
+        // Cache lineage-visible named expressions per plan identity to avoid repeated full plan walks.
+        private final Map<Plan, List<NamedExpression>> planLineageExpressionIndexes = new IdentityHashMap<>();
+        // Reuse the rewrite context because all normalization in this checker shares the same CascadesContext.
+        private final ExpressionRewriteContext expressionRewriteContext;
         private boolean failFast = false;
 
+        /**
+         * Construct partition increment check context.
+         */
         public PartitionIncrementCheckContext(NamedExpression mvPartitionColumn,
                 Expression mvPartitionExpression, Map<CTEId, Plan> producerCteIdToPlanMap,
                 Plan originalPlan,
@@ -694,6 +709,7 @@ public class PartitionIncrementMaintainer {
             this.cascadesContext = cascadesContext;
             this.producerCteIdToPlanMap = producerCteIdToPlanMap;
             this.originalPlan = originalPlan;
+            this.expressionRewriteContext = new ExpressionRewriteContext(cascadesContext);
         }
 
         public Set<String> getFailReasons() {
@@ -743,6 +759,51 @@ public class PartitionIncrementMaintainer {
             return originalPlan;
         }
 
+        private Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
+            return shuttleExpressionWithLineage(ImmutableList.of(expression), plan).get(0);
+        }
+
+        private List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
+                Plan plan) {
+            if (expressions.isEmpty()) {
+                return ImmutableList.of();
+            }
+            ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                    new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
+            for (NamedExpression namedExpression : getLineageExpressionIndex(plan)) {
+                if (!replaceContext.getUsedExprIdSet().contains(namedExpression.getExprId())) {
+                    continue;
+                }
+                namedExpression.accept(ExpressionLineageReplacer.NamedExpressionCollector.INSTANCE, replaceContext);
+            }
+            return replaceContext.getReplacedExpressions();
+        }
+
+        private List<? extends Expression> shuttleAndNormalizeExpressionWithLineage(
+                Collection<? extends Expression> expressions, Plan plan) {
+            if (expressions.isEmpty()) {
+                return ImmutableList.of();
+            }
+            List<? extends Expression> shuttledExpressions =
+                    shuttleExpressionWithLineage(ImmutableList.copyOf(expressions), plan);
+            List<Expression> normalizedExpressions = new ArrayList<>(shuttledExpressions.size());
+            for (Expression expression : shuttledExpressions) {
+                normalizedExpressions.add(EXPRESSION_NORMALIZATION.rewrite(expression, expressionRewriteContext));
+            }
+            return normalizedExpressions;
+        }
+
+        private List<NamedExpression> getLineageExpressionIndex(Plan plan) {
+            List<NamedExpression> lineageExpressionIndex = planLineageExpressionIndexes.get(plan);
+            if (lineageExpressionIndex == null) {
+                List<NamedExpression> collectedIndex = new ArrayList<>();
+                plan.accept(LineageExpressionCollector.INSTANCE, collectedIndex);
+                lineageExpressionIndex = collectedIndex;
+                planLineageExpressionIndexes.put(plan, lineageExpressionIndex);
+            }
+            return lineageExpressionIndex;
+        }
+
         /**
          * collect invalid table set to check self join
          */
@@ -769,6 +830,25 @@ public class PartitionIncrementMaintainer {
                     return null;
                 }
             }, this.shouldFailCatalogRelation);
+        }
+    }
+
+    private static final class LineageExpressionCollector extends DefaultPlanVisitor<Void, List<NamedExpression>> {
+        private static final LineageExpressionCollector INSTANCE = new LineageExpressionCollector();
+
+        @Override
+        public Void visitGroupPlan(GroupPlan groupPlan, List<NamedExpression> lineageExpressionIndex) {
+            return null;
+        }
+
+        @Override
+        public Void visit(Plan plan, List<NamedExpression> lineageExpressionIndex) {
+            for (Expression expression : plan.getExpressions()) {
+                if (expression instanceof NamedExpression) {
+                    lineageExpressionIndex.add((NamedExpression) expression);
+                }
+            }
+            return super.visit(plan, lineageExpressionIndex);
         }
     }
 
@@ -816,7 +896,8 @@ public class PartitionIncrementMaintainer {
      * the value equal set contain the slot itself
      */
     private static Pair<Set<Slot>, Set<Slot>> calEqualSet(Slot slot,
-            LogicalJoin<? extends Plan, ? extends Plan> join) {
+            LogicalJoin<? extends Plan, ? extends Plan> join,
+            PartitionIncrementCheckContext context) {
         Set<Slot> partitionEqualSlotSet = new HashSet<>();
         JoinType joinType = join.getJoinType();
         if (joinType.isInnerJoin() || joinType.isSemiJoin()) {
@@ -829,7 +910,7 @@ public class PartitionIncrementMaintainer {
         }
         List<Expression> extendedPartitionEqualSlotSet = new ArrayList<>(partitionEqualSlotSet);
         extendedPartitionEqualSlotSet.add(slot);
-        List<? extends Expression> shuttledEqualExpressions = ExpressionUtils.shuttleExpressionWithLineage(
+        List<? extends Expression> shuttledEqualExpressions = context.shuttleExpressionWithLineage(
                 extendedPartitionEqualSlotSet, join);
         for (Expression shuttledEqualExpression : shuttledEqualExpressions) {
             Set<Slot> objects = shuttledEqualExpression.collectToSet(expr -> expr instanceof SlotReference);
