@@ -417,6 +417,9 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
     size_t limit = 10;
     static_cast<void>(buffer.flush());
     static_cast<void>(buffer.seek_to_begin());
+    EXPECT_FALSE(buffer.is_source_exhausted(0));
+    EXPECT_FALSE(buffer.is_source_exhausted(1));
+    EXPECT_FALSE(buffer.is_source_exhausted(2));
 
     int idx = -1;
     while (buffer.has_remaining().ok()) {
@@ -427,7 +430,12 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
         auto same = buffer.same_source_count(cur, limit);
         EXPECT_EQ(same, 2);
         buffer.advance(same);
+        EXPECT_TRUE(buffer.is_source_exhausted(cur));
     }
+    static_cast<void>(buffer.seek_to_begin());
+    EXPECT_FALSE(buffer.is_source_exhausted(0));
+    EXPECT_FALSE(buffer.is_source_exhausted(1));
+    EXPECT_FALSE(buffer.is_source_exhausted(2));
 
     RowSourcesBuffer buffer1(101, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
     EXPECT_TRUE(buffer1.append(tmp_row_source).ok());
@@ -528,6 +536,9 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBufferSpillThreshold) {
         ++read_back;
     }
     EXPECT_EQ(read_back, expected_total);
+    for (uint16_t source = 0; source < 8; ++source) {
+        EXPECT_TRUE(buffer.is_source_exhausted(source));
+    }
 }
 
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
@@ -903,9 +914,9 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyNonOverlappingSegmentContextRetentio
     ASSERT_TRUE(st.ok()) << st;
 
     EXPECT_EQ(0, vertical_compaction_active_segment_contexts());
-    EXPECT_EQ(total_segments, vertical_compaction_active_segment_contexts_peak());
+    EXPECT_EQ(num_input_rowsets, vertical_compaction_active_segment_contexts_peak());
     EXPECT_EQ("0", bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
-    EXPECT_EQ(std::to_string(total_segments),
+    EXPECT_EQ(std::to_string(num_input_rowsets),
               bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts_peak"));
     EXPECT_EQ(total_rows, stats.output_rows);
     EXPECT_EQ(0, stats.merged_rows);
@@ -1044,7 +1055,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         }
 
         ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
-        ASSERT_EQ(total_segments, vertical_compaction_active_segment_contexts_peak());
+        ASSERT_EQ(num_input_rowsets, vertical_compaction_active_segment_contexts_peak());
         ASSERT_EQ(total_rows, stats.output_rows);
         ASSERT_EQ(0, stats.merged_rows);
         ASSERT_EQ(0, stats.filtered_rows);
@@ -1053,6 +1064,31 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         ASSERT_EQ(Status::OK(), output_rs_writer->build(output_rowset));
         ASSERT_TRUE(output_rowset);
         ASSERT_EQ(total_rows, output_rowset->num_rows());
+
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = tablet_schema;
+        reader_context.need_ordered_result = false;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        reader_context.return_columns = &return_columns;
+        RowsetReaderSharedPtr output_rs_reader;
+        create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_rs_reader);
+
+        int64_t expected_key = 0;
+        Status read_status;
+        do {
+            Block output_block = tablet_schema->create_block();
+            read_status = output_rs_reader->next_batch(&output_block);
+            const auto& output_columns = output_block.get_columns_with_type_and_name();
+            ASSERT_EQ(3, output_columns.size());
+            for (size_t row = 0; row < output_block.rows(); ++row) {
+                ASSERT_EQ(expected_key, output_columns[0].column->get_int(row));
+                ASSERT_EQ(payload, output_columns[1].column->get_data_at(row).to_string());
+                ASSERT_EQ(0, output_columns[2].column->get_int(row));
+                ++expected_key;
+            }
+        } while (read_status.ok());
+        ASSERT_TRUE(read_status.is<END_OF_FILE>()) << read_status;
+        ASSERT_EQ(total_rows, expected_key);
 
         observations.push_back({vertical_compaction_active_segment_contexts_peak(), memory_peak});
     };
@@ -1071,9 +1107,14 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
               << ", low_segments_memory_peak=" << low_segment_case.memory_peak
               << ", high_segments_context_peak=" << high_segment_case.context_peak
               << ", high_segments_memory_peak=" << high_segment_case.memory_peak;
-    EXPECT_EQ(100, low_segment_case.context_peak);
-    EXPECT_EQ(500, high_segment_case.context_peak);
-    EXPECT_GT(high_segment_case.memory_peak, low_segment_case.memory_peak + 16 * 1024 * 1024);
+    EXPECT_EQ(num_input_rowsets, low_segment_case.context_peak);
+    EXPECT_EQ(num_input_rowsets, high_segment_case.context_peak);
+    EXPECT_GT(low_segment_case.memory_peak, 0);
+    EXPECT_GT(high_segment_case.memory_peak, 0);
+    auto memory_peak_delta = low_segment_case.memory_peak > high_segment_case.memory_peak
+                                     ? low_segment_case.memory_peak - high_segment_case.memory_peak
+                                     : high_segment_case.memory_peak - low_segment_case.memory_peak;
+    EXPECT_LT(memory_peak_delta, 2 * 1024 * 1024);
 }
 
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {

@@ -107,11 +107,16 @@ public:
     void advance(int64_t step = 1) {
         DCHECK(_buf_idx + step <= _buffer.size());
         _buf_idx += step;
+        _read_index += step;
     }
 
     uint64_t buf_idx() const { return _buf_idx; }
     uint64_t total_size() const { return _total_size; }
     uint64_t buffered_size() { return _buffer.size(); }
+    bool is_source_exhausted(uint16_t source) const {
+        DCHECK(source < _last_source_positions.size());
+        return _read_index > _last_source_positions[source];
+    }
     void set_agg_flag(uint64_t index, bool agg);
     bool get_agg_flag(uint64_t index);
 
@@ -147,6 +152,8 @@ private:
     int _fd = -1;
     PaddedPODArray<UInt16> _buffer;
     uint64_t _total_size = 0;
+    uint64_t _read_index = 0;
+    std::vector<uint64_t> _last_source_positions;
 };
 
 // --------------- VerticalMergeIteratorContext ------------- //
@@ -236,6 +243,10 @@ public:
     Block* block() const { return _block.get(); }
 
     const std::shared_ptr<Block>& block_ptr() const { return _block; }
+
+    // No later row source references this context. The returned IteratorRowRef/RowBatch keeps
+    // its own shared_ptr<Block>, so the segment reader and context-owned blocks can be released.
+    void release_resources();
 
 private:
     // Load next block into _block
@@ -440,6 +451,7 @@ private:
     int64_t _get_size(Block* block) { return block->rows(); }
 
     Status check_all_iter_finished();
+    void release_context_if_source_exhausted(uint16_t order);
 
     // released after build ctx
     std::vector<RowwiseIteratorUPtr> _origin_iters;

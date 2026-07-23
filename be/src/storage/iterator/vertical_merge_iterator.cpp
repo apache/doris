@@ -138,8 +138,14 @@ Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
             _reset_buffer();
         }
     }
+    uint64_t source_position = _total_size;
     for (const auto& source : row_sources) {
         _buffer.push_back(source.data());
+        auto source_num = source.get_source_num();
+        if (source_num >= _last_source_positions.size()) {
+            _last_source_positions.resize(source_num + 1);
+        }
+        _last_source_positions[source_num] = source_position++;
     }
     _total_size += row_sources.size();
     return Status::OK();
@@ -147,6 +153,7 @@ Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
 
 Status RowSourcesBuffer::seek_to_begin() {
     _buf_idx = 0;
+    _read_index = 0;
     if (_fd > 0) {
         auto offset = lseek(_fd, 0, SEEK_SET);
         if (offset != 0) {
@@ -330,6 +337,11 @@ Status RowSourcesBuffer::_deserialize() {
 
 // ----------  vertical merge iterator context ----------//
 VerticalMergeIteratorContext::~VerticalMergeIteratorContext() {
+    release_resources();
+}
+
+void VerticalMergeIteratorContext::release_resources() {
+    _valid = false;
     _iter.reset();
     _block.reset();
     _block_list.clear();
@@ -807,6 +819,13 @@ Status VerticalMaskMergeIterator::check_all_iter_finished() {
     }
     return Status::OK();
 }
+
+void VerticalMaskMergeIterator::release_context_if_source_exhausted(uint16_t order) {
+    if (_row_sources_buf->is_source_exhausted(order)) {
+        _origin_iter_ctx[order]->release_resources();
+    }
+}
+
 Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
     DCHECK(_row_sources_buf);
     auto st = _row_sources_buf->has_remaining();
@@ -835,6 +854,7 @@ Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
 
         ctx->set_is_first_row(false);
         _row_sources_buf->advance();
+        release_context_if_source_exhausted(order);
         return Status::OK();
     }
     RETURN_IF_ERROR(ctx->advance());
@@ -845,6 +865,7 @@ Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
     }
 
     _row_sources_buf->advance();
+    release_context_if_source_exhausted(order);
     return Status::OK();
 }
 
@@ -868,14 +889,18 @@ Status VerticalMaskMergeIterator::unique_key_next_row(IteratorRowRef* ref) {
             ctx->set_cur_row_ref(ref);
             ctx->set_is_first_row(false);
             _row_sources_buf->advance();
+            release_context_if_source_exhausted(order);
             return Status::OK();
         }
         RETURN_IF_ERROR(ctx->advance());
-        _row_sources_buf->advance();
         if (!row_source.agg_flag()) {
             ctx->set_cur_row_ref(ref);
+            _row_sources_buf->advance();
+            release_context_if_source_exhausted(order);
             return Status::OK();
         }
+        _row_sources_buf->advance();
+        release_context_if_source_exhausted(order);
         _filtered_rows++;
         st = _row_sources_buf->has_remaining();
     }
@@ -933,6 +958,7 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
         // If current row has agg_flag=true, skip it (single row)
         if (row_source.agg_flag()) {
             _row_sources_buf->advance();
+            release_context_if_source_exhausted(order);
             _filtered_rows++;
             continue;
         }
@@ -971,6 +997,7 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
         }
 
         *actual_rows += run_count;
+        release_context_if_source_exhausted(order);
     }
 
     // Save the last batch
