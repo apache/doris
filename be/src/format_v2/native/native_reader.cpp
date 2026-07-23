@@ -29,6 +29,7 @@
 #include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
 #include "io/fs/tracing_file_reader.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/slice.h"
 
@@ -54,7 +55,26 @@ NativeReader::~NativeReader() {
     static_cast<void>(close());
 }
 
+void NativeReader::_init_profile() {
+    if (_profile == nullptr) {
+        return;
+    }
+    file_scan_profile::ensure_hierarchy(_profile);
+    static const char* native_profile = "NativeReader";
+    _total_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, native_profile, file_scan_profile::FILE_READER, 1);
+    _read_block_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "NativeReadBlockTime", native_profile, 1);
+    _deserialize_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "NativeDeserializeTime", native_profile, 1);
+    _materialize_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "NativeMaterializeTime", native_profile, 1);
+    _filter_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "NativeFilterTime", native_profile, 1);
+}
+
 Status NativeReader::init(RuntimeState* state) {
+    _init_profile();
+    SCOPED_TIMER(_total_time);
     _runtime_state = state;
     if (_file_description == nullptr) {
         return Status::InvalidArgument("Native v2 reader requires file description");
@@ -65,6 +85,7 @@ Status NativeReader::init(RuntimeState* state) {
 }
 
 Status NativeReader::get_schema(std::vector<ColumnDefinition>* file_schema) const {
+    SCOPED_TIMER(_total_time);
     if (file_schema == nullptr) {
         return Status::InvalidArgument("Native v2 file_schema is null");
     }
@@ -79,6 +100,7 @@ std::unique_ptr<TableColumnMapper> NativeReader::create_column_mapper(
 }
 
 Status NativeReader::open(std::shared_ptr<FileScanRequest> request) {
+    SCOPED_TIMER(_total_time);
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
     DORIS_CHECK(_request != nullptr);
     _first_block_consumed = false;
@@ -88,6 +110,7 @@ Status NativeReader::open(std::shared_ptr<FileScanRequest> request) {
 }
 
 Status NativeReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_total_time);
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -108,6 +131,7 @@ Status NativeReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     if (_first_block_loaded && !_first_block_consumed) {
         buffer = _first_block_buffer;
     } else {
+        SCOPED_TIMER(_read_block_time);
         RETURN_IF_ERROR(_read_next_pblock(&buffer, &local_eof));
     }
 
@@ -131,11 +155,20 @@ Status NativeReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     Block source_block;
     size_t uncompressed_bytes = 0;
     int64_t decompress_time = 0;
-    RETURN_IF_ERROR(source_block.deserialize(pblock, &uncompressed_bytes, &decompress_time));
-    RETURN_IF_ERROR(_materialize_requested_columns(source_block, file_block));
+    {
+        SCOPED_TIMER(_deserialize_time);
+        RETURN_IF_ERROR(source_block.deserialize(pblock, &uncompressed_bytes, &decompress_time));
+    }
+    {
+        SCOPED_TIMER(_materialize_time);
+        RETURN_IF_ERROR(_materialize_requested_columns(source_block, file_block));
+    }
     *rows = file_block->rows();
     _record_scan_rows(cast_set<int64_t>(*rows));
-    RETURN_IF_ERROR(_apply_filters(file_block, rows));
+    {
+        SCOPED_TIMER(_filter_time);
+        RETURN_IF_ERROR(_apply_filters(file_block, rows));
+    }
 
     if (_first_block_loaded && !_first_block_consumed) {
         _first_block_consumed = true;
@@ -149,6 +182,7 @@ Status NativeReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 }
 
 Status NativeReader::close() {
+    SCOPED_TIMER(_total_time);
     _file_reader.reset();
     _tracing_file_reader.reset();
     _request.reset();

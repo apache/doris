@@ -52,6 +52,7 @@
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -708,6 +709,18 @@ Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
             column, view,
             Status::NotSupported("read_column_from_decoded_values is not supported for {}",
                                  get_name()));
+}
+
+Status DataTypeSerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                               const ParquetDecodeContext& context,
+                                               size_t num_values,
+                                               ParquetMaterializationState& state) const {
+    return Status::NotSupported("read_column_from_parquet is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                              const ParquetDecodeContext& context) const {
+    return Status::NotSupported("read_parquet_dictionary is not supported for {}", get_name());
 }
 
 Status DataTypeSerDe::read_column_from_orc(IColumn& column,

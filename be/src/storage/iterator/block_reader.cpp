@@ -295,6 +295,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
                                                      binlog::STREAM_CHANGE_INSERT));
                 } else {
+                    // insert should use most recent value
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
                 }
@@ -307,9 +308,14 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
                                                      binlog::STREAM_CHANGE_DELETE));
-                } else {
+                } else if (idx == _binlog_lsn_pos || idx == _binlog_tso_pos) {
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
+                } else {
+                    // delete should use first op value
+                    int source_idx = _resolve_source_column_index(idx, true);
+                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[source_idx],
+                                                                0);
                 }
             }
             output_row_count++;
@@ -320,9 +326,6 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
                                                      binlog::STREAM_CHANGE_UPDATE_BEFORE));
-                } else if (idx == _binlog_lsn_pos) {
-                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
-                                                                group_size - 1);
                 } else {
                     int source_idx = _resolve_source_column_index(idx, true);
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[source_idx],
@@ -411,7 +414,7 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
             output_row_count++;
         } else if (op == ROW_BINLOG_DELETE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               binlog::STREAM_CHANGE_DELETE, false));
+                                               binlog::STREAM_CHANGE_DELETE, true));
             output_row_count++;
         }
 

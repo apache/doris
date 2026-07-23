@@ -2721,8 +2721,11 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
-                                               1);
+            // Copy into a real element first: for std::vector<bool>, `value` is a
+            // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
+            // rather than a real pointer. Use the container's value_type.
+            typename std::decay_t<decltype(values)>::value_type v = value;
+            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -3500,8 +3503,11 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
-                                               1);
+            // Copy into a real element first: for std::vector<bool>, `value` is a
+            // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
+            // rather than a real pointer. Use the container's value_type.
+            typename std::decay_t<decltype(values)>::value_type v = value;
+            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 

@@ -39,6 +39,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
@@ -61,9 +62,13 @@ public class ColumnDefinition {
     private boolean isKey;
     private AggregateType aggType;
     private boolean isNullable;
+    // Distinguishes an explicit NULL/NOT NULL clause from the parser's default nullability.
+    private final boolean nullableSpecified;
     private Optional<DefaultValue> defaultValue;
     private Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
     private final String comment;
+    // Distinguishes an explicit COMMENT '' clause from an omitted COMMENT clause.
+    private final boolean commentSpecified;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
     private long autoIncInitValue = -1;
@@ -83,7 +88,7 @@ public class ColumnDefinition {
             Optional<DefaultValue> onUpdateDefaultValue, String comment,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
         this(name, type, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
-                comment, true, generatedColumnDesc);
+                comment, comment != null && !comment.isEmpty(), true, generatedColumnDesc);
     }
 
     /**
@@ -96,8 +101,10 @@ public class ColumnDefinition {
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
+        this.nullableSpecified = true;
         this.defaultValue = defaultValue;
         this.comment = comment;
+        this.commentSpecified = comment != null && !comment.isEmpty();
         this.isVisible = isVisible;
     }
 
@@ -112,10 +119,12 @@ public class ColumnDefinition {
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
+        this.nullableSpecified = true;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
+        this.commentSpecified = comment != null && !comment.isEmpty();
         this.isVisible = isVisible;
     }
 
@@ -126,15 +135,30 @@ public class ColumnDefinition {
             ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
+        this(name, type, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
+                comment, comment != null && !comment.isEmpty(), isVisible, generatedColumnDesc);
+    }
+
+    /**
+     * constructor
+     */
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+            ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean commentSpecified,
+            boolean isVisible,
+            Optional<GeneratedColumnDesc> generatedColumnDesc) {
         this.name = name;
         this.type = type;
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = nullableType.getNullable(type.toCatalogDataType().getPrimitiveType());
+        this.nullableSpecified = nullableType == ColumnNullableType.NULLABLE
+                || nullableType == ColumnNullableType.NOT_NULLABLE;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
         this.comment = comment;
+        this.commentSpecified = commentSpecified;
         this.isVisible = isVisible;
         this.generatedColumnDesc = generatedColumnDesc;
     }
@@ -183,6 +207,10 @@ public class ColumnDefinition {
         return defaultValue.isPresent();
     }
 
+    public boolean hasOnUpdateDefaultValue() {
+        return onUpdateDefaultValue.isPresent();
+    }
+
     public boolean isVisible() {
         return isVisible;
     }
@@ -203,23 +231,40 @@ public class ColumnDefinition {
         return SqlUtils.escapeQuota(comment);
     }
 
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     /**
      * toSql
      */
     public String toSql() {
+        return toSql("`" + name + "`", true);
+    }
+
+    /**
+     * Convert this column definition to schema-change SQL with a caller-provided column name.
+     * Unlike {@link #toSql()}, this overload emits COMMENT only when it was explicitly specified.
+     */
+    public String toSql(String columnNameSql) {
+        return toSql(columnNameSql, commentSpecified);
+    }
+
+    private String toSql(String columnNameSql, boolean includeComment) {
         StringBuilder sb = new StringBuilder();
-        sb.append("`").append(name).append("` ");
+        sb.append(columnNameSql).append(" ");
         sb.append(type.toSql()).append(" ");
 
         if (aggType != null && aggType != AggregateType.NONE) {
             sb.append(aggType.name()).append(" ");
         }
 
-        if (!isNullable) {
-            sb.append("NOT NULL ");
-        } else {
-            // should append NULL to make result can be executed right.
-            sb.append("NULL ");
+        if (nullableSpecified) {
+            if (!isNullable) {
+                sb.append("NOT NULL ");
+            } else {
+                sb.append("NULL ");
+            }
         }
 
         if (autoIncInitValue != -1) {
@@ -247,7 +292,9 @@ public class ColumnDefinition {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
         }
-        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
+        if (includeComment) {
+            sb.append("COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(getComment()));
+        }
 
         return sb.toString();
     }
@@ -306,10 +353,25 @@ public class ColumnDefinition {
      */
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+    }
+
+    /**
+     * Validate a nested field whose name is scoped by its parent path rather than the Doris top-level column namespace.
+     */
+    public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true);
+    }
+
+    private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
-            if (enableAddHiddenColumn) {
+            if (nestedColumn) {
+                FeNameFormat.checkColumnNameBypassSystemColumnPrefix(name);
+            } else if (enableAddHiddenColumn) {
                 FeNameFormat.checkColumnNameBypassHiddenColumn(name);
             } else {
                 FeNameFormat.checkColumnName(name);
@@ -428,18 +490,8 @@ public class ColumnDefinition {
                 .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
             throw new AnalysisException("Array type column default value only support null or "
                     + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
-        } else if (type.isMapType()) {
-            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Map type column default value just support null");
-            }
-        } else if (type.isStructType()) {
-            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Struct type column default value just support null");
-            }
-        } else if (type.isJsonType() || type.isVariantType()) {
-            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Json or Variant type column default value just support null");
-            }
+        } else {
+            validateComplexTypeDefaultValue();
         }
 
         if (!isNullable && defaultValue.isPresent()
@@ -522,6 +574,22 @@ public class ColumnDefinition {
     }
 
     /**
+     * Validate non-null defaults for complex types before connector-specific validation.
+     */
+    public void validateComplexTypeDefaultValue() throws AnalysisException {
+        if (!defaultValue.isPresent() || defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
+            return;
+        }
+        if (type.isMapType()) {
+            throw new AnalysisException("Map type column default value just support null");
+        } else if (type.isStructType()) {
+            throw new AnalysisException("Struct type column default value just support null");
+        } else if (type.isJsonType() || type.isVariantType()) {
+            throw new AnalysisException("Json or Variant type column default value just support null");
+        }
+    }
+
+    /**
      * translate to catalog create table stmt
      */
     public Column translateToCatalogStyle() {
@@ -554,6 +622,8 @@ public class ColumnDefinition {
                 generatedColumnDesc.map(desc ->
                         ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
                         .orElse(null));
+        column.setNullableSpecified(nullableSpecified);
+        column.setCommentSpecified(commentSpecified);
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

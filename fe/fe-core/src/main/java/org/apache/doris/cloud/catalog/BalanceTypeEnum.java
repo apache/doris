@@ -64,6 +64,7 @@ public enum BalanceTypeEnum {
      */
     public static BalanceTypeEnum getCloudWarmUpForRebalanceTypeEnum() {
         return fromString(Config.cloud_warm_up_for_rebalance_type) == null
-            ? ComputeGroup.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM : fromString(Config.cloud_warm_up_for_rebalance_type);
+            ? CloudComputeGroupMeta.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
+            : fromString(Config.cloud_warm_up_for_rebalance_type);
     }
 }

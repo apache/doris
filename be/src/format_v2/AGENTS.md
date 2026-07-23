@@ -108,6 +108,107 @@ instructions as well; this file adds format-v2-specific review expectations.
 - For JNI readers, review local/global reference lifetime, exception propagation, type conversion,
   thread attachment assumptions, and cleanup on partial initialization.
 
+### Parquet Native Decode Kernel
+
+- Keep new production integration under `be/src/format_v2/parquet/`. Doris v1 is the behavior and
+  performance baseline, but v2 owns an independent page/encoding reader and must not call the v1
+  `ParquetColumnReader`. Do not modify `be/src/format/parquet/` for a v2 decoder change. Reimplement
+  the required behavior under the v2 tree and keep v1 unchanged so differential correctness and
+  performance results remain meaningful.
+- Keep the native decode boundary independent of both Arrow descriptors/builders and table-schema
+  objects. A Column Chunk schema contract should contain only immutable physical type, fixed width,
+  and Dremel-level thresholds. Review constructor arguments and stored references for ownership and
+  lifetime; metadata owned by a temporary schema adapter must not escape into a persistent reader.
+- Treat selection positions as logical Row Group rows, including null rows. Selection indices must
+  be sorted, unique, and bounded by the batch's logical row count. Dense identity, empty selection,
+  and fragmented selection must have explicit representations and tests; do not silently mix row
+  ordinals with non-null value ordinals or dictionary IDs.
+- Verify the three decode counts separately: logical rows consumed, encoded non-null payload values
+  consumed, and output values materialized. Null and filtered-null runs consume no payload;
+  selected and filtered non-null runs both consume payload. Every page transition, skip, error, and
+  end-of-batch path must leave all three cursors aligned for the next call.
+- A flat scalar fast path may run only when `max_repetition_level == 0`. Repeated leaves require a
+  definition/repetition-level plan that identifies parent-row boundaries, empty and null
+  collections, null ancestors, and rows spanning pages. Choose one physical leaf as the parent
+  shape owner; sibling leaf streams advance over the same parent-row range and validate their
+  payload counts instead of independently redefining the parent shape.
+- The old Arrow value-reader hierarchy (`ParquetLeafBatch`, scalar/list/map/struct readers, and the
+  nested load/build/consume protocol) has been removed. Do not reintroduce an intermediate decoded
+  batch or a stateful load-before-build phase. Ordinary predicate/output scans construct
+  `NativeColumnReader`, consume compressed page data through the native decoder, and append directly
+  into the final Doris column.
+- Keep logical schema changes distinct from physical decoding. The native reader materializes the
+  projected file type only; `ColumnMapper` and `TableReader` own every file-to-table cast. A type
+  mismatch at the native reader boundary is an invariant violation, not a reason to create a
+  reader-local conversion path or expose a decoder-owned value batch.
+- `CountColumnReader` uses the v2 native `LevelReader`; it selects one representative leaf (the key
+  for MAP) and advances only definition/repetition levels. It exposes no value API and must not be
+  reused as a scan reader or expanded into a fallback path.
+- Build ARRAY/MAP/STRUCT parent boundaries, offsets, nulls, and child payload spans in one traversal
+  of the owning leaf's levels. For example, `[[1, 2], NULL, []]` must yield entry counts
+  `[2, 0, 0]` and parent nulls `[0, 1, 0]` without rescanning that leaf. MAP key levels own entry
+  existence; value levels validate against that shape. STRUCT siblings validate parent-row
+  alignment. If every projected STRUCT child is missing, consume only a retained physical leaf's
+  levels and never materialize its payload into a temporary Doris column.
+- Do not size level or selection scratch from a 16-bit batch-row assumption. A repeated parent row
+  can contain more level entries than the requested parent-row batch. Split large runs without
+  changing alternation or row-boundary semantics, and check overflow before narrowing counts.
+- Decoder dispatch must reject an incompatible physical type, encoding, or type length explicitly.
+  Review PLAIN, dictionary/RLE, DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY,
+  DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, BOOLEAN RLE, and level RLE/bit-packed paths for identical
+  selection and malformed-input behavior. Page V1 and V2 must feed the same decoder contract after
+  their different level/decompression layouts are parsed.
+- Keep every index coordinate domain explicit: table-local column ID, physical leaf-column ID,
+  Row Group ID, data-page ordinal, OffsetIndex row ordinal, logical batch-row ordinal, non-null
+  payload ordinal, and dictionary-entry ID are different types of identity. Data-page ordinals must
+  exclude dictionary pages consistently. Dictionary-entry bitmaps are local to one Column Chunk
+  dictionary and cannot be reused after a Row Group, dictionary, or encoding transition.
+- Review index composition, not only each index in isolation. Row Group statistics, dictionary,
+  Bloom, ColumnIndex/OffsetIndex, page cache registration, page skip plans, SelectionVector, and
+  lazy column cursors must describe the same surviving logical rows. Missing or unusable optional
+  indexes retain candidates; structurally inconsistent indexes or out-of-range IDs return an
+  explicit corruption error. A mixed dictionary/plain Column Chunk must leave dictionary-ID
+  filtering before any cursor is consumed.
+- Decoder owns encoded-stream parsing and cursor movement only. `DataTypeSerDe` owns Parquet
+  physical/logical interpretation and writes directly into Doris columns. Dictionary pages are
+  materialized once through the same SerDe and data pages expose only validated dictionary indices.
+  Decimal and FIXED_LEN_BYTE_ARRAY paths must validate byte width, endianness, sign extension,
+  precision, and scale. Date/time and INT96 conversion must preserve timezone and overflow semantics.
+- Do not add an Arrow runtime fallback. Once an ordinary v2 scan selects its native Parquet reader,
+  unsupported physical types, encodings, page layouts, or malformed inputs return an explicit
+  status. Arrow may be used by metadata planning and as a test oracle; no Arrow array, builder,
+  RecordReader, or metadata lifetime belongs in data-page value or level materialization.
+- Reuse decoder, SerDe, null-map, selection-range, binary-value, level, and builder scratch across
+  batches. String-like decoders should gather selected `StringRef` values and append once per batch,
+  rather than allocate or grow the destination once per run. Scratch capacity may grow to a bounded
+  high-water mark but must be reset logically between pages, Row Groups, files, and errors.
+- Adaptive batch sizing must measure completed Doris output rows/bytes and must not recreate native
+  readers, builders, or scratch when only the row cap changes. Compare the v1 and v2 lifecycle:
+  probe batches must not turn persistent setup into a per-batch cost or amplify highly fragmented
+  selection work.
+- Footer and metadata caching must key on stable file identity and cache the serialized footer plus
+  parsed native metadata at the same lifecycle as v1. Never reuse metadata when path, file size,
+  modification/version identity, encryption state, or schema-affecting options differ. Cache misses
+  and uncacheable identities must remain correct without a fallback to stale entries.
+- Page-cache behavior must match v1 for cache key, stable file identity, registered byte range,
+  compressed/decompressed entry kind, checksum/decompression ownership, subrange coverage,
+  invalidation, admission, and fallback I/O. Any intentional difference needs benchmark and memory
+  evidence showing it is no worse for v1 workloads. Cache lookup must never alter page ordinal,
+  decoder, level, or dictionary cursor state.
+- Apply v1's MergeRange decision to the native data-page reader, after metadata/dictionary probes
+  finish. Predicate and lazy readers for one Row Group must share one ordered-range wrapper, and
+  native per-column prefetch must be disabled while that wrapper is active. Never allocate one
+  MergeRange buffer per leaf; wide complex projections would multiply its bounded scratch memory.
+- Preserve observability inside aggregate counters. `TotalBatches` must be decomposable into probe,
+  dense, selected, empty, page-crossing, and nested/fragmented work where relevant; decode, level,
+  selection, conversion, allocation, and materialization time must remain attributable without
+  adding per-row timer overhead.
+- Profile index attempts, successes, conservative fallbacks, and corrupt rejections separately for
+  statistics, dictionary, Bloom, ColumnIndex/OffsetIndex, and page skipping. Footer/page/file/
+  condition-cache counters must expose requests, hits, misses, writes/admissions, bytes, wait/I/O
+  time, and bypass reasons with semantics aligned to v1. A lower total timer without its internal
+  work counters is not sufficient observability.
+
 ## Detailed FileReader Review Guides
 
 - Before reviewing any FileReader implementation, index, predicate path, cache, or virtual column,
@@ -174,6 +275,15 @@ instructions as well; this file adds format-v2-specific review expectations.
   malformed input.
 - For bug fixes, require a test that fails for the original reachable path and validates the result,
   row count, or explicit error after the fix.
+- For native Parquet work, require a matrix across physical/logical types, every supported encoding,
+  Page V1/V2, required/optional/repeated levels, dictionary fallback, page and batch boundaries,
+  dense/empty/fragmented selections, null placement, malformed/truncated input, and files from
+  representative external writers. Include focused cursor-invariant tests and end-to-end nested
+  reconstruction tests; a scalar happy-path benchmark is not sufficient coverage.
+- Performance-sensitive decoder changes need a reproducible comparison against v1 and a relevant
+  external baseline such as DuckDB. Report data shape, encoding, selectivity, null/cardinality
+  distribution, compression, storage path, batch policy, warm/cold cache state, CPU time, rows/s,
+  bytes/s, allocation behavior, and Profile counter deltas.
 
 ## Review Output
 

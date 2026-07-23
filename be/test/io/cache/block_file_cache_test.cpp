@@ -5935,7 +5935,7 @@ TEST_F(BlockFileCacheTest, test_align_size) {
     std::random_device rd;  // a seed source for the random number engine
     std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
     std::uniform_int_distribution<> distrib(0, 10_mb + 10086);
-    std::ranges::for_each(std::ranges::iota_view {0, 1000}, [&](int) {
+    for (int loop_i = 0; loop_i < 1000; ++loop_i) {
         size_t read_size = distrib(gen) % 1_mb;
         size_t read_offset = distrib(gen);
         auto [offset, size] =
@@ -5943,7 +5943,7 @@ TEST_F(BlockFileCacheTest, test_align_size) {
         EXPECT_EQ(offset % 1_mb, 0);
         EXPECT_GE(size, 1_mb);
         EXPECT_LE(size, 2_mb);
-    });
+    }
 }
 
 TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
@@ -6045,7 +6045,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
         std::random_device rd;  // a seed source for the random number engine
         std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
         std::uniform_int_distribution<> distrib(1_mb, 7_mb);
-        std::ranges::for_each(std::ranges::iota_view {0, 1000}, [&](int) {
+        for (int loop_i = 0; loop_i < 1000; ++loop_i) {
             size_t read_offset = distrib(gen);
             size_t read_size = distrib(gen) % 1_mb;
             if (read_offset + read_size > 7_mb || read_size == 0) {
@@ -6069,7 +6069,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
             } else {
                 EXPECT_EQ(std::string(read_size, '0' + num), buffer);
             }
-        });
+        }
     }
     {
         FileReaderSPtr local_reader;
