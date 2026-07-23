@@ -116,6 +116,7 @@ private:
                                         const VExprSPtrs& conjuncts, int column_id,
                                         IColumn* projected_column, IColumn::Filter* row_filter,
                                         int64_t* rows_read, bool* used_filter);
+    void release_batch_scratch_if_needed();
     int64_t sync_native_profile();
     void record_page_fragments(int64_t page_fragments);
     Status validate_selected_span(int64_t rows);

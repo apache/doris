@@ -19,8 +19,10 @@
 
 #include <gen_cpp/parquet_types.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -74,7 +76,7 @@ Status validate_uncompressed_page_sizes(const tparquet::PageHeader& header,
 Status validate_fixed_width_page_size(const tparquet::PageHeader& header, int32_t type_length,
                                       level_t max_rep_level, level_t max_def_level,
                                       bool schema_is_required = true);
-Status validate_dictionary_page_size(const tparquet::PageHeader& header);
+Status validate_dictionary_page_size(const tparquet::PageHeader& header, int32_t type_length = -1);
 
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;
@@ -219,11 +221,19 @@ public:
         // Level decoders may batch-convert unsigned RLE values into Doris' signed level_t.
         _rep_level_decoder.release_scratch(max_retained_bytes);
         _def_level_decoder.release_scratch(max_retained_bytes);
-        // The decompression allocation is reusable scratch too, but page decoders may still point
-        // into it. Reclaim it only after the current page has stopped using that storage.
-        if (_decompress_buf_size > max_retained_bytes && !_page_uses_decompress_buf) {
-            _decompress_buf.reset();
-            _decompress_buf_size = 0;
+        if (_decompress_buf_size > max_retained_bytes) {
+            if (_page_uses_decompress_buf) {
+                // Keep the request until the page boundary because decoders still point into this
+                // allocation; dropping it now would trade retained memory for a use-after-free.
+                _decompress_release_pending = true;
+                _decompress_release_threshold =
+                        std::min(_decompress_release_threshold, max_retained_bytes);
+            } else {
+                _decompress_buf.reset();
+                _decompress_buf_size = 0;
+                _decompress_release_pending = false;
+                _decompress_release_threshold = std::numeric_limits<size_t>::max();
+            }
         }
     }
 
@@ -239,8 +249,7 @@ public:
     size_t active_decoder_scratch_bytes() const {
         // Only the current encoding is active. Old decoder instances retain reusable capacity but
         // must not make the high-water policy treat their last batch as current working memory.
-        const size_t active_decompress_bytes = _page_uses_decompress_buf ? _decompress_buf_size : 0;
-        return active_decompress_bytes +
+        return _active_decompress_bytes +
                (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
                _rep_level_decoder.active_scratch_bytes() +
                _def_level_decoder.active_scratch_bytes();
@@ -380,6 +389,9 @@ private:
     DorisUniqueBufferPtr<uint8_t> _decompress_buf;
     size_t _decompress_buf_size = 0;
     bool _page_uses_decompress_buf = false;
+    size_t _active_decompress_bytes = 0;
+    bool _decompress_release_pending = false;
+    size_t _decompress_release_threshold = std::numeric_limits<size_t>::max();
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
     bool _dict_checked = false;

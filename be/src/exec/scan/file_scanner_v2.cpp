@@ -1066,7 +1066,9 @@ Status FileScannerV2::close(RuntimeState* state) {
 void FileScannerV2::try_stop() {
     Scanner::try_stop();
     if (_io_ctx) {
-        _io_ctx->should_stop = true;
+        // Blocking remote readers need an edge-triggered signal; the legacy bool alone is only
+        // observable after the current I/O call returns.
+        _io_ctx->request_stop();
     }
 }
 

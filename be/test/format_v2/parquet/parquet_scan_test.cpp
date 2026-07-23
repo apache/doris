@@ -1638,6 +1638,48 @@ TEST_F(ParquetScanTest, ProjectedDeltaBinaryPackedUsesFixedWidthFilterAndProject
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
 }
 
+TEST_F(ParquetScanTest, PlainPredicateDirectPathCrossesScratchProbeCadence) {
+    constexpr int64_t ROWS = 32;
+    std::vector<int32_t> ids(ROWS);
+    std::vector<int32_t> scores(ROWS);
+    std::iota(ids.begin(), ids.end(), 1);
+    std::iota(scores.begin(), scores.end(), 10);
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids), build_int32_array(scores)});
+    write_table(_file_path, table, ROWS, false, false, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> file_schema;
+    ASSERT_TRUE(reader->get_schema(&file_schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(file_schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, ROWS);
+    // Direct predicate evaluation must survive multiple 16-batch scratch probes; otherwise this
+    // path can retain a previous outlier for the whole row group without ever aging its capacity.
+    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), ROWS);
+}
+
 TEST_F(ParquetScanTest, PredicateOnlyUint32FallsBackBeforeRawPlainDecode) {
     write_uint32_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");

@@ -68,31 +68,39 @@ Status build_native_schema_node(const DataTypePtr& projected_type,
             return Status::Corruption("Parquet column {} is not a STRUCT", file_schema.name);
         }
         const auto* struct_type = assert_cast<const DataTypeStruct*>(type.get());
-        std::map<std::string, const ParquetColumnSchema*> file_children;
-        for (const auto& child : file_schema.children) {
-            const auto [_, inserted] = file_children.emplace(to_lower(child->name), child.get());
-            if (UNLIKELY(!inserted)) {
-                // Case-insensitive projection has no field-id input at this layer, so choosing one
-                // of two case-distinct siblings would silently bind the other physical column.
-                return Status::Corruption(
-                        "Parquet STRUCT {} has ambiguous case-insensitive child name {}",
-                        file_schema.name, child->name);
-            }
-        }
         auto node = std::make_shared<NativeStructSchemaNode>();
         for (size_t i = 0; i < struct_type->get_elements().size(); ++i) {
             const auto& table_name = struct_type->get_element_name(i);
-            // Native metadata keeps writer casing. Match normalized names while preserving the
-            // original file name used to address the physical child reader.
-            const auto child_it = file_children.find(to_lower(table_name));
-            if (child_it == file_children.end()) {
+            const ParquetColumnSchema* file_child = nullptr;
+            for (const auto& child : file_schema.children) {
+                if (child->name == table_name) {
+                    file_child = child.get();
+                    break;
+                }
+            }
+            if (file_child == nullptr) {
+                for (const auto& child : file_schema.children) {
+                    if (to_lower(child->name) != to_lower(table_name)) {
+                        continue;
+                    }
+                    if (UNLIKELY(file_child != nullptr)) {
+                        // Exact writer identity is authoritative; normalized fallback is only safe
+                        // when the requested field has one physical candidate.
+                        return Status::Corruption(
+                                "Parquet STRUCT {} has ambiguous case-insensitive child name {}",
+                                file_schema.name, table_name);
+                    }
+                    file_child = child.get();
+                }
+            }
+            if (file_child == nullptr) {
                 node->add_missing_child(table_name);
                 continue;
             }
             std::shared_ptr<NativeSchemaNode> child_node;
-            RETURN_IF_ERROR(build_native_schema_node(struct_type->get_element(i), *child_it->second,
+            RETURN_IF_ERROR(build_native_schema_node(struct_type->get_element(i), *file_child,
                                                      &child_node));
-            node->add_child(table_name, child_it->second->name, std::move(child_node));
+            node->add_child(table_name, file_child->name, std::move(child_node));
         }
         *result = std::move(node);
         return Status::OK();

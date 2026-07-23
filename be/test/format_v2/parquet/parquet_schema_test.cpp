@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "format_v2/parquet/native_schema_desc.h"
@@ -606,13 +607,13 @@ TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingM
     }
 }
 
-TEST(ParquetSchemaTest, NativeProjectionRejectsCaseAmbiguousStructChildren) {
+TEST(ParquetSchemaTest, NativeProjectionUsesResolvedIdentityBeforeCaseInsensitiveFallback) {
     tparquet::SchemaElement root;
     root.__set_name("schema");
     root.__set_num_children(1);
     tparquet::SchemaElement group;
     group.__set_name("s");
-    group.__set_num_children(2);
+    group.__set_num_children(3);
     group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
     tparquet::SchemaElement upper;
     upper.__set_name("Value");
@@ -622,15 +623,32 @@ TEST(ParquetSchemaTest, NativeProjectionRejectsCaseAmbiguousStructChildren) {
     tparquet::SchemaElement lower = upper;
     lower.__set_name("value");
     lower.__set_field_id(2);
+    tparquet::SchemaElement other = upper;
+    other.__set_name("other");
+    other.__set_field_id(3);
 
     NativeFieldDescriptor descriptor;
-    ASSERT_TRUE(descriptor.parse_from_thrift({root, group, upper, lower}).ok());
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, group, upper, lower, other}).ok());
     descriptor.assign_ids();
     std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
     ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
     std::shared_ptr<NativeSchemaNode> mapping;
-    EXPECT_TRUE(build_native_schema_node(fields[0]->type, *fields[0], &mapping)
-                        .is<ErrorCode::CORRUPTION>());
+    auto other_only = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"other"}));
+    ASSERT_TRUE(build_native_schema_node(other_only, *fields[0], &mapping).ok());
+    EXPECT_TRUE(mapping->has_child("other"));
+
+    auto exact_case = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"Value"}));
+    ASSERT_TRUE(build_native_schema_node(exact_case, *fields[0], &mapping).ok());
+    EXPECT_EQ(mapping->file_child_name("Value"), "Value");
+
+    auto ambiguous_fallback = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"VALUE"}));
+    const auto status = build_native_schema_node(ambiguous_fallback, *fields[0], &mapping);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 
 TEST(ParquetSchemaTest, NativeSetMapKeyValueWrapperRemainsSingleListElement) {

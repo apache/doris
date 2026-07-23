@@ -22,7 +22,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -41,7 +43,9 @@
 #include "format_v2/materialized_reader_util.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/timezone_utils.h"
 
 namespace doris::format::remote_doris {
@@ -83,34 +87,77 @@ public:
         arrow::flight::Ticket ticket;
         RETURN_DORIS_STATUS_IF_ERROR(
                 arrow::flight::Ticket::Deserialize(params.ticket).Value(&ticket));
+        struct PendingOpen {
+            std::mutex mutex;
+            std::condition_variable cv;
+            bool done = false;
+            arrow::Status status = arrow::Status::OK();
+            std::unique_ptr<arrow::flight::FlightClient> client;
+            std::unique_ptr<arrow::flight::FlightStreamReader> stream;
+        };
+        auto pending = std::make_shared<PendingOpen>();
         RETURN_DORIS_STATUS_IF_ERROR(
-                arrow::flight::FlightClient::Connect(location).Value(&_flight_client));
+                arrow::flight::FlightClient::Connect(location).Value(&pending->client));
         arrow::flight::FlightCallOptions options;
         // A Flight deadline covers streaming reads as well as DoGet setup, so a stalled Next()
         // cannot outlive the query execution timeout indefinitely.
         options.timeout = std::chrono::seconds(_timeout_seconds);
-        options.stop_token = _stop_source.token();
-        RETURN_DORIS_STATUS_IF_ERROR(_flight_client->DoGet(options, ticket).Value(&_stream));
-        _cancellation_watcher = std::jthread([this](std::stop_token stop_token) {
-            while (!stop_token.stop_requested()) {
-                if (_runtime_state != nullptr && _runtime_state->is_cancelled()) {
-                    // Next() runs in the scanner thread. A separate watcher is required to signal
-                    // Arrow while that thread is blocked inside the streaming RPC.
-                    _stop_source.RequestStop();
-                    _stream->Cancel();
-                    return;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        // Start before DoGet because endpoint setup is itself a blocking RPC covered by the same
+        // query/scanner cancellation contract as streaming Next().
+        _cancellation_watcher = std::jthread(
+                [this](std::stop_token stop_token) { _watch_cancellation(stop_token); });
+
+        std::thread do_get_thread([pending, options, ticket] {
+            SCOPED_INIT_THREAD_CONTEXT();
+            std::unique_ptr<arrow::flight::FlightStreamReader> stream;
+            auto status = pending->client->DoGet(options, ticket).Value(&stream);
+            {
+                std::lock_guard lock(pending->mutex);
+                pending->status = std::move(status);
+                pending->stream = std::move(stream);
+                pending->done = true;
             }
+            pending->cv.notify_all();
         });
+        bool cancelled_during_open = false;
+        {
+            std::unique_lock lock(pending->mutex);
+            while (!pending->done && !_is_cancelled()) {
+                pending->cv.wait_for(lock, std::chrono::milliseconds(25));
+            }
+            cancelled_during_open = !pending->done;
+        }
+        if (cancelled_during_open) {
+            // Arrow 17 exposes no cancellable handle until DoGet returns. Detaching the bounded RPC
+            // keeps query/scanner shutdown prompt while the call is still capped by its deadline;
+            // the shared state owns all Arrow objects until that worker exits.
+            do_get_thread.detach();
+            _stop_cancellation_watcher();
+            return Status::Cancelled("Remote Doris Flight open was cancelled");
+        }
+        do_get_thread.join();
+        if (!pending->status.ok()) {
+            _stop_cancellation_watcher();
+            RETURN_DORIS_STATUS_IF_ERROR(pending->status);
+        }
+        {
+            std::lock_guard lock(_flight_mutex);
+            _flight_client = std::move(pending->client);
+            _stream = std::move(pending->stream);
+        }
+        if (_is_cancelled()) {
+            _cancel_flight_call();
+            _stop_cancellation_watcher();
+            return Status::Cancelled("Remote Doris Flight open was cancelled");
+        }
         return Status::OK();
     }
 
     Status next(std::shared_ptr<arrow::RecordBatch>* batch) override {
         DORIS_CHECK(batch != nullptr);
-        if (_io_ctx != nullptr && _io_ctx->should_stop) {
-            _stop_source.RequestStop();
-            _stream->Cancel();
+        if (_io_ctx != nullptr &&
+            (_io_ctx->should_stop || _io_ctx->stop_token().stop_requested())) {
+            _cancel_flight_call();
             return Status::Cancelled("Remote Doris Flight read was cancelled");
         }
         arrow::flight::FlightStreamChunk chunk;
@@ -120,13 +167,12 @@ public:
     }
 
     Status close() override {
-        if (_cancellation_watcher.joinable()) {
-            _cancellation_watcher.request_stop();
-            _cancellation_watcher.join();
-        }
-        _stop_source.RequestStop();
-        if (_stream != nullptr) {
-            _stream->Cancel();
+        _stop_cancellation_watcher();
+        {
+            std::lock_guard lock(_flight_mutex);
+            if (_stream != nullptr) {
+                _stream->Cancel();
+            }
         }
         _stream.reset();
         if (_flight_client != nullptr) {
@@ -137,12 +183,63 @@ public:
     }
 
 private:
+    bool _is_cancelled() const {
+        return (_runtime_state != nullptr && _runtime_state->is_cancelled()) ||
+               (_io_ctx != nullptr && _io_ctx->stop_token().stop_requested());
+    }
+
+    void _cancel_flight_call() {
+        std::lock_guard lock(_flight_mutex);
+        if (_stream != nullptr) {
+            _stream->Cancel();
+        }
+    }
+
+    void _watch_cancellation_loop(std::stop_token watcher_stop_token) {
+        const std::stop_token io_stop_token =
+                _io_ctx == nullptr ? std::stop_token {} : _io_ctx->stop_token();
+        std::stop_callback io_stop_callback(io_stop_token, [this] { _watcher_cv.notify_all(); });
+        std::unique_lock lock(_watcher_mutex);
+        while (!watcher_stop_token.stop_requested()) {
+            if (_is_cancelled()) {
+                _cancel_flight_call();
+                return;
+            }
+            _watcher_cv.wait_for(lock, watcher_stop_token, std::chrono::milliseconds(25),
+                                 [this] { return _is_cancelled(); });
+        }
+    }
+
+    void _watch_cancellation(std::stop_token watcher_stop_token) {
+        if (_runtime_state != nullptr && _runtime_state->get_query_ctx() != nullptr &&
+            _runtime_state->get_query_ctx()->resource_ctx() != nullptr) {
+            // The watcher is query-owned and may allocate in Arrow while signalling cancellation.
+            SCOPED_ATTACH_TASK(_runtime_state);
+            _watch_cancellation_loop(watcher_stop_token);
+            return;
+        }
+        // Metadata/tests can construct a RuntimeState without a QueryContext; initialize TLS there
+        // instead of violating AttachTask's non-null resource-context invariant.
+        SCOPED_INIT_THREAD_CONTEXT();
+        _watch_cancellation_loop(watcher_stop_token);
+    }
+
+    void _stop_cancellation_watcher() {
+        if (_cancellation_watcher.joinable()) {
+            _cancellation_watcher.request_stop();
+            _watcher_cv.notify_all();
+            _cancellation_watcher.join();
+        }
+    }
+
     const TFileRangeDesc _range;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     int _timeout_seconds;
-    arrow::StopSource _stop_source;
+    std::mutex _watcher_mutex;
+    std::condition_variable_any _watcher_cv;
     std::jthread _cancellation_watcher;
+    std::mutex _flight_mutex;
     std::unique_ptr<arrow::flight::FlightClient> _flight_client;
     std::unique_ptr<arrow::flight::FlightStreamReader> _stream;
 };
