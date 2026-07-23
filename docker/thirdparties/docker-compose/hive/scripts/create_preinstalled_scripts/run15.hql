@@ -1,3 +1,4 @@
+drop table if exists t_hive;
 create table t_hive (
   `k1` int,
   `k2` char(10),

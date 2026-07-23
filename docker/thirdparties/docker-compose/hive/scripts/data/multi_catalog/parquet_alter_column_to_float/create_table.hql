@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_float`(
+drop table if exists `multi_catalog.parquet_alter_column_to_float`;
+
+create table `multi_catalog.parquet_alter_column_to_float`(
   `col_int` float, 
   `col_smallint` float, 
   `col_tinyint` float, 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697270277', 
   'transient_lastDdlTime'='1697270277');
-
-msck repair table parquet_alter_column_to_float;
