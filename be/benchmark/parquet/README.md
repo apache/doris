@@ -36,13 +36,14 @@ be/output/lib/benchmark_test \
 
 ## Local reader cases
 
-`ParquetReader` measures local open-to-first-block, full scan, predicate scan, and LIMIT-shaped
-reads. The matrix covers:
+`ParquetReader` measures local open-to-first-block, full scan, predicate scan, complex residual
+scan, and LIMIT-shaped reads. The matrix covers:
 
 - PLAIN, dictionary, byte-stream-split, and DELTA binary-packed files;
 - NULL ratios of 0%, 1%, 10%, 50%, and 90%, with clustered and alternating placement;
 - predicate selectivities of 0%, 1%, 10%, 50%, 90%, and 100%;
 - predicate-only and predicate-plus-lazy-projected reads;
+- ordered complex residuals whose later columns are reachable only after an earlier residual;
 - schemas with 4, 32, 128, and 512 columns, with the predicate first or last.
 
 Fixtures are created lazily under the system temporary directory in
@@ -56,6 +57,16 @@ be/output/lib/benchmark_test \
   --benchmark_min_time=0.1s \
   --benchmark_out=parquet-reader.json \
   --benchmark_out_format=json
+```
+
+The complex-residual case uses a compound `AND` with two two-column children. The first preserves
+the requested selectivity; the second references two new columns and accepts every row that
+reaches it:
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetReader/complex_residual_scan/plain/null_10/alternating/sel_10/' \
+  --benchmark_min_time=1s
 ```
 
 Every result reports throughput plus `raw_rows`, `selected_rows`, `fixture_bytes`, `ns/raw_row`,

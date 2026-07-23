@@ -39,6 +39,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/file_reader.h"
@@ -267,9 +268,71 @@ private:
     const std::string _expr_name = "ParquetBenchmarkInt32LessThan";
 };
 
+class Int32PairSumLessThanExpr final : public VExpr {
+public:
+    Int32PairSumLessThanExpr(int left_column_id, int right_column_id, int32_t upper_bound)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _left_column_id(left_column_id),
+              _right_column_id(right_column_id),
+              _upper_bound(upper_bound) {}
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& left =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_left_column_id).column);
+        const auto& right = assert_cast<const ColumnNullable&>(
+                *block->get_by_position(_right_column_id).column);
+        const auto& left_values = assert_cast<const ColumnInt32&>(left.get_nested_column());
+        const auto& right_values = assert_cast<const ColumnInt32&>(right.get_nested_column());
+        auto result = ColumnUInt8::create(count, 0);
+        auto& matches = result->get_data();
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            matches[row] =
+                    !left.is_null_at(input_row) && !right.is_null_at(input_row) &&
+                    left_values.get_element(input_row) + right_values.get_element(input_row) <
+                            _upper_bound;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    bool is_constant() const override { return false; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_left_column_id);
+        column_ids.insert(_right_column_id);
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _left_column_id;
+    const int _right_column_id;
+    const int32_t _upper_bound;
+    const std::string _expr_name = "ParquetBenchmarkInt32PairSumLessThan";
+};
+
 inline VExprContextSPtr make_predicate(int column_position, int selectivity_percent) {
     auto context = VExprContext::create_shared(
             std::make_shared<Int32LessThanExpr>(column_position, selectivity_percent));
+    context->_prepared = true;
+    context->_opened = true;
+    return context;
+}
+
+inline VExprContextSPtr make_complex_residual_predicate(int selectivity_percent) {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    node.__set_opcode(TExprOpcode::COMPOUND_AND);
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_num_children(2);
+    node.__set_is_nullable(false);
+    auto compound = VCompoundPred::create_shared(node);
+    compound->add_child(std::make_shared<Int32PairSumLessThanExpr>(0, 1, 2 * selectivity_percent));
+    compound->add_child(std::make_shared<Int32PairSumLessThanExpr>(2, 3, 200));
+    auto context = VExprContext::create_shared(std::move(compound));
     context->_prepared = true;
     context->_opened = true;
     return context;
@@ -324,6 +387,17 @@ inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& p
         const auto predicate_position = session->request->local_positions.at(predicate_id).value();
         session->request->conjuncts.push_back(
                 make_predicate(static_cast<int>(predicate_position), scenario.selectivity_percent));
+    } else if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
+        DORIS_CHECK(scenario.schema_width >= 5);
+        for (int column = 0; column < 4; ++column) {
+            const auto predicate_id = format::LocalColumnId(column);
+            throw_if_error(request_builder.add_predicate_column(predicate_id));
+            session->request->predicate_only_columns.push_back(predicate_id);
+        }
+        throw_if_error(request_builder.add_non_predicate_column(
+                format::LocalColumnId(scenario.schema_width - 1)));
+        session->request->conjuncts.push_back(
+                make_complex_residual_predicate(scenario.selectivity_percent));
     } else {
         throw_if_error(request_builder.add_non_predicate_column(format::LocalColumnId(0)));
         if (scenario.schema_width > 1) {
@@ -382,6 +456,9 @@ inline int projected_columns(const ReaderScenario& scenario) {
     if (scenario.operation == ReaderOperation::PREDICATE_SCAN &&
         scenario.projection == Projection::PREDICATE_ONLY) {
         return 1;
+    }
+    if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
+        return 5;
     }
     return std::min(2, scenario.schema_width);
 }

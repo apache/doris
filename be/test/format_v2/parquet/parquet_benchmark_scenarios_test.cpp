@@ -86,7 +86,8 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
     const auto scenarios = reader_scenarios();
     for (const auto operation :
          {ReaderOperation::OPEN_TO_FIRST_BLOCK, ReaderOperation::FULL_SCAN,
-          ReaderOperation::PREDICATE_SCAN, ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
+          ReaderOperation::PREDICATE_SCAN, ReaderOperation::COMPLEX_RESIDUAL_SCAN,
+          ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
         EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
             return scenario.operation == operation;
         }));
@@ -107,6 +108,15 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
             }));
         }
     }
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversComplexResidualLazyMaterialization) {
+    const auto scenarios = reader_scenarios();
+    EXPECT_TRUE(std::ranges::any_of(scenarios, [](const ReaderScenario& scenario) {
+        return scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN &&
+               scenario.encoding == Encoding::PLAIN && scenario.selectivity_percent == 10 &&
+               scenario.schema_width == 32;
+    }));
 }
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversFixedWidthRawFilterAxes) {
