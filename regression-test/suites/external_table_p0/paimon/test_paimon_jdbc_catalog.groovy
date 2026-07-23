@@ -63,6 +63,8 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     String localDriverPath = "${localDriverDir}/${driverName}"
     String sparkDriverPath = "/tmp/${driverName}"
     String sparkSeedCatalogName = "${catalogName}_seed"
+    // Reuse the fixture-wide Docker command so local and CI permission models behave identically.
+    String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
 
@@ -90,25 +92,63 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     }
 
     executeCommand("mkdir -p ${localDriverDir}", false, 60)
-    executeCommand("mkdir -p ${jdbcDriversDir}", true, 60)
     if (!new File(localDriverPath).exists()) {
         executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true, 660)
     }
-    executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true, 60)
 
-    String sparkContainerName = executeCommand("docker ps --filter name=spark-iceberg --format {{.Names}}", false, 30)
+    def clusterHostIps = new ArrayList()
+    String[][] backends = sql """show backends"""
+    for (def backend in backends) {
+        clusterHostIps.add(backend[1])
+    }
+    String[][] frontends = sql """show frontends"""
+    for (def frontend in frontends) {
+        clusterHostIps.add(frontend[1])
+    }
+    clusterHostIps = clusterHostIps.unique()
+
+    Set<String> localHostIps = ["127.0.0.1", "localhost", "::1"] as Set
+    java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces()).each { networkInterface ->
+        java.util.Collections.list(networkInterface.getInetAddresses()).each { address ->
+            localHostIps.add(address.getHostAddress().split("%")[0])
+        }
+    }
+    localHostIps.add(java.net.InetAddress.getLocalHost().getHostName())
+    localHostIps.add(java.net.InetAddress.getLocalHost().getCanonicalHostName())
+
+    for (def hostIp in clusterHostIps) {
+        // Scenario: every FE/BE receives the JDBC driver so metadata failover and distributed
+        // scan scheduling do not depend on a driver installed only on the regression runner.
+        if (localHostIps.contains(hostIp)) {
+            executeCommand("mkdir -p ${jdbcDriversDir}", true, 60)
+            executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true, 60)
+        } else {
+            executeCommand(
+                    "ssh -o BatchMode=yes -o StrictHostKeyChecking=no root@${hostIp} \"mkdir -p ${jdbcDriversDir}\"",
+                    true,
+                    60
+            )
+            scpFiles("root", hostIp, localDriverPath, jdbcDriversDir, false)
+        }
+    }
+
+    String sparkContainerName = executeCommand(
+            "${dockerCommand} ps --filter name=spark-iceberg --format {{.Names}}",
+            false,
+            30
+    )
             ?.trim()
     if (sparkContainerName == null || sparkContainerName.isEmpty()) {
         logger.info("spark-iceberg container not found, skip this test")
         return
     }
-    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true, 60)
+    executeCommand("${dockerCommand} cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true, 60)
 
     String sparkMinioEndpoint = "http://${externalEnvIp}:${minioPort}"
     if (sparkContainerName.contains("spark-iceberg")) {
         String sparkMinioContainerName = sparkContainerName.replaceFirst("spark-iceberg", "minio")
         String resolvedSparkMinioContainer = executeCommand(
-                "docker ps --filter name=${sparkMinioContainerName} --format {{.Names}}",
+                "${dockerCommand} ps --filter name=${sparkMinioContainerName} --format {{.Names}}",
                 false,
                 30
         )?.trim()
@@ -121,7 +161,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 
     def sparkPaimonJdbc = { String sqlText ->
         String escapedSql = sqlText.replaceAll('"', '\\\\"')
-        String command = """docker exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
+        String command = """${dockerCommand} exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
 --jars ${sparkDriverPath} \
 --driver-class-path ${sparkDriverPath} \
 --conf spark.driver.extraClassPath=${sparkDriverPath} \
@@ -224,6 +264,43 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         def rowCount = sql """SELECT COUNT(*) FROM paimon_jdbc_tbl"""
         assertEquals(1, rowCount.size())
         assertEquals("2", rowCount[0][0].toString())
+
+        // Scenario TC09-JDBC: Paimon JDBC catalog preserves the old snapshot schema after rename.
+        String jdbcOldSnapshot = sql("""
+            select snapshot_id
+            from paimon_jdbc_tbl\$snapshots
+            order by snapshot_id desc
+            limit 1
+        """)[0][0].toString()
+        sparkPaimonJdbc """
+            CALL ${sparkSeedCatalogName}.sys.create_tag(
+                table => '${dbName}.paimon_jdbc_tbl',
+                tag => 'jdbc_before_rename',
+                snapshot => ${jdbcOldSnapshot}
+            )
+        """
+        sparkPaimonJdbc """
+            ALTER TABLE ${sparkSeedCatalogName}.${dbName}.paimon_jdbc_tbl
+                RENAME COLUMN name TO jdbc_renamed_name
+        """
+        sql """REFRESH TABLE paimon_jdbc_tbl"""
+        assertEquals([[1, "alice"], [2, "bob"]], sql("""
+            select id, name
+            from paimon_jdbc_tbl for version as of ${jdbcOldSnapshot}
+            order by id
+        """))
+        assertEquals([[1, "alice"], [2, "bob"]], sql("""
+            select id, name
+            from paimon_jdbc_tbl@tag(jdbc_before_rename)
+            order by id
+        """))
+        assertEquals([[1, "alice"], [2, "bob"]], sql("""
+            select id, jdbc_renamed_name from paimon_jdbc_tbl order by id
+        """))
+        test {
+            sql """select name from paimon_jdbc_tbl"""
+            exception "Unknown column 'name'"
+        }
 
         assertSystemTableReadable("paimon_jdbc_tbl\$schemas", ["schema_id"], 1)
         assertSystemTableReadable("paimon_jdbc_tbl\$snapshots", ["snapshot_id"], 1)
