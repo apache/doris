@@ -158,9 +158,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testContextRejectsNulls() {
         MTMV mtmv = mockMtmv();
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(null, new ConnectContext(), null));
+                () -> new IvmRefreshContext(null, new ConnectContext(), null, false));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(mtmv, null, null));
+                () -> new IvmRefreshContext(mtmv, null, null, false));
         Assertions.assertTrue(new IvmRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult(), true)
                 .isIncludeExhaustedStreams());
     }
