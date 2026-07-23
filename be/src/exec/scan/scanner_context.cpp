@@ -623,6 +623,15 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
     }
 
+    // Once the shared LIMIT is exhausted and no completed or in-flight task can make progress,
+    // finish the context instead of opening pending scanners only to let them report EOS.
+    if (_is_shared_scan_limit_exhausted() && _completed_tasks.empty() &&
+        _in_flight_tasks_num == 0) {
+        _is_finished = true;
+        _set_scanner_done();
+        return Status::OK();
+    }
+
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
 
     int32_t margin = _get_margin(transfer_lock, scheduler_lock);
@@ -741,9 +750,9 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
-        // Do not submit more pending scanners after the shared LIMIT is exhausted while
-        // completed or in-flight tasks can still make progress. If neither exists, allow pending
-        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        // After the shared LIMIT is exhausted, wait for completed or in-flight tasks instead of
+        // submitting pending scanners. The no-progress case is finished at the beginning of
+        // schedule_scan_task().
         if (_is_shared_scan_limit_exhausted() &&
             (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;
