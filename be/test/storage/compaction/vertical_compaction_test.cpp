@@ -884,48 +884,63 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyNonOverlappingSegmentContextRetentio
 
     TabletSchemaSPtr tablet_schema = create_schema(UNIQUE_KEYS);
     std::vector<RowsetSharedPtr> input_rowsets;
-    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (uint32_t rowset_id = 0; rowset_id < num_input_rowsets; ++rowset_id) {
         auto rowset =
                 create_rowset(tablet_schema, NONOVERLAPPING, input_data[rowset_id], rowset_id);
         ASSERT_FALSE(rowset->rowset_meta()->is_segments_overlapping());
         ASSERT_EQ(num_segments_per_rowset, rowset->num_segments());
         input_rowsets.push_back(rowset);
-
-        RowsetReaderSharedPtr rs_reader;
-        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
-        input_rs_readers.push_back(std::move(rs_reader));
     }
 
-    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX,
-                                                       {0, input_rowsets.back()->end_version()});
-    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto output_rs_writer = std::move(res).value();
-
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
-    ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
-    ASSERT_TRUE(reset_vertical_compaction_active_segment_contexts_peak().ok());
+    auto run_case = [&](double sparse_threshold) {
+        config::sparse_column_compaction_threshold_percent = sparse_threshold;
+        tablet->compaction_density.store(1.0);
 
-    Merger::Statistics stats;
-    auto st = Merger::vertical_merge_rowsets(
-            tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema, input_rs_readers,
-            output_rs_writer.get(), UINT32_MAX, total_segments, &stats);
-    ASSERT_TRUE(st.ok()) << st;
+        std::vector<RowsetReaderSharedPtr> input_rs_readers;
+        for (const auto& rowset : input_rowsets) {
+            RowsetReaderSharedPtr rs_reader;
+            ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+            input_rs_readers.push_back(std::move(rs_reader));
+        }
 
-    EXPECT_EQ(0, vertical_compaction_active_segment_contexts());
-    EXPECT_EQ(num_input_rowsets, vertical_compaction_active_segment_contexts_peak());
-    EXPECT_EQ("0", bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
-    EXPECT_EQ(std::to_string(num_input_rowsets),
-              bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts_peak"));
-    EXPECT_EQ(total_rows, stats.output_rows);
-    EXPECT_EQ(0, stats.merged_rows);
-    EXPECT_EQ(0, stats.filtered_rows);
+        auto writer_context =
+                create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX,
+                                             {0, input_rowsets.back()->end_version()});
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        ASSERT_TRUE(res.has_value()) << res.error();
+        auto output_rs_writer = std::move(res).value();
 
-    RowsetSharedPtr output_rowset;
-    ASSERT_EQ(Status::OK(), output_rs_writer->build(output_rowset));
-    ASSERT_TRUE(output_rowset);
-    EXPECT_EQ(total_rows, output_rowset->num_rows());
+        ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
+        ASSERT_TRUE(reset_vertical_compaction_active_segment_contexts_peak().ok());
+
+        Merger::Statistics stats;
+        auto st = Merger::vertical_merge_rowsets(
+                tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema, input_rs_readers,
+                output_rs_writer.get(), UINT32_MAX, total_segments, &stats);
+        ASSERT_TRUE(st.ok()) << st;
+
+        EXPECT_EQ(0, vertical_compaction_active_segment_contexts());
+        EXPECT_EQ(num_input_rowsets, vertical_compaction_active_segment_contexts_peak())
+                << "sparse_threshold=" << sparse_threshold;
+        EXPECT_EQ("0",
+                  bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
+        EXPECT_EQ(std::to_string(num_input_rowsets),
+                  bvar::Variable::describe_exposed(
+                          "vertical_compaction_active_segment_contexts_peak"))
+                << "sparse_threshold=" << sparse_threshold;
+        EXPECT_EQ(total_rows, stats.output_rows);
+        EXPECT_EQ(0, stats.merged_rows);
+        EXPECT_EQ(0, stats.filtered_rows);
+
+        RowsetSharedPtr output_rowset;
+        ASSERT_EQ(Status::OK(), output_rs_writer->build(output_rowset));
+        ASSERT_TRUE(output_rowset);
+        EXPECT_EQ(total_rows, output_rowset->num_rows());
+    };
+
+    run_case(0);
+    run_case(1.0);
 }
 
 TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
@@ -1370,10 +1385,14 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
+    ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
+    ASSERT_TRUE(reset_vertical_compaction_active_segment_contexts_peak().ok());
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,
                                             output_rs_writer.get(), 100, num_segments, &stats);
     EXPECT_TRUE(s.ok());
+    EXPECT_EQ(0, vertical_compaction_active_segment_contexts());
+    EXPECT_EQ(num_input_rowset, vertical_compaction_active_segment_contexts_peak());
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
 

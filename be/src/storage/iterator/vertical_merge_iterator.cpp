@@ -344,6 +344,9 @@ void VerticalMergeIteratorContext::release_resources() {
     _valid = false;
     _iter.reset();
     _block.reset();
+    // Unlike the physical EOF fallback, source exhaustion proves that this context will not
+    // access these blocks again. External IteratorRowRef/RowBatch owners keep them alive through
+    // shared_ptr, so dropping the context-owned references here is intentional.
     _block_list.clear();
     _mark_inactive();
 }

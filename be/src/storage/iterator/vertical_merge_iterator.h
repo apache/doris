@@ -115,7 +115,8 @@ public:
     uint64_t buffered_size() { return _buffer.size(); }
     bool is_source_exhausted(uint16_t source) const {
         DCHECK(source < _last_source_positions.size());
-        return _read_index > _last_source_positions[source];
+        return source < _last_source_positions.size() &&
+               _read_index > _last_source_positions[source];
     }
     void set_agg_flag(uint64_t index, bool agg);
     bool get_agg_flag(uint64_t index);
