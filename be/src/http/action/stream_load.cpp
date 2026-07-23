@@ -754,10 +754,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
+    // Keep cloud_cluster for compatibility with old FEs during rolling upgrade. New FEs use
+    // backend_id below to bind planning to the compute group of the receiving BE.
     if (!http_req->header(HTTP_COMPUTE_GROUP).empty()) {
         request.__set_cloud_cluster(http_req->header(HTTP_COMPUTE_GROUP));
     } else if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
+    }
+
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        request.__set_backend_id(_exec_env->cluster_info()->backend_id);
+    } else {
+        LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
     }
 
     if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
