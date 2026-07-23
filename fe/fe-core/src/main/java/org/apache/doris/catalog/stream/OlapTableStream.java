@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -254,6 +255,39 @@ public class OlapTableStream extends BaseTableStream {
             if (historicalPartitionTSO != null) {
                 historicalPartitionTSO.remove(partitionId);
             }
+        }
+    }
+
+    // The base table may undergo schema change, so the stream's schema cannot be cached and
+    // must be computed dynamically from the current base table schema on every access.
+    @Override
+    public List<Column> getFullSchema() {
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null) {
+            return ImmutableList.of();
+        }
+        List<Column> baseTableSchema = baseTable.getBaseSchema(false);
+        List<Column> rebuildFullSchema = ImmutableList.<Column>builderWithExpectedSize(baseTableSchema.size() + 2)
+                .addAll(baseTableSchema)
+                .add(Column.STREAM_SEQ_VIRTUAL_COLUMN)
+                .add(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)
+                .build();
+        return rebuildFullSchema;
+
+    }
+
+    // The base table may undergo schema change, so the stream's schema cannot be cached and
+    // must be computed dynamically from the current base table schema on every access.
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        if (full) {
+            return getFullSchema();
+        } else {
+            OlapTable baseTable = getBaseTableNullable();
+            if (baseTable == null) {
+                return ImmutableList.of();
+            }
+            return baseTable.getBaseSchema(false);
         }
     }
 }

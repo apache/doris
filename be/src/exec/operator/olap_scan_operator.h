@@ -90,7 +90,7 @@ private:
         }
         return PushDownType::ACCEPTABLE;
     }
-    
+
     PushDownType _should_push_down_topn_filter() const override {
         if (_is_binlog_merge_scan()) {
             return PushDownType::UNACCEPTABLE;
