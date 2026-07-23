@@ -109,6 +109,23 @@ public class TabletTest {
     }
 
     @Test
+    public void testGetReplicaStatsOnlyUsesNormalReplicas() {
+        Tablet statsTablet = new Tablet(2);
+        invertedIndex.addTablet(2, new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD));
+        statsTablet.addReplica(new Replica(11L, 1L, 100L, 0, 10L, 0L, 100L, ReplicaState.NORMAL, 0L, 100L));
+        statsTablet.addReplica(new Replica(12L, 2L, 100L, 0, 20L, 0L, 200L, ReplicaState.NORMAL, 0L, 100L));
+        statsTablet.addReplica(new Replica(13L, 3L, 100L, 0, 0L, 0L, 300L, ReplicaState.NORMAL, 0L, 100L));
+        statsTablet.addReplica(new Replica(14L, 4L, 100L, 0, 40L, 0L, 400L, ReplicaState.DECOMMISSION,
+                0L, 100L));
+
+        Assert.assertEquals(30L, statsTablet.getDataSize(false, false));
+        Assert.assertEquals(10L, statsTablet.getDataSize(true, false));
+        Assert.assertEquals(30L, statsTablet.getDataSize(false, true));
+        Assert.assertEquals(600L, statsTablet.getRowCount(false));
+        Assert.assertEquals(200L, statsTablet.getRowCount(true));
+    }
+
+    @Test
     public void deleteReplicaTest() {
         // delete replica1
         Assert.assertTrue(tablet.deleteReplicaByBackendId(replica1.getBackendIdWithoutException()));
