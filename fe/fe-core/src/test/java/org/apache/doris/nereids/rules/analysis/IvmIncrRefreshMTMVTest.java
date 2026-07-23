@@ -159,7 +159,7 @@ class IvmIncrRefreshMTMVTest {
         Assertions.assertEquals(1, rule.rewriter.callCount);
         Assertions.assertSame(sink.child(), rule.rewriter.normalizedPlan);
         Assertions.assertSame(rewriteResult, rule.rewriter.rewriteResult);
-        Assertions.assertTrue(rule.rewriter.rewriteContext.isIncludeUpToDateStreams());
+        Assertions.assertTrue(rule.rewriter.rewriteContext.isIncludeExhaustedStreams());
     }
 
     @Test

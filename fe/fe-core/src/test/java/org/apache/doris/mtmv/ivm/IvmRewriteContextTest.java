@@ -39,7 +39,7 @@ class IvmRewriteContextTest {
 
         Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE, context.getMode());
         Assertions.assertNull(context.getMtmv());
-        Assertions.assertFalse(context.isIncludeUpToDateStreams());
+        Assertions.assertFalse(context.isIncludeExhaustedStreams());
     }
 
     @Test
@@ -50,7 +50,7 @@ class IvmRewriteContextTest {
 
         Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE, context.getMode());
         Assertions.assertSame(mtmv, context.getMtmv());
-        Assertions.assertFalse(context.isIncludeUpToDateStreams());
+        Assertions.assertFalse(context.isIncludeExhaustedStreams());
     }
 
     @Test
@@ -61,7 +61,7 @@ class IvmRewriteContextTest {
 
         Assertions.assertEquals(IvmRewriteContext.Mode.FULL, context.getMode());
         Assertions.assertSame(mtmv, context.getMtmv());
-        Assertions.assertFalse(context.isIncludeUpToDateStreams());
+        Assertions.assertFalse(context.isIncludeExhaustedStreams());
         Assertions.assertFalse(context.hasFullRefreshStreamScans());
         Assertions.assertFalse(context.getFullRefreshNonPctReadMode().isPresent());
     }

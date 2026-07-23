@@ -38,7 +38,7 @@ public class IvmRefreshContext {
     private final MTMV mtmv;
     private final ConnectContext connectContext;
     private final IvmRewriteResult rewriteResult;
-    private final boolean includeUpToDateStreams;
+    private final boolean includeExhaustedStreams;
 
     public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext) {
         this(mtmv, connectContext, null, false);
@@ -49,11 +49,11 @@ public class IvmRefreshContext {
     }
 
     public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
-            boolean includeUpToDateStreams) {
+            boolean includeExhaustedStreams) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
         this.rewriteResult = rewriteResult;
-        this.includeUpToDateStreams = includeUpToDateStreams;
+        this.includeExhaustedStreams = includeExhaustedStreams;
     }
 
     public MTMV getMtmv() {
@@ -69,8 +69,8 @@ public class IvmRefreshContext {
         return rewriteResult;
     }
 
-    public boolean isIncludeUpToDateStreams() {
-        return includeUpToDateStreams;
+    public boolean isIncludeExhaustedStreams() {
+        return includeExhaustedStreams;
     }
 
     static TableNameInfo toTableNameInfo(LogicalOlapScan scan) {
@@ -106,12 +106,12 @@ public class IvmRefreshContext {
         return Objects.equals(mtmv, that.mtmv)
                 && Objects.equals(connectContext, that.connectContext)
                 && Objects.equals(rewriteResult, that.rewriteResult)
-                && includeUpToDateStreams == that.includeUpToDateStreams;
+                && includeExhaustedStreams == that.includeExhaustedStreams;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mtmv, connectContext, rewriteResult, includeUpToDateStreams);
+        return Objects.hash(mtmv, connectContext, rewriteResult, includeExhaustedStreams);
     }
 
     @Override

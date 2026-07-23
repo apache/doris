@@ -221,6 +221,7 @@ import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExplainRefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
@@ -1848,6 +1849,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitExplainRefreshMTMV(ExplainRefreshMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        boolean incremental = ctx.explainRefreshPolicy().INCREMENTAL() != null;
+        RefreshMode refreshMode = incremental ? RefreshMode.INCREMENTAL : RefreshMode.COMPLETE;
+        boolean includeExhaustedStreams = ctx.explainRefreshPolicy().ALL() != null;
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
+                new TableNameInfo(nameParts), ImmutableList.of(), refreshMode);
+        return withExplain(new RefreshMTMVCommand(refreshMTMVInfo, includeExhaustedStreams), ctx.explain());
+    }
+
+    @Override
     public LogicalPlan visitRefreshMTMV(RefreshMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         List<String> partitions = ImmutableList.of();
@@ -1868,7 +1880,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : new ParsedRefreshPolicy(RefreshMethod.PARTITIONS, false);
         RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(new TableNameInfo(nameParts), partitions,
                 RefreshMode.valueOf(refreshPolicy.refreshMethod.name()), refreshPolicy.allowFallback);
-        return withExplain(new RefreshMTMVCommand(refreshMTMVInfo), ctx.explain());
+        return new RefreshMTMVCommand(refreshMTMVInfo);
     }
 
     private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {

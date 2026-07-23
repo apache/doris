@@ -55,12 +55,19 @@ import java.util.Set;
  */
 public class RefreshMTMVCommand extends Command implements ForwardWithSync, Explainable {
     private final RefreshMTMVInfo refreshMTMVInfo;
+    // Whether EXPLAIN REFRESH should include up-to-date streams.
+    private final boolean includeExhaustedStreams;
     private Plan explainPlan;
     private Optional<NereidsPlanner> explainPlanner = Optional.empty();
 
     public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo) {
+        this(refreshMTMVInfo, false);
+    }
+
+    public RefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo, boolean includeExhaustedStreams) {
         super(PlanType.REFRESH_MTMV_COMMAND);
         this.refreshMTMVInfo = Objects.requireNonNull(refreshMTMVInfo, "require refreshMTMVInfo object");
+        this.includeExhaustedStreams = includeExhaustedStreams;
     }
 
     @Override
@@ -99,7 +106,8 @@ public class RefreshMTMVCommand extends Command implements ForwardWithSync, Expl
                     throw new org.apache.doris.nereids.exceptions.AnalysisException(
                             "EXPLAIN REFRESH INCREMENTAL only supports IVM materialized views");
                 }
-                statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, true)));
+                statementContext.setIvmRewriteContext(Optional.of(
+                        IvmRewriteContext.incremental(mtmv, includeExhaustedStreams)));
                 return createIvmRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 if (mtmv.isIvm()) {
@@ -145,6 +153,10 @@ public class RefreshMTMVCommand extends Command implements ForwardWithSync, Expl
 
     public RefreshMTMVInfo getRefreshMTMVInfo() {
         return refreshMTMVInfo;
+    }
+
+    public boolean isIncludeExhaustedStreams() {
+        return includeExhaustedStreams;
     }
 
     @Override

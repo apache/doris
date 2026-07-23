@@ -82,8 +82,10 @@ materializedViewStatement
         (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS? query                                                                               #createMTMV
-    | explain? REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
-        (partitionSpec | refreshPolicy)                                                         #refreshMTMV
+    | explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        explainRefreshPolicy                                                                     #explainRefreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        (partitionSpec | refreshPolicy)                                                           #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
         | (REFRESH (refreshPolicy | refreshTrigger | refreshPolicy refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
@@ -1127,6 +1129,11 @@ refreshSchedule
 
 refreshPolicy
     : refreshMethod refreshFallback?
+    ;
+
+explainRefreshPolicy
+    : INCREMENTAL (WITH ALL STREAMS)?
+    | COMPLETE
     ;
 
 refreshFallback

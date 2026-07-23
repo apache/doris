@@ -130,6 +130,27 @@ public class ExplainRefreshMTMVCommandTest {
     }
 
     @Test
+    public void testParseExplainRefreshIncrementalDefaultsToPendingStreamsOnly() {
+        ExplainCommand explain = extractExplainCommand(
+                "EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
+        RefreshMTMVCommand refresh = (RefreshMTMVCommand) explain.getLogicalPlan();
+        Assertions.assertFalse(refresh.isIncludeExhaustedStreams());
+    }
+
+    @Test
+    public void testParseExplainRefreshIncrementalAllStreams() {
+        ExplainCommand explain = extractExplainCommand(
+                "EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL WITH ALL STREAMS");
+        RefreshMTMVCommand refresh = (RefreshMTMVCommand) explain.getLogicalPlan();
+        Assertions.assertTrue(refresh.isIncludeExhaustedStreams());
+    }
+
+    @Test
+    public void testRefreshIncrementalDoesNotAcceptAllStreams() {
+        assertParseFails("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL WITH ALL STREAMS");
+    }
+
+    @Test
     public void testParseExplainRefreshWithoutIncrementalFails() {
         assertParseFails("EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1");
     }
