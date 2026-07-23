@@ -12,14 +12,17 @@
 
 ## 0. 待拍板决策（程序启动前置 — 见 HANDOFF「下一步」）
 
-> 下一个 session 第一件事 = 用中文向用户讲清背景+选项+建议，拿签字。全部 🅿。
+> ✅ **已于 2026-07-23 拿到 owner 签字**（下方「用户拍板」列），**并在设计定稿后二次确认**（见下）。
+> **设计已定稿** → [`designs/foundation-design-FINAL.md`](./designs/foundation-design-FINAL.md)（11-agent 只读设计调研 + 3 路对抗评审，全程逐符号核对 HEAD）。
+> ⚠ **D4 重大更正**：原选"提炼进 fe-core"，但设计侦察**推翻前提**——per-statement memo 底座**早已存在于 `fe-connector-api`**（`ConnectorStatementScope.computeIfAbsent` / `ConnectorSession.getStatementScope`；iceberg、hudi 均依赖该层、均**不**依赖 fe-core）。故 helper 只是该层**一个小静态方法**（`ConnectorStatementScopes.resolveInStatement`，统一 key 约定）→ **fe-core 零改动、铁律 A 根本不碰**。owner 2026-07-23 **二次确认接受此复读**、并**删掉"往 fe-core 塞"的备选**（三方评审一致：签字了但可避免的 fe-core 改动正是不必要改动混入主干的方式）。
+> **结论：本轮整套底座（A 通用缓存封装 + B 语句作用域 helper + C 门禁）+ hudi/mc/es 消费 = 全程 0 行 fe-core 改动。** iceberg 本轮就改挂（owner 确认，真正"先建底座"）。
 
-| ID | 决策 | 报告建议（默认） | 状态 |
-|---|---|---|---|
-| **D1** | **范围**：本轮只打 hudi，还是把 mc `MC-1`、es `ES-F1/F2` 一并纳入? | hudi 单独立项 + mc/es 各一小 PR；jdbc/paimon/trino P2 进 backlog | 🅿 |
-| **D2** | **排序**：先建共享底座泛化 vs per-connector-first? | per-connector-first（避免投机抽象，出现第 2 个消费者再上收） | 🅿 |
-| **D3** | **门禁通用化**：`check-authz-cache-sharding.sh` 现只盯 iceberg，现在就改成扫描任意 `SUPPORTS_USER_SESSION` 连接器吗? | (b) 延后无当下风险 / (a) 前瞻更稳 —— 交用户选 | 🅿 |
-| **D4** | **共享 helper**：投入 fe-core 共享的"经 statement scope 解析表" helper 吗? | 不提炼；让 hudi 在自己模块内 memo（碰铁律 A，Rule 2） | 🅿 |
+| ID | 决策 | 报告建议（默认） | 用户拍板（2026-07-23，含设计后二次确认） | 状态 |
+|---|---|---|---|---|
+| **D1** | **范围**：本轮只打 hudi，还是把 mc `MC-1`、es `ES-F1/F2` 一并纳入? | hudi 单独立项 + mc/es 各一小 PR；jdbc/paimon/trino P2 进 backlog | ✅ **采纳默认**：hudi + mc + es 都做（各自独立 PR），jdbc/paimon/trino 延后 | ✅ |
+| **D2** | **排序**：先建共享底座泛化 vs per-connector-first? | per-connector-first（避免投机抽象，出现第 2 个消费者再上收） | ✅ **否决默认 → 先建共享底座**：把 iceberg 5 个手写缓存上收为通用封装（升格已存在的 `ConnectorPartitionViewCache`）；**iceberg 本轮就改挂** | ✅ |
+| **D3** | **门禁通用化**：`check-authz-cache-sharding.sh` 现只盯 iceberg，现在就改成扫描任意 `SUPPORTS_USER_SESSION` 连接器吗? | (b) 延后无当下风险 / (a) 前瞻更稳 —— 交用户选 | ✅ **选 (a) 现在就通用化**，且**评审重设计**：从"扫主类带标记字段"改为"**模块内扫缓存构造点 + 断言按用户凭证置空**"（原方案有 BLOCKER 漏洞：iceberg 缓存字段也在 metadata 类上、hive 网关无标记缓存） | ✅ |
+| **D4** | **共享 helper**：投入 fe-core 共享的"经 statement scope 解析表" helper 吗? | 不提炼；让 hudi 在自己模块内 memo（碰铁律 A，Rule 2） | ✅ **设计后二次确认：不动 fe-core** —— helper 放 `fe-connector-api`（memo 底座已在该层），iceberg + hudi 共用；**铁律 A 不碰**。原"提炼进 fe-core"作废；maxcompute 的"往 fe-core funnel 包一层"备选(B2)一并**删除**（评审三方否决：改到本轮不测的 jdbc/paimon/trino/hive 调用次数契约） | ✅ |
 
 ---
 

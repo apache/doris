@@ -23,30 +23,35 @@
 
 # 🆕 下一步（覆盖区）
 
-## 当前状态（2026-07-23）
+## 当前状态（2026-07-23，设计定稿、owner 已确认）
 
-- **调研已完成**：19-agent clean-room 对抗式编排，~2.4M token，0 error；7 连接器各经"审计→独立对抗验证"，**5 CONFIRMED / 2 ADJUSTED**（hudi、es，更正已折进报告）。
-- **产品代码 0 改动，e2e 未跑。** 所有 `file:line` 是调研时（2026-07-22 HEAD）快照。
-- **本 session 只搭了追踪空间**（HANDOFF + tasklist + progress），**未启动任何执行**、未做任何拍板。
+- **调研 + 设计均完成；owner 4 决策已签字 + 设计后二次确认**（[`tasklist.md`](./tasklist.md) §0）。
+- **设计定稿** → [`designs/foundation-design-FINAL.md`](./designs/foundation-design-FINAL.md)（配 `foundation-design-draft.md` + `review-1..3.md`）。11-agent 只读设计调研 + 3 路对抗评审，全程逐符号核对 HEAD。
+- **产品代码仍 0 改动，e2e 未跑。** 设计里 `file:line` 是 2026-07-23 HEAD 侦察快照。
+- **核心结论**：走"先建底座"，但**底座几乎现成** → 整套 A/B/C + hudi/mc/es 消费 **全程 0 行 fe-core 改动**（D4 原"提炼进 fe-core"被侦察推翻：per-statement memo 底座已在 `fe-connector-api`，owner 二次确认不动 fe-core；iceberg 本轮就改挂）。
 
-## ⚠️ 下一个 session 第一件事 = 先拿用户对 4 个决策的签字（**别直接开工**）
+## ⚠️ 进行中：PR-0 已完成（2026-07-23）→ 下一步 PR-1；动每个文件前先按 HEAD 重侦察
 
-报告 §8 有 **4 个必须由 owner 拍板的决策**，它们决定本轮打多大、按什么顺序、要不要现在就通用化门禁。
-按本项目惯例（memory `ask-user-explain-in-chinese-first`）：**先用浅显完整中文向用户讲清每个决策的背景 + 各选项 + 我方建议**，拿到签字后再按签字范围启动。
-4 个决策的追踪见 [`tasklist.md`](./tasklist.md) 的「待拍板决策」表；一句话摘要：
+设计已 owner 确认，已开工。**PR-0 完成**（预编译执行连接器作用域 reset 回归守门 + 外表可达性查实 + FINAL 设计机制描述更正；见 [`progress.md`](./progress.md) "2026-07-23 (3)"）。**下一步 = PR-1**（通用缓存封装升格，见下表；侦察已给出更正：无兼容子类可删、ttl 映射 6 处、iceberg 5 缓存均独立 `final class`）。
 
-| 决策 | 问题 | 报告建议（默认） |
+**但设计里行号/乘数是 2026-07-23 快照，动每个文件前按符号重 grep 确认**（memory `execution-blueprint-overestimates-recon-first`；本轮又添两例侦察更正——PR-0 机制"新 context"实为"复用+显式 reset"、PR-1"删兼容子类"实为无子类可删）。
+
+## 实施路线（8 个独立 PR，foundation-first；详见 FINAL 设计 §Sequencing / §Risk register / §Verification plan）
+
+| PR | 主题 | 关键约束 / 守门 |
 |---|---|---|
-| **D1 范围** | 本轮只打 hudi，还是把 maxcompute `MC-1`、es `ES-F1/F2` 一并纳入? | hudi 单独立项（旗舰）+ mc/es 各一个小 PR；jdbc/paimon/trino P2 进 backlog |
-| **D2 排序** | 先建共享底座泛化，还是 per-connector-first? | **per-connector-first**（泛型 table/handle 缓存目前只有 hudi 一个新消费者，出现第 2 个再上收，避免投机抽象 / Rule 2） |
-| **D3 门禁通用化** | `check-authz-cache-sharding.sh` 现硬编码只盯 `IcebergConnector.java`，现在就改成"扫描任意声明 `SUPPORTS_USER_SESSION` 的连接器"吗? | 今天所有推荐的新缓存都 authz-安全，故 (b) 延后无当下风险；但 (a) 前瞻通用化更稳 —— 交用户选 |
-| **D4 共享 helper** | 是否投入一个 fe-core 共享的"经 statement scope 解析表" helper? | 复核显示只有 iceberg（已有）+ hudi 刚需 → 让 hudi 在自己模块内做 memo，**不提炼进 fe-core**（碰铁律 A，Rule 2） |
+| **PR-0** ✅（2026-07-23 完成） | 验预编译 `EXECUTE` 重执行时 statement scope 是否每次刷新 | 已加 `ConnectorStatementScopeTest.executeCommandResetsConnectorScopePerExecution`（驱动 `ExecuteCommand.run()`、变异验证仅该测试变红）；**机制更正**：不是"新 context"而是复用 context + `ExecuteCommand.java:95` 显式 reset；**外表可达性已查实**（走普通 `executor.execute()` 路，非 OLAP 短路） |
+| **PR-1** 通用缓存封装（`fe-connector-cache`） | 升格 `ConnectorPartitionViewCache[V]`→`ConnectorMetadataCache[V]`；`PartitionViewCacheKey`→`ConnectorTableKey`；**删**旧类、iceberg/hive/paimon 改挂；修陈旧 javadoc | 纯加+改名+删；反应堆 test-compile + 现有 partition-view 测试证零变化 |
+| **PR-2** 语句作用域 helper（`fe-connector-api`）+ iceberg 改挂 | 加 `ConnectorStatementScopes.resolveInStatement` + namespace 注册表；iceberg 私有包装改委派（key 逐字节不变） | **fe-core 0 行**；iceberg per-statement memo 测试证成本不变 |
+| **PR-3** iceberg 5 缓存收敛到通用封装 | 用 pre-resolved `CacheSpec` 构造器、**钉死旧 entry 名**（`iceberg-table` 等，防 dashboard/`*ForTest` 断） | **`invalidateDb` parity 测试**（Namespace-equals→String-equals，须证 Doris iceberg 命名空间单层等价）；连接器侧保留凭证置空 |
+| **PR-4** 旗舰 hudi | metaClient+schema 每语句 1 次；HMS 走 `CachingHmsClient`；`(表,已完成instant)` 跨查询分区缓存；per-scan hoist | **记忆"不可关闭投影"非原始 metaClient**（scope 末关所有 AutoCloseable）；instant **每语句重取最新已完成**、只缓存分区列表；pom 加 `fe-connector-cache` + **验 Caffeine≥2.9.3 自带**；**e2e 必需**（异构+独立 hudi-on-HMS + 并发提交分区列举） |
+| **PR-5** maxcompute（小） | `getTableHandle` 每语句 memo，消冗余远程 `exists()`（14–17→1） | 连接器侧、fe-core 0 行；仅 in-statement `buildConnectorSession` 路径 |
+| **PR-6** es（小） | `EsMetadataState` per-scan hoist（2→1）；raw mapping 挂语句作用域态 | **分片路由必须每语句、拆 `fetch()`**、绝不跨查询缓存 |
+| **PR-7** 门禁通用化（脚本） | 模块内扫"新建缓存"构造点 + 断言凭证置空；hive 网关纳入 + fail-loud 守卫；零声明者硬失败 | 独立、随时；扩 self-test fixtures |
 
-## 拿到签字后：默认启动 **WS-HUDI（唯一 P1 真缺口，旗舰）**
-
-- **为什么是 hudi**：它是所有 SPI 连接器里缓存最薄的一个——零连接器侧 cross-query 元数据缓存、零 per-statement memo，甚至没像 hive 那样包 `CachingHmsClient`（用裸 `ThriftHmsClient`），导致 `HoodieTableMetaClient` 每 planning pass 重建约 5–6 次、schema 重解析约 4 次。这是与"翻闸前 iceberg 那批被删缓存"最像的 loop-amplified 缺口。
-- **启动动作**：新开 `plan-doc/perf-hotpath-hudi/`（镜像 `perf-hotpath-iceberg/` 布局：README/HANDOFF/tasklist/designs），把 `HD-P01..05` 拆成 `PERF-NN` 逐项立项。交付概要见 [`tasklist.md`](./tasklist.md) 的 WS-HUDI 详情。
-- **⚠ 动码前先按 HEAD 重侦察**（memory `execution-blueprint-overestimates-recon-first`）：报告的 `file:line`、乘数、"5–6x/4x" 都是调研估算，**行号信 grep 不信文档**；hudi 三条 ADJUSTED 更正（authz-safety 依据、HD-P03 单 pass 计数、HD-P01 无条件下界 ~3–4x）务必读 [`data/connector-audits.json`](./data/connector-audits.json) 的 hudi `verify.corrections`。
+- **PR-1 + PR-2 是底座**，解锁 PR-3/4/5/6；**PR-7 独立**；**PR-0 阻塞 PR-2**。
+- **连接器 PR（4/5/6）用兄弟空间**（`plan-doc/perf-hotpath-<c>/`，镜像 iceberg 布局）逐项立项；**底座 PR（1/2/3/7）跨连接器**，进本伞形空间 `designs/`。
+- **本轮全程守铁律 A（fe-core 0 行）**——实施中若发现某步"不得不碰 fe-core"，**停手交 review**（大概率又是侦察能推翻的伪需求）。
 
 ---
 
