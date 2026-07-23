@@ -96,11 +96,11 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     private IvmRefreshContext newRefreshContext(Plan plan) {
-        return new IvmRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), null);
+        return new IvmRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), null, false);
     }
 
     private IvmRefreshContext newRefreshContext(Plan plan, IvmRewriteResult rewriteResult) {
-        return new IvmRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), rewriteResult);
+        return new IvmRefreshContext(buildMtmvFromPlan(plan.getOutput()), new ConnectContext(), rewriteResult, false);
     }
 
     @Test
