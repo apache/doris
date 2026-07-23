@@ -3809,6 +3809,38 @@ public class Config extends ConfigBase {
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
+    @ConfField(mutable = true, description = {
+            "Whether to enable QPS rate limit for RPC requests to meta service."})
+    public static boolean meta_service_rpc_rate_limit_enabled = false;
+
+    @ConfField(mutable = true, description = {
+            "Default QPS limit for each method (requests per second) in each cpu core, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static int meta_service_rpc_rate_limit_default_qps_per_core = 50;
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.QpsConfigHandler.class,
+            description = {
+                "QPS limit config per rpc method to meta service in per cpu core, "
+                    + "format: method1:qps1;method2:qps2, "
+                    + "e.g.: getPartitionVersion:100;getTableVersion:100;getTabletStats:50, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static String meta_service_rpc_rate_limit_qps_per_core_config
+            = "getPartitionVersion:500;getTableVersion:500;getTabletStats:50;beginTxn:50";
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.PositiveIntConfigHandler.class,
+            description = {
+                "Burst window for meta service RPC rate limit in seconds. "
+                    + "The long-term average QPS is unchanged, while calls can burst within this window."})
+    public static int meta_service_rpc_rate_limit_burst_seconds = 2;
+
+    @ConfField(mutable = true, callback = MetaServiceRpcRateLimitConfigValidator.NonNegativeLongConfigHandler.class,
+            description = {
+                "Max wait time in milliseconds when meta service RPC is rate limited, "
+                    + "zero means fail fast."})
+    public static long meta_service_rpc_rate_limit_wait_timeout_ms = 1000;
+
     @ConfField(mutable = true, description = {"存算分离模式下自动启停功能，对于该配置中的数据库名不进行唤醒操作，"
             + "用于内部作业的数据库，例如统计信息用到的数据库，"
             + "举例：auto_start_ignore_db_names=__internal_schema, information_schema",
@@ -4060,4 +4092,5 @@ public class Config extends ConfigBase {
                     + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
                     + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
     public static boolean enable_adaptive_random_bucket_load = true;
+
 }
