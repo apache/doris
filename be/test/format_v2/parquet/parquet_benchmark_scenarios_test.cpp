@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <set>
 #include <string>
 #include <tuple>
@@ -60,6 +61,50 @@ TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFami
             {Encoding::DELTA_BYTE_ARRAY, ValueType::BYTE_ARRAY},
     };
     EXPECT_EQ(actual, expected);
+}
+
+TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryShape) {
+    const auto scenarios = kernel_scenarios();
+    const std::map<Kernel, std::vector<ValueType>> expected_types {
+            {Kernel::BYTE_STREAM_SPLIT, {ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::DELTA_PREFIX_SUM, {ValueType::INT32, ValueType::INT64}},
+            {Kernel::DICTIONARY_GATHER,
+             {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::NULLABLE_EXPAND,
+             {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::RAW_PREDICATE,
+             {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+    };
+    for (const auto& [kernel, value_types] : expected_types) {
+        for (const auto value_type : value_types) {
+            EXPECT_TRUE(std::ranges::any_of(scenarios,
+                                            [&](const KernelScenario& scenario) {
+                                                return scenario.kernel == kernel &&
+                                                       scenario.value_type == value_type;
+                                            }))
+                    << "missing SIMD width for kernel " << to_string(kernel);
+        }
+    }
+    for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+        EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+            return scenario.kernel == Kernel::RAW_PREDICATE &&
+                   scenario.selectivity_percent == selectivity;
+        })) << "missing raw predicate selectivity";
+    }
+    for (const int null_percent : {0, 1, 10, 50, 90}) {
+        for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+                return scenario.kernel == Kernel::NULLABLE_EXPAND &&
+                       scenario.null_percent == null_percent && scenario.pattern == pattern;
+            })) << "missing nullable expansion shape";
+        }
+    }
+    for (const size_t dictionary_entries : {32, 4096, 262144}) {
+        EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+            return scenario.kernel == Kernel::DICTIONARY_GATHER &&
+                   scenario.dictionary_entries == dictionary_entries;
+        })) << "missing dictionary working-set size";
+    }
 }
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {

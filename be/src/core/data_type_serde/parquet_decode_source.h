@@ -253,6 +253,9 @@ public:
 
 enum class ParquetDictionaryMaterializationStrategy : uint8_t { DIRECT, INDICES };
 
+bool try_simd_insert_parquet_dictionary_indices(IColumn& destination, const IColumn& dictionary,
+                                                const uint32_t* indices, size_t num_values);
+
 // Dictionary values are materialized once into the selected Doris type. The state belongs to a
 // column reader rather than DataTypeSerDe because a SerDe instance can be shared by many files.
 struct ParquetMaterializationState {
@@ -363,7 +366,10 @@ struct ParquetMaterializationState {
                     : _destination(destination), _dictionary(dictionary) {}
 
             Status consume_indices(const uint32_t* indices, size_t num_values) override {
-                _destination.insert_indices_from(_dictionary, indices, indices + num_values);
+                if (!try_simd_insert_parquet_dictionary_indices(_destination, _dictionary, indices,
+                                                                num_values)) {
+                    _destination.insert_indices_from(_dictionary, indices, indices + num_values);
+                }
                 return Status::OK();
             }
 

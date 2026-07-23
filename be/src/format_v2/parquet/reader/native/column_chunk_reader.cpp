@@ -50,6 +50,7 @@
 #include "util/bit_util.h"
 #include "util/block_compression.h"
 #include "util/cpu_info.h"
+#include "util/simd/parquet_kernels.h"
 #include "util/unaligned.h"
 
 namespace cctz {
@@ -603,6 +604,14 @@ void expand_nullable_pod_values(ColumnType& column, size_t old_size, size_t comp
     auto& data = column.get_data();
     DORIS_CHECK_EQ(data.size(), old_size + compact_values);
     data.resize(old_size + selected_nulls.size());
+    if constexpr (sizeof(typename ColumnType::value_type) == 4 ||
+                  sizeof(typename ColumnType::value_type) == 8) {
+        parquet_simd::expand_nullable_values(reinterpret_cast<uint8_t*>(data.data() + old_size),
+                                             compact_values, selected_nulls.data(),
+                                             selected_nulls.size(),
+                                             sizeof(typename ColumnType::value_type));
+        return;
+    }
     size_t source = compact_values;
     for (size_t output = selected_nulls.size(); output > 0;) {
         --output;
