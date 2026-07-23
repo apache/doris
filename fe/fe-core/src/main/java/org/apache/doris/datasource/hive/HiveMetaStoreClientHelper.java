@@ -643,6 +643,7 @@ public class HiveMetaStoreClientHelper {
             case "date":
                 return ScalarType.createDateV2Type();
             case "timestamp":
+            case "datetime":
                 return ScalarType.createDatetimeV2Type(timeScale);
             case "float":
                 return Type.FLOAT;
@@ -729,6 +730,21 @@ public class HiveMetaStoreClientHelper {
         if (lowerCaseType.startsWith("timestamp with local time zone")) {
             return enableMappingTimeStampTz ? ScalarType.createTimeStampTzType(timeScale)
                     : ScalarType.createDatetimeV2Type(timeScale);
+        }
+        if (lowerCaseType.startsWith("bigint")) {
+            return Type.BIGINT;
+        }
+        if (lowerCaseType.startsWith("int")) {
+            return Type.INT;
+        }
+        if (lowerCaseType.startsWith("tinyint")) {
+            return Type.TINYINT;
+        }
+        if (lowerCaseType.startsWith("smallint")) {
+            return Type.SMALLINT;
+        }
+        if (lowerCaseType.startsWith("timestamp")) {
+            return ScalarType.createDatetimeV2Type(timeScale);
         }
         return Type.UNSUPPORTED;
     }
