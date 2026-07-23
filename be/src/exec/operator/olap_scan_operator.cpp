@@ -104,6 +104,9 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
         const std::set<std::string> fn_name) const {
+    if (_is_binlog_merge_scan()) {
+        return PushDownType::UNACCEPTABLE;
+    }
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
@@ -517,6 +520,10 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
                                                              StringRef* constant_str,
                                                              doris::FunctionContext** fn_ctx,
                                                              PushDownType& pdt) {
+    if (_is_binlog_merge_scan()) {
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
+    }
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
         pdt = PushDownType::UNACCEPTABLE;
@@ -555,6 +562,9 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
 }
 
 bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    if (_is_binlog_merge_scan()) {
+        return false;
+    }
     // SegmentIterator common exprs must eventually act on at least one scan slot.
     if (!_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR)) {
         return false;

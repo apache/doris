@@ -228,6 +228,11 @@ public:
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        // Binlog/snapshot incremental read TSO range (start_tso, end_tso]. Forced down to
+        // BetaRowsetReader, which builds the tso predicates directly on read options,
+        // bypassing the value/key predicate split in _init_conditions_param.
+        std::optional<int64_t> start_tso;
+        std::optional<int64_t> end_tso;
     };
 
     TabletReader() = default;
