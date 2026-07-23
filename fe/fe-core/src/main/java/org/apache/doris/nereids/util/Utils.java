@@ -560,17 +560,14 @@ public class Utils {
             case 0:
                 return ImmutableSet.of();
             case 1:
-                return collection instanceof List
-                        ? ImmutableSet.of(((List<E>) collection).get(0))
-                        : ImmutableSet.of(collection.iterator().next());
-            default:
-                // NOTE: ImmutableList.copyOf(array) has additional clone of the array, so here we
-                //       direct generate a ImmutableList
+                return ImmutableSet.of(collection.iterator().next());
+            default: {
+                // NOTE: ImmutableSet.copyOf(collection) has additional copy path, so here we
+                //       direct generate a ImmutableSet
                 ImmutableSet.Builder<E> copyChildren = ImmutableSet.builderWithExpectedSize(collection.size());
-                for (E child : collection) {
-                    copyChildren.add(child);
-                }
+                copyChildren.addAll(collection);
                 return copyChildren.build();
+            }
         }
     }
 
