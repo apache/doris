@@ -38,17 +38,12 @@ suite("distinct_agg_rewriter") {
 
     sql "set agg_phase=4"
     sql "select group_concat(distinct dst_key1 order by dst_key2) from t_gbykey_10_dstkey_10_1000_id group by gby_key"
-    test {
-        sql """select number % 2, count(distinct cast(number as varchar), cast(number as varchar)),
-        group_concat(distinct cast(number as varchar) order by number + 1) from numbers('number'='10') group by number % 2"""
-        exception "Unsupported query"
-    }
 
-    test {
-        sql """select count(distinct cast(number as varchar), cast(number as varchar)),
-        group_concat(distinct cast(number as varchar) order by number + 1) from numbers('number'='10')"""
-        exception "Unsupported query"
-    }
+    sql """select number % 2, count(distinct cast(number as varchar), cast(number as varchar)),
+    group_concat(distinct cast(number as varchar) order by number + 1) from numbers('number'='10') group by number % 2"""
+
+    sql """select count(distinct cast(number as varchar), cast(number as varchar)),
+    group_concat(distinct cast(number as varchar) order by number + 1) from numbers('number'='10')"""
 
     // expect to have 3 HashAgg instead of 4 HashAgg
     sql "set agg_phase=3"

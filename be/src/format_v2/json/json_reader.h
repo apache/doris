@@ -75,6 +75,7 @@ public:
     Status close() override;
 
 private:
+    void _init_profile() override;
     // A requested column keeps both identities:
     // - `source_index`: index in FE file slots, used for jsonpaths and SerDe lookup.
     // - `block_position`: index in the caller's output block, used for materialization.
@@ -136,6 +137,13 @@ private:
     std::vector<RequestedColumn> _requested_columns;
     std::unordered_map<std::string, size_t> _slot_name_to_index;
     std::vector<size_t> _previous_positions;
+
+    RuntimeProfile::Counter* _total_time = nullptr;
+    RuntimeProfile::Counter* _open_time = nullptr;
+    RuntimeProfile::Counter* _read_document_time = nullptr;
+    RuntimeProfile::Counter* _parse_time = nullptr;
+    RuntimeProfile::Counter* _materialize_time = nullptr;
+    RuntimeProfile::Counter* _filter_time = nullptr;
 
     io::FileReaderSPtr _physical_file_reader;
     std::unique_ptr<Decompressor> _decompressor;

@@ -32,11 +32,14 @@ AdaptiveBlockSizePredictor::AdaptiveBlockSizePredictor(size_t preferred_block_si
           _metadata_hint_bytes_per_row(metadata_hint_bytes_per_row) {}
 
 void AdaptiveBlockSizePredictor::update(const Block& block) {
-    size_t rows = block.rows();
+    update(block.rows(), block.bytes());
+}
+
+void AdaptiveBlockSizePredictor::update(size_t rows, size_t bytes) {
     if (rows == 0) {
         return;
     }
-    double cur = static_cast<double>(block.bytes()) / static_cast<double>(rows);
+    double cur = static_cast<double>(bytes) / static_cast<double>(rows);
 
     if (!_has_history) {
         _bytes_per_row = cur;

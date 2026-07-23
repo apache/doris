@@ -726,7 +726,7 @@ DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
-// not introduce seeks.  The literature seems to agree that with 8 MB reads, random
+// not introduce seeks. The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
@@ -1450,6 +1450,9 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Max WAL count for one table before rejecting async group commit loads.
+// 0 means no limit.
+DEFINE_mInt32(group_commit_max_wal_num_per_table, "10");
 // Max time(ms) to wait for creating group commit plan fragment.
 // 0 means no timeout, default 2min.
 DEFINE_mInt32(group_commit_create_plan_timeout_ms, "120000");

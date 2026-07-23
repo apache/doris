@@ -102,7 +102,7 @@ public class CloudInstanceStatusCheckerTest {
 
         new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertEquals("vcg", virtualComputeGroup.getName());
@@ -129,17 +129,17 @@ public class CloudInstanceStatusCheckerTest {
         try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
                      Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList())).thenAnswer(invocation -> null);
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenAnswer(invocation -> null);
 
             new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList()));
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         } finally {
             logger.removeAppender(appender);
             appender.stop();
         }
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertFalse(virtualComputeGroup.isNeedRebuildFileCache());
@@ -174,7 +174,7 @@ public class CloudInstanceStatusCheckerTest {
 
     private void addComputeGroup(String computeGroupId, String computeGroupName) {
         cloudSystemInfoService.addComputeGroup(computeGroupId,
-                new ComputeGroup(computeGroupId, computeGroupName, ComputeGroup.ComputeTypeEnum.COMPUTE));
+                new CloudComputeGroupMeta(computeGroupId, computeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE));
     }
 
     private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup() {

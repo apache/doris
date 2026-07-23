@@ -918,6 +918,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         List<String> columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(1, columnNames.indexOf("__DORIS_TEST_HIDDEN_KEY__"));
+        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_TSO_COL));
         Assertions.assertEquals(3, columnNames.indexOf(Column.BINLOG_LSN_COL));
 
         Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);

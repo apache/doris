@@ -88,6 +88,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class FrontendServiceImplTest {
@@ -370,6 +371,54 @@ public class FrontendServiceImplTest {
         Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
         Partition p20230807 = table.getPartition("p20230807000000");
         Assert.assertNotNull(p20230807);
+    }
+
+    @Test
+    public void testCreatePartitionReturnsRetryErrorWhenResultPartitionIsMissing() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_dropped_before_result_snapshot(\n"
+                + "    event_day DATETIME NOT NULL,\n"
+                + "    site_id INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(event_day) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_dropped_before_result_snapshot");
+        OlapTable spyTable = Mockito.spy(table);
+        String partitionName = "p20230808000000";
+        AtomicBoolean hideResultPartition = new AtomicBoolean(true);
+        Mockito.doAnswer(invocation -> {
+            Partition partition = (Partition) invocation.callRealMethod();
+            // Model the lookup result after a concurrent retention drop without timing-dependent test threads.
+            if (partition != null && hideResultPartition.compareAndSet(true, false)) {
+                return null;
+            }
+            return partition;
+        }).when(spyTable).getPartition(partitionName);
+
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            TNullableStringLiteral start = new TNullableStringLiteral();
+            start.setValue("2023-08-08 00:00:00");
+            TCreatePartitionRequest request = new TCreatePartitionRequest();
+            request.setDbId(db.getId());
+            request.setTableId(spyTable.getId());
+            request.setPartitionValues(Collections.singletonList(Collections.singletonList(start)));
+
+            TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(request);
+
+            Assert.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assert.assertTrue(result.getStatus().getErrorMsgs().get(0)
+                    .contains("was dropped concurrently while building auto partition result, please retry"));
+            Assert.assertFalse(hideResultPartition.get());
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
     }
 
     @Test

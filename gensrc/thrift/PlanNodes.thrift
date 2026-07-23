@@ -560,6 +560,10 @@ struct TFileScanRangeParams {
     32: optional map<string, string> es_docvalue_context
     // ES fields field→keyword mappings
     33: optional map<string, string> es_fields_context
+    // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
+    // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
+    // logical initial-default materialization.
+    34: optional i32 iceberg_scan_semantics_version
 }
 
 struct TFileRangeDesc {

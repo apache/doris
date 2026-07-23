@@ -22,7 +22,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 
 // Guard MySQL integer-type boundaries that all_type does NOT cover:
 //   1) UNSIGNED boundaries (esp. BIGINT UNSIGNED >= 2^63, which overflows Java long)
-//   2) TINYINT(1) <-> BOOLEAN mapping (MySQL ambiguity not present in PG)
+//   2) TINYINT(1) remains TINYINT and preserves non-boolean values
 //
 // Coverage is run twice: ids 1-5 cover the snapshot path, ids 101-105 repeat
 // the same boundary themes through the binlog path. Plus UPDATEs that switch
@@ -60,20 +60,20 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
               `mediumint_u` mediumint unsigned,
               `int_u` int unsigned,
               `bigint_u` bigint unsigned,
-              `bool_col` tinyint(1),
+              `tinyint_1` tinyint(1),
               `tinyint_s` tinyint
             ) engine=innodb default charset=utf8;
             """
 
             // ----- Snapshot rows: 5 boundary themes via JDBC path -----
-            //                                           tinyint_u  smallint_u  mediumint_u   int_u           bigint_u                    bool  tinyint_s
-            sql """insert into ${mysqlDb}.${table1} values (1, 'all_zero',         0,         0,         0,            0,              0,                          0,     0)"""
-            sql """insert into ${mysqlDb}.${table1} values (2, 'signed_max',       127,       32767,     8388607,      2147483647,     9223372036854775807,        1,     127)"""
+            //                                           tinyint_u  smallint_u  mediumint_u   int_u           bigint_u                    tinyint(1)  tinyint_s
+            sql """insert into ${mysqlDb}.${table1} values (1, 'all_zero',         0,         0,         0,            0,              0,                          0,           0)"""
+            sql """insert into ${mysqlDb}.${table1} values (2, 'signed_max',       127,       32767,     8388607,      2147483647,     9223372036854775807,        1,           127)"""
             // signed_max+1: every column passes its signed boundary; bigint_u steps into Java long overflow range.
-            sql """insert into ${mysqlDb}.${table1} values (3, 'signed_max_plus1', 128,       32768,     8388608,      2147483648,     9223372036854775808,        0,     -128)"""
+            sql """insert into ${mysqlDb}.${table1} values (3, 'signed_max_plus1', 128,       32768,     8388608,      2147483648,     9223372036854775808,        -1,          -128)"""
             // unsigned_max: each column at its unsigned upper bound. bigint_u is 2^64-1.
-            sql """insert into ${mysqlDb}.${table1} values (4, 'unsigned_max',     255,       65535,     16777215,     4294967295,     18446744073709551615,       1,     -1)"""
-            sql """insert into ${mysqlDb}.${table1} values (5, 'mid_value',        100,       30000,     8000000,      2000000000,     9000000000000000000,        0,     50)"""
+            sql """insert into ${mysqlDb}.${table1} values (4, 'unsigned_max',     255,       65535,     16777215,     4294967295,     18446744073709551615,       127,         -1)"""
+            sql """insert into ${mysqlDb}.${table1} values (5, 'mid_value',        100,       30000,     8000000,      2000000000,     9000000000000000000,        4,           50)"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -113,18 +113,18 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
 
         // Verify type mapping in Doris (tinyint_u->smallint, bigint_u->largeint, etc.)
         qt_desc_integer_boundary """desc ${currentDb}.${table1};"""
-        qt_select_snapshot """select id, tag, tinyint_u, smallint_u, mediumint_u, int_u, bigint_u, bool_col, tinyint_s from ${currentDb}.${table1} order by id;"""
+        qt_select_snapshot """select id, tag, tinyint_u, smallint_u, mediumint_u, int_u, bigint_u, tinyint_1, tinyint_s from ${currentDb}.${table1} order by id;"""
 
         // ===== Binlog phase: repeat the SAME 5 boundary themes through binlog path =====
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-            sql """insert into ${mysqlDb}.${table1} values (101, 'all_zero',         0,         0,         0,            0,              0,                          0,     0)"""
-            sql """insert into ${mysqlDb}.${table1} values (102, 'signed_max',       127,       32767,     8388607,      2147483647,     9223372036854775807,        1,     127)"""
-            sql """insert into ${mysqlDb}.${table1} values (103, 'signed_max_plus1', 128,       32768,     8388608,      2147483648,     9223372036854775808,        0,     -128)"""
-            sql """insert into ${mysqlDb}.${table1} values (104, 'unsigned_max',     255,       65535,     16777215,     4294967295,     18446744073709551615,       1,     -1)"""
-            sql """insert into ${mysqlDb}.${table1} values (105, 'mid_value',        100,       30000,     8000000,      2000000000,     9000000000000000000,        0,     50)"""
+            sql """insert into ${mysqlDb}.${table1} values (101, 'all_zero',         0,         0,         0,            0,              0,                          0,           0)"""
+            sql """insert into ${mysqlDb}.${table1} values (102, 'signed_max',       127,       32767,     8388607,      2147483647,     9223372036854775807,        1,           127)"""
+            sql """insert into ${mysqlDb}.${table1} values (103, 'signed_max_plus1', 128,       32768,     8388608,      2147483648,     9223372036854775808,        -1,          -128)"""
+            sql """insert into ${mysqlDb}.${table1} values (104, 'unsigned_max',     255,       65535,     16777215,     4294967295,     18446744073709551615,       127,         -1)"""
+            sql """insert into ${mysqlDb}.${table1} values (105, 'mid_value',        100,       30000,     8000000,      2000000000,     9000000000000000000,        4,           50)"""
 
             sql """update ${mysqlDb}.${table1} set bigint_u=18446744073709551615 where id=1"""
-            sql """update ${mysqlDb}.${table1} set bool_col=0 where id=2"""
+            sql """update ${mysqlDb}.${table1} set tinyint_1=4 where id=2"""
             sql """update ${mysqlDb}.${table1} set int_u=4294967295 where id=5"""
         }
 
@@ -135,15 +135,16 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
                     {
                         def cnt = sql """select count(1) from ${currentDb}.${table1}"""
                         def upd1 = sql """select cast(bigint_u as string) from ${currentDb}.${table1} where id=1"""
-                        def upd2 = sql """select bool_col from ${currentDb}.${table1} where id=2"""
+                        def upd2 = sql """select tinyint_1 from ${currentDb}.${table1} where id=2"""
                         def upd5 = sql """select int_u from ${currentDb}.${table1} where id=5"""
                         def b1 = upd1.get(0).get(0) == null ? '' : upd1.get(0).get(0).toString()
-                        def b2 = upd2.get(0).get(0)
+                        def t2 = upd2.get(0).get(0)
                         def b5 = upd5.get(0).get(0)
-                        log.info("incr count=" + cnt + " id1.bigint_u=" + b1 + " id2.bool_col=" + b2 + " id5.int_u=" + b5)
+                        log.info("incr count=" + cnt + " id1.bigint_u=" + b1
+                                + " id2.tinyint_1=" + t2 + " id5.int_u=" + b5)
                         cnt.get(0).get(0) == 10 &&
                                 b1 == '18446744073709551615' &&
-                                b2 != null && b2.toString() == 'false' &&
+                                t2 != null && t2.toString() == '4' &&
                                 b5 != null && b5.toString() == '4294967295'
                     }
             )
@@ -155,7 +156,7 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
             throw ex
         }
 
-        qt_select_after_incr """select id, tag, tinyint_u, smallint_u, mediumint_u, int_u, bigint_u, bool_col, tinyint_s from ${currentDb}.${table1} order by id;"""
+        qt_select_after_incr """select id, tag, tinyint_u, smallint_u, mediumint_u, int_u, bigint_u, tinyint_1, tinyint_s from ${currentDb}.${table1} order by id;"""
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 
