@@ -124,6 +124,8 @@ if [[ "${target_branch}" == "master" ]]; then
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 USE_CUSTOM_LDB="wget -c -t3 -q https://doris-regression-hk.oss-cn-hongkong-internal.aliyuncs.com/tools/ldb-toolchain/v0.26/ldb_toolchain_gen.sh && rm -rf /usr/local/ldb-toolchain-v0.26 && bash ldb_toolchain_gen.sh /usr/local/ldb-toolchain-v0.26 && export PATH=/usr/local/ldb-toolchain-v0.26/bin:\$PATH"
+bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh \
+    'set' "export performance_docker_image=${docker_image}"
 set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \
@@ -151,15 +153,14 @@ sudo docker run -i --rm \
                     && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log \
                     && mkdir -p parquet-benchmark-results \
-                    && bash build.sh --benchmark --output /root/doris/parquet-benchmark-output 2>&1 | tee parquet-benchmark-results/build.log \
-                    && bash regression-test/pipeline/performance/run-parquet-microbenchmark.sh"
+                    && bash build.sh --benchmark --output /root/doris/parquet-benchmark-output 2>&1 | tee parquet-benchmark-results/build.log"
 docker_status=$?
 set +x
 if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then
     echo "##teamcity[publishArtifacts 'parquet-benchmark-results => parquet-microbenchmark']"
 fi
 if [[ "${docker_status}" -ne 0 ]]; then
-    echo "ERROR: performance build or Parquet microbenchmark failed"
+    echo "ERROR: performance or benchmark build failed"
     exit "${docker_status}"
 fi
 set -x

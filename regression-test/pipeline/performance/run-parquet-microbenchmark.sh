@@ -16,6 +16,22 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Build Step: Command Line, placed after compile and before deploy.
+: <<EOF
+#!/bin/bash
+
+export teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-parquet-microbenchmark.sh ]]; then
+    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
+    bash -x run-parquet-microbenchmark.sh
+else
+    echo "Build Step file missing: regression-test/pipeline/performance/run-parquet-microbenchmark.sh" && exit 1
+fi
+EOF
+
+#####################################################################################
+## run-parquet-microbenchmark.sh content ##
+
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -23,6 +39,38 @@ doris_home=$(cd "${script_dir}/../../.." && pwd)
 benchmark_binary="${PARQUET_BENCHMARK_BINARY:-${doris_home}/parquet-benchmark-output/be/lib/benchmark_test}"
 result_dir="${PARQUET_BENCHMARK_RESULT_DIR:-${doris_home}/parquet-benchmark-results}"
 case_list="${result_dir}/cases.txt"
+
+if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
+    if [[ -z "${teamcity_build_checkoutDir:-}" ]]; then
+        echo "ERROR: env teamcity_build_checkoutDir not set"
+        exit 1
+    fi
+
+    # shellcheck source=/dev/null
+    source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+    if ${skip_pipeline:=false}; then
+        echo "INFO: skip build pipeline"
+        exit 0
+    fi
+
+    docker_image="${performance_docker_image:-apache/doris:build-env-ldb-toolchain-latest}"
+    docker_name="parquet-microbenchmark-${TEAMCITY_BUILD_ID:-${commit_id_from_trigger}}"
+    if sudo docker run -i --rm \
+        --name "${docker_name}" \
+        -e PARQUET_MICROBENCHMARK_IN_CONTAINER=true \
+        -v "${teamcity_build_checkoutDir}":/root/doris \
+        "${docker_image}" \
+        /bin/bash /root/doris/regression-test/pipeline/performance/run-parquet-microbenchmark.sh; then
+        benchmark_status=0
+    else
+        benchmark_status=$?
+    fi
+
+    if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then
+        echo "##teamcity[publishArtifacts 'parquet-benchmark-results => parquet-microbenchmark']"
+    fi
+    exit "${benchmark_status}"
+fi
 
 if [[ ! -x "${benchmark_binary}" ]]; then
     echo "ERROR: Parquet benchmark binary not found: ${benchmark_binary}"
