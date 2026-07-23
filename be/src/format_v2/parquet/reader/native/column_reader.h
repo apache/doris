@@ -186,11 +186,11 @@ public:
                                     bool* eof, bool is_dict_filter,
                                     int64_t real_column_size = -1) = 0;
 
-    // Evaluate a predicate-only scalar directly from fixed-width PLAIN page bytes. The default is
-    // a non-consuming fallback for nested and synthetic readers.
-    virtual Status read_plain_filter(const VExprSPtrs&, int, FilterMap&, size_t,
-                                     IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
-                                     bool* used_filter) {
+    // Evaluate a predicate scalar directly from a supported fixed-width page encoding. The default
+    // is a non-consuming fallback for nested and synthetic readers.
+    virtual Status read_fixed_width_filter(const VExprSPtrs&, int, FilterMap&, size_t, IColumn*,
+                                           IColumn::Filter* row_filter, size_t* read_rows,
+                                           bool* eof, bool* used_filter) {
         DORIS_CHECK(row_filter != nullptr);
         DORIS_CHECK(read_rows != nullptr);
         DORIS_CHECK(eof != nullptr);
@@ -279,9 +279,10 @@ public:
                             const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
-    Status read_plain_filter(const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map,
-                             size_t batch_size, IColumn::Filter* row_filter, size_t* read_rows,
-                             bool* eof, bool* used_filter) override;
+    Status read_fixed_width_filter(const VExprSPtrs& conjuncts, int column_id,
+                                   FilterMap& filter_map, size_t batch_size,
+                                   IColumn* projected_column, IColumn::Filter* row_filter,
+                                   size_t* read_rows, bool* eof, bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
@@ -386,8 +387,8 @@ private:
     std::vector<uint16_t> _null_run_lengths;
     std::unordered_set<size_t> _ancestor_null_indices;
     std::vector<uint8_t> _nested_filter_map_data;
-    NullMap _plain_predicate_nulls;
-    IColumn::Filter _plain_predicate_matches;
+    NullMap _fixed_width_predicate_nulls;
+    IColumn::Filter _fixed_width_predicate_matches;
     FilterMap _nested_filter_map;
     ColumnSelectVector _select_vector;
     uint8_t _oversized_scratch_idle_batches = 0;
@@ -398,8 +399,9 @@ private:
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,
                         FilterMap& filter_map, bool is_dict_filter);
-    Status _read_plain_filter_values(size_t num_values, const VExprSPtrs& conjuncts, int column_id,
-                                     FilterMap& filter_map, IColumn::Filter* row_filter);
+    Status _read_fixed_width_filter_values(size_t num_values, const VExprSPtrs& conjuncts,
+                                           int column_id, FilterMap& filter_map,
+                                           IColumn* projected_column, IColumn::Filter* row_filter);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);

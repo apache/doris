@@ -567,7 +567,8 @@ std::shared_ptr<arrow::Array> build_list_array() {
 
 void write_table(const std::string& file_path, const std::shared_ptr<arrow::Table>& table,
                  int64_t row_group_size, bool enable_dictionary = false,
-                 bool enable_page_index = false, bool enable_statistics = true) {
+                 bool enable_page_index = false, bool enable_statistics = true,
+                 std::optional<::parquet::Encoding::type> encoding = std::nullopt) {
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
@@ -580,6 +581,9 @@ void write_table(const std::string& file_path, const std::shared_ptr<arrow::Tabl
         builder.enable_dictionary();
     } else {
         builder.disable_dictionary();
+    }
+    if (encoding.has_value()) {
+        builder.encoding(*encoding);
     }
     if (enable_page_index) {
         builder.enable_write_page_index();
@@ -620,14 +624,15 @@ void write_required_adjusted_time_parquet_file(const std::string& file_path) {
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group_size = 2,
-                                 bool enable_statistics = true) {
+                                 bool enable_statistics = true,
+                                 std::optional<::parquet::Encoding::type> encoding = std::nullopt) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int32(), false),
             arrow::field("score", arrow::int32(), false),
     });
     auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
                                              build_int32_array({10, 20, 30, 40, 50, 60})});
-    write_table(file_path, table, row_group_size, false, false, enable_statistics);
+    write_table(file_path, table, row_group_size, false, false, enable_statistics, encoding);
 }
 
 void write_uint32_pair_parquet_file(const std::string& file_path) {
@@ -665,20 +670,13 @@ void write_misdeclared_two_page_parquet_file(const std::string& file_path) {
     first_header.data_page_header_v2.__set_is_compressed(false);
     auto column_bytes = serialize_test_page(first_header, first_payload);
 
-    auto node = ::parquet::schema::PrimitiveNode::Make("id", ::parquet::Repetition::REQUIRED,
-                                                       ::parquet::Type::INT32);
-    ::parquet::ColumnDescriptor descriptor(node, 0, 0);
-    auto encoder = ::parquet::MakeTypedEncoder<::parquet::Int32Type>(
-            ::parquet::Encoding::DELTA_BINARY_PACKED, false, &descriptor);
-    const int32_t second_values[] = {3, 4};
-    encoder->Put(second_values, std::size(second_values));
-    auto second_buffer = encoder->FlushValues();
-    std::vector<uint8_t> second_payload(second_buffer->data(),
-                                        second_buffer->data() + second_buffer->size());
+    // Bit width 1 followed by an RLE run of two dictionary ids. The payload is structurally valid
+    // so the raw path reaches its late-encoding guard instead of failing while loading the page.
+    const std::vector<uint8_t> second_payload {1, 4, 0};
     tparquet::PageHeader second_header = first_header;
     second_header.__set_compressed_page_size(second_payload.size());
     second_header.__set_uncompressed_page_size(second_payload.size());
-    second_header.data_page_header_v2.__set_encoding(tparquet::Encoding::DELTA_BINARY_PACKED);
+    second_header.data_page_header_v2.__set_encoding(tparquet::Encoding::RLE_DICTIONARY);
     auto second_page = serialize_test_page(second_header, second_payload);
     column_bytes.insert(column_bytes.end(), second_page.begin(), second_page.end());
 
@@ -691,7 +689,9 @@ void write_misdeclared_two_page_parquet_file(const std::string& file_path) {
     leaf.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     tparquet::ColumnMetaData column;
     column.__set_type(tparquet::Type::INT32);
-    // Deliberately omit DELTA_BINARY_PACKED to emulate untrusted/incomplete footer metadata.
+    // Deliberately omit the second page's unsupported encoding to emulate untrusted footer
+    // metadata. The reader must reject it before attempting a typed fallback after partial cursor
+    // progress.
     column.__set_encodings({tparquet::Encoding::PLAIN, tparquet::Encoding::RLE});
     column.__set_path_in_schema({"id"});
     column.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
@@ -1531,8 +1531,101 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainComparisonUsesPhysicalDirectPath) {
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {30, 40, 50, 60}));
     EXPECT_EQ(block.get_by_position(0).column->size(), rows);
-    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), 1);
-    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, ProjectedPlainComparisonUsesPhysicalFilterAndProjectPath) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_direct_greater_conjunct(0, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {3, 4, 5, 6}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, ProjectedByteStreamSplitUsesFixedWidthFilterAndProjectPath) {
+    write_int_pair_parquet_file(_file_path, 6, false, ::parquet::Encoding::BYTE_STREAM_SPLIT);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_direct_greater_conjunct(0, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {3, 4, 5, 6}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, ProjectedDeltaBinaryPackedUsesFixedWidthFilterAndProjectPath) {
+    write_int_pair_parquet_file(_file_path, 6, false, ::parquet::Encoding::DELTA_BINARY_PACKED);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_direct_greater_conjunct(0, 2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {3, 4, 5, 6}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
 }
@@ -1565,10 +1658,10 @@ TEST_F(ParquetScanTest, PredicateOnlyUint32FallsBackBeforeRawPlainDecode) {
     ASSERT_EQ(rows, 2);
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {20, 30}));
-    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), 0);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 0);
 }
 
-TEST_F(ParquetScanTest, PlainPredicateReportsFooterEncodingMismatchAfterProgress) {
+TEST_F(ParquetScanTest, FixedWidthPredicateReportsUnsupportedEncodingAfterProgress) {
     write_misdeclared_two_page_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -1619,7 +1712,7 @@ TEST_F(ParquetScanTest, PlainDirectPathKeepsPayloadForMultiColumnResidual) {
               (ColumnInt32::Container {30}));
     EXPECT_EQ(block.get_by_position(0).column->size(), rows);
     // A residual expression still consumes id, so raw filtering must leave its payload available.
-    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), 0);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 0);
 }
 
 // Scenario: every physical batch in every row group is rejected. Predicate readers reach each row

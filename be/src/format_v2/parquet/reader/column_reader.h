@@ -61,12 +61,14 @@ public:
                                                  MutableColumnPtr& column,
                                                  IColumn::Filter* row_filter, bool* used_filter);
 
-    // Consume batch_rows and evaluate eligible fixed-width PLAIN values without constructing a
-    // predicate column. Implementations must leave the cursor untouched when used_filter=false.
-    virtual Status select_with_plain_filter(const SelectionVector& selection,
-                                            uint16_t selected_rows, int64_t batch_rows,
-                                            const VExprSPtrs& conjuncts, int column_id,
-                                            IColumn::Filter* row_filter, bool* used_filter);
+    // Consume batch_rows and evaluate eligible fixed-width values without first constructing a
+    // complete predicate column. Append survivors when projected_column is non-null. Implementations
+    // must leave the cursor untouched when used_filter=false.
+    virtual Status select_with_fixed_width_filter(const SelectionVector& selection,
+                                                  uint16_t selected_rows, int64_t batch_rows,
+                                                  const VExprSPtrs& conjuncts, int column_id,
+                                                  IColumn* projected_column,
+                                                  IColumn::Filter* row_filter, bool* used_filter);
 
     // Native statistics are cumulative and can be recursively aggregated for complex columns.
     // Flush once at the scheduler batch boundary instead of snapshotting after each operation.
