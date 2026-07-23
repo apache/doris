@@ -34,6 +34,15 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             qt_3 """ select score, value, active,name  from ${table} order by id,file_id limit 10; """
             qt_4 """ select value,name,id,file_id  from ${table} order by name limit 10; """
 
+            // Duplicate projected column - same column twice (the core bug from rowid_fetcher fix)
+            qt_dup_col_twice """ select name a, name b from ${table} order by id limit 10; """
+            // Duplicate projected column - same column three times
+            qt_dup_col_thrice """ select name a, name b, name c from ${table} order by id limit 10; """
+            // Duplicate column mixed with other columns
+            qt_dup_col_mixed """ select id, name a, score, name b from ${table} order by id limit 10; """
+            // Duplicate nullable column
+            qt_dup_col_nullable """ select score x, score y from ${table} order by id limit 10; """
+
 
             for (int limit : limitValues) {
                 // Basic query
@@ -151,9 +160,17 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
             """
 
             qt_test_join6  """
-                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b
                 where a.file_id = 1  and b.file_id = 1 and a.id = 1
                 order by a.id,b.id  limit 100;
+            """
+
+            // Duplicate columns from both sides of join
+            qt_test_join_dup_cols """
+                select a.name, a.name, b.id, b.id
+                from parquet_topn_lazy_mat_table as a
+                join orc_topn_lazy_mat_table as b on a.id = b.id
+                order by a.id limit ${limit};
             """
         }
 

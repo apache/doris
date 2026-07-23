@@ -145,7 +145,7 @@ private:
     static Status read_external_row_from_file_mapping(
             size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
             const std::shared_ptr<FileMapping>& file_mapping,
-            const std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
+            const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
             const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
             std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
             std::vector<ExternalFetchStatistics>& fetch_statistics,
