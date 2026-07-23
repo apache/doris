@@ -202,6 +202,14 @@ public abstract class AlterJobV2 implements Writable {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
 
+    public long getCreateTimeMs() {
+        return createTimeMs;
+    }
+
+    public void setCreateTimeMs(long createTimeMs) {
+        this.createTimeMs = createTimeMs;
+    }
+
     public boolean isExpire() {
         return isDone() && (System.currentTimeMillis() - finishedTimeMs) / 1000 > Config.history_job_keep_max_second;
     }
