@@ -491,6 +491,31 @@ public class DateLiteralUtilsTest {
             Assertions.assertEquals(minus5EpochMs,
                     dlMinus5.unixTimestamp(TimeUtils.getTimeZone()),
                     "Winter '-05:00' suffix must produce correct UTC epoch ms");
+
+            // Source-zone DST gap: CET spring-forward on March 28, 2027 (last
+            // Sunday of March, EU DST transition).  02:30 CET is nonexistent
+            // (gap 02:00→03:00); Java resolves it forward to 03:30 CEST = 01:30Z.
+            // The original code derived destination fields via offset difference,
+            // which lost the gap-forward shift and produced 02:30 again → 1 hour
+            // earlier than the resolved instant.
+            ctx.getSessionVariable().setTimeZone("CET");
+            long cetGapEpochMs = Instant.parse("2027-03-28T01:30:00Z").toEpochMilli();
+
+            DateLiteral dlCetGap = DateLiteralUtils.createDateLiteral(
+                    "2027-03-28 02:30:00CET", Type.DATETIME);
+            Assertions.assertEquals(cetGapEpochMs,
+                    dlCetGap.unixTimestamp(TimeUtils.getTimeZone()),
+                    "CET spring-forward gap (DATETIME) must produce correct UTC epoch ms");
+
+            DateLiteral dlCetGapTz = DateLiteralUtils.createDateLiteral(
+                    "2027-03-28 02:30:00CET", ScalarType.createTimeStampTzType(0));
+            Assertions.assertEquals(1, dlCetGapTz.getHour(),
+                    "CET spring-forward gap (TIMESTAMPTZ) must store UTC hour = 01");
+            Assertions.assertEquals(30, dlCetGapTz.getMinute(),
+                    "CET spring-forward gap (TIMESTAMPTZ) must store UTC minute = 30");
+
+            // Restore America/Chicago for any future test additions.
+            ctx.getSessionVariable().setTimeZone("America/Chicago");
         } finally {
             TimeZone.setDefault(originalTz);
             if (savedCtx != null) {

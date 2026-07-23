@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -311,6 +312,80 @@ public class ExprToStringValueVisitorTest {
         DateLiteral d = new DateLiteral(2024, 1, 15, Type.DATEV2);
         Assertions.assertEquals("\"2024-01-15\"",
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
+    }
+
+    // ======================== TimeStampTz ========================
+
+    @Test
+    public void testDateLiteralTimeStampTzPositiveOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("+08:00");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2020-02-02 12:00:03.123456+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            // UTC wall clock = 12:00:03.123456, with session +08:00 → wall clock 20:00:03.123456, offset +08:00
+            Assertions.assertEquals("2020-02-02 20:00:03.123456+08:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzNegativeOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("-08:00");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2020-02-02 12:00:03.123456+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            // UTC wall clock = 12:00:03.123456, with session -08:00 → wall clock 04:00:03.123456, offset -08:00
+            Assertions.assertEquals("2020-02-02 04:00:03.123456-08:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzDstWinterTarget() throws Exception {
+        // Regression: visitor must NOT use Instant.now() for DST offset computation.
+        // A winter TIMESTAMPTZ value rendered in America/Chicago session must show
+        // winter offset (-06:00), not summer offset (-05:00) even if the JVM clock
+        // is in summer.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/Chicago");
+            // Winter target: 2027-01-01 00:00:00 UTC
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2027-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // America/Chicago winter offset = -06:00
+            // UTC wall clock = 2027-01-01 00:00:00 → CST wall clock = 2026-12-31 18:00:00
+            Assertions.assertEquals("2026-12-31 18:00:00-06:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzDstSummerTarget() throws Exception {
+        // Summer baseline: a July value in America/Chicago should use -05:00.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/Chicago");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2027-07-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // America/Chicago summer offset = -05:00
+            // UTC wall clock = 2027-07-01 00:00:00 → CDT wall clock = 2027-06-30 19:00:00
+            Assertions.assertEquals("2027-06-30 19:00:00-05:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     // ======================== CastExpr ========================

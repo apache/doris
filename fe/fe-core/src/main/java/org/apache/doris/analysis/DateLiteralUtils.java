@@ -65,7 +65,6 @@ public class DateLiteralUtils {
             }
             TemporalAccessor dateTime = null;
             boolean parsed = false;
-            int offset = 0;
             ZoneId sourceZone = null;
 
             // parse timezone
@@ -217,9 +216,14 @@ public class DateLiteralUtils {
             // The original code used Instant.now() which returns the current
             // DST offset; when the target date falls in a different DST period
             // the computed shift is wrong by the DST gap.
+            //
+            // We derive the destination wall clock directly from the resolved
+            // target instant (via LocalDateTime.ofInstant) rather than computing
+            // a delta offset. This correctly handles source-zone DST gaps:
+            // e.g. CET spring-forward resolves 02:30 CET (nonexistent) to
+            // 03:30 CEST = 01:30Z; ofInstant then reconstructs the correct
+            // wall clock for the destination zone from the resolved instant.
             if (sourceZone != null) {
-                // Use TimeUtils.getTimeZone() for consistency with the
-                // downstream unixTimestamp(TimeUtils.getTimeZone()) call.
                 ZoneId dorisZone = TimeUtils.getTimeZone().toZoneId();
                 if (type != null && type.isTimeStampTz()) {
                     dorisZone = ZoneId.of("UTC");
@@ -228,26 +232,15 @@ public class DateLiteralUtils {
                         (int) year, (int) month, (int) day,
                         (int) hour, (int) minute, (int) second);
                 Instant targetInstant = parsedLdt.atZone(sourceZone).toInstant();
-                offset = dorisZone.getRules().getOffset(targetInstant).getTotalSeconds()
-                        - sourceZone.getRules().getOffset(targetInstant).getTotalSeconds();
-            }
-
-            // Apply timezone offset before constructing the DateLiteral.
-            // The original init() calls this.plusSeconds(offset) which internally uses
-            // LocalDateTime arithmetic. We replicate that here directly.
-            if (offset != 0) {
-                LocalDateTime ldt = LocalDateTime.of(
-                        (int) year, (int) month, (int) day,
-                        (int) hour, (int) minute, (int) second,
-                        (int) (microsecond * 1000));
-                ldt = ldt.plusSeconds(offset);
-                year = ldt.getYear();
-                month = ldt.getMonthValue();
-                day = ldt.getDayOfMonth();
-                hour = ldt.getHour();
-                minute = ldt.getMinute();
-                second = ldt.getSecond();
-                // microsecond is intentionally NOT updated, matching the original init() behavior
+                LocalDateTime destLdt = LocalDateTime.ofInstant(targetInstant, dorisZone);
+                year = destLdt.getYear();
+                month = destLdt.getMonthValue();
+                day = destLdt.getDayOfMonth();
+                hour = destLdt.getHour();
+                minute = destLdt.getMinute();
+                second = destLdt.getSecond();
+                // microsecond is preserved from the original parse, matching
+                // the original init() behavior (not affected by zone conversion)
             }
 
             // Construct DateLiteral using the appropriate constructor based on the determined type
