@@ -59,6 +59,15 @@ class CastMonotonicityTest {
     }
 
     @Test
+    void testDorisTimeZoneAliasIsMonotonic() {
+        setTimeZone("CST");
+
+        Assertions.assertTrue(cast.isMonotonic(
+                timestampTz("2024-11-03 05:00:00+00:00"),
+                timestampTz("2024-11-03 06:00:00+00:00")));
+    }
+
+    @Test
     void testFallbackAtUpperBoundaryIsNotMonotonic() {
         setTimeZone("America/New_York");
 

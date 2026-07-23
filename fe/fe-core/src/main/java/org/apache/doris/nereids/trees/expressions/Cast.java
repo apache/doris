@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -297,7 +298,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             TimeStampTzType sourceType, DateTimeV2Type destinationType, Literal lower, Literal upper) {
         ZoneId timeZone;
         try {
-            timeZone = DateUtils.getTimeZone();
+            timeZone = TimeUtils.getDorisZoneId();
         } catch (DateTimeException e) {
             return false;
         }
