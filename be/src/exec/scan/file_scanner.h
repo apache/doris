@@ -151,6 +151,9 @@ protected:
     TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
+    // A Paimon JNI scanner owns table-level Java resources that are independent of one logical
+    // split. Keep it here while native or C++ Paimon splits are processed.
+    std::unique_ptr<GenericReader> _cached_paimon_jni_reader;
     bool _cur_reader_eof = false;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;

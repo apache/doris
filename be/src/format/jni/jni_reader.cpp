@@ -159,6 +159,52 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
+Status JniReader::publish_current_split_profile() {
+    if (_profile == nullptr) {
+        return Status::OK();
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    return _publish_current_split_profile(env);
+}
+
+Status JniReader::_publish_current_split_profile(JNIEnv* env) {
+    DORIS_CHECK(env != nullptr);
+    if (_profile == nullptr) {
+        return Status::OK();
+    }
+
+    COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+    COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+
+    RETURN_ERROR_IF_EXC(env);
+    jlong append_data_time = 0;
+    RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                            .call(&append_data_time));
+    jlong create_vector_table_time = 0;
+    RETURN_IF_ERROR(
+            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                    .call(&create_vector_table_time));
+
+    const auto append_data_time_delta = append_data_time - _java_append_data_time_snapshot;
+    const auto create_vector_table_time_delta =
+            create_vector_table_time - _java_create_vector_table_time_snapshot;
+    COUNTER_UPDATE(_java_append_data_time, append_data_time_delta);
+    COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time_delta);
+    COUNTER_UPDATE(_java_scan_time,
+                   _java_scan_watcher - append_data_time_delta - create_vector_table_time_delta);
+    const auto split_time = _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher;
+    if (split_time > 0) {
+        _max_time_split_weight_counter->conditional_update(split_time, _self_split_weight);
+    }
+    _jni_scanner_open_watcher = 0;
+    _java_scan_watcher = 0;
+    _fill_block_watcher = 0;
+    _java_append_data_time_snapshot = append_data_time;
+    _java_create_vector_table_time_snapshot = create_vector_table_time;
+    return Status::OK();
+}
+
 // =========================================================================
 // JniReader::_do_get_next_block  (merged from JniConnector::get_next_block)
 // =========================================================================
@@ -214,48 +260,41 @@ Status JniReader::get_table_schema(std::string& table_schema_str) {
 // =========================================================================
 
 Status JniReader::close() {
-    if (!_closed) {
-        _closed = true;
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
-        if (_scanner_opened) {
-            if (_profile) {
-                COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-                COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-            }
-
-            RETURN_ERROR_IF_EXC(env);
-            jlong _append = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                            .call(&_append));
-
-            if (_profile) {
-                COUNTER_UPDATE(_java_append_data_time, _append);
-            }
-
-            jlong _create = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj
-                            .call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                            .call(&_create));
-
-            if (_profile) {
-                COUNTER_UPDATE(_java_create_vector_table_time, _create);
-                COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
-                _max_time_split_weight_counter->conditional_update(
-                        _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                        _self_split_weight);
-            }
-
-            // _fill_block may be failed and returned, we should release table in close.
-            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-        }
+    if (_closed) {
+        return Status::OK();
     }
-    return Status::OK();
+    auto close_status = _close_jni_scanner();
+    if (close_status.ok()) {
+        _closed = true;
+    }
+    return close_status;
+}
+
+Status JniReader::_close_jni_scanner() {
+    if (!_scanner_opened) {
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    const auto profile_status = _publish_current_split_profile(env);
+    if (!profile_status.ok()) {
+        // Profile collection is best effort and must not prevent Java resource cleanup.
+        LOG(WARNING) << "failed to collect JNI profile during close: " << profile_status;
+    }
+
+    // _fill_block may fail before releasing the current Java table. releaseTable() is idempotent,
+    // and Java close must still run if it fails so connector resources can be released.
+    auto cleanup_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
+    auto java_close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_close).call();
+    if (cleanup_status.ok() && !java_close_status.ok()) {
+        cleanup_status = std::move(java_close_status);
+    }
+    if (cleanup_status.ok()) {
+        _scanner_opened = false;
+    }
+    // Keep the Java object and opened state on failure so close() can retry the cleanup.
+    return cleanup_status;
 }
 
 // =========================================================================
@@ -322,6 +361,10 @@ Status JniReader::_init_jni_scanner(JNIEnv* env, int batch_size) {
                                                 &_jni_scanner_get_statistics));
     RETURN_IF_ERROR(
             _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
+    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "prepareForSplit", "(Ljava/util/Map;)V",
+                                                &_jni_scanner_prepare_for_split));
+    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "resetCurrentSplit", "()V",
+                                                &_jni_scanner_reset_current_split));
     return Status::OK();
 }
 

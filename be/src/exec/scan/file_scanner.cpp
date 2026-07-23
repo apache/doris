@@ -1012,8 +1012,15 @@ void FileScanner::_fill_base_init_context(ReaderInitContext* ctx) {
 Status FileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
-            _cur_reader->collect_profile_before_close();
-            RETURN_IF_ERROR(_cur_reader->close());
+            if (auto* paimon_jni_reader = dynamic_cast<PaimonJniReader*>(_cur_reader.get());
+                paimon_jni_reader != nullptr) {
+                RETURN_IF_ERROR(paimon_jni_reader->finish_split());
+                DORIS_CHECK(_cached_paimon_jni_reader == nullptr);
+                _cached_paimon_jni_reader = std::move(_cur_reader);
+            } else {
+                _cur_reader->collect_profile_before_close();
+                RETURN_IF_ERROR(_cur_reader->close());
+            }
             _state->update_num_finished_scan_range(1);
         }
         _cur_reader.reset(nullptr);
@@ -1059,6 +1066,10 @@ Status FileScanner::_get_next_reader() {
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
         const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
+        const bool is_table_level_count = _get_push_down_agg_type() == TPushAggOp::type::COUNT &&
+                                          range.__isset.table_format_params &&
+                                          range.table_format_params.table_level_row_count >= 0;
+        bool count_reader_initialized = false;
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1133,12 +1144,37 @@ Status FileScanner::_get_next_reader() {
                     init_status =
                             static_cast<GenericReader*>(cpp_reader.get())->init_reader(&jni_ctx);
                     _cur_reader = std::move(cpp_reader);
+                } else if (is_table_level_count) {
+                    // The FE-provided count is complete, so this split does not need Paimon's
+                    // table-level Java scanner. Keep any scanner cached from an earlier data split
+                    // available for the next data split.
+                    _cur_reader = std::make_unique<CountReader>(
+                            range.table_format_params.table_level_row_count, _state->batch_size());
+                    count_reader_initialized = true;
                 } else {
-                    auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
-                                                                        _profile, range, _params);
-                    init_status =
-                            static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(paimon_reader);
+                    if (_cached_paimon_jni_reader != nullptr) {
+                        auto* cached_reader =
+                                dynamic_cast<PaimonJniReader*>(_cached_paimon_jni_reader.get());
+                        DORIS_CHECK(cached_reader != nullptr);
+                        if (cached_reader->can_reuse_for(range)) {
+                            _cur_reader = std::move(_cached_paimon_jni_reader);
+                            init_status = cached_reader->prepare_split(range, &jni_ctx);
+                        } else {
+                            _cached_paimon_jni_reader->collect_profile_before_close();
+                            RETURN_IF_ERROR(_cached_paimon_jni_reader->close());
+                            _cached_paimon_jni_reader.reset();
+                        }
+                    }
+                    if (_cur_reader == nullptr) {
+                        auto paimon_reader = PaimonJniReader::create_unique(
+                                _file_slot_descs, _state, _profile, range, _params);
+                        init_status = static_cast<GenericReader*>(paimon_reader.get())
+                                              ->init_reader(&jni_ctx);
+                        if (init_status.ok()) {
+                            init_status = paimon_reader->prepare_split(range, &jni_ctx);
+                        }
+                        _cur_reader = std::move(paimon_reader);
+                    }
                 }
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
@@ -1348,9 +1384,6 @@ Status FileScanner::_get_next_reader() {
         // For table-level COUNT pushdown, offsets are undefined so we must skip
         // _set_fill_or_truncate_columns (it uses [start_offset, end_offset] to
         // filter row groups, which would produce incorrect empty results).
-        bool is_table_level_count = _get_push_down_agg_type() == TPushAggOp::type::COUNT &&
-                                    range.__isset.table_format_params &&
-                                    range.table_format_params.table_level_row_count >= 0;
         if (!is_table_level_count) {
             Status status = _set_fill_or_truncate_columns(need_to_get_parsed_schema);
             if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
@@ -1363,7 +1396,8 @@ Status FileScanner::_get_next_reader() {
 
         // Unified COUNT(*) pushdown: replace the real reader with CountReader
         // decorator if the reader accepts COUNT and can provide a total row count.
-        if (_cur_reader->get_push_down_agg_type() == TPushAggOp::type::COUNT) {
+        if (!count_reader_initialized &&
+            _cur_reader->get_push_down_agg_type() == TPushAggOp::type::COUNT) {
             int64_t total_rows = -1;
             if (is_table_level_count) {
                 // FE-provided count (may account for table-format deletions)
@@ -2056,8 +2090,27 @@ Status FileScanner::close(RuntimeState* state) {
 
     _finalize_reader_condition_cache();
 
-    if (_cur_reader) {
-        RETURN_IF_ERROR(_cur_reader->close());
+    Status close_status = Status::OK();
+    auto close_retained_reader = [&close_status](std::unique_ptr<GenericReader>& reader) {
+        if (reader == nullptr) {
+            return;
+        }
+
+        auto status = reader->close();
+        if (status.ok()) {
+            reader.reset();
+        } else if (close_status.ok()) {
+            // Continue closing the other retained reader, but report the first failure.
+            close_status = std::move(status);
+        }
+    };
+    close_retained_reader(_cur_reader);
+    close_retained_reader(_cached_paimon_jni_reader);
+    if (!close_status.ok()) {
+        // _try_close() reserves the close attempt before reader cleanup. Restore the state so a
+        // later close can retry any retained reader whose cleanup failed.
+        _is_closed.store(false);
+        return close_status;
     }
 
     RETURN_IF_ERROR(Scanner::close(state));
@@ -2144,6 +2197,9 @@ void FileScanner::_collect_profile_before_close() {
 
     if (_cur_reader != nullptr) {
         _cur_reader->collect_profile_before_close();
+    }
+    if (_cached_paimon_jni_reader != nullptr) {
+        _cached_paimon_jni_reader->collect_profile_before_close();
     }
 
     FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);

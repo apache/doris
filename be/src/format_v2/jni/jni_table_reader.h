@@ -75,6 +75,17 @@ protected:
     // Subclasses can override this method when Java transfer types differ from output types.
     virtual Status build_jni_columns(std::vector<JniColumn>* columns) const;
     virtual Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows);
+    virtual Status open_jni_scanner_for_split();
+    virtual Status close_jni_scanner_for_split();
+    void reset_jni_eof() { _eof = false; }
+    bool jni_scanner_opened() const { return _scanner_opened; }
+    Jni::GlobalObject& jni_scanner_obj() { return _jni_scanner_obj; }
+    const Jni::MethodId& jni_scanner_prepare_for_split() const {
+        return _jni_scanner_prepare_for_split;
+    }
+    const Jni::MethodId& jni_scanner_reset_current_split() const {
+        return _jni_scanner_reset_current_split;
+    }
     // used for profile
     virtual int64_t self_split_weight() const;
     virtual Status _get_next_jni_block(size_t* rows, bool* eof);
@@ -82,6 +93,11 @@ protected:
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
     virtual bool supports_batch_size_update_after_open() const { return true; }
     virtual Status _open_jni_scanner();
+    // A derived reader can retain split-local state after the base reader destroys the global
+    // Java scanner. Clear that state from this hook rather than relying on a particular close
+    // caller to do so.
+    virtual void _on_jni_scanner_discarded() {}
+    void _publish_jni_scanner_split_timing(JNIEnv* env);
     bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
     RuntimeProfile::Counter* connector_total_timer() const { return _connector_total_time; }
@@ -91,7 +107,6 @@ private:
     // init
     void _init_profile();
     std::string _connector_name() const;
-    // open
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
     Status _register_jni_class_functions_once(JNIEnv* env);
@@ -122,6 +137,8 @@ private:
     int64_t _jni_scanner_open_watcher = 0;
     int64_t _java_scan_watcher = 0;
     int64_t _fill_block_watcher = 0;
+    jlong _java_append_data_time_snapshot = 0;
+    jlong _java_create_vector_table_time_snapshot = 0;
 
     Jni::GlobalClass _jni_scanner_cls;
     Jni::GlobalObject _jni_scanner_obj;
@@ -135,6 +152,8 @@ private:
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
     Jni::MethodId _jni_scanner_set_batch_size;
+    Jni::MethodId _jni_scanner_prepare_for_split;
+    Jni::MethodId _jni_scanner_reset_current_split;
 };
 
 } // namespace doris::format

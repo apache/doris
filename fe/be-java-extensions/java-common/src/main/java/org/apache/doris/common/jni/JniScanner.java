@@ -52,6 +52,14 @@ public abstract class JniScanner {
     // Close JniScanner and release resources
     public abstract void close() throws IOException;
 
+    public void prepareForSplit(Map<String, String> splitParams) throws IOException {
+        throw new UnsupportedOperationException(getClass().getName() + " does not support split preparation");
+    }
+
+    public void resetCurrentSplit() throws IOException {
+        throw new UnsupportedOperationException(getClass().getName() + " does not support split reset");
+    }
+
     // Scan data and save as vector table
     protected abstract int getNext() throws IOException;
 
