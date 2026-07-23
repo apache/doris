@@ -58,8 +58,8 @@ import java.util.function.Function;
  *   <li>The HUDI arm must not swallow the genuine-UNKNOWN fail-loud (an unsupported non-view format still throws).</li>
  * </ul>
  *
- * <p>Dormant until hms enters {@code SPI_READY_TYPES}: no production path calls getTableHandle for this connector
- * yet, so these assertions are a guard, not a live-path test.</p>
+ * <p>Live since the hms flip: getTableHandle runs for a flipped hms catalog; these assertions are a Rule-9
+ * guard on the per-handle divert contract.</p>
  */
 public class HiveConnectorMetadataTableHandleDivertTest {
 

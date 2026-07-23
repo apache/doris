@@ -54,6 +54,7 @@ import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.AbstractMap;
@@ -1074,6 +1075,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // which never string-equals the Hive-canonical stored partition value "2024-01-01 10:00:00" in
             // matchesPredicates -> the whole table prunes to 0 rows. Render Hive-canonical text instead.
             return hiveDateTimeString((LocalDateTime) val);
+        }
+        if (val instanceof BigDecimal) {
+            // A DECIMAL partition literal arrives as a BigDecimal carrying the column's declared scale
+            // (e.g. decimal(8,4) -> "1.0000"), but the Hive-canonical stored partition value is trailing-zero
+            // trimmed ("1"). String.valueOf keeps the scale, so matchesPredicates' string-compare misses and
+            // the table prunes to 0 rows. Render trailing-zero-trimmed plain text to string-equal the stored
+            // value (toPlainString avoids scientific notation from stripTrailingZeros). Mirrors the sibling
+            // HiveConnectorMetadata.extractLiteralValue (#65473).
+            return ((BigDecimal) val).stripTrailingZeros().toPlainString();
         }
         return String.valueOf(val);
     }

@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.RewriteCapableTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
@@ -115,7 +116,7 @@ import java.util.Set;
  * {@code GlobalExternalTransactionInfoMgr} — no per-connector registration code is needed, mirroring
  * maxcompute.</p>
  */
-public class IcebergConnectorTransaction implements ConnectorTransaction {
+public class IcebergConnectorTransaction implements ConnectorTransaction, RewriteCapableTransaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnectorTransaction.class);
     private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";

@@ -328,6 +328,7 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
+import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -3885,12 +3886,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             Transaction transaction = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
                     .getTxnById(request.getTxnId());
-            if (!transaction.supportsWriteBlockAllocation()) {
+            if (!(transaction instanceof WriteBlockAllocatingTransaction)) {
                 throw new UserException("Transaction " + request.getTxnId()
                         + " is not a MaxCompute transaction");
             }
 
-            long start = transaction.allocateWriteBlockRange(
+            long start = ((WriteBlockAllocatingTransaction) transaction).allocateWriteBlockRange(
                     request.getWriteSessionId(), request.getLength());
             result.setStart(start);
             result.setLength(request.getLength());

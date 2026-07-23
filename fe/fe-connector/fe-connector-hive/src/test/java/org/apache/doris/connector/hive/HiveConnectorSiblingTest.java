@@ -38,11 +38,11 @@ import java.util.Set;
  * {@link org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector}) that it delegates its
  * iceberg-on-HMS / hudi-on-HMS tables to, and forwards {@code close()} to both.
  *
- * <p>The whole surface is dormant until hms enters {@code SPI_READY_TYPES}: no production path calls
- * {@code getOrCreateIcebergSibling()} / {@code getOrCreateHudiSibling()} yet, so these assertions are a Rule-9
+ * <p>Live since the hms flip: {@code getTableHandle} builds the iceberg/hudi siblings via
+ * {@code getOrCreateIcebergSibling()} / {@code getOrCreateHudiSibling()}, so these assertions are a Rule-9
  * guard that each holder's contract (single sibling per gateway, correctly synthesized props — hms-flavor for
- * iceberg, verbatim for hudi — fail-loud when the plugin is absent, independent lifecycle forwarding) is correct
- * BEFORE the flip wires a consumer.
+ * iceberg, verbatim for hudi — fail-loud when the plugin is absent, independent lifecycle forwarding) stays
+ * correct.
  */
 public class HiveConnectorSiblingTest {
 

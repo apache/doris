@@ -399,6 +399,24 @@ public final class IcebergSchemaUtils {
         return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED;
     }
 
+    /**
+     * The Doris FE default-value string for a field's WRITE default (iceberg {@code writeDefault}, applied to
+     * new rows), used to fill an INSERT-omitted column and to render the column default in DESCRIBE — or
+     * {@code null} when there is nothing to surface. Only flat scalar defaults map to a Doris {@code Column}
+     * default string, so complex types (STRUCT/LIST/MAP) and binary-like types (UUID/BINARY/FIXED) — whose
+     * value can't be carried as a plain unquoted literal that DESCRIBE / INSERT re-parse — return null.
+     * Non-binary scalars reuse the same human-string form as the read-side initial default (timestamp
+     * normalized to DATETIMEV2 spacing, timestamptz offset handling honored) so a write default displays
+     * exactly like a read default. This ONLY populates the FE {@link org.apache.doris.connector.api.ConnectorColumn}
+     * metadata; it is orthogonal to the initialDefault BE-dictionary path in {@link #buildField} (#65502).
+     */
+    static String writeDefaultToDorisString(Type type, Object writeDefault, boolean enableTimestampTz) {
+        if (writeDefault == null || !type.isPrimitiveType() || isBinaryLike(type)) {
+            return null;
+        }
+        return serializeInitialDefault(type, writeDefault, enableTimestampTz);
+    }
+
     private static String serializeBinaryInitialDefault(Type type, Object value) {
         if (type.typeId() != TypeID.UUID) {
             // BINARY/FIXED: iceberg's identity human form is already Base64 of the raw bytes.

@@ -188,7 +188,16 @@ public final class PaimonTypeMapping {
         List<ConnectorType> types = fields.stream()
                 .map(f -> toConnectorType(f.type(), options))
                 .collect(Collectors.toCollection(ArrayList::new));
-        return ConnectorType.structOf(names, types);
+        // Carry the nested field nullability and comment (parity with the write path and with the
+        // iceberg read path) so DESCRIBE / SHOW CREATE TABLE report the struct field's NOT NULL
+        // constraint and COMMENT rather than defaulting every nested field to nullable / no comment.
+        List<Boolean> nullable = fields.stream()
+                .map(f -> f.type().isNullable())
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<String> comments = fields.stream()
+                .map(DataField::description)
+                .collect(Collectors.toCollection(ArrayList::new));
+        return ConnectorType.structOf(names, types, nullable, comments);
     }
 
     /**
@@ -279,10 +288,13 @@ public final class PaimonTypeMapping {
         for (int i = 0; i < children.size(); i++) {
             String fieldName = i < names.size() && names.get(i) != null ? names.get(i) : "col" + i;
             // FIX-L13: preserve the declared field nullability (legacy struct =
-            // fieldResults.get(i).copy(field.getContainsNull())). The field comment stays dropped
-            // (accepted display-only deviation DV-035 M10.1) and the field id stays sequential (legacy parity).
+            // fieldResults.get(i).copy(field.getContainsNull())). Also carry the field comment via the
+            // 4-arg DataField (parity with top-level columns in PaimonSchemaBuilder); getChildComment
+            // returns null when unset, which is byte-identical to the 3-arg form. The field id stays
+            // sequential (legacy parity).
             fields.add(new DataField(fieldId.incrementAndGet(), fieldName,
-                    toPaimonType(children.get(i)).copy(type.isChildNullable(i))));
+                    toPaimonType(children.get(i)).copy(type.isChildNullable(i)),
+                    type.getChildComment(i)));
         }
         return new RowType(fields);
     }

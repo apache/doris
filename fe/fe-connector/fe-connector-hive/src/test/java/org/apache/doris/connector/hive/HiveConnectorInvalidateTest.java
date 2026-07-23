@@ -47,7 +47,7 @@ import java.util.Map;
  * {@code invalidateAll} clears everything; and the public hooks never force-build a metastore client just to
  * flush (a REFRESH on a never-scanned catalog must be a cheap no-op on the metastore side).</p>
  *
- * <p>Dormant: {@code "hms"} is not in {@code SPI_READY_TYPES}; this drives the hooks directly.</p>
+ * <p>Live since the hms flip; this test drives the hooks directly.</p>
  */
 public class HiveConnectorInvalidateTest {
 

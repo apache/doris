@@ -51,8 +51,8 @@ import java.util.OptionalLong;
  * {@code meta.cache.hive.*} properties reach that cache (so it can be turned off). The decorator's internal
  * caching correctness is covered separately by {@code CachingHmsClientTest} — this suite tests only the wiring.
  *
- * <p>Dormant: {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog builds a {@link HiveConnector};
- * this exercises the wrap directly, as production {@code createClient} will at the flip.
+ * <p>Live since the hms flip: production {@code createClient} wraps its client here; this exercises the wrap
+ * directly.
  */
 public class HiveConnectorClientCacheTest {
 

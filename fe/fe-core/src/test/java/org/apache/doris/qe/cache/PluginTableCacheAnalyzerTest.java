@@ -130,4 +130,35 @@ public class PluginTableCacheAnalyzerTest {
         Assert.assertEquals(token, cacheTable.latestPartitionTime);
         Assert.assertEquals(5L, cacheTable.partitionNum);
     }
+
+    /**
+     * The quiet-window gate value ({@code latestPartitionUpdateMillis}) must come from the connector's
+     * wall-clock accessor {@code getNewestUpdateTimeMillisForCache()} (a genuine epoch-millis), while the BE
+     * PCache version key ({@code latestPartitionTime}) stays the raw data-version token. Conflating them is
+     * what kept iceberg out of SqlCache: its token is MICROSECONDS, so subtracting it from a wall-clock now in
+     * the 30s gate is always ~0 and never passes. RED if the gate value is sourced from the token.
+     */
+    @Test
+    public void testGateValueSourcedFromWallClockAccessor() {
+        long token = 1_700_000_000_000_000L;       // micros (iceberg-style token / version key)
+        long wallClockMillis = 1_700_000_000_000L;  // millis (connector-normalized gate value)
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("iceberg_ctl");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getFullName()).thenReturn("iceberg_db");
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getNewestUpdateVersionOrTime()).thenReturn(token);
+        Mockito.when(table.getNewestUpdateTimeMillisForCache()).thenReturn(wallClockMillis);
+
+        PluginDrivenScanNode node = mockPluginScanNode(table, 5L);
+        CacheAnalyzer.CacheTable cacheTable =
+                Deencapsulation.invoke(analyzer, "buildCacheTableForExternalScanNode", node);
+
+        Assert.assertEquals("BE PCache version key stays the raw token", token, cacheTable.latestPartitionTime);
+        Assert.assertEquals("the quiet-window gate value is the wall-clock millis", wallClockMillis,
+                cacheTable.latestPartitionUpdateMillis);
+    }
 }

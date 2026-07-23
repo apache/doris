@@ -92,6 +92,38 @@ public final class ConnectorMvccSnapshot {
         return lastModifiedFreshness;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ConnectorMvccSnapshot)) {
+            return false;
+        }
+        ConnectorMvccSnapshot that = (ConnectorMvccSnapshot) o;
+        return snapshotId == that.snapshotId
+                && timestampMillis == that.timestampMillis
+                && schemaId == that.schemaId
+                && lastModifiedFreshness == that.lastModifiedFreshness
+                && description.equals(that.description)
+                && properties.equals(that.properties);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(snapshotId, timestampMillis, schemaId, lastModifiedFreshness, description, properties);
+    }
+
+    @Override
+    public String toString() {
+        return "ConnectorMvccSnapshot{snapshotId=" + snapshotId
+                + ", timestampMillis=" + timestampMillis
+                + ", schemaId=" + schemaId
+                + ", description='" + description + "'"
+                + ", lastModifiedFreshness=" + lastModifiedFreshness
+                + ", properties=" + properties + "}";
+    }
+
     public static Builder builder() {
         return new Builder();
     }
