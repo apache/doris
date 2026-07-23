@@ -17,17 +17,29 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.S3Util;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -114,6 +126,95 @@ public class ExternalFileTableValuedFunctionTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
+        }
+    }
+
+    @Test
+    public void testS3ExpressIsAvailableToDirectAndNereidsTvf() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.csv");
+            properties.put("s3.provider", "AWS");
+            properties.put("s3.region", "us-west-2");
+            properties.put("format", "csv");
+
+            S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
+            S3TableValuedFunction queryTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+            Assert.assertEquals("AWS", directTvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals("AWS", queryTvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals("https://s3.us-west-2.amazonaws.com",
+                    directTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
+            Assert.assertEquals(directTvf.getBackendConnectProperties(),
+                    queryTvf.getBackendConnectProperties());
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlIsNormalizedForDirectAndNereidsTvf() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "https://analytics--eun1-az1--x-s3."
+                    + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.csv");
+            properties.put("s3.provider", "AWS");
+            properties.put("format", "csv");
+
+            S3TableValuedFunction directTvf = new S3TableValuedFunction(properties);
+            S3TableValuedFunction queryTvf = (S3TableValuedFunction) new S3(new Properties(properties))
+                    .getCatalogFunction();
+
+            Assert.assertEquals("s3://analytics--eun1-az1--x-s3/data/file.csv", directTvf.getFilePath());
+            Assert.assertEquals(directTvf.getFilePath(), queryTvf.getFilePath());
+            Assert.assertEquals("eu-north-1", directTvf.getBackendConnectProperties().get("AWS_REGION"));
+            Assert.assertEquals("https://s3.eu-north-1.amazonaws.com",
+                    directTvf.getBackendConnectProperties().get("AWS_ENDPOINT"));
+            Assert.assertEquals("AWS", directTvf.getBackendConnectProperties().get("provider"));
+            Assert.assertEquals(directTvf.getBackendConnectProperties(), queryTvf.getBackendConnectProperties());
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlParseFileUsesRegionalEndpointPreflight() throws Exception {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = false;
+        String objectUrl = "https://analytics--eun1-az1--x-s3."
+                + "s3express-eun1-az1.eu-north-1.amazonaws.com/data/file.csv";
+        String normalizedUri = "s3://analytics--eun1-az1--x-s3/data/file.csv";
+        try {
+            FileSystem fileSystem = Mockito.mock(FileSystem.class);
+            Mockito.when(fileSystem.globListWithLimit(
+                            Mockito.eq(Location.of(normalizedUri)), Mockito.eq(""), Mockito.eq(0L), Mockito.eq(0L)))
+                    .thenReturn(new GlobListing(
+                            List.of(new FileEntry(Location.of(normalizedUri), 10L, false, 0L, List.of())),
+                            "analytics--eun1-az1--x-s3", "data/", ""));
+            try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class);
+                    MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
+                mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(BrokerDesc.class)))
+                        .thenReturn(fileSystem);
+
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put("uri", objectUrl);
+                properties.put("s3.provider", "AWS");
+                properties.put("format", "csv");
+                S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
+
+                Assert.assertEquals(normalizedUri, tvf.getFilePath());
+                Assert.assertEquals(1, tvf.getFileStatuses().size());
+                Assert.assertEquals("eu-north-1", tvf.getBackendConnectProperties().get("AWS_REGION"));
+                Assert.assertEquals("AWS", tvf.getBackendConnectProperties().get("provider"));
+                mockedS3Util.verify(() -> S3Util.validateAndTestEndpoint(
+                        "https://s3.eu-north-1.amazonaws.com"));
+            }
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
         }
     }
 }

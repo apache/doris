@@ -868,12 +868,24 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
     }
 
-    protected String globListPrefix(String globPattern) {
-        return longestNonGlobPrefix(globPattern);
+    /** Plans the server-side prefixes and cursor support for a glob listing. */
+    protected GlobListPlan globListPlan(String bucket, String globPattern) {
+        return new GlobListPlan(
+                longestNonGlobPrefix(globPattern), expandedGlobListPrefixes(globPattern), true);
     }
 
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
-        return expandedGlobListPrefixes(globPattern);
+    /** Provider-specific plan for one logical glob listing. */
+    protected static final class GlobListPlan {
+        private final String commonPrefix;
+        private final List<String> prefixes;
+        private final boolean supportsKeyCursor;
+
+        public GlobListPlan(String commonPrefix, List<String> prefixes,
+                boolean supportsKeyCursor) {
+            this.commonPrefix = commonPrefix;
+            this.prefixes = prefixes;
+            this.supportsKeyCursor = supportsKeyCursor;
+        }
     }
 
     private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
@@ -1205,8 +1217,14 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        String listPrefix = globListPrefix(expandedKeyPattern);
-        List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
+        GlobListPlan plan = globListPlan(bucket, expandedKeyPattern);
+        String listPrefix = plan.commonPrefix;
+        List<String> listPrefixes = plan.prefixes;
+        if (!plan.supportsKeyCursor
+                && ((startAfter != null && !startAfter.isEmpty()) || maxBytes > 0 || maxFiles > 0)) {
+            throw new IOException("Key-based cursors and listing limits are not supported for "
+                    + "unordered object listings: " + uri);
+        }
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
@@ -1271,7 +1289,9 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         }
 
         // maxFile is the next matching key after the returned page (if found), or the last returned key.
-        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
+        String maxFile = plan.supportsKeyCursor
+                ? (nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit)
+                : "";
         return new GlobListing(files, bucket, listPrefix, maxFile);
     }
 

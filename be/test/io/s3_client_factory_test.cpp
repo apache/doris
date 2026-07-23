@@ -30,7 +30,10 @@
 namespace doris {
 
 class S3ClientFactoryTest : public testing::Test {
+protected:
     FRIEND_TEST(S3ClientFactoryTest, S3ClientFactory);
+
+    static void SetUpTestSuite() { static_cast<void>(S3ClientFactory::instance()); }
 };
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
@@ -232,6 +235,145 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfCredentialValidation) {
         ASSERT_TRUE(
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
     }
+}
+
+TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ExpressConf) {
+    S3URI s3_uri("s3://analytics--usw2-az1--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(s3_uri.parse().ok());
+
+    std::map<std::string, std::string> properties {
+            {"AWS_REGION", "us-west-2"},
+            {"provider", "AWS"},
+    };
+    S3Conf s3_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf,
+                                                               S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_TRUE(s3_conf.client_conf.endpoint.empty());
+    EXPECT_EQ(s3_conf.client_conf.region, "us-west-2");
+    EXPECT_EQ(s3_conf.client_conf.mode, S3ClientMode::EXPRESS_READ);
+
+    S3Conf standard_conf;
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &standard_conf)
+                         .ok());
+    EXPECT_EQ(standard_conf.client_conf.mode, S3ClientMode::STANDARD);
+
+    properties["AWS_ENDPOINT"] = "http://endpoint-is-ignored.example.com";
+    properties["AWS_REGION"] = "us-east-1";
+    properties["use_path_style"] = "true";
+    S3Conf ignored_properties_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(
+                        properties, s3_uri, &ignored_properties_conf, S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_EQ(ignored_properties_conf.client_conf.endpoint,
+              "http://endpoint-is-ignored.example.com");
+    EXPECT_EQ(ignored_properties_conf.client_conf.region, "us-east-1");
+    EXPECT_FALSE(ignored_properties_conf.client_conf.use_virtual_addressing);
+    EXPECT_EQ(ignored_properties_conf.client_conf.mode, S3ClientMode::EXPRESS_READ);
+
+    S3Conf standard_with_endpoint_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri,
+                                                               &standard_with_endpoint_conf)
+                        .ok());
+    EXPECT_EQ(standard_with_endpoint_conf.client_conf.mode, S3ClientMode::STANDARD);
+
+    properties.erase("AWS_REGION");
+    S3Conf missing_region_conf;
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(
+                         properties, s3_uri, &missing_region_conf, S3ClientMode::EXPRESS_READ)
+                         .ok());
+
+    S3URI ordinary_uri("s3://ordinary-bucket/path/to/data.parquet");
+    ASSERT_TRUE(ordinary_uri.parse().ok());
+    properties.clear();
+    properties["AWS_REGION"] = "us-west-2";
+    S3Conf ordinary_without_endpoint;
+    ASSERT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, ordinary_uri,
+                                                                &ordinary_without_endpoint,
+                                                                S3ClientMode::EXPRESS_READ)
+                         .ok());
+    EXPECT_EQ(ordinary_without_endpoint.client_conf.mode, S3ClientMode::STANDARD);
+
+    properties["AWS_ENDPOINT"] = "https://s3.us-west-2.amazonaws.com";
+    S3Conf ordinary_conf;
+    ASSERT_TRUE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, ordinary_uri, &ordinary_conf)
+                    .ok());
+
+    properties.erase("provider");
+    S3Conf missing_provider_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(
+                        properties, s3_uri, &missing_provider_conf, S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_EQ(missing_provider_conf.client_conf.mode, S3ClientMode::STANDARD);
+
+    properties["provider"] = "unknown";
+    S3Conf unknown_provider_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(
+                        properties, s3_uri, &unknown_provider_conf, S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_EQ(unknown_provider_conf.client_conf.mode, S3ClientMode::STANDARD);
+    properties["provider"] = "AWS";
+
+    S3URI malformed_uri("s3://analytics--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(malformed_uri.parse().ok());
+    S3Conf malformed_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(
+                        properties, malformed_uri, &malformed_conf, S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_EQ(malformed_conf.client_conf.mode, S3ClientMode::STANDARD);
+
+    S3URI malformed_zone_uri("s3://analytics--usw2-azx--x-s3/path/to/data.parquet");
+    ASSERT_TRUE(malformed_zone_uri.parse().ok());
+    S3Conf malformed_zone_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, malformed_zone_uri,
+                                                               &malformed_zone_conf,
+                                                               S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_EQ(malformed_zone_conf.client_conf.mode, S3ClientMode::STANDARD);
+
+    properties["provider"] = "GCP";
+    S3Conf non_aws_conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &non_aws_conf,
+                                                               S3ClientMode::EXPRESS_READ)
+                        .ok());
+    EXPECT_EQ(non_aws_conf.client_conf.provider, io::ObjStorageType::GCP);
+    EXPECT_EQ(non_aws_conf.client_conf.mode, S3ClientMode::STANDARD);
+}
+
+TEST_F(S3ClientFactoryTest, S3ExpressReadClientIgnoresOverrideAndHasDistinctCacheIdentity) {
+    S3ClientConf express_conf;
+    express_conf.ak = "access-key";
+    express_conf.sk = "secret-key";
+    express_conf.bucket = "analytics--usw2-az1--x-s3";
+    express_conf.endpoint = "http://endpoint-override-must-not-be-used.example.com";
+    express_conf.region = "us-west-2";
+    express_conf.need_override_endpoint = true;
+    express_conf.use_virtual_addressing = false;
+    express_conf.mode = S3ClientMode::EXPRESS_READ;
+
+    auto standard_conf = express_conf;
+    standard_conf.mode = S3ClientMode::STANDARD;
+    EXPECT_NE(standard_conf.get_hash(), express_conf.get_hash());
+    auto virtual_hosted_standard_conf = standard_conf;
+    virtual_hosted_standard_conf.use_virtual_addressing = true;
+    EXPECT_NE(virtual_hosted_standard_conf.get_hash(), express_conf.get_hash());
+    auto standard_client = S3ClientFactory::instance().create(standard_conf);
+    ASSERT_NE(standard_client, nullptr);
+    const auto standard_url = standard_client->generate_presigned_url(
+            {.bucket = standard_conf.bucket, .key = "data.parquet"}, 60, standard_conf);
+    EXPECT_NE(standard_url.find("endpoint-override-must-not-be-used"), std::string::npos);
+
+    auto obj_client = S3ClientFactory::instance().create(express_conf);
+    ASSERT_NE(obj_client, nullptr);
+    EXPECT_NE(standard_client, obj_client);
+    const auto presigned_url = obj_client->generate_presigned_url(
+            {.bucket = express_conf.bucket, .key = "data.parquet"}, 60, express_conf);
+    EXPECT_TRUE(presigned_url.starts_with(
+            "https://analytics--usw2-az1--x-s3.s3express-usw2-az1.us-west-2.amazonaws.com/"
+            "data.parquet?"))
+            << presigned_url;
+    EXPECT_EQ(presigned_url.find("endpoint-override-must-not-be-used"), std::string::npos);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV2ProviderTypeWithoutRoleArn) {

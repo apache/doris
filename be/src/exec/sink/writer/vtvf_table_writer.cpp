@@ -78,12 +78,19 @@ Status VTVFTableWriter::write(RuntimeState* state, Block& block) {
 }
 
 Status VTVFTableWriter::close(Status status) {
-    if (!status.ok()) {
-        return status;
+    if (status.ok()) {
+        SCOPED_TIMER(_writer_close_timer);
+        status = _close_file_writer(true);
     }
 
-    SCOPED_TIMER(_writer_close_timer);
-    return _close_file_writer(true);
+    if (!status.ok() && _file_writer_impl) {
+        auto abort_status = _file_writer_impl->abort();
+        if (!abort_status.ok()) {
+            status.append(fmt::format("; failed to abort output file: {}",
+                                      abort_status.to_string_no_stack()));
+        }
+    }
+    return status;
 }
 
 Status VTVFTableWriter::_create_file_writer(const std::string& file_name) {

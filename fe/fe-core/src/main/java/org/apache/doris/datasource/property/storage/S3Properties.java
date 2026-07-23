@@ -22,9 +22,11 @@ import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
-import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.filesystem.S3ExpressUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TS3StorageParam;
@@ -44,12 +46,14 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -63,6 +67,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static final String ROLE_ARN = "s3.role_arn";
     public static final String EXTERNAL_ID = "s3.external_id";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    public static final String PROVIDER = "s3.provider";
+
+    private static final Pattern S3_EXPRESS_ZONAL_ENDPOINT_PATTERN = Pattern.compile(
+            "^s3express-([a-z0-9-]+-az[0-9]+)\\.([a-z0-9-]+)\\.amazonaws\\.com$",
+            Pattern.CASE_INSENSITIVE);
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -190,11 +199,102 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Getter
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
+    @ConnectorProperty(names = {PROVIDER, FS_PROVIDER_KEY}, required = false,
+            description = "The S3 service provider.")
+    private String provider = "";
+
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
-        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
         propertiesObj.initNormalizeAndCheckProps();
         return propertiesObj;
+    }
+
+    private void configureS3Express(String uri) throws UserException {
+        if (!"AWS".equalsIgnoreCase(provider)) {
+            return;
+        }
+
+        boolean isObjectUrl = StringUtils.startsWithIgnoreCase(uri, "http://")
+                || StringUtils.startsWithIgnoreCase(uri, "https://");
+        S3URI s3Uri;
+        try {
+            s3Uri = S3URI.create(uri);
+        } catch (UserException e) {
+            if (isObjectUrl) {
+                throw e;
+            }
+            return;
+        }
+        Optional<String> bucketZone = S3ExpressUtils.directoryBucketZoneId(s3Uri.getBucket());
+
+        if (!isObjectUrl) {
+            if (bucketZone.isEmpty()) {
+                return;
+            }
+            if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
+                extractRegion(ENDPOINT_PATTERN, endpoint).ifPresent(this::setRegion);
+            }
+            if (StringUtils.isNotBlank(region)) {
+                endpoint = "https://s3." + region + ".amazonaws.com";
+            }
+            return;
+        }
+
+        String objectEndpoint = s3Uri.getEndpoint().orElse("");
+        Matcher endpointMatcher = S3_EXPRESS_ZONAL_ENDPOINT_PATTERN.matcher(objectEndpoint);
+        String authority = URI.create(uri).getAuthority();
+        boolean expressEndpoint = StringUtils.startsWithIgnoreCase(objectEndpoint, "s3express-")
+                || StringUtils.startsWithIgnoreCase(authority, "s3express-")
+                || StringUtils.containsIgnoreCase(authority, ".s3express-");
+        if (bucketZone.isEmpty() && !expressEndpoint) {
+            return;
+        }
+        if (!StringUtils.startsWithIgnoreCase(uri, "https://")) {
+            throw new UserException("S3 Express Object URL must use HTTPS: " + uri);
+        }
+        if (bucketZone.isEmpty()) {
+            throw new UserException("S3 Express Object URL must use a directory bucket name: " + uri);
+        }
+        if (!endpointMatcher.matches()) {
+            throw new UserException("S3 Express Object URL endpoint must match "
+                    + "s3express-<zone-id>.<region>.amazonaws.com: " + uri);
+        }
+
+        String endpointZone = endpointMatcher.group(1);
+        if (!bucketZone.get().equalsIgnoreCase(endpointZone)) {
+            throw new UserException("S3 Express Object URL Zone ID " + endpointZone
+                    + " does not match directory bucket Zone ID " + bucketZone.get() + ": " + uri);
+        }
+        if (Boolean.parseBoolean(getUsePathStyle())) {
+            throw new UserException("S3 Express Object URL requires virtual-hosted-style access; "
+                    + "use_path_style must be false: " + uri);
+        }
+        String urlRegion = endpointMatcher.group(2);
+        if (StringUtils.isBlank(getRegion())) {
+            setRegion(urlRegion);
+        } else if (!getRegion().equalsIgnoreCase(urlRegion)) {
+            throw new UserException("S3 Express Object URL Region " + urlRegion
+                    + " does not match configured S3 Region " + getRegion() + ": " + uri);
+        }
+        this.endpoint = "https://s3." + region + ".amazonaws.com";
+    }
+
+    private static Optional<String> getPropertyIgnoreCase(
+            Map<String, String> properties, String propertyName) {
+        return properties.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(propertyName))
+                .map(Map.Entry::getValue)
+                .findFirst();
+    }
+
+    private static String resolveProvider(Map<String, String> properties) {
+        return Stream.of(PROVIDER, FS_PROVIDER_KEY)
+                .map(name -> getPropertyIgnoreCase(properties, name))
+                .flatMap(Optional::stream)
+                .map(String::trim)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse("");
     }
 
     /**
@@ -238,6 +338,19 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         awsCredentialsProviderMode = AwsCredentialsProviderMode.fromString(awsCredentialsProviderType);
     }
 
+    @Override
+    protected void setEndpointIfPossible() {
+        provider = resolveProvider(origProps);
+        getPropertyIgnoreCase(origProps, URI_KEY).ifPresent(uri -> {
+            try {
+                configureS3Express(uri);
+            } catch (UserException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            }
+        });
+        super.setEndpointIfPossible();
+    }
+
     /**
      * Guess if the storage properties is for this storage type.
      * Subclass should override this method to provide the correct implementation.
@@ -266,7 +379,22 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 .map(Map.Entry::getValue)
                 .findFirst();
         if (uriValue.isPresent()) {
-            return uriValue.get().contains("amazonaws.com");
+            String uri = uriValue.get();
+            if (uri.contains("amazonaws.com")) {
+                return true;
+            }
+            if (StringUtils.startsWithIgnoreCase(uri, "http://")
+                    || StringUtils.startsWithIgnoreCase(uri, "https://")) {
+                return false;
+            }
+            if (!"AWS".equalsIgnoreCase(resolveProvider(origProps))) {
+                return false;
+            }
+            try {
+                return S3ExpressUtils.isDirectoryBucket(S3URI.create(uri).getBucket());
+            } catch (UserException | IllegalArgumentException e) {
+                return false;
+            }
         }
 
         // guess from region
@@ -292,8 +420,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
     @Override
+    public String validateAndNormalizeUri(String uri) throws UserException {
+        configureS3Express(uri);
+        return super.validateAndNormalizeUri(uri);
+    }
+
+    @Override
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration();
+
+        if (StringUtils.isNotBlank(provider)) {
+            backendProperties.put(FS_PROVIDER_KEY, provider);
+        }
 
         if (StringUtils.isNotBlank(s3IAMRole)) {
             backendProperties.put("AWS_ROLE_ARN", s3IAMRole);

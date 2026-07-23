@@ -179,9 +179,13 @@ public interface FileSystem extends AutoCloseable {
      * at most {@code maxFiles} entries whose total size does not exceed {@code maxBytes}.
      *
      * <p>The listing is resumed from {@code startAfter} (exclusive, lexicographic order) when
-     * non-null and non-empty.  Results are returned in ascending lexicographic key order.
+     * non-null and non-empty. Results are normally returned in ascending lexicographic key order.
+     * Implementations backed by an unordered object listing may support only an exhaustive request
+     * ({@code startAfter} empty and both limits zero), return service order, and leave
+     * {@link GlobListing#getMaxFile()} empty.
      *
-     * <p>The returned {@link GlobListing#getMaxFile()} is a pagination cursor:
+     * <p>When lexicographic listing is supported, the returned
+     * {@link GlobListing#getMaxFile()} is a pagination cursor:
      * <ul>
      *   <li>If a page-limit ({@code maxFiles} or {@code maxBytes}) was hit AND another
      *       matching key exists strictly past it, {@code maxFile} is that next matching

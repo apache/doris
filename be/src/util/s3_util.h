@@ -70,6 +70,17 @@ int64_t apply_s3_rate_limit(S3RateLimitType type);
 void check_s3_rate_limiter_config_changed();
 
 class S3URI;
+
+enum class S3ClientMode {
+    STANDARD,
+    // Enables SDK-managed S3 Express endpoint and session auth for S3 file readers. IAM should
+    // restrict s3express:SessionMode to ReadOnly when credential-level enforcement is needed.
+    EXPRESS_READ,
+    // Enables SDK-managed S3 Express endpoint and session auth for S3 file writers. IAM must
+    // allow ReadWrite CreateSession requests.
+    EXPRESS_WRITE,
+};
+
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -79,6 +90,7 @@ struct S3ClientConf {
     // For azure we'd better support the bucket at the first time init azure blob container client
     std::string bucket;
     io::ObjStorageType provider = io::ObjStorageType::AWS;
+    S3ClientMode mode = S3ClientMode::STANDARD;
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
@@ -103,6 +115,10 @@ struct S3ClientConf {
         hash_code ^= connect_timeout_ms;
         hash_code ^= use_virtual_addressing;
         hash_code ^= static_cast<int>(provider);
+        hash_code ^= crc32_hash(mode == S3ClientMode::STANDARD
+                                        ? "standard"
+                                        : mode == S3ClientMode::EXPRESS_READ ? "express_read"
+                                                                            : "express_write");
 
         hash_code ^= static_cast<int>(cred_provider_type);
         hash_code ^= crc32_hash(role_arn);
@@ -113,11 +129,11 @@ struct S3ClientConf {
     std::string to_string() const {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
+                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, mode={}, "
                 "cred_provider_type={},role_arn={}, external_id={}",
                 hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+                static_cast<int>(mode), cred_provider_type, role_arn, external_id);
     }
 };
 
@@ -145,7 +161,8 @@ public:
     std::shared_ptr<io::ObjStorageClient> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
-                                                const S3URI& s3_uri, S3Conf* s3_conf);
+                                                const S3URI& s3_uri, S3Conf* s3_conf,
+                                                S3ClientMode mode = S3ClientMode::STANDARD);
 
     static Aws::Client::ClientConfiguration& getClientConfiguration() {
         // The default constructor of ClientConfiguration will do some http call

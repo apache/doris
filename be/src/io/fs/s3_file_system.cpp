@@ -97,6 +97,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
         reset_conf.bucket = conf.bucket;
+        reset_conf.mode = conf.mode;
         reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
         reset_conf.max_connections = conf.max_connections;
         reset_conf.request_timeout_ms = conf.request_timeout_ms;

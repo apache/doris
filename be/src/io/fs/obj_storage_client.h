@@ -50,6 +50,7 @@ struct ObjectStoragePathOptions {
 struct ObjectCompleteMultiPart {
     int part_num = 0;
     std::string etag = std::string();
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjectStorageStatus {
@@ -76,6 +77,7 @@ struct ObjectStorageUploadResponse {
     ObjectStorageResponse resp {};
     std::optional<std::string> upload_id = std::nullopt;
     std::optional<std::string> etag = std::nullopt;
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjectStorageHeadResponse : ObjectStorageResponse {
@@ -106,6 +108,13 @@ public:
     virtual ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) = 0;
+    // Only storage types without automatic cleanup should opt in. Callers use this capability to
+    // decide whether a failed multipart upload must be aborted explicitly.
+    virtual bool requires_manual_mpu_cleanup() const { return false; }
+    virtual ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions&) {
+        return {convert_to_obj_response(
+                Status::NotSupported("abort multipart upload is not supported"))};
+    }
     // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
     // If it exists, it will return the corresponding file size
     virtual ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) = 0;

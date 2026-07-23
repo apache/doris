@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.S3ExpressUtils;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import java.util.List;
@@ -28,6 +29,7 @@ import java.util.Optional;
 public class S3FileSystem extends S3CompatibleFileSystem {
 
     private final S3FileSystemProperties properties;
+    private final S3ObjStorage s3ObjStorage;
 
     public S3FileSystem(S3FileSystemProperties properties) {
         this(properties, new S3ObjStorage(properties));
@@ -36,11 +38,13 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
         this.properties = properties;
+        this.s3ObjStorage = objStorage;
     }
 
     public S3FileSystem(S3ObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
         this.properties = null;
+        this.s3ObjStorage = objStorage;
     }
 
     public Optional<S3FileSystemProperties> properties() {
@@ -48,32 +52,12 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     @Override
-    protected String globListPrefix(String globPattern) {
-        if (isDirectoryBucketEndpoint()) {
-            return slashTerminatedNonGlobPrefix(globPattern);
+    protected GlobListPlan globListPlan(String bucket, String globPattern) {
+        if (!s3ObjStorage.usesS3ExpressRead(bucket)) {
+            return super.globListPlan(bucket, globPattern);
         }
-        return super.globListPrefix(globPattern);
-    }
-
-    @Override
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
-        if (isDirectoryBucketEndpoint()) {
-            return List.of(listPrefix);
-        }
-        return super.globListPrefixes(globPattern, listPrefix);
-    }
-
-    private boolean isDirectoryBucketEndpoint() {
-        return properties != null && properties.isDirectoryBucketEndpoint();
-    }
-
-    private static String slashTerminatedNonGlobPrefix(String globPattern) {
-        String prefix = longestNonGlobPrefix(globPattern);
-        if (prefix.isEmpty() || prefix.endsWith("/")) {
-            return prefix;
-        }
-        int slash = prefix.lastIndexOf('/');
-        return slash < 0 ? "" : prefix.substring(0, slash + 1);
+        String directoryPrefix = S3ExpressUtils.directoryPrefix(longestNonGlobPrefix(globPattern));
+        return new GlobListPlan(directoryPrefix, List.of(directoryPrefix), false);
     }
 
     protected static boolean isSingleLevelGlob(String pathStr) {

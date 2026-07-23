@@ -34,6 +34,7 @@
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/AbortMultipartUploadResult.h>
+#include <aws/s3/model/ChecksumAlgorithm.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadResult.h>
 #include <aws/s3/model/CompletedMultipartUpload.h>
@@ -126,6 +127,9 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
     CreateMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
+    if (_is_s3_express) {
+        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
+    }
 
     MonotonicStopWatch watch;
     watch.start();
@@ -164,8 +168,15 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    if (_is_s3_express) {
+        // Let the SDK calculate the streaming checksum. Setting the value as well would send the
+        // same checksum in both a header and an aws-chunked trailer.
+        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
+    } else {
+        Aws::Utils::ByteBuffer part_md5(
+                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    }
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
@@ -209,8 +220,14 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 
     request.SetBody(string_view_stream);
 
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    if (_is_s3_express) {
+        // Let the SDK calculate the streaming checksum and return it in UploadPartResult.
+        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
+    } else {
+        Aws::Utils::ByteBuffer part_md5(
+                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    }
 
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
@@ -248,7 +265,20 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
             << "UploadPart cost=" << watch.elapsed_time_milliseconds() << "ms"
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
             << ", part_num=" << part_num << ", upload_id=" << *opts.upload_id;
-    return ObjectStorageUploadResponse {.etag = outcome.GetResult().GetETag()};
+    const auto& checksum_crc32c = outcome.GetResult().GetChecksumCRC32C();
+    if (_is_s3_express && checksum_crc32c.empty()) {
+        auto st = Status::IOError("UploadPart response is missing CRC32C, bucket={}, key={}, "
+                                  "part={}, request_id={}",
+                                  opts.bucket, opts.key, part_num, request_id);
+        return ObjectStorageUploadResponse {
+                .resp = {convert_to_obj_response(std::move(st)), 200, request_id}};
+    }
+    return ObjectStorageUploadResponse {
+            .etag = outcome.GetResult().GetETag(),
+            .checksum_crc32c = _is_s3_express
+                                       ? std::optional<std::string>(std::string(
+                                                 checksum_crc32c.c_str(), checksum_crc32c.size()))
+                                       : std::nullopt};
 }
 
 ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
@@ -257,13 +287,26 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
     CompleteMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
 
+    if (_is_s3_express) {
+        for (const auto& part : completed_parts) {
+            if (!part.checksum_crc32c.has_value() || part.checksum_crc32c->empty()) {
+                return {convert_to_obj_response(Status::InvalidArgument(
+                        "S3 Express multipart completion requires CRC32C for part {}",
+                        part.part_num))};
+            }
+        }
+    }
+
     CompletedMultipartUpload completed_upload;
     std::vector<CompletedPart> complete_parts;
     std::ranges::transform(completed_parts, std::back_inserter(complete_parts),
-                           [](const ObjectCompleteMultiPart& part_ptr) {
+                           [this](const ObjectCompleteMultiPart& part_ptr) {
                                CompletedPart part;
                                part.SetPartNumber(part_ptr.part_num);
                                part.SetETag(part_ptr.etag);
+                               if (_is_s3_express) {
+                                   part.SetChecksumCRC32C(*part_ptr.checksum_crc32c);
+                               }
                                return part;
                            });
     completed_upload.SetParts(std::move(complete_parts));
@@ -298,6 +341,31 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
             << ", upload_id=" << *opts.upload_id;
     return ObjectStorageResponse::OK();
+}
+
+ObjectStorageResponse S3ObjStorageClient::abort_multipart_upload(
+        const ObjectStoragePathOptions& opts) {
+    if (!_is_s3_express) {
+        return {convert_to_obj_response(Status::NotSupported(
+                "Doris manages multipart upload aborts only for S3 Express"))};
+    }
+
+    Aws::S3::Model::AbortMultipartUploadRequest request;
+    request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_put_rate_limit([&]() { return _client->AbortMultipartUpload(request); }),
+            "s3_file_writer::abort_multi_part", std::cref(request).get());
+    if (outcome.IsSuccess() ||
+        outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+        return ObjectStorageResponse::OK();
+    }
+    record_s3_request_failed(outcome.GetError());
+    return {convert_to_obj_response(s3fs_error(
+                    outcome.GetError(),
+                    fmt::format("failed to AbortMultipartUpload: {}, upload_id={}",
+                                opts.path.native(), *opts.upload_id))),
+            static_cast<int>(outcome.GetError().GetResponseCode()),
+            outcome.GetError().GetRequestId()};
 }
 
 ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {

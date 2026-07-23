@@ -28,11 +28,14 @@
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3EndpointProvider.h>
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
 #include <cpp/token_bucket_rate_limiter.h>
 
+#include <algorithm>
 #include <atomic>
+#include <string_view>
 
 #include "util/string_util.h"
 
@@ -82,8 +85,54 @@ bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 
 namespace {
 
+constexpr bool is_lower_alphanumeric(char value) {
+    return (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9');
+}
+
+constexpr bool is_directory_bucket_name_char(char value) {
+    return is_lower_alphanumeric(value) || value == '-';
+}
+
+bool is_s3_directory_bucket(std::string_view bucket) {
+    constexpr std::string_view suffix = "--x-s3";
+    if (!bucket.ends_with(suffix)) {
+        return false;
+    }
+    bucket.remove_suffix(suffix.size());
+    const auto zone_separator = bucket.rfind("--");
+    if (zone_separator == std::string_view::npos || zone_separator == 0 ||
+        zone_separator + 2 == bucket.size()) {
+        return false;
+    }
+    const auto bucket_base = bucket.substr(0, zone_separator);
+    if (!is_lower_alphanumeric(bucket_base.front()) || !is_lower_alphanumeric(bucket_base.back()) ||
+        !std::all_of(bucket_base.begin(), bucket_base.end(), is_directory_bucket_name_char)) {
+        return false;
+    }
+
+    const auto zone_id = bucket.substr(zone_separator + 2);
+    const auto az_separator = zone_id.rfind("-az");
+    if (az_separator == std::string_view::npos || az_separator == 0 ||
+        az_separator + 3 == zone_id.size()) {
+        return false;
+    }
+    const auto zone_name = zone_id.substr(0, az_separator);
+    const auto zone_number = zone_id.substr(az_separator + 3);
+    return std::all_of(zone_name.begin(), zone_name.end(), is_directory_bucket_name_char) &&
+           std::all_of(zone_number.begin(), zone_number.end(),
+                       [](char value) { return value >= '0' && value <= '9'; });
+}
+
+bool use_s3_express_client(const S3ClientConf& conf) {
+    const bool express_mode = conf.mode == S3ClientMode::EXPRESS_READ ||
+                              conf.mode == S3ClientMode::EXPRESS_WRITE;
+    return express_mode && conf.provider == io::ObjStorageType::AWS &&
+           is_s3_directory_bucket(conf.bucket);
+}
+
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
-    if (conf.endpoint.empty()) {
+    const bool s3_express = use_s3_express_client(conf);
+    if (conf.endpoint.empty() && !s3_express) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
     if (conf.region.empty()) {
@@ -141,7 +190,6 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
 
 constexpr char USE_PATH_STYLE[] = "use_path_style";
 
-constexpr char AZURE_PROVIDER_STRING[] = "AZURE";
 constexpr char S3_PROVIDER[] = "provider";
 constexpr char S3_AK[] = "AWS_ACCESS_KEY";
 constexpr char S3_SK[] = "AWS_SECRET_KEY";
@@ -156,6 +204,13 @@ constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
 constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
+
+constexpr std::pair<const char*, io::ObjStorageType> S3_PROVIDER_TYPES[] = {
+        {"AWS", io::ObjStorageType::AWS}, {"AZURE", io::ObjStorageType::AZURE},
+        {"BOS", io::ObjStorageType::BOS}, {"COS", io::ObjStorageType::COS},
+        {"OSS", io::ObjStorageType::OSS}, {"OBS", io::ObjStorageType::OBS},
+        {"GCP", io::ObjStorageType::GCP}, {"TOS", io::ObjStorageType::TOS},
+};
 } // namespace
 
 static std::atomic<int64_t> last_s3_get_token_bucket_tokens {0};
@@ -487,11 +542,15 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         const S3ClientConf& s3_conf) {
+    const bool s3_express = use_s3_express_client(s3_conf);
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
-            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
+            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
+                                                     s3_express));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
-    if (s3_conf.need_override_endpoint) {
+    // Let the SDK derive the zonal endpoint from the complete directory bucket name. A user
+    // endpoint is intentionally ignored for S3 Express.
+    if (!s3_express && s3_conf.need_override_endpoint) {
         aws_config.endpointOverride = s3_conf.endpoint;
     }
     aws_config.region = s3_conf.region;
@@ -519,25 +578,34 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
-    if (config::s3_client_http_scheme == "http") {
+    if (s3_express) {
+        aws_config.scheme = Aws::Http::Scheme::HTTPS;
+    } else if (config::s3_client_http_scheme == "http") {
         aws_config.scheme = Aws::Http::Scheme::HTTP;
     }
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
 
-    std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
-            get_aws_credentials_provider(s3_conf), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            s3_conf.use_virtual_addressing);
+    // Directory buckets require virtual-hosted endpoints. Standard clients never create Express
+    // sessions; only explicitly selected read or write modes enable session authentication.
+    Aws::S3::S3ClientConfiguration client_config(
+            aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+            s3_express || s3_conf.use_virtual_addressing);
+    client_config.disableS3ExpressAuth = !s3_express;
+    auto new_client = std::make_shared<Aws::S3::S3Client>(
+            get_aws_credentials_provider(s3_conf),
+            Aws::MakeShared<Aws::S3::Endpoint::S3EndpointProvider>("S3Client"), client_config);
 
-    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
+    auto obj_client =
+            std::make_shared<io::S3ObjStorageClient>(std::move(new_client), s3_express);
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
 
 Status S3ClientFactory::convert_properties_to_s3_conf(
-        const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
+        const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf,
+        S3ClientMode mode) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
     if (auto it = properties.find(S3_AK); it != properties.end()) {
         s3_conf->client_conf.ak = it->second;
@@ -574,10 +642,15 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
                                            it->second);
         }
     }
+    bool explicitly_aws_provider = false;
     if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
         // S3 Provider properties should be case insensitive.
-        if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
-            s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
+        for (const auto& [provider_name, provider_type] : S3_PROVIDER_TYPES) {
+            if (strcasecmp(it->second.c_str(), provider_name) == 0) {
+                s3_conf->client_conf.provider = provider_type;
+                explicitly_aws_provider = provider_type == io::ObjStorageType::AWS;
+                break;
+            }
         }
     }
 
@@ -588,6 +661,12 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     s3_conf->bucket = s3_uri.get_bucket();
     // For azure's compatibility
     s3_conf->client_conf.bucket = s3_uri.get_bucket();
+    const bool express_mode =
+            mode == S3ClientMode::EXPRESS_READ || mode == S3ClientMode::EXPRESS_WRITE;
+    s3_conf->client_conf.mode = express_mode && explicitly_aws_provider &&
+                                                is_s3_directory_bucket(s3_conf->client_conf.bucket)
+                                        ? mode
+                                        : S3ClientMode::STANDARD;
     s3_conf->prefix = "";
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html

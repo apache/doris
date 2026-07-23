@@ -73,6 +73,11 @@ public:
     // If there is no data appended, an empty file will be persisted.
     virtual Status close(bool non_block = false) = 0;
 
+    // Give a failed writer a chance to release resources without running normal close. Writers
+    // that do not own resources requiring explicit cleanup preserve their existing no-op behavior.
+    // It must not race with a previously submitted close(true).
+    virtual Status abort() { return Status::OK(); }
+
     // Non-blocking probe for a previous close(true).
     // OK means close finished successfully. NeedSendAgain means close is still running.
     // Other errors mean close finished with error or the writer does not support this API.

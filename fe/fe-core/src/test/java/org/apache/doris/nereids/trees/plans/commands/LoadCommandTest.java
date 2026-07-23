@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.nereids.StatementContext;
@@ -33,18 +35,48 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class LoadCommandTest extends TestWithFeService {
+
+    private static final String S3_EXPRESS_LOAD_SQL = "LOAD LABEL customer_s3_express_test( "
+            + "     DATA INFILE(\"s3://analytics--usw2-az1--x-s3/customer/*.parquet\") "
+            + "     INTO TABLE customer"
+            + "  ) "
+            + "  WITH S3(  "
+            + "     \"s3.provider\" = \"AWS\", "
+            + "     \"s3.endpoint\" = \"https://s3.us-east-1.amazonaws.com\", "
+            + "     \"s3.region\" = \"us-west-2\", "
+            + "     \"s3.access_key\" = \"AK\", "
+            + "     \"s3.secret_key\" = \"SK\", "
+            + "     \"use_path_style\" = \"false\");";
+
+    private static final String S3_EXPRESS_OBJECT_URL = "https://analytics--eun1-az1--x-s3."
+            + "s3express-eun1-az1.eu-north-1.amazonaws.com/customer/*.parquet";
+    private static final String SECOND_S3_EXPRESS_OBJECT_URL = "https://archive--eun1-az2--x-s3."
+            + "s3express-eun1-az2.eu-north-1.amazonaws.com/history/*.parquet";
+    private static final String S3_EXPRESS_OBJECT_URL_LOAD_SQL = "LOAD LABEL customer_s3_express_url_test( "
+            + "     DATA INFILE(\"" + S3_EXPRESS_OBJECT_URL + "\", \""
+            + SECOND_S3_EXPRESS_OBJECT_URL + "\") "
+            + "     INTO TABLE customer"
+            + "  ) "
+            + "  WITH S3(  "
+            + "     \"s3.provider\" = \"AWS\", "
+            + "     \"s3.region\" = \"eu-north-1\", "
+            + "     \"s3.access_key\" = \"AK\", "
+            + "     \"s3.secret_key\" = \"SK\");";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -143,6 +175,82 @@ public class LoadCommandTest extends TestWithFeService {
         Assertions.assertEquals("s3://bucket/customer/part-1", filePaths.get(0));
         Assertions.assertEquals("s3://bucket/customer/part-2", filePaths.get(1));
         Assertions.assertEquals("s3://bucket/customer/part-3", filePaths.get(2));
+    }
+
+    @Test
+    public void testS3ExpressLoadUsesStandardS3Properties() throws Exception {
+        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser()
+                .parseMultiple(S3_EXPRESS_LOAD_SQL);
+        Assertions.assertFalse(statements.isEmpty());
+
+        LoadCommand command = (LoadCommand) statements.get(0).first;
+        LoadCommand commandSpy = Mockito.spy(command);
+        Mockito.doNothing().when(commandSpy)
+                .handleLoadCommand(Mockito.any(), Mockito.any());
+        try (MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
+            commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class));
+            mockedS3Util.verify(() -> S3Util.validateAndTestEndpoint(
+                    "https://s3.us-west-2.amazonaws.com"));
+        }
+
+        Map<String, String> backendProperties = commandSpy.getBrokerDesc().getBackendConfigProperties();
+        Assertions.assertEquals("AWS", backendProperties.get("provider"));
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
+                backendProperties.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlLoadIsNormalized() throws Exception {
+        LoadCommand command = (LoadCommand) new NereidsParser()
+                .parseMultiple(S3_EXPRESS_OBJECT_URL_LOAD_SQL).get(0).first;
+        LoadCommand commandSpy = Mockito.spy(command);
+        Mockito.doNothing().when(commandSpy)
+                .handleLoadCommand(Mockito.any(), Mockito.any());
+
+        try (MockedStatic<S3Util> mockedS3Util = Mockito.mockStatic(S3Util.class)) {
+            commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class));
+            mockedS3Util.verify(() -> S3Util.validateAndTestEndpoint(
+                    "https://s3.eu-north-1.amazonaws.com"));
+        }
+
+        Assertions.assertEquals(List.of(
+                        "s3://analytics--eun1-az1--x-s3/customer/*.parquet",
+                        "s3://archive--eun1-az2--x-s3/history/*.parquet"),
+                commandSpy.getDataDescriptions().get(0).getFilePaths());
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlLoadRejectsZoneMismatch() {
+        String mismatchedUrl = S3_EXPRESS_OBJECT_URL.replace("s3express-eun1-az1", "s3express-eun1-az2");
+        LoadCommand command = (LoadCommand) new NereidsParser()
+                .parseMultiple(S3_EXPRESS_OBJECT_URL_LOAD_SQL.replace(S3_EXPRESS_OBJECT_URL, mismatchedUrl))
+                .get(0).first;
+        LoadCommand commandSpy = Mockito.spy(command);
+        Mockito.doNothing().when(commandSpy)
+                .handleLoadCommand(Mockito.any(), Mockito.any());
+
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class)));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Zone ID eun1-az2 does not match directory bucket Zone ID eun1-az1"));
+    }
+
+    @Test
+    public void testS3ExpressObjectUrlLoadRejectsMultipleRegions() {
+        String otherRegionUrl = SECOND_S3_EXPRESS_OBJECT_URL.replace("eu-north-1", "us-west-2");
+        LoadCommand command = (LoadCommand) new NereidsParser()
+                .parseMultiple(S3_EXPRESS_OBJECT_URL_LOAD_SQL.replace(
+                        SECOND_S3_EXPRESS_OBJECT_URL, otherRegionUrl))
+                .get(0).first;
+        LoadCommand commandSpy = Mockito.spy(command);
+        Mockito.doNothing().when(commandSpy)
+                .handleLoadCommand(Mockito.any(), Mockito.any());
+
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> commandSpy.run(connectContext, Mockito.mock(StmtExecutor.class)));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Object URL Region us-west-2 does not match configured S3 Region eu-north-1"));
     }
 
     @Test

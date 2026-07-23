@@ -47,6 +47,7 @@ public class ObjectInfoAdapterTest {
         Map<String, String> backendProps = StoragePropertiesConverter.toMap(storageProperties);
 
         Assert.assertEquals("S3", backendProps.get("_STORAGE_TYPE_"));
+        Assert.assertEquals("AWS", backendProps.get("provider"));
         Assert.assertEquals("s3.us-west-2.amazonaws.com", backendProps.get("AWS_ENDPOINT"));
         Assert.assertEquals("us-west-2", backendProps.get("AWS_REGION"));
         Assert.assertEquals("snapshot-bucket", backendProps.get("AWS_BUCKET"));
