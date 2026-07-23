@@ -47,7 +47,7 @@ public class IvmRefreshManagerTest {
     public void testManagerReturnsSuccessForEmptyBundles() {
         MTMV mtmv = mockMtmv();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(manager.executeCalled);
     }
@@ -57,7 +57,7 @@ public class IvmRefreshManagerTest {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(manager.executeCalled);
     }
@@ -84,7 +84,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
         manager.throwOnExecute = true;
 
-        Assertions.assertThrows(RuntimeException.class, () -> manager.doRefresh(mtmv));
+        Assertions.assertThrows(RuntimeException.class, () -> manager.doRefresh(mtmv, queryId -> { }));
         Assertions.assertTrue(manager.executeCalled);
     }
 
@@ -104,7 +104,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.throwBinlogNotEnabledOnAnalyze = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, result.getFailureReason());
@@ -118,7 +118,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, result.getFailureReason());
@@ -130,7 +130,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(null, Collections.emptyList());
         manager.throwOnBuild = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFailureReason());
@@ -143,7 +143,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(null, Collections.emptyList());
         manager.throwIvmExceptionOnBuild = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, result.getFailureReason());
@@ -157,7 +157,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.throwIvmExceptionOnAnalyze = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.AGG_UNSUPPORTED, result.getFailureReason());
@@ -171,7 +171,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
         manager.failureMessage = detail;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(expectedReason, result.getFailureReason());

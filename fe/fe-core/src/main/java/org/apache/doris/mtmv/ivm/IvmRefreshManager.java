@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.exception.JobException;
@@ -45,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Minimal orchestration entry point for incremental refresh.
@@ -57,8 +59,9 @@ public class IvmRefreshManager {
     public IvmRefreshManager() {
     }
 
-    public IvmRefreshResult doRefresh(MTMV mtmv) {
+    public IvmRefreshResult doRefresh(MTMV mtmv, Consumer<String> queryIdConsumer) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
+        Objects.requireNonNull(queryIdConsumer, "queryIdConsumer can not be null");
         String forceFallbackReason = DebugPointUtil.getDebugParamOrDefault(
                 DEBUG_POINT_FORCE_FALLBACK_REASON, "reason", "");
         if (!forceFallbackReason.isEmpty()) {
@@ -79,7 +82,7 @@ public class IvmRefreshManager {
             return result;
         }
         try {
-            return doRefreshInternal(context);
+            return doRefreshInternal(context, queryIdConsumer);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -95,11 +98,13 @@ public class IvmRefreshManager {
         return new IvmRefreshContext(mtmv, connectContext);
     }
 
-    private IvmRefreshResult doRefreshInternal(IvmRefreshContext context) throws Exception {
+    private IvmRefreshResult doRefreshInternal(
+            IvmRefreshContext context, Consumer<String> queryIdConsumer) throws Exception {
         Objects.requireNonNull(context, "context can not be null");
         MTMV mtmv = context.getMtmv();
         try {
             executeInternalRefresh(context);
+            return IvmRefreshResult.success();
         } catch (IvmException e) {
             IvmRefreshResult result = fallbackResult(e.getFailureReason(), e.getMessage());
             LOG.warn("IVM refresh fell back for mv={}, result={}", mtmv.getName(), result, e);
@@ -107,14 +112,15 @@ public class IvmRefreshManager {
         } catch (Exception e) {
             String detail = Util.getRootCauseMessage(e);
             Optional<IvmFailureReason> failureReason = IvmFailureClassifier.classifyExecutionFailure(detail);
-            if (failureReason.isPresent()) {
-                IvmRefreshResult result = fallbackResult(failureReason.get(), detail);
-                LOG.warn("IVM execution guard fell back for mv={}, result={}", mtmv.getName(), result, e);
-                return result;
+            if (!failureReason.isPresent()) {
+                throw e;
             }
-            throw e;
+            IvmRefreshResult result = fallbackResult(failureReason.get(), detail);
+            LOG.warn("IVM execution guard fell back for mv={}, result={}", mtmv.getName(), result, e);
+            return result;
+        } finally {
+            queryIdConsumer.accept(DebugUtil.printId(context.getConnectContext().queryId()));
         }
-        return IvmRefreshResult.success();
     }
 
     private IvmRefreshResult fallbackResult(IvmFailureReason failureReason, String detail) {
