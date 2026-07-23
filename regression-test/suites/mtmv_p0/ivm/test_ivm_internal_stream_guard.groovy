@@ -88,8 +88,20 @@ suite("test_ivm_internal_stream_guard", "mtmv") {
     def mvRows = sql """select Id from mv_infos('database'='${context.dbName}') where Name = 'ivm_stream_guard_mv'"""
     assertEquals(1, mvRows.size())
     def mvId = mvRows[0][0].toString()
-    def stream1 = "__doris_ivm_stream_${mvId}_ivm_stream_guard_t1".toString()
-    def stream2 = "__doris_ivm_stream_${mvId}_ivm_stream_guard_t2".toString()
+    def streamRows = sql """
+        SELECT STREAM_NAME, BASE_TABLE_NAME
+        FROM information_schema.table_streams
+        WHERE DB_NAME = '${context.dbName}'
+          AND starts_with(STREAM_NAME, '__doris_ivm_stream_${mvId}_')
+    """
+    assertEquals(2, streamRows.size())
+    def streamsByBaseTable = streamRows.collectEntries { row ->
+        [(row[1].toString()): row[0].toString()]
+    }
+    def stream1 = streamsByBaseTable['ivm_stream_guard_t1']
+    def stream2 = streamsByBaseTable['ivm_stream_guard_t2']
+    assertNotNull(stream1)
+    assertNotNull(stream2)
 
     def streamsAfterCreate = sql """
         SELECT STREAM_NAME, BASE_TABLE_NAME

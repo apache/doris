@@ -20,11 +20,19 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DropMaterializedViewTest extends TestWithFeService {
@@ -52,6 +60,15 @@ public class DropMaterializedViewTest extends TestWithFeService {
                 false,
                 false,
                 false);
+    }
+
+    private static void createStreamByNereids(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateStreamCommand) {
+            ((CreateStreamCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
@@ -86,7 +103,8 @@ public class DropMaterializedViewTest extends TestWithFeService {
         Database database = Env.getCurrentInternalCatalog().getDbOrDdlException(db);
         MTMV mtmv = (MTMV) database.getTableOrDdlException(mvName);
         Assertions.assertTrue(mtmv.isIvm());
-        String streamName = IvmUtil.streamName(mtmv.getId(), baseTable);
+        String streamName = IvmUtil.streamName(mtmv.getId(),
+                database.getTableOrDdlException(baseTable).getFullQualifiers());
         Assertions.assertNotNull(database.getTableNullable(streamName),
                 "Stream should be created for IVM MTMV");
 
@@ -94,5 +112,40 @@ public class DropMaterializedViewTest extends TestWithFeService {
         dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s", db, mvName));
         Assertions.assertNull(database.getTableNullable(streamName),
                 "Stream should be removed after MTMV drop");
+    }
+
+    @Test
+    public void testDropIvmMtmvKeepsStreamOwnedByAnotherBaseTable() throws Exception {
+        Config.enable_table_stream = true;
+        String dbName = UnitTestUtil.DB_NAME;
+        String baseTable1 = "ivm_drop_owner_base1";
+        String baseTable2 = "ivm_drop_owner_base2";
+        String tableProperties = "PROPERTIES ('replication_num' = '1', "
+                + "'enable_unique_key_merge_on_write' = 'true', 'binlog.enable' = 'true', "
+                + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')";
+        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable1, tableProperties));
+        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable2, tableProperties));
+
+        String mvName = "ivm_drop_owner_mv";
+        createMvByNereids(String.format("CREATE MATERIALIZED VIEW %s.%s "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
+                + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT k1, v1 FROM %s.%s", dbName, mvName, dbName, baseTable1));
+
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        MTMV mtmv = (MTMV) database.getTableOrDdlException(mvName);
+        String streamName = IvmUtil.streamName(mtmv.getId(),
+                database.getTableOrDdlException(baseTable1).getFullQualifiers());
+        Env.getCurrentInternalCatalog().dropTableWithoutCheck(
+                database, (Table) database.getTableOrDdlException(streamName), false, true);
+        createStreamByNereids(String.format("CREATE STREAM %s.%s ON TABLE %s.%s "
+                + "PROPERTIES ('type' = 'min_delta', 'show_initial_rows' = 'true')",
+                dbName, streamName, dbName, baseTable2));
+        Table conflictingStream = (Table) database.getTableOrDdlException(streamName);
+
+        dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s", dbName, mvName));
+        Assertions.assertSame(conflictingStream, database.getTableOrDdlException(streamName));
     }
 }

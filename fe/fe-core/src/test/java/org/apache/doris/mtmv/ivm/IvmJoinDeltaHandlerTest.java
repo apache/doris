@@ -89,8 +89,8 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScanForTable(tableId, tableName);
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
         if (db != null) {
-            db.unregisterTable(IvmUtil.streamName(0L, tableName));
-            db.unregisterTable(IvmUtil.streamName(1L, tableName));
+            db.unregisterTable(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
+            db.unregisterTable(IvmUtil.streamName(1L, scan.getTable().getFullQualifiers()));
         }
         return scan;
     }
