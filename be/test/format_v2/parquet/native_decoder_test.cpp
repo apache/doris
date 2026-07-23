@@ -175,6 +175,26 @@ TEST(ParquetV2NativeDecoderTest, RawExprPreservesFloatNanOrdering) {
     EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 0, 1}));
 }
 
+TEST(ParquetV2NativeDecoderTest, RawFixedFilterSupportsIdentityWidthEncodingTypes) {
+    using Reader = ColumnChunkReader<false, false>;
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                                           tparquet::Type::INT32));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                                           tparquet::Type::INT64));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                                           tparquet::Type::FLOAT));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                                           tparquet::Type::DOUBLE));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::DELTA_BINARY_PACKED,
+                                                           tparquet::Type::INT32));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::DELTA_BINARY_PACKED,
+                                                           tparquet::Type::INT64));
+    EXPECT_FALSE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::DELTA_BINARY_PACKED,
+                                                            tparquet::Type::FLOAT));
+    EXPECT_FALSE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::RLE_DICTIONARY,
+                                                            tparquet::Type::INT32));
+}
+
 class RejectFixedConsumer final : public ParquetFixedValueConsumer {
 public:
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
@@ -983,9 +1003,9 @@ TEST(ParquetV2NativeDecoderTest, RawExprMapsNullableSparseRowsDirectly) {
     IColumn::Filter row_filter;
     bool used_filter = false;
     ASSERT_TRUE(chunk_reader
-                        .filter_plain_values(predicates, 0, select_vector, &selected_nulls,
-                                             &physical_matches, projected_column.get(), &row_filter,
-                                             &used_filter)
+                        .filter_fixed_width_values(predicates, 0, select_vector, &selected_nulls,
+                                                   &physical_matches, projected_column.get(),
+                                                   &row_filter, &used_filter)
                         .ok());
 
     EXPECT_TRUE(used_filter);

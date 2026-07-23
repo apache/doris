@@ -166,14 +166,34 @@ public:
                               ParquetDecodeContext& context, ParquetMaterializationState& state,
                               ColumnSelectVector& select_vector);
 
-    // Evaluate selected fixed-width PLAIN values and return one keep byte per selected logical
-    // row. NULL comparisons are false and therefore never enter the physical consumer; non-null
+    static bool supports_raw_fixed_filter_encoding(tparquet::Encoding::type encoding,
+                                                   tparquet::Type::type physical_type) {
+        switch (encoding) {
+        case tparquet::Encoding::PLAIN:
+            return physical_type == tparquet::Type::INT32 ||
+                   physical_type == tparquet::Type::INT64 ||
+                   physical_type == tparquet::Type::FLOAT ||
+                   physical_type == tparquet::Type::DOUBLE;
+        case tparquet::Encoding::BYTE_STREAM_SPLIT:
+            return physical_type == tparquet::Type::INT32 ||
+                   physical_type == tparquet::Type::INT64 ||
+                   physical_type == tparquet::Type::FLOAT ||
+                   physical_type == tparquet::Type::DOUBLE;
+        case tparquet::Encoding::DELTA_BINARY_PACKED:
+            return physical_type == tparquet::Type::INT32 || physical_type == tparquet::Type::INT64;
+        default:
+            return false;
+        }
+    }
+
+    // Evaluate selected fixed-width values and return one keep byte per selected logical row.
+    // NULL comparisons are false and therefore never enter the physical consumer; non-null
     // matches are appended to projected_column when requested.
-    Status filter_plain_values(const VExprSPtrs& conjuncts, int column_id,
-                               ColumnSelectVector& select_vector, NullMap* selected_nulls,
-                               IColumn::Filter* physical_matches, IColumn* projected_column,
-                               IColumn::Filter* row_filter, bool* used_filter);
-    bool can_filter_plain_values(const VExprSPtrs& conjuncts, int column_id) const;
+    Status filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
+                                     ColumnSelectVector& select_vector, NullMap* selected_nulls,
+                                     IColumn::Filter* physical_matches, IColumn* projected_column,
+                                     IColumn::Filter* row_filter, bool* used_filter);
+    bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id) const;
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }

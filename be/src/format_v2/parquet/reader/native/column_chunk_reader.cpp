@@ -653,10 +653,10 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
     return Status::OK();
 }
 
-class PlainPredicateConsumer final : public ParquetFixedValueConsumer {
+class FixedWidthPredicateConsumer final : public ParquetFixedValueConsumer {
 public:
-    PlainPredicateConsumer(const VExprSPtrs& conjuncts, DataTypePtr data_type, int column_id,
-                           IColumn::Filter* matches, IColumn* projected_column)
+    FixedWidthPredicateConsumer(const VExprSPtrs& conjuncts, DataTypePtr data_type, int column_id,
+                                IColumn::Filter* matches, IColumn* projected_column)
             : _conjuncts(conjuncts),
               _data_type(std::move(data_type)),
               _column_id(column_id),
@@ -1447,11 +1447,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::materialize_values(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_plain_values(
+bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_values(
         const VExprSPtrs& conjuncts, int column_id) const {
-    if (conjuncts.empty() || _current_encoding != tparquet::Encoding::PLAIN ||
-        (_metadata.type != tparquet::Type::INT32 && _metadata.type != tparquet::Type::INT64 &&
-         _metadata.type != tparquet::Type::FLOAT && _metadata.type != tparquet::Type::DOUBLE)) {
+    if (conjuncts.empty() ||
+        !supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type)) {
         return false;
     }
     const auto primitive_type = remove_nullable(_field_schema->data_type)->get_primitive_type();
@@ -1472,7 +1471,7 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_plain_values(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values(
         const VExprSPtrs& conjuncts, int column_id, ColumnSelectVector& select_vector,
         NullMap* selected_nulls, IColumn::Filter* physical_matches, IColumn* projected_column,
         IColumn::Filter* row_filter, bool* used_filter) {
@@ -1482,7 +1481,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
     DORIS_CHECK(used_filter != nullptr);
     *used_filter = false;
     row_filter->clear();
-    if (!can_filter_plain_values(conjuncts, column_id)) {
+    if (!can_filter_fixed_width_values(conjuncts, column_id)) {
         return Status::OK();
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
@@ -1539,8 +1538,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
     if (selection.selected_values == 0) {
         RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
     } else {
-        PlainPredicateConsumer consumer(conjuncts, _field_schema->data_type, column_id,
-                                        physical_matches, projected_column);
+        FixedWidthPredicateConsumer consumer(conjuncts, _field_schema->data_type, column_id,
+                                             physical_matches, projected_column);
         RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
         DORIS_CHECK_EQ(physical_matches->size(), selection.selected_values);
     }
