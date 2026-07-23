@@ -2290,7 +2290,7 @@ public:
             case EMPTY:
                 return 1;
             case SINGLE:
-                return 1 + (_sv != rhs._sv);
+                return 2 * (_sv != rhs._sv);
             case BITMAP:
                 return cardinality() + 1 - 2 * _bitmap->contains(rhs._sv);
             case SET:

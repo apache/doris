@@ -561,6 +561,7 @@ TEST(BitmapValueTest, operators) {
     check_bitmap_value_operator(left_empty, right_bitmap);
 
     check_bitmap_value_operator(left_single, right_emtpy);
+    check_bitmap_value_operator(left_single, left_single);
     check_bitmap_value_operator(left_single, right_single);
     check_bitmap_value_operator(left_single, right_set);
     check_bitmap_value_operator(left_single, right_bitmap);
