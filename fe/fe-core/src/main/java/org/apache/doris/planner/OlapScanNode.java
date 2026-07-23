@@ -1178,7 +1178,7 @@ public class OlapScanNode extends ScanNode {
     String getSelectedPartitionNamesForExplain() {
         return getSelectedPartitionIds().stream().sorted()
                 .map(id -> Preconditions.checkNotNull(selectedPartitionNames.get(id),
-                        "missing snapshotted name for selected partition %s", id))
+                        "missing snapshotted name for selected partition %d", id))
                 .collect(Collectors.joining(","));
     }
 

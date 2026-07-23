@@ -265,6 +265,7 @@ public class OlapScanNodeTest {
         livePartitions.remove(oldTargetPartitionId);
         livePartitions.put(replacementPartitionId, mockPartition("p_target"));
 
+        scanNode.snapshotPartitionBoundariesForRuntimeFilter();
         TOlapScanNode thriftScanNode = new TOlapScanNode();
         scanNode.setPartitionBoundariesForRuntimeFilter(thriftScanNode);
         List<Long> serializedPartitionIds = thriftScanNode.getPartitionBoundaries().stream()

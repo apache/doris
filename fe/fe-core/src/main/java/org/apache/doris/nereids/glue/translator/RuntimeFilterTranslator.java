@@ -387,11 +387,7 @@ public class RuntimeFilterTranslator {
             Preconditions.checkState(scanNode instanceof OlapScanNode,
                     "partition-pruning runtime filter target must be an OlapScanNode");
             runtimeFilter.markTargetCanPrunePartitions(scanNode.getId());
-            ConnectContext rfPruneCtx = ConnectContext.get();
-            if (rfPruneCtx != null
-                    && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()) {
-                ((OlapScanNode) scanNode).snapshotPartitionBoundariesForRuntimeFilter();
-            }
+            ((OlapScanNode) scanNode).snapshotPartitionBoundariesForRuntimeFilter();
         }
         runtimeFilter.setTargetPartitionMonotonicity(
                 scanNode.getId(), classification.getPartitionMonotonicity());
