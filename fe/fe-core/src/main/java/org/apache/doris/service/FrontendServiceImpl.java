@@ -38,6 +38,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -3956,26 +3957,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
-        // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with existing
-        // partitions, which would lead to false positive. so we should check the partition number AFTER adding new
-        // partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
-        int partitionNum = olapTable.getPartitionNum();
-        int autoPartitionLimit = Config.max_auto_partition_num;
-        if (partitionNum > autoPartitionLimit) {
-            String errorMessage = String.format(
-                    "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
-                    partitionNum, autoPartitionLimit);
-            LOG.warn(errorMessage);
-            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
-            result.setStatus(errorStatus);
-            LOG.warn("send create partition error status: {}", result);
-            return result;
-        } else if (partitionNum > autoPartitionLimit * 8 / 10) {
-            LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
-                        + " Consider increasing max_auto_partition_num.",
-                    db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
-        }
-
         // build partition & tablets
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
@@ -3987,41 +3968,59 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 && request.isEnableAdaptiveRandomBucket();
         boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
         final boolean hasBeEndpoint = request.isSetBeEndpoint();
-        // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
-        String cachedClusterId = null;
-        for (String partitionName : addPartitionClauseMap.keySet()) {
-            Partition partition = table.getPartition(partitionName);
-            // For thread safety, we preserve the tablet distribution information of each partition
-            // before calling getOrSetAutoPartitionInfo, but not check the partition first
-            List<TTabletLocation> partitionTablets = new ArrayList<>();
-            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
-            TOlapTablePartition tPartition = new TOlapTablePartition();
-            tPartition.setId(partition.getId());
-            int partColNum = partitionInfo.getPartitionColumns().size();
+        List<PartitionResultSnapshot> partitionSnapshots = new ArrayList<>();
+
+        olapTable.readLock();
+        try {
+            // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with
+            // existing partitions, which would lead to false positive. so we should check the partition number AFTER
+            // adding new partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+            int partitionNum = olapTable.getPartitionNum();
+            int autoPartitionLimit = Config.max_auto_partition_num;
+            if (partitionNum > autoPartitionLimit) {
+                String errorMessage = String.format(
+                        "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                        partitionNum, autoPartitionLimit);
+                LOG.warn(errorMessage);
+                errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            } else if (partitionNum > autoPartitionLimit * 8 / 10) {
+                LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
+                            + " Consider increasing max_auto_partition_num.",
+                        db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
+            }
+
             try {
-                OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
+                partitionSnapshots.addAll(snapshotPartitionResultsByName(olapTable, addPartitionClauseMap.keySet(),
+                        loadToSingleTablet, enableAdaptiveRandomBucket, "auto partition"));
             } catch (UserException ex) {
                 errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                 result.setStatus(errorStatus);
                 LOG.warn("send create partition error status: {}", result);
                 return result;
             }
-            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
-                tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
-                        index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
-                tPartition.setNumBuckets(index.getTablets().size());
-            }
-            tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
-            boolean randomDistribution =
-                    partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
-            boolean cacheLoadTabletIdx =
-                    (loadToSingleTablet || enableAdaptiveRandomBucket) && randomDistribution;
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
+        String cachedClusterId = null;
+        for (PartitionResultSnapshot partitionSnapshot : partitionSnapshots) {
+            Partition partition = partitionSnapshot.partition;
+            long partitionId = partitionSnapshot.partitionId;
+            TOlapTablePartition tPartition = partitionSnapshot.tPartition;
+            boolean cacheLoadTabletIdx = partitionSnapshot.cacheLoadTabletIdx;
             partitions.add(tPartition);
-            // tablet
+            // For thread safety, we preserve the tablet distribution information of each partition
+            // before calling getOrSetAutoPartitionInfo, but not check the partition first
+            List<TTabletLocation> partitionTablets = new ArrayList<>();
+            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                            .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                            .getAutoPartitionInfo(txnId, partitionId, partitionTablets,
                                     partitionSlaveTablets, cachedLoadTabletIdx)) {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
@@ -4045,52 +4044,49 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     return result;
                 }
             }
-            int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
-                    + 1;
-            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
-                for (Tablet tablet : index.getTablets()) {
-                    // we should ensure the replica backend is alive
-                    // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
-                    // BE id -> path hash
-                    Multimap<Long, Long> bePathsMap;
-                    try {
-                        if (tablet instanceof CloudTablet) {
-                            CloudTablet cloudTablet = (CloudTablet) tablet;
-                            if (hasBeEndpoint) {
-                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
-                            } else {
-                                if (cachedClusterId == null) {
-                                    cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                            .getCurrentClusterId();
-                                }
-                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
-                            }
+            int quorum = partitionSnapshot.quorum;
+            for (Tablet tablet : partitionSnapshot.tablets) {
+                // we should ensure the replica backend is alive
+                // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
+                // BE id -> path hash
+                Multimap<Long, Long> bePathsMap;
+                try {
+                    if (tablet instanceof CloudTablet) {
+                        CloudTablet cloudTablet = (CloudTablet) tablet;
+                        if (hasBeEndpoint) {
+                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
-                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                            if (cachedClusterId == null) {
+                                cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getCurrentClusterId();
+                            }
+                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
-                    } catch (UserException ex) {
-                        errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
-                        result.setStatus(errorStatus);
-                        LOG.warn("send create partition error status: {}", result);
-                        return result;
-                    }
-                    if (bePathsMap.keySet().size() < quorum) {
-                        LOG.warn("auto go quorum exception");
-                    }
-                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                        Random random = new SecureRandom();
-                        Long masterNode = nodes[random.nextInt(nodes.length)];
-                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
-                        slaveBePathsMap.removeAll(masterNode);
-                        partitionTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(Sets.newHashSet(masterNode))));
-                        partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(slaveBePathsMap.keySet())));
                     } else {
-                        partitionTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(bePathsMap.keySet())));
+                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send create partition error status: {}", result);
+                    return result;
+                }
+                if (bePathsMap.keySet().size() < quorum) {
+                    LOG.warn("auto go quorum exception");
+                }
+                if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                    Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+                    Random random = new SecureRandom();
+                    Long masterNode = nodes[random.nextInt(nodes.length)];
+                    Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                    slaveBePathsMap.removeAll(masterNode);
+                    partitionTablets.add(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(Sets.newHashSet(masterNode))));
+                    partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(slaveBePathsMap.keySet())));
+                } else {
+                    partitionTablets.add(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(bePathsMap.keySet())));
                 }
             }
 
@@ -4118,7 +4114,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (needUseCache) {
                 long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
                 long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                        .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                        .getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets,
                                 partitionSlaveTablets, loadTabletIdx);
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedTabletIdx);
@@ -4241,6 +4237,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
+        Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
+        long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
+        TUniqueId queryId = request.isSetQueryId() ? request.getQueryId() : null;
+        boolean enableAdaptiveRandomBucket = request.isSetEnableAdaptiveRandomBucket()
+                && request.isEnableAdaptiveRandomBucket();
+        boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
+        final boolean replaceHasBeEndpoint = request.isSetBeEndpoint();
+
         InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
         ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
         if (taskLock == null) {
@@ -4255,6 +4259,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ArrayList<Long> pendingPartitionIds = new ArrayList<>(); // pending: [1 2]
         ArrayList<Long> newPartitionIds = new ArrayList<>(); // requested temp partition ids. for [7 8]
         boolean needReplace = false;
+        List<PartitionResultSnapshot> partitionSnapshots = new ArrayList<>();
         try {
             taskLock.lock();
             // double check lock. maybe taskLock is not null, but has been removed from the Map. means the task failed.
@@ -4302,29 +4307,37 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
-        } catch (DdlException | RuntimeException ex) {
+
+            // result: [1 2 5 6], make it [7 8 5 6]
+            int idx = 0;
+            if (needReplace) {
+                for (int i = 0; i < reqPartitionIds.size(); i++) {
+                    if (reqPartitionIds.get(i).equals(resultPartitionIds.get(i))) {
+                        resultPartitionIds.set(i, newPartitionIds.get(idx++));
+                    }
+                }
+            }
+            if (idx != newPartitionIds.size()) {
+                errorStatus.addToErrorMsgs("changed partition number " + idx + " is not correct");
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
+
+            olapTable.readLock();
+            try {
+                partitionSnapshots.addAll(snapshotPartitionResultsById(olapTable, resultPartitionIds,
+                        loadToSingleTablet, enableAdaptiveRandomBucket, "replace partition"));
+            } finally {
+                olapTable.readUnlock();
+            }
+        } catch (UserException | RuntimeException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
             return result;
         } finally {
             taskLock.unlock();
-        }
-
-        // result: [1 2 5 6], make it [7 8 5 6]
-        int idx = 0;
-        if (needReplace) {
-            for (int i = 0; i < reqPartitionIds.size(); i++) {
-                if (reqPartitionIds.get(i).equals(resultPartitionIds.get(i))) {
-                    resultPartitionIds.set(i, newPartitionIds.get(idx++));
-                }
-            }
-        }
-        if (idx != newPartitionIds.size()) {
-            errorStatus.addToErrorMsgs("changed partition number " + idx + " is not correct");
-            result.setStatus(errorStatus);
-            LOG.warn("send create partition error status: {}", result);
-            return result;
         }
 
         if (LOG.isDebugEnabled()) {
@@ -4341,51 +4354,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TOlapTablePartition> partitions = new ArrayList<>();
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
-        long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
-        TUniqueId queryId = request.isSetQueryId() ? request.getQueryId() : null;
-        boolean enableAdaptiveRandomBucket = request.isSetEnableAdaptiveRandomBucket()
-                && request.isEnableAdaptiveRandomBucket();
-        boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
-        final boolean replaceHasBeEndpoint = request.isSetBeEndpoint();
         // Lazy: resolved on the first CloudTablet that needs it.
         String replaceCachedClusterId = null;
-        for (long partitionId : resultPartitionIds) {
-            Partition partition = olapTable.getPartition(partitionId);
+        for (PartitionResultSnapshot partitionSnapshot : partitionSnapshots) {
+            Partition partition = partitionSnapshot.partition;
+            long partitionId = partitionSnapshot.partitionId;
+            TOlapTablePartition tPartition = partitionSnapshot.tPartition;
+            boolean cacheLoadTabletIdx = partitionSnapshot.cacheLoadTabletIdx;
+            partitions.add(tPartition);
             // For thread safety, we preserve the tablet distribution information of each partition
             // before calling getOrSetAutoPartitionInfo, but not check the partition first
             List<TTabletLocation> partitionTablets = new ArrayList<>();
             List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
-            TOlapTablePartition tPartition = new TOlapTablePartition();
-            tPartition.setId(partition.getId());
-
-            // set partition keys
-            int partColNum = partitionInfo.getPartitionColumns().size();
-            try {
-                OlapTableSink.setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
-            } catch (UserException ex) {
-                errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
-                result.setStatus(errorStatus);
-                LOG.warn("send replace partition error status: {}", result);
-                return result;
-            }
-            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
-                tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
-                        index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
-                tPartition.setNumBuckets(index.getTablets().size());
-            }
-            tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
-            boolean randomDistribution =
-                    partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
-            boolean cacheLoadTabletIdx =
-                    (loadToSingleTablet || enableAdaptiveRandomBucket) && randomDistribution;
-            partitions.add(tPartition);
             // tablet
             AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache && txnId != 0
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                            .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                            .getAutoPartitionInfo(txnId, partitionId, partitionTablets,
                                     partitionSlaveTablets, cachedLoadTabletIdx)) {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
@@ -4409,53 +4394,50 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     return result;
                 }
             }
-            int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
-                    + 1;
-            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
-                for (Tablet tablet : index.getTablets()) {
-                    // we should ensure the replica backend is alive
-                    // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
-                    // BE id -> path hash
-                    Multimap<Long, Long> bePathsMap;
-                    try {
-                        if (tablet instanceof CloudTablet) {
-                            CloudTablet cloudTablet = (CloudTablet) tablet;
-                            if (replaceHasBeEndpoint) {
-                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
-                            } else {
-                                if (replaceCachedClusterId == null) {
-                                    replaceCachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                            .getCurrentClusterId();
-                                }
-                                bePathsMap = cloudTablet
-                                        .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
-                            }
+            int quorum = partitionSnapshot.quorum;
+            for (Tablet tablet : partitionSnapshot.tablets) {
+                // we should ensure the replica backend is alive
+                // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
+                // BE id -> path hash
+                Multimap<Long, Long> bePathsMap;
+                try {
+                    if (tablet instanceof CloudTablet) {
+                        CloudTablet cloudTablet = (CloudTablet) tablet;
+                        if (replaceHasBeEndpoint) {
+                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
-                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                            if (replaceCachedClusterId == null) {
+                                replaceCachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                        .getCurrentClusterId();
+                            }
+                            bePathsMap = cloudTablet
+                                    .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
-                    } catch (UserException ex) {
-                        errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
-                        result.setStatus(errorStatus);
-                        LOG.warn("send replace partition error status: {}", result);
-                        return result;
-                    }
-                    if (bePathsMap.keySet().size() < quorum) {
-                        LOG.warn("auto go quorum exception");
-                    }
-                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                        Random random = new SecureRandom();
-                        Long masterNode = nodes[random.nextInt(nodes.length)];
-                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
-                        slaveBePathsMap.removeAll(masterNode);
-                        partitionTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(Sets.newHashSet(masterNode))));
-                        partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(slaveBePathsMap.keySet())));
                     } else {
-                        partitionTablets.add(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(bePathsMap.keySet())));
+                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send replace partition error status: {}", result);
+                    return result;
+                }
+                if (bePathsMap.keySet().size() < quorum) {
+                    LOG.warn("auto go quorum exception");
+                }
+                if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                    Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+                    Random random = new SecureRandom();
+                    Long masterNode = nodes[random.nextInt(nodes.length)];
+                    Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                    slaveBePathsMap.removeAll(masterNode);
+                    partitionTablets.add(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(Sets.newHashSet(masterNode))));
+                    partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(slaveBePathsMap.keySet())));
+                } else {
+                    partitionTablets.add(new TTabletLocation(tablet.getId(),
+                            Lists.newArrayList(bePathsMap.keySet())));
                 }
             }
 
@@ -4487,14 +4469,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (needUseCache) {
                 long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
                 long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                        .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                        .getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets,
                                 partitionSlaveTablets, loadTabletIdx);
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedTabletIdx);
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
-                            + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                            + "tablets: {}, slaveTablets: {}", txnId, partitionId,
                             partitionTablets.size(), partitionSlaveTablets.size());
                 }
             }
@@ -4524,6 +4506,94 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("send replace partition result: {}", result);
         }
         return result;
+    }
+
+    private static final class PartitionResultSnapshot {
+        private final Partition partition;
+        private final long partitionId;
+        private final TOlapTablePartition tPartition;
+        private final List<Tablet> tablets;
+        private final int quorum;
+        private final boolean cacheLoadTabletIdx;
+
+        private PartitionResultSnapshot(Partition partition, long partitionId,
+                TOlapTablePartition tPartition, List<Tablet> tablets, int quorum, boolean cacheLoadTabletIdx) {
+            this.partition = partition;
+            this.partitionId = partitionId;
+            this.tPartition = tPartition;
+            this.tablets = tablets;
+            this.quorum = quorum;
+            this.cacheLoadTabletIdx = cacheLoadTabletIdx;
+        }
+    }
+
+    private static List<PartitionResultSnapshot> snapshotPartitionResultsByName(OlapTable olapTable,
+            Collection<String> partitionNames, boolean loadToSingleTablet, boolean enableAdaptiveRandomBucket,
+            String resultName) throws UserException {
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        int partColNum = partitionInfo.getPartitionColumns().size();
+        List<PartitionResultSnapshot> partitionSnapshots = new ArrayList<>();
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new UserException(String.format(
+                        "partition %s was dropped concurrently while building %s result, please retry",
+                        partitionName, resultName));
+            }
+            partitionSnapshots.add(snapshotPartitionResult(partitionInfo, partColNum, partition, partitionName,
+                    loadToSingleTablet, enableAdaptiveRandomBucket, resultName));
+        }
+        return partitionSnapshots;
+    }
+
+    private static List<PartitionResultSnapshot> snapshotPartitionResultsById(OlapTable olapTable,
+            Collection<Long> partitionIds, boolean loadToSingleTablet, boolean enableAdaptiveRandomBucket,
+            String resultName) throws UserException {
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        int partColNum = partitionInfo.getPartitionColumns().size();
+        List<PartitionResultSnapshot> partitionSnapshots = new ArrayList<>();
+        for (long partitionId : partitionIds) {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                throw new UserException(String.format(
+                        "partition %d was dropped concurrently while building %s result, please retry",
+                        partitionId, resultName));
+            }
+            partitionSnapshots.add(snapshotPartitionResult(partitionInfo, partColNum, partition,
+                    String.valueOf(partitionId), loadToSingleTablet, enableAdaptiveRandomBucket, resultName));
+        }
+        return partitionSnapshots;
+    }
+
+    private static PartitionResultSnapshot snapshotPartitionResult(PartitionInfo partitionInfo, int partColNum,
+            Partition partition, String partitionLabel, boolean loadToSingleTablet,
+            boolean enableAdaptiveRandomBucket, String resultName) throws UserException {
+        long partitionId = partition.getId();
+        PartitionItem partitionItem = partitionInfo.getItem(partitionId);
+        if (partitionItem == null) {
+            throw new UserException(String.format(
+                    "partition item of %s was dropped concurrently while building %s result, please retry",
+                    partitionLabel, resultName));
+        }
+
+        TOlapTablePartition tPartition = new TOlapTablePartition();
+        tPartition.setId(partitionId);
+        OlapTableSink.setPartitionKeys(tPartition, partitionItem, partColNum);
+        List<Tablet> partitionTabletSnapshot = new ArrayList<>();
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+            List<Tablet> indexTablets = new ArrayList<>(index.getTablets());
+            tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
+                    indexTablets.stream().map(Tablet::getId).collect(Collectors.toList()))));
+            tPartition.setNumBuckets(indexTablets.size());
+            partitionTabletSnapshot.addAll(indexTablets);
+        }
+        tPartition.setIsMutable(partitionInfo.getIsMutable(partitionId));
+        boolean randomDistribution =
+                partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
+        boolean cacheLoadTabletIdx = (loadToSingleTablet || enableAdaptiveRandomBucket) && randomDistribution;
+        int quorum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
+        return new PartitionResultSnapshot(partition, partitionId, tPartition, partitionTabletSnapshot, quorum,
+                cacheLoadTabletIdx);
     }
 
     public TGetMetaResult getMeta(TGetMetaRequest request) throws TException {
