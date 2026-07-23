@@ -133,6 +133,18 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
+    @Getter
+    @ConnectorProperty(names = {"OSS_ROLE_ARN", "AWS_ROLE_ARN", "oss.role_arn"},
+            required = false,
+            description = "RAM role ARN for Alibaba STS AssumeRole.")
+    protected String roleArn = "";
+
+    @Getter
+    @ConnectorProperty(names = {"AWS_EXTERNAL_ID", "oss.external_id"},
+            required = false,
+            description = "External ID for cross-account AssumeRole trust policy.")
+    protected String externalId = "";
+
     private static final Pattern STANDARD_ENDPOINT_PATTERN = Pattern
             .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
 
@@ -300,10 +312,22 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return credentialsProvider;
         }
         if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            // For anonymous access (no credentials required)
             return AnonymousCredentialsProvider.create();
         }
         return null;
+    }
+
+    @Override
+    public Map<String, String> getBackendConfigProperties() {
+        Map<String, String> props = generateBackendS3Configuration();
+        props.put("provider", "OSS");
+        if (StringUtils.isNotBlank(roleArn)) {
+            props.put("AWS_ROLE_ARN", roleArn);
+        }
+        if (StringUtils.isNotBlank(externalId)) {
+            props.put("AWS_EXTERNAL_ID", externalId);
+        }
+        return props;
     }
 
     @Override

@@ -26,6 +26,13 @@ if(BUILD_AZURE STREQUAL "OFF")
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/azure_obj_storage_client.cpp")
 endif()
 
+if(BUILD_OSS STREQUAL "OFF")
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/oss_v2_obj_storage_client.cpp")
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/oss_file_system.cpp")
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/oss_file_reader.cpp")
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/oss_file_writer.cpp")
+endif()
+
 if(ENABLE_TDE)
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/encrypted_fs_factory.cpp")
     file(GLOB_RECURSE EXTRA_SOURCES CONFIGURE_DEPENDS
