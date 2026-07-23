@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -163,7 +164,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg
-        List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
+        List<NamedExpression> aggregateOutput = normalizeMultiColumnDistinctCount(
+                aggregate.getOutputExpressions());
         Map<AggregateFunction, Map<String, String>> aggFuncs =
                 CollectNonWindowedAggFuncsWithSessionVar.collect(aggregateOutput);
 
@@ -173,6 +175,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         ImmutableSet.Builder<Expression> needPushDownSelfExprs = ImmutableSet.builder();
         ImmutableSet.Builder<Expression> needPushDownInputs = ImmutableSet.builder();
         for (AggregateFunction aggFunc : aggFuncs.keySet()) {
+            for (Expression child : aggFunc.children()) {
+                if (ExpressionUtils.hasNonWindowAggregateFunction(child)) {
+                    throw new AnalysisException(
+                            "aggregate function cannot contain aggregate parameters");
+                }
+            }
             if (!aggFunc.isDistinct()) {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
@@ -257,11 +265,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // normalize trivial-aggs by bottomProjects
         List<Expression> normalizedAggFuncs =
                 bottomSlotContext.normalizeToUseSlotRef(SessionVarGuardExpr.getExprWithGuard(aggFuncs));
-        if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
-                && agg.child(0).containsType(AggregateFunction.class))) {
-            throw new AnalysisException(
-                    "aggregate function cannot contain aggregate parameters");
-        }
 
         // build normalized agg output
         NormalizeToSlotContext normalizedAggFuncsToSlotContext =
@@ -445,6 +448,28 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         return new LogicalProject<>(topProjectsBuilder.build(),
                 having.get().withChildren(new LogicalProject<>(bottomProjectsBuilder.build(), newAggregate)));
+    }
+
+    private List<NamedExpression> normalizeMultiColumnDistinctCount(List<NamedExpression> aggregateOutput) {
+        // Multi-column distinct counts treat arguments as a set. Remove duplicates and canonicalize equivalent
+        // counts to the first argument order so the structural equality used below can share one aggregate result.
+        Map<ImmutableSet<Expression>, Count> distinctArgumentsToCount = new HashMap<>();
+        return ExpressionUtils.rewriteDownShortCircuit(aggregateOutput, expression -> {
+            if (!(expression instanceof Count)) {
+                return expression;
+            }
+            Count count = (Count) expression;
+            if (!count.isDistinct() || count.arity() <= 1) {
+                return count;
+            }
+            ImmutableSet<Expression> distinctArguments = ImmutableSet.copyOf(count.getDistinctArguments());
+            Count normalizedCount = distinctArgumentsToCount.get(distinctArguments);
+            if (normalizedCount == null) {
+                normalizedCount = count.withDistinctAndChildren(true, ImmutableList.copyOf(distinctArguments));
+                distinctArgumentsToCount.put(distinctArguments, normalizedCount);
+            }
+            return count.withDistinctAndChildren(true, normalizedCount.children());
+        });
     }
 
     private List<NamedExpression> normalizeOutput(List<NamedExpression> aggregateOutput,

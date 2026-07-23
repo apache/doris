@@ -150,7 +150,7 @@ protected:
     bool _try_close();
 
     // Filter the output block finally.
-    Status _filter_output_block(Block* block);
+    virtual Status _filter_output_block(Block* block);
 
     Status _do_projections(Block* origin_block, Block* output_block);
 

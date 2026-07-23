@@ -99,6 +99,29 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     return range;
 }
 
+TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
+    EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
+                                               TPushAggOp::type::COUNT, std::vector<int32_t> {}));
+
+    // A missing field is an old FE plan with unknown COUNT semantics, not COUNT(*).
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::nullopt));
+    // V1 cannot evaluate COUNT(col) NULL/CAST semantics before replacing the reader with
+    // CountReader, so an explicit argument must use the normal scan path.
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::vector<int32_t> {7}));
+
+    // The COUNT argument field must not affect other storage-layer aggregate operations.
+    EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
+                                                TPushAggOp::type::MINMAX, std::nullopt));
+}
+
+TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };
@@ -696,6 +719,15 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
     ASSERT_NE(profile.get_info_string("PeerCacheNodes"), nullptr);
     EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    ASSERT_TRUE(children.contains("IO"));
+    EXPECT_TRUE(children.at("IO").contains("FileCache"));
 }
 
 TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
@@ -705,6 +737,28 @@ TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
     EXPECT_FALSE(
             FileScannerV2::TEST_should_skip_not_found(Status::InternalError("read failed"), true));
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
+}
+
+TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("empty file"), false));
+    // Deletion-vector and Parquet readers also use EOF to unwind an interrupted read. Once either
+    // scanner stop flag is visible, the same status is no longer evidence of an empty file.
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("stop read."), true));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed"), false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
+}
+
+TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
+    auto status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"), TFileFormatType::FORMAT_ORC);
+    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
+
+    status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"),
+            TFileFormatType::FORMAT_PARQUET);
+    EXPECT_EQ(status.to_string().find("nextBatch failed"), std::string::npos) << status;
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise

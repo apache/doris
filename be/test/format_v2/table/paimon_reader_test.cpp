@@ -23,11 +23,13 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -59,6 +61,23 @@
 
 namespace doris::format {
 namespace {
+
+class SlowInitTableReader final : public TableReader {
+public:
+    Status init(TableReadOptions&& options) override {
+        RETURN_IF_ERROR(TableReader::init(std::move(options)));
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.init_timer);
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        return Status::OK();
+    }
+
+    Status prepare_split(const SplitReadOptions&) override {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        return Status::OK();
+    }
+};
 
 DataTypePtr table_type(const DataTypePtr& type) {
     return type->is_nullable() ? type : make_nullable(type);
@@ -461,6 +480,20 @@ TEST(PaimonReaderTest, DeletionVectorCacheKeyIncludesOffsetAndLength) {
     EXPECT_NE(first_desc.key, different_length_desc.key);
 }
 
+TEST(PaimonReaderTest, DeletionVectorRejectsInvalidRange) {
+    auto table_format_params = make_paimon_table_format_desc("dv.bin", -1, 4);
+
+    paimon::PaimonReader reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    auto status =
+            reader.TEST_parse_deletion_vector_file(table_format_params, &desc, &has_delete_file);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("offset must be non-negative"), std::string::npos);
+    EXPECT_FALSE(has_delete_file);
+}
+
 TEST(PaimonReaderTest, DecodeDeletionVectorBufferUsesSharedFormatHelper) {
     // Scenario: format_v2 TableReader reads a raw Paimon BitmapDeletionVector range and delegates
     // the binary parsing to the same helper used by the format reader path.
@@ -661,6 +694,59 @@ TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
     EXPECT_EQ(child_batch_sizes.second, 321);
 }
 
+TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_hybrid_count_column_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "data-file.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    const std::vector<ColumnDefinition> projected_columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>()),
+    };
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+
+    paimon::PaimonHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns =
+                                            std::vector<GlobalIndex> {GlobalIndex(0)},
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.cache = &cache;
+    split_options.current_split_format = FileFormat::PARQUET;
+    split_options.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    split_options.current_range.__set_path(file_path);
+    split_options.current_range.__set_file_size(
+            static_cast<int64_t>(std::filesystem::file_size(file_path)));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(block.rows(), 3);
+    EXPECT_TRUE(reader.current_split_uses_metadata_count());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -694,6 +780,49 @@ TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
     EXPECT_NE(std::string::npos, status.to_string().find("missing serialized_table"));
 
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(PaimonHybridReaderTest, FirstNativeAndJniChildInitAreCountedOnce) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .file_slot_descs = nullptr,
+                                    .push_down_agg_type = TPushAggOp::NONE,
+                                    .condition_cache_digest = 0,
+                            })
+                        .ok());
+    reader.TEST_set_child_reader_factories([] { return std::make_unique<SlowInitTableReader>(); },
+                                           [] { return std::make_unique<SlowInitTableReader>(); });
+
+    auto* total = profile.get_counter("TableReader");
+    auto* init = profile.get_counter("InitTime");
+    ASSERT_NE(total, nullptr);
+    ASSERT_NE(init, nullptr);
+    auto verify_first_split = [&](FileFormat format, TFileRangeDesc range) {
+        SplitReadOptions split;
+        split.current_split_format = format;
+        split.current_range = std::move(range);
+        const int64_t total_before = total->value();
+        const int64_t init_before = init->value();
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        const int64_t total_delta = total->value() - total_before;
+        const int64_t init_delta = init->value() - init_before;
+        EXPECT_GE(init_delta, std::chrono::milliseconds(25).count() * 1000 * 1000);
+        // A nested hybrid timer would add the 30 ms child init to total a second time.
+        EXPECT_LT(total_delta - init_delta, std::chrono::milliseconds(15).count() * 1000 * 1000);
+    };
+    verify_first_split(FileFormat::PARQUET,
+                       make_paimon_native_range(TFileFormatType::FORMAT_PARQUET));
+    verify_first_split(FileFormat::JNI, make_paimon_jni_range());
 }
 
 TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {

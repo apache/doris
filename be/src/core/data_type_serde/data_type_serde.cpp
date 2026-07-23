@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
@@ -51,12 +52,14 @@
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/descriptors.h"
+#include "storage/olap_common.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 namespace doris {
@@ -708,6 +711,18 @@ Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
                                  get_name()));
 }
 
+Status DataTypeSerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                               const ParquetDecodeContext& context,
+                                               size_t num_values,
+                                               ParquetMaterializationState& state) const {
+    return Status::NotSupported("read_column_from_parquet is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                              const ParquetDecodeContext& context) const {
+    return Status::NotSupported("read_parquet_dictionary is not supported for {}", get_name());
+}
+
 Status DataTypeSerDe::read_column_from_orc(IColumn& column,
                                            const OrcDecodedColumnView& view) const {
     return Status::NotSupported("read_column_from_orc is not supported for {}", get_name());
@@ -1130,7 +1145,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
 const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                           FieldInfo& info) {
     const FieldType type = static_cast<FieldType>(*data++);
-    info.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
+    info.scalar_type_id = storage_field_type_to_primitive_type(type);
     const uint8_t* end = data;
     switch (type) {
 #define HANDLE_SIMPLE_SERDE(FT, SERDE)                               \

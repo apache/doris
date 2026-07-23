@@ -161,4 +161,5 @@ public class FileQueryScanNodeTest {
         Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
     }
+
 }

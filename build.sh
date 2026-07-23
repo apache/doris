@@ -99,7 +99,7 @@ Usage: $0 <options>
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
-    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
+    $0 --be-extension-ignore paimon-scanner build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore paimon-scanner,hadoop-hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -717,7 +717,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
-    for _fs_mod in s3 oss cos obs azure hdfs local broker http; do
+    for _fs_mod in s3 oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -748,7 +748,6 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
-    modules+=("be-java-extensions/avro-scanner")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
@@ -1049,7 +1048,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
     FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
-    for fs_module in s3 azure oss cos obs hdfs local broker http; do
+    for fs_module in s3 azure oss cos obs hdfs oss-hdfs jfs local broker http; do
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
@@ -1169,7 +1168,6 @@ EOF
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-connector")
-    extensions_modules+=("avro-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")

@@ -487,6 +487,8 @@ struct TIcebergTableSink {
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    18: optional bool collect_column_stats;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -533,6 +535,8 @@ struct TIcebergMergeSink {
     11: optional map<string, string> hadoop_config
     12: optional Types.TFileType file_type
     13: optional list<Types.TNetworkAddress> broker_addresses;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    14: optional bool collect_column_stats;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

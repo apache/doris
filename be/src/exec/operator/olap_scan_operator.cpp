@@ -705,6 +705,15 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // And the user send a query like select userid,count(*) from base table group by userid.
     // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
+    // Query cache incremental merge needs no special case here: the read
+    // sources captured in prepare() already cover exactly the delta versions
+    // (cached_version, current_version], and the parallel scanner builder
+    // consumes the captured read sources as they are. The delta is NOT small
+    // by construction (an entry can sit dormant for arbitrarily many versions
+    // before it is reused; the merge-count threshold bounds prior write-backs,
+    // not idle accumulation), so a large suffix is split by rowset/segment
+    // rows like any full scan, while a small delta naturally collapses to a
+    // single scanner through min_rows_per_scanner.
     if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
@@ -981,7 +990,31 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
+    const bool cache_incremental =
+            _query_cache_decision != nullptr &&
+            _query_cache_decision->mode == QueryCacheInstanceDecision::Mode::INCREMENTAL;
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
+        if (cache_incremental) {
+            // Scan only the delta rowsets in (cached_version, current_version].
+            // The read source was already captured (and verified to contain no
+            // delete predicate) when the cache decision was made, so a capture
+            // failure cannot surface here, where the cache source operator has
+            // already committed to emitting the cached blocks. take() returning
+            // null would mean the FE invariant "one instance per tablet set, no
+            // shared scan under query cache" was broken (someone else consumed
+            // this tablet's read source); failing fast is the only safe answer,
+            // because a silent full-scan fallback would emit the data twice
+            // (cached blocks + full scan).
+            auto delta_source =
+                    _query_cache_decision->take_delta_read_source(_tablets[i].tablet->tablet_id());
+            if (delta_source == nullptr) {
+                return Status::InternalError(
+                        "query cache incremental read source is absent, tablet_id={}",
+                        _tablets[i].tablet->tablet_id());
+            }
+            _read_sources[i] = std::move(*delta_source);
+            continue;
+        }
         _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
                 {0, _tablets[i].version},
                 {.skip_missing_versions = _state->skip_missing_version(),
@@ -1049,28 +1082,29 @@ TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
 
 void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
-    const auto& cache_param = _parent->cast<OlapScanOperatorX>()._cache_param;
-    bool hit_cache = false;
-    // read binlog<row> scan should not participate in query cache.
-    if (olap_scan_node().__isset.read_row_binlog && olap_scan_node().read_row_binlog) {
-        hit_cache = false;
-    } else if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
-        std::string cache_key;
-        int64_t version = 0;
-        auto status = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
-        if (!status.ok()) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
+    auto& parent = _parent->cast<OlapScanOperatorX>();
+    // Consume the per-instance cache decision. It is made exactly once and
+    // shared with the cache source operator of this fragment, so the two
+    // operators always agree: the scan skips scanning if and only if the cache
+    // source emits the cached blocks (HIT), and scans only the delta rowsets if
+    // and only if the cache source merges them with the cached blocks
+    // (INCREMENTAL). The decision also pins the cache entry, so it cannot be
+    // evicted between the two operators' init.
+    // Note: an invalid cache key (e.g. FE could not align this instance to one
+    // partition, so tablets carry different versions) now degrades to an
+    // uncached full scan instead of failing the query.
+    if (parent._query_cache_runtime != nullptr) {
+        _query_cache_decision = parent._query_cache_runtime->get_or_make_decision(scan_ranges);
+        if (_query_cache_decision->mode == QueryCacheInstanceDecision::Mode::HIT) {
+            // Exact hit: the cache source emits the entry, nothing to scan.
+            return;
         }
-        doris::QueryCacheHandle handle;
-        hit_cache = QueryCache::instance()->lookup(cache_key, version, &handle);
     }
 
-    if (!hit_cache) {
-        for (auto& scan_range : scan_ranges) {
-            DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-            _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
-            COUNTER_UPDATE(_tablet_counter, 1);
-        }
+    for (auto& scan_range : scan_ranges) {
+        DCHECK(scan_range.scan_range.__isset.palo_scan_range);
+        _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
+        COUNTER_UPDATE(_tablet_counter, 1);
     }
 }
 
@@ -1263,10 +1297,12 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                      const DescriptorTbl& descs, int parallel_tasks,
-                                     const TQueryCacheParam& param)
+                                     const TQueryCacheParam& param,
+                                     std::shared_ptr<QueryCacheRuntime> query_cache_runtime)
         : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node),
-          _cache_param(param) {
+          _cache_param(param),
+          _query_cache_runtime(std::move(query_cache_runtime)) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         DORIS_CHECK(_limit < 0);
