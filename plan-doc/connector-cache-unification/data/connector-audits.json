@@ -1,0 +1,1419 @@
+[
+  {
+    "connector": "hive",
+    "migrationStatus": {
+      "inSpiReadyTypes": true,
+      "liveness": "live",
+      "notes": "hms is in SPI_READY_TYPES at CatalogFactory.java:57 ({jdbc,es,trino-connector,max_compute,paimon,iceberg,hms}). HiveConnector + HiveConnectorMetadata are real impls; fe-core builds a PluginDrivenExternalCatalog around HiveConnector (CatalogFactory.java:110-118) and every seam routes through PluginDrivenMetadata.get (PluginDrivenExternalTable.java:133,159,189,449,565,606,716,820,881,923,954,1025,1060,1126,1277). This connector is ALSO a heterogeneous GATEWAY: it hosts iceberg-on-HMS and hudi-on-HMS as embedded SIBLING connectors (HiveConnector.getOrCreateIcebergSibling/getOrCreateHudiSibling, HiveConnector.java:530-592), whose metadata is per-statement-memoized keyed by owner label (HiveConnectorMetadata.memoizedSiblingMetadata, :302-305). hudi is NOT its own SPI type (CatalogFactory.java:51-55). Note: CachingHmsClient.java:85-88 and HiveFileListingCache.java:72-74 still carry a STALE 'Dormant / hms is not in SPI_READY_TYPES' javadoc — factually wrong at HEAD (commit 6e521aa64b2 / #65473 flipped hms live AND wired wrapWithCache in the same change but did not update these class docs); harmless to runtime, worth a doc fix."
+    },
+    "currentCaches": [
+      {
+        "name": "CachingHmsClient.tableCache (HmsTableInfo by (db,table))",
+        "scope": "metastore-client",
+        "keyedBy": "(dbName, tableName)",
+        "ttl": "24h default (86400s), cap 10000; legacy schema.cache.ttl-second remapped",
+        "file": "fe/fe-connector/fe-connector-hms/src/main/java/org/apache/doris/connector/hms/CachingHmsClient.java:116,172-175"
+      },
+      {
+        "name": "CachingHmsClient.partitionNamesCache (partition-name list)",
+        "scope": "metastore-client",
+        "keyedBy": "(dbName, tableName, maxParts)",
+        "ttl": "24h default, cap 10000; legacy partition.cache.ttl-second remapped",
+        "file": "fe/fe-connector/fe-connector-hms/src/main/java/org/apache/doris/connector/hms/CachingHmsClient.java:117,187-190"
+      },
+      {
+        "name": "CachingHmsClient.partitionsCache (per-partition HmsPartitionInfo, Trino/legacy shape)",
+        "scope": "metastore-client",
+        "keyedBy": "(dbName, tableName, partitionValues) — one entry PER partition object",
+        "ttl": "24h default, cap 100000; generation-guarded put vs REFRESH race",
+        "file": "fe/fe-connector/fe-connector-hms/src/main/java/org/apache/doris/connector/hms/CachingHmsClient.java:118,202-243"
+      },
+      {
+        "name": "CachingHmsClient.columnStatsCache (HMS column statistics)",
+        "scope": "metastore-client",
+        "keyedBy": "(dbName, tableName, requested-column-list)",
+        "ttl": "24h default, cap 10000",
+        "file": "fe/fe-connector/fe-connector-hms/src/main/java/org/apache/doris/connector/hms/CachingHmsClient.java:119,274-279"
+      },
+      {
+        "name": "HiveFileListingCache (partition directory listStatus -> List<HiveFileStatus>)",
+        "scope": "cross-query",
+        "keyedBy": "(dbName, tableName, location, partitionValues); connector-owned final field shared by scan provider + size-estimate",
+        "ttl": "24h default (86400s), cap 10000; legacy file.meta.cache.ttl-second remapped",
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveFileListingCache.java:114,160-176"
+      },
+      {
+        "name": "HiveConnector.partitionViewCache (shared fe-connector-cache ConnectorPartitionViewCache, PERF-06 'cache A' from #65829)",
+        "scope": "cross-query",
+        "keyedBy": "PartitionViewCacheKey(db, table, -1, -1) — hive is snapshot-less, no schema version, so one entry per table",
+        "ttl": "24h default, cap 1000 (meta.cache.hive.partition_view.*)",
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnector.java:112,136; consumed HiveConnectorMetadata.java:1160-1172"
+      },
+      {
+        "name": "memoizedSiblingMetadata (per-statement iceberg/hudi sibling ConnectorMetadata memo)",
+        "scope": "per-statement",
+        "keyedBy": "'metadata:' + catalogId + ':' + ownerLabel (ICEBERG/HUDI)",
+        "ttl": "statement lifetime (ConnectorStatementScope); NONE scope = no memo",
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnectorMetadata.java:302-305"
+      },
+      {
+        "name": "HiveConnectorTransaction begin-time table snapshot memo (write path)",
+        "scope": "per-statement",
+        "keyedBy": "the single write-target table (hmsTableInfo captured in beginWrite; tableActions map)",
+        "ttl": "write-transaction lifetime",
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnectorTransaction.java:209,546-558"
+      },
+      {
+        "name": "ThriftHmsClient pooled connections (transport pool, NOT a metadata cache)",
+        "scope": "metastore-client",
+        "keyedBy": "connection pool of size hms.client.pool.size",
+        "ttl": "connection lifetime",
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnector.java:613-617"
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "partial",
+      "evidence": "Primary path: fe-core acquires the ONE per-statement ConnectorMetadata via PluginDrivenMetadata.get(session, connector) (PluginDrivenMetadata.java:52-72; call sites PluginDrivenExternalTable.java:133 etc), which calls HiveConnector.getMetadata -> newMetadata(getOrCreateClient()) (HiveConnector.java:140-142,188-192). Sibling path: iceberg/hudi-on-HMS metadata is funneled per-statement via memoizedSiblingMetadata keyed by (catalogId, ownerLabel) (HiveConnectorMetadata.java:302-305,318-350). The read-side HiveConnectorMetadata holds NO per-instance resolvedTable field (fields at :203-241 are hmsClient/caches/sibling seams only), so getTableHandle (:399), getTableSchema (:493), getColumnHandles (:604), getColumnStatistics (:854), applyFilter (:1093), resolvePartitions all re-call hmsClient.getTable/listPartitionNames/getPartitions FRESH — but hmsClient is the CachingHmsClient wrapper (HiveConnector.createClient wraps at :645-646,670-672), a CROSS-QUERY cache, so repeated same-statement loads collapse to 1 remote RPC + N cache hits. The write side additionally memoizes the begin-time table snapshot per write-transaction (HiveConnectorTransaction.java:546-551). Net: the funnel 'one metadata per statement' invariant holds, and repeated remote loads are collapsed by the metastore-client cache rather than by a per-metadata-instance memo (this is why hive did not need iceberg's PERF-07 per-statement table load — iceberg had NO cross-query table cache after its cutover; hive does).",
+      "gaps": "Read-side has no per-statement resolvedTable memo: it relies wholly on CachingHmsClient's cross-query TTL cache. In the rare case where an entry is evicted or TTLs out BETWEEN two getTable calls of one statement, a 2nd remote RPC occurs (very low probability, P2). A belt-and-suspenders per-statement resolvedTable field (iceberg PERF-07 analog) would close it but is not warranted — an HMS getTable thrift RPC is far cheaper than an iceberg loadTable, and the cross-query cache already collapses the common case."
+    },
+    "hotPathFindings": [
+      {
+        "id": "HMS-H1",
+        "area": "query-plan",
+        "problem": "Table metadata load (getTable) is called repeatedly per planning pass across getTableHandle -> getTableSchema -> getColumnHandles -> getColumnStatistics, but every call routes through CachingHmsClient.tableCache (cross-query, 24h). First call = 1 thrift RPC, rest = cache hits. NOT the iceberg 3-7x re-load regression.",
+        "multiplier": "3-4x getTable per statement collapsed to 1 remote RPC + N hits",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnectorMetadata.java:399,493,604,854 via CachingHmsClient.java:172"
+      },
+      {
+        "id": "HMS-H2",
+        "area": "partitions",
+        "problem": "Partition enumeration for pruning/scan/stats/MTMV (listPartitionNames + getPartitions). All go through CachingHmsClient.partitionNamesCache + per-partition partitionsCache; the built List<ConnectorPartitionInfo> is additionally memoized cross-query by ConnectorPartitionViewCache (PERF-06 cache A).",
+        "multiplier": "scan+applyFilter+stats+MTMV each re-enumerate; all served from cache",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnectorMetadata.java:1093-1106,1019-1025,1160-1172; HiveScanPlanProvider.java:492-499"
+      },
+      {
+        "id": "HMS-H3",
+        "area": "file-list",
+        "problem": "Per-partition directory listStatus (the heaviest remote-IO in the scan hot path, O(partitions)) is served from the connector-owned HiveFileListingCache, shared by the scan path (listAndSplitFiles) and the row-count/size-estimate path (sumCachedFileSizes/estimateDataSizeByListingFiles) so a scan warms the estimate and vice-versa.",
+        "multiplier": "one listStatus per partition per scan, cached cross-query",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveScanPlanProvider.java:537; HiveConnectorMetadata.java:945-950,1062-1063; HiveFileListingCache.java:174"
+      },
+      {
+        "id": "HMS-H4",
+        "area": "split-enum",
+        "problem": "ACID (transactional) scan resolves surviving base/delta + delete-delta dirs via HiveAcidUtil.getAcidState per partition, UNCACHED (fileListingCache only serves the non-ACID path). This is a per-scan directory walk with no memo.",
+        "multiplier": "one getAcidState per partition per ACID scan, uncached",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveScanPlanProvider.java:314"
+      },
+      {
+        "id": "HMS-H5",
+        "area": "write",
+        "problem": "Write planning loads the table twice (planWrite.loadTable + beginWrite) and lists existing partitions (buildExistingPartitions: listPartitionNames+getPartitions). Double-load is explicitly accepted; both hit CachingHmsClient (1 RPC + 1 hit) and beginWrite reuses the begin-time snapshot within the txn.",
+        "multiplier": "2x getTable + partition list per write, collapsed by cache + per-txn memo",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveWritePlanProvider.java:103,105,255-258; HiveConnectorTransaction.java:549-551"
+      },
+      {
+        "id": "HMS-H6",
+        "area": "schema",
+        "problem": "Read-side HiveConnectorMetadata has no per-statement resolvedTable field; a mid-statement CachingHmsClient TTL-expiry/eviction between two getTable calls would trigger a 2nd remote RPC. Common case fully collapsed by the cross-query cache; residual race only.",
+        "multiplier": "<=1 extra RPC per statement in a rare eviction race",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnectorMetadata.java:203-241"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "low",
+      "notes": "Hive vends NO per-user credential and has NO session=user analog. The metastore RPC runs under a SINGLE catalog-level identity: either the plugin-side Kerberos keytab principal (HiveConnector.buildPluginAuthenticator, :710-740, a fixed principal/keytab) or context.executeAuthenticated (catalog-level auth) — never a per-querying-user delegated credential, and there is no REST OIDC / per-identity metastore. Therefore the name-only cache keys (db,table[,parts/cols/location]) on CachingHmsClient/HiveFileListingCache/partitionViewCache CANNOT leak cross-user metadata the way iceberg.rest.session=user could: all users observe the same metastore identity's view, and per-user access is gated by Doris's own fe-core RBAC (AccessController) independent of these caches. This is exactly why the authz-cache-sharding build gate targets ONLY IcebergConnector.java (tools/check-authz-cache-sharding.sh TARGET_REL) and hive builds its caches unconditionally (HiveConnector.java:108-112,133-136). A fail-loud invariant guard (HiveConnector.java:548-555) rejects any iceberg-on-HMS sibling that ever declared SUPPORTS_USER_SESSION, precisely because the hive front door is not session=user and fe-core's per-user schema/name-cache bypass keys off the front-door connector. Write/read consistency: both share the same cross-query CachingHmsClient (immutable HmsTableInfo/HmsPartitionInfo), and the write transaction pins a begin-time table snapshot (HiveConnectorTransaction.java:549-551); ACID reads pin a write-id snapshot via getValidWriteIds per scan (HiveScanPlanProvider.java:305). Staleness is bounded by coarse REFRESH TABLE/DB/CATALOG (flush/flushDb/flushAll wired at HiveConnector.java:357-419) + TTL — Layer-3 authz isolation is N/A for hive."
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "already-has",
+        "rationale": "CachingHmsClient.tableCache (db,table)->HmsTableInfo, 24h TTL, REFRESH-invalidated, wired live via HiveConnector.createClient->wrapWithCache (CachingHmsClient.java:116,172; HiveConnector.java:645-646). This is the metastore-client analog of iceberg's IcebergTableCache."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "already-has",
+        "rationale": "Three layers already present: partitionNamesCache + per-partition partitionsCache (CachingHmsClient.java:117-118) AND the derived ConnectorPartitionViewCache (HiveConnector.java:112, from shared toolkit / #65829). Covers pruning, scan, stats, MTMV, listPartitions."
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "already-has",
+        "rationale": "HiveFileListingCache (cross-query, keyed by db/table/location/partitionValues, 24h) is the hive analog of the iceberg manifest cache; serves both scan and size-estimate. ACID directory walk is intentionally uncached (snapshot/write-id dependent, legacy parity)."
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "already-has",
+        "rationale": "Uses fe-connector-cache substrate throughout: ConnectorPartitionViewCache + PartitionViewCacheKey (HiveConnector.java:112,136) and MetaCacheEntry/CacheSpec for CachingHmsClient (CachingHmsClient.java:20-21,133-140) and HiveFileListingCache (HiveFileListingCache.java:21-22,144-148)."
+      },
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "no",
+        "rationale": "Funnel participation confirmed (PluginDrivenMetadata.get for primary; memoizedSiblingMetadata for siblings). A per-statement resolvedTable memo is NOT warranted: the cross-query CachingHmsClient already collapses repeated same-statement loads to 1 RPC, and an HMS getTable is far cheaper than an iceberg loadTable. Optional P2 belt-and-suspenders only."
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "already-has",
+        "rationale": "HiveConnectorTransaction is the per-statement write transaction (CatalogStatementTransaction analog); it captures the begin-time table snapshot and reuses it for the reject-guard and sink build (HiveConnectorTransaction.java:209,549-551), so read+write share one metadata/txn."
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "Hive infers file format cheaply from the handle's inputFormat/serde (HiveFileFormat.detect, HiveScanPlanProvider.java:136-138; detectFormatType from cached tableInfo), hoisted once per scan. No unfiltered whole-table planFiles() fallback like iceberg PERF-03, so no format cache is needed."
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "Hive serves table/column comments from the already-cached getTable (tableInfo params / ConnectorColumn), not via a separate N-per-query remote getComment load. Iceberg's PERF-05 comment cache existed because vended-credential catalogs null the table cache; hive always has the table cache, so no comment cache is needed."
+      },
+      {
+        "piece": "per-scan-hoist",
+        "needed": "already-has",
+        "rationale": "Scan invariants (format detect, target split size, LZO/splittable flags, backend storage props) are computed once per scan before the partition loop (HiveScanPlanProvider.planScan:136-145, getScanNodeProperties:386-435). Per-file normalizeNativeUri is a cheap string op, not a remote/heavy invariant."
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "no",
+        "rationale": "splitFile slices a file into byte ranges sharing the partition's value map by reference via PartitionScanInfo (HiveScanPlanProvider.java:628-655,707-718); no per-file JSON/partition-value recompute across a file's splits (hive has no iceberg-style per-file delete-carrier derivation to memoize)."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "already-has",
+        "rationale": "(duplicate axis) covered by partitionNamesCache + partitionsCache + partitionViewCache above."
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "Hive has no per-user delegated credential and no session=user; metastore RPC uses a single catalog identity and access is gated by fe-core RBAC. Name-only caches cannot leak cross-user (see authzConsistency). The authz-cache-sharding gate deliberately targets only IcebergConnector."
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "already-has",
+        "rationale": "(duplicate axis) covered by CachingHmsClient.tableCache above."
+      }
+    ],
+    "overallVerdict": "DO NOT apply new iceberg-style hot-path caches to hive — the connector is already framework-aligned and well-cached, and applying iceberg's Layer-1/Layer-3 would be redundant. Hive already has (a) the connector-side cross-query cache pattern: CachingHmsClient's 4 metastore caches (table/partition-names/partition/column-stats) + HiveFileListingCache (directory listings) + ConnectorPartitionViewCache (derived partition views), all live and REFRESH/TTL-invalidated; (b) full Layer-2 funnel participation — primary via PluginDrivenMetadata.get, siblings via per-statement memoizedSiblingMetadata, and a per-statement write transaction (HiveConnectorTransaction) that co-holds the begin-time table snapshot; (c) Layer-3 is N/A because hive has no session=user. No P0/P1 repeated-remote-load gap exists on any planning entrypoint (table/schema/partition/file-list/pushdown/stats/MTMV/write) — each heavy op sits behind a cache. Prioritized recommendations, all LOW: (1) fix the STALE 'Dormant / hms is not in SPI_READY_TYPES' javadocs on CachingHmsClient.java:85-88, HiveFileListingCache.java:72-74, and HiveConnector.wrapWithCache:667-668 (hms is live at HEAD) — documentation only; (2) OPTIONAL P2 belt-and-suspenders per-statement resolvedTable memo on the read-side HiveConnectorMetadata to close the rare mid-statement TTL/eviction re-RPC race (HMS-H6) — not warranted on cost grounds; (3) leave the ACID getAcidState per-scan listing uncached (HMS-H4) — it is snapshot/write-id dependent and legacy-parity correct.",
+    "confidence": "high",
+    "verify": {
+      "verdict": "CONFIRMED",
+      "confirmed": [
+        "HMS-H1",
+        "HMS-H2",
+        "HMS-H3",
+        "HMS-H4",
+        "HMS-H5",
+        "HMS-H6"
+      ],
+      "corrections": [
+        {
+          "claim": "HiveConnectorTransaction begin-time table snapshot ... hmsTableInfo captured in beginWrite (HiveConnectorTransaction.java:209)",
+          "issue": "Off-by-2 line cite: the hmsTableInfo field is declared at :123 and assigned inside beginWrite at :211, not :209. Immaterial — :209 falls within the beginWrite method and the reuse-in-getTable range :546-558 (specifically :549-551) is exact.",
+          "correction": "Field decl HiveConnectorTransaction.java:123 (private volatile HmsTableInfo hmsTableInfo); assignment this.hmsTableInfo = table at :211; reuse at :551. No substantive error."
+        },
+        {
+          "claim": "detailedMarkdown enumerates only 3 stale 'Dormant/hms not in SPI_READY_TYPES' javadocs (CachingHmsClient:85-88, HiveFileListingCache:72-74, HiveConnector.wrapWithCache:667-668)",
+          "issue": "Non-exhaustive, not wrong: the icebergSibling/hudiSibling field comments at HiveConnector.java:118 and :126-127 also carry stale 'Dormant until hms enters SPI_READY_TYPES' text at HEAD.",
+          "correction": "Two additional stale doc sites exist at HiveConnector.java:118,126-127; harmless, additive to the same doc-fix recommendation (LOW)."
+        }
+      ]
+    }
+  },
+  {
+    "connector": "hudi",
+    "migrationStatus": {
+      "inSpiReadyTypes": false,
+      "liveness": "live",
+      "notes": "\"hudi\" is deliberately NOT in SPI_READY_TYPES (CatalogFactory.java:56-57 lists {jdbc, es, trino-connector, max_compute, paimon, iceberg, hms}; the :50-55 comment forbids adding it; HudiConnectorProvider.java:45-47 returns the sibling-only type string \"hudi\"). hudi is reached ONLY as an embedded sibling of the hms gateway: HiveConnector.newMetadata wires this::getOrCreateHudiSibling (HiveConnector.java:188-191), and HiveConnectorMetadata.getTableHandle diverts a HUDI-detected table to hudiSiblingMetadata(session).getTableHandle(...) (HiveConnectorMetadata.java:415-417). LIVENESS = live (not dormant): \"hms\" WAS added to SPI_READY_TYPES by #65473 / commit 6e521aa64b2 (2026-07-16), and the legacy fe-core hudi path is fully removed (no HudiScanNode/HudiExternalMetaCache/HMSExternalTable/HudiDlaTable remain in fe-core). CONFLICT TO SURFACE (Rule 7): numerous in-tree comments still say \"dormant until hms enters SPI_READY_TYPES\" / \"today getTableHandle is never called\" (HudiConnectorMetadata.java:391, HiveConnectorMetadata.java:410,1802,1942,1972,2007) — these are STALE, written before #65473 flipped hms live; they no longer reflect HEAD and should not be trusted for liveness."
+    },
+    "currentCaches": [
+      {
+        "name": "Per-statement ConnectorMetadata (Layer-2 funnel memo)",
+        "scope": "per-statement",
+        "keyedBy": "(catalogId, HUDI_LABEL) on ConnectorStatementScope",
+        "ttl": "statement lifetime",
+        "file": "fe/fe-connector/fe-connector-hive/src/main/java/org/apache/doris/connector/hive/HiveConnectorMetadata.java:302"
+      },
+      {
+        "name": "HMS ThriftHmsClient (RAW — no result caching)",
+        "scope": "metastore-client",
+        "keyedBy": "single pooled client memoized on HudiConnector; NOT wrapped in CachingHmsClient, so getTable/tableExists/listTables/listPartitionNames are fresh Thrift RPCs on every call",
+        "ttl": "none (connector lifetime pool)",
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiConnector.java:186"
+      },
+      {
+        "name": "pluginAuth (HadoopAuthenticator)",
+        "scope": "cross-query",
+        "keyedBy": "catalog-level single-owner Kerberos identity; double-checked memo on HudiConnector",
+        "ttl": "connector lifetime",
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiConnector.java:196"
+      },
+      {
+        "name": "Hudi InternalSchemaCache (library-internal, NOT a Doris cache)",
+        "scope": "none",
+        "keyedBy": "(commitTime, metaClient) inside hudi-common; reset per fresh metaClient build",
+        "ttl": "hudi-lib managed",
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiSchemaUtils.java:278"
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "no",
+      "evidence": "The sibling metadata IS routed through the Layer-2 funnel: HiveConnectorMetadata.memoizedSiblingMetadata (HiveConnectorMetadata.java:302-305) calls session.getStatementScope().getOrCreateMetadata(\"metadata:\"+catalogId+\":\"+ownerLabel, () -> owner.getMetadata(session)); hudiSiblingMetadata (:332-334) and the by-handle siblingMetadata (:347-350) share that one instance per statement under HUDI_LABEL. So exactly ONE HudiConnectorMetadata object is built per statement. BUT that object memoizes NOTHING internally: HudiConnectorMetadata holds only {hmsClient, properties, metaClientExecutor, storageHadoopConfig} (fields at :153-174) — no resolved metaClient/schema/timeline/partitions field. Every getTableSchema/getColumnHandles/applyFilter/listPartitions*/beginQuerySnapshot/collectPartitions call rebuilds a fresh HoodieTableMetaClient via HudiScanPlanProvider.buildMetaClient (metadata: getSchemaFromMetaClient :800-801, latestInstant :748-750, collectPartitions :707-713, applyFilter :289-291). Worse, the scan provider is a SEPARATE object (HudiConnector.getScanPlanProvider returns new HudiScanPlanProvider, :136-138) and builds its OWN metaClient twice (planScan :148-151 and getScanNodeProperties :363), independent of the metadata.",
+      "gaps": "The funnel collapses the metadata OBJECT to one-per-statement, but does NOT collapse repeated remote table loads: metaClient is (re)built 5-6x per planning pass and the schema/timeline re-read each time. Iceberg-style INTERNAL memoization (per-statement resolvedTable + cross-query table cache, PERF-01/PERF-07 analog) is still required; the funnel alone does not fix it."
+    },
+    "hotPathFindings": [
+      {
+        "id": "HD-P01",
+        "area": "query-plan",
+        "problem": "HoodieTableMetaClient is rebuilt fresh at EVERY metadata + scan entrypoint (getColumnHandles->getTableSchema, beginQuerySnapshot->latestInstant, applyFilter, MVCC getTableSchema, planScan, getScanNodeProperties) — ~5-6 builds per planning pass for the SAME table. Each build does remote IO: reads .hoodie/hoodie.properties + table config and loads/lists the active timeline directory. Zero memoization on the funnel-memoized metadata or across the metadata/scan-provider split. Direct analog of iceberg PERF-01/PERF-07 (loadTable 3-7x/pass).",
+        "multiplier": "~5-6x per planning pass (constant, per-query; Variant B/D)",
+        "cost": "remote-io",
+        "severity": "P1",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiScanPlanProvider.java:148"
+      },
+      {
+        "id": "HD-P02",
+        "area": "schema",
+        "problem": "Latest table Avro schema + InternalSchema re-resolved ~4x per pass on independent metaClients: getSchemaFromMetaClient (getTableAvroSchema(true)+resolveTableInternalSchema, HudiConnectorMetadata:819-821) fires for getColumnHandles AND the 3-arg MVCC getTableSchema; planScan re-resolves (getTableAvroSchema :188, resolveJniColumnSchema :194, resolveTableInternalSchema :220); getScanNodeProperties re-resolves again (getTableAvroSchema :382, dict :383). Each re-reads latest-commit schema/metadata remotely. No schema memo.",
+        "multiplier": "~4x per pass (Variant B)",
+        "cost": "remote-io",
+        "severity": "P1",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiConnectorMetadata.java:797"
+      },
+      {
+        "id": "HD-P03",
+        "area": "partitions",
+        "problem": "Partition listing (listAllPartitionPaths = HoodieTableMetadata.create + getAllPartitionPaths, a metadata-table scan) + latestCompletedInstant timeline read are re-run with NO (table,instant)-keyed cache: collectPartitions backs listPartitions/listPartitionNames/listPartitionValues (:707-713); applyFilter non-hive-sync lists again (:289-291); planScan resolvePartitions lists once more (:281,648). Across one MTMV refresh fe-core re-enumerates listPartitions/freshness 4-6x, each a fresh metadata-table scan. No iceberg-IcebergPartitionCache / hive-partitionViewCache analog.",
+        "multiplier": "3x within one pass + 4-6x per MTMV refresh (Variant A/B)",
+        "cost": "remote-io",
+        "severity": "P1",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiScanPlanProvider.java:734"
+      },
+      {
+        "id": "HD-P04",
+        "area": "schema",
+        "problem": "HMS metadata is served by a RAW ThriftHmsClient — hudi does NOT wrap CachingHmsClient the way HiveConnector does (HudiConnector.createClient returns new ThriftHmsClient at :186; contrast HiveConnector.wrapWithCache/CachingHmsClient). So getTableHandle's tableExists+getTable (2 RPCs, :204-207) and, for hive-sync tables, listPartitionNames in BOTH applyFilter (:278) and collectPartitions (:695) re-hit HMS every query with no cross-query cache. Variant C: the cache class (CachingHmsClient, keyed (db,table), 24h TTL) already exists and is used by hive but hudi's hot path bypasses it.",
+        "multiplier": "2+ metastore RPCs/pass, uncached across every query (Variant C)",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiConnector.java:186"
+      },
+      {
+        "id": "HD-P05",
+        "area": "split-enum",
+        "problem": "Per-scan loop-invariants recomputed: storageHadoopConfig(context) (translates ALL StorageProperties -> hadoop map) + buildHadoopConf are rebuilt in BOTH planScan.buildHadoopConf (:912-927) and getScanNodeProperties (:341,363); the storage-URI normalizer context.normalizeStorageUri is invoked per base file / per file-slice (collectCowSplits :445, collectMorSplits :474-476) rather than hoisted once per scan (iceberg PERF-06 hoisted this). CPU/alloc only, not remote IO; low impact but a clean per-scan/per-file hoist.",
+        "multiplier": "2x per pass (config) + O(N_files) (uri normalize) (Variant D)",
+        "cost": "cpu",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiScanPlanProvider.java:912"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "low",
+      "notes": "hudi authenticates with a CATALOG-LEVEL single identity, never per-user: HudiConnector runs metaClient/HMS work under a plugin-side Kerberos doAs on one keytab (buildPluginAuthenticator :223-238, metaClientExecutor :102-122) or the FE-injected context.executeAuthenticated (NOOP/SIMPLE for a sibling). There is NO REST-OIDC / iceberg.rest.session=user analog and NO per-identity metastore. HudiConnector does not override getCapabilities, so it inherits the empty default (no SUPPORTS_USER_SESSION), and the hive gateway front-door guard already enforces that no session=user sibling can attach (HiveConnector:548-562, mirrored contract). CONSEQUENCE: name-only caches are authz-SAFE — every user sees the same catalog-identity view, exactly like hive's shared CachingHmsClient. The iceberg Layer-3 isolation (nulling caches under isUserSessionEnabled / shouldBypassSchemaCache) is NOT needed here. WRITE CONSISTENCY: none required — hudi is read-only (beginTransaction throws :395-398; getWritePlanProvider left at SPI-default null), so there is no read+write shared-metadata/txn co-holding requirement."
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "partial",
+        "rationale": "The funnel already routes hudi (one HudiConnectorMetadata per statement via memoizedSiblingMetadata), so the OBJECT-level piece is in place. But the metadata does not memoize its loaded metaClient/schema within the statement, and the scan provider builds its own metaClient independently. Needed: a per-statement resolved-metaClient+schema memo (iceberg PERF-07 analog) that BOTH HudiConnectorMetadata and HudiScanPlanProvider share via the ConnectorStatementScope, collapsing the 5-6 builds/pass to one."
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "yes",
+        "rationale": "No cross-query HoodieTableMetaClient/table-config cache exists (iceberg IcebergTableCache analog). A cache keyed by basePath (TTL + REFRESH-invalidated) would collapse repeated metaClient builds across successive queries of the same table, the single biggest cost (HD-P01)."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "yes",
+        "rationale": "No (table,instant)-keyed partition-listing cache (iceberg IcebergPartitionCache / hive ConnectorPartitionViewCache analog). Directly addresses HD-P03: shared by listPartitions/listPartitionNames/listPartitionValues, applyFilter, resolvePartitions, and the 4-6 re-enumerations of one MTMV refresh + SHOW PARTITIONS."
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "Not applicable. COW/MOR is read from the authoritative Hudi table config / handle (metaClient.getTableType, HudiScanPlanProvider:156) and detectFileFormat is a cheap suffix check (:899-910). There is no iceberg-style getFileFormat whole-table planFiles() fallback to memoize."
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "HudiConnectorMetadata does not override getComment, so there is no per-table remote comment load on the information_schema/SHOW TABLE STATUS path to cache (unlike iceberg PERF-05)."
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "partial",
+        "rationale": "planScan builds a FileSystemView + lists partition paths per query (HudiScanPlanProvider:273-281); there is no file-listing cache (hive has HiveFileListingCache). A partition-path/file-listing cache could help repeated planning and MTMV, but per-query freshness matters and this is lower priority than the metaClient/schema/partition memos above."
+      },
+      {
+        "piece": "per-scan-hoist",
+        "needed": "yes",
+        "rationale": "planScan and getScanNodeProperties each build their own metaClient and re-resolve schema (HD-P01/HD-P02); storageHadoopConfig/buildHadoopConf are rebuilt twice and normalizeStorageUri runs per file (HD-P05). Resolve metaClient+schema+timeline once per scan and reuse; bake the storage/hadoop config and uri-normalizer once per scan."
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "no",
+        "rationale": "Already largely fine: partition values are parsed once per partition and shared across a partition's files (collectCowSplits/collectMorSplits); the per-file schemaId resolver is genuinely per-file (each base file has its own written schema version), not a hoistable invariant. Only the per-file uri-normalize (folded into per-scan-hoist) remains."
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "hudi is catalog-level single-identity (Kerberos doAs / simple), never session=user, so name-only caches cannot leak a can-LIST-cannot-LOAD user's metadata. No isUserSessionEnabled nulling / shouldBypassSchemaCache needed."
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "yes",
+        "rationale": "hudi uses NONE of the shared toolkit — no fe-connector-cache dependency in its pom, no CacheFactory/CacheSpec/MetaCacheEntry/ConnectorPartitionViewCache, and it does not even wrap CachingHmsClient. Adopting the toolkit (wrap the HMS client in CachingHmsClient like HiveConnector; use ConnectorPartitionViewCache for partitions) is the natural, lowest-risk substrate for HD-P03/HD-P04 and matches the reference pattern."
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "no",
+        "rationale": "hudi is read-only in this catalog (beginTransaction throws; no write plan provider), so there is no write transaction to co-hold with the read metadata."
+      }
+    ],
+    "overallVerdict": "hudi is LIVE (reachable in production as the hudi-on-HMS sibling now that hms is in SPI_READY_TYPES and the getTableHandle HUDI divert is wired) and is the LEAST-cached of the SPI connectors: ZERO connector-side cross-query metadata caches, ZERO per-statement metaClient/schema memoization, and — unlike hive — it does not even wrap CachingHmsClient (raw ThriftHmsClient). It IS correctly routed through the Layer-2 per-statement funnel, but the funnel only collapses the metadata OBJECT; the heavy remote loads (HoodieTableMetaClient build 5-6x/pass, Avro+InternalSchema resolve ~4x, partition metadata-table scan 3x/pass and 4-6x/MTMV) are re-done at every entrypoint with no memo. The iceberg framework pattern applies directly and is NEEDED. Priority order: (1) per-statement resolved-metaClient+schema memo shared by metadata AND scan provider (kills HD-P01/HD-P02, the flagship); (2) wrap the HMS client in CachingHmsClient — a one-liner parity with hive that instantly fixes HD-P04; (3) cross-query metaClient/table cache + (table,instant)-keyed partition cache via ConnectorPartitionViewCache for HD-P03 (MTMV/SHOW PARTITIONS re-enumeration); (4) per-scan hoist of metaClient/schema/storage-config/uri-normalizer (HD-P05). NO authz-isolation work (not session=user) and NO write-txn work (read-only) are required. Also surface the stale 'dormant until hms enters SPI_READY_TYPES' comments as a cleanup.",
+    "confidence": "high",
+    "verify": {
+      "verdict": "ADJUSTED",
+      "confirmed": [
+        "HD-P01",
+        "HD-P02",
+        "HD-P03",
+        "HD-P04",
+        "HD-P05"
+      ],
+      "corrections": [
+        {
+          "claim": "authzConsistency: 'the hive gateway front-door guard already enforces that no session=user sibling can attach (HiveConnector:548-562, mirrored contract)' covering hudi.",
+          "issue": "The SUPPORTS_USER_SESSION fail-loud guard at HiveConnector.java:548-556 lives inside getOrCreateIcebergSibling and its error text is iceberg-specific ('iceberg-on-HMS sibling ... unexpectedly declares SUPPORTS_USER_SESSION'). getOrCreateHudiSibling (:576-591) has NO equivalent guard, so the '548-562 mirrored contract' does not literally cover the hudi sibling.",
+          "correction": "hudi's authz-safety instead rests on two verified facts: (a) HudiConnector does not override getCapabilities, so it inherits the empty default with no SUPPORTS_USER_SESSION (confirmed — the only getCapabilities hits are javadoc in HudiConnectorMetadata, no override); and (b) the hive front door itself is never session=user. The audit's substantive conclusion (name-only caches are authz-safe, no Layer-3 isolation / shouldBypassSchemaCache needed) is UNCHANGED and correct."
+        },
+        {
+          "claim": "HD-P03 multiplier: '3x within one pass' partition metadata-table scans for a filtered partitioned SELECT.",
+          "issue": "For a FILTERED query the code deliberately dedups to ~1 listing: applyFilter (non-hive-sync) lists once at HudiConnectorMetadata.java:289-291, then resolvePartitions returns the prunedPaths and short-circuits WITHOUT calling listAllPartitionPaths (HudiScanPlanProvider.java:635-638). The connector's own comment at HudiConnectorMetadata.java:288 states 'a filtered query lists exactly once (here) instead of there.' So '3x within one pass' is an upper bound, not the single-pass norm.",
+          "correction": "The '3x' only materializes when fe-core independently invokes multiple of listPartitions / listPartitionNames / listPartitionValues (each re-calls collectPartitions -> a fresh HoodieTableMetadata scan, HudiConnectorMetadata.java:707-713) and/or on an UNFILTERED scan where resolvePartitions does list (HudiScanPlanProvider.java:648). The CORE finding — a metadata-table partition scan re-run at multiple entrypoints with NO (table,instant)-keyed cache — is CONFIRMED; only the per-pass count is query-shape-dependent."
+        },
+        {
+          "claim": "HD-P01 multiplier '~5-6x per planning pass' and HD-P05 citation 'planScan.buildHadoopConf (:912-927)'.",
+          "issue": "Several metaClient build sites are conditional: applyFilter builds one only when a partition predicate is present AND non-hive-sync (:289-291); getScanNodeProperties builds one only when !force_jni (:363); the 3-arg MVCC getTableSchema fires only on the time-travel/MVCC path. HD-P05's '912-927' is the buildHadoopConf METHOD definition, not the planScan call site (the actual call is planScan:147).",
+          "correction": "Minimum unconditional metaClient builds per pass are ~3-4 (getColumnHandles->getSchemaFromMetaClient :800-801, beginQuerySnapshot->latestInstant :749-750, planScan :148-151, getScanNodeProperties :363), reaching 5-6 with the conditional sites — so '5-6x' is a valid upper bound. HD-P05 substance (buildHadoopConf/storageHadoopConfig built twice per pass at :147 and :363; normalizeNativeUri per-file at :445 and :476) is correct; only the line citation is loose. Neither adjustment weakens the 'not memoized' core."
+        }
+      ]
+    }
+  },
+  {
+    "connector": "paimon",
+    "migrationStatus": {
+      "inSpiReadyTypes": true,
+      "liveness": "live",
+      "notes": "paimon is in SPI_READY_TYPES (fe/fe-core/src/main/java/org/apache/doris/datasource/CatalogFactory.java:57). It is a first-class standalone catalog type routed through the SPI plugin path: PaimonConnectorProvider -> PaimonConnector -> PaimonConnectorMetadata / PaimonScanPlanProvider, wrapped by PluginDrivenExternalCatalog. It is fully LIVE, not a sibling: read + MVCC/time-travel + DDL (create/drop db+table) + system tables + stats + SHOW CREATE are all implemented on the connector. Write is deliberately NOT migrated (getCapabilities declares no write capability; PaimonConnector.java:318)."
+    },
+    "currentCaches": [
+      {
+        "name": "PaimonLatestSnapshotCache (latest-snapshot pin)",
+        "scope": "cross-query",
+        "keyedBy": "org.apache.paimon.catalog.Identifier(db,table)",
+        "ttl": "meta.cache.paimon.table.ttl-second, default 86400s (24h); <=0 disables (always-live no-cache catalog). Caffeine expireAfterAccess + maxSize 1000. Invalidated by REFRESH TABLE/DB/CATALOG (PaimonConnector.java:256/278/285).",
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonLatestSnapshotCache.java:48 (field PaimonConnector.java:124, built :154)"
+      },
+      {
+        "name": "PaimonSchemaAtMemo (schema-at-schemaId memo)",
+        "scope": "cross-query",
+        "keyedBy": "(db,table,sysTableName,branchName,schemaId) -> PaimonSchemaSnapshot(fields+partKeys+pkKeys)",
+        "ttl": "no TTL; bounded maxSize 10000, clear-on-overflow. Immutable value (schemaId content is write-once). Invalidated by REFRESH TABLE/DB/CATALOG.",
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonSchemaAtMemo.java:49 (shared by metadata time-travel getTableSchema PaimonConnectorMetadata.java:299-300 AND scan schema-evolution dict PaimonScanPlanProvider.java:1567)"
+      },
+      {
+        "name": "partitionViewCache (ConnectorPartitionViewCache, shared fe-connector-cache toolkit)",
+        "scope": "cross-query",
+        "keyedBy": "PartitionViewCacheKey(db,table,snapshotId,schemaId=-1) -> built List<ConnectorPartitionInfo>",
+        "ttl": "meta.cache.paimon.partition_view.(enable|ttl-second|capacity), default ON / 86400s / 1000. snapshotId read from latestSnapshotCache so it tracks 'current'. Invalidated by REFRESH TABLE/DB/CATALOG (PaimonConnector.java:263/280/287).",
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonConnectorMetadata.java:1012-1052 (field PaimonConnector.java:143, built :158)"
+      },
+      {
+        "name": "Transient Table fat-handle (per-op resolved-table memo)",
+        "scope": "per-scan",
+        "keyedBy": "PaimonTableHandle instance identity (transient Table set at getTableHandle)",
+        "ttl": "life of the handle object; lost on Java serialization round-trip (FE->BE) -> reload via PaimonTableResolver. NOT shared across distinct fe-core ops (each resolveConnectorTableHandle rebuilds the handle); IS shared within one SPI method and within one scan node (PluginDrivenScanNode caches currentHandle + resolveScanProvider).",
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonTableHandle.java:89 (set PaimonConnectorMetadata.java:221, read PaimonTableResolver.java:65)"
+      },
+      {
+        "name": "paimon SDK CachingCatalog (tableCache / partitionCache / manifestCache / databaseCache)",
+        "scope": "metastore-client",
+        "keyedBy": "Identifier -> Table; Identifier -> List<Partition>; Path -> manifest segments (Caffeine + SegmentsCache)",
+        "ttl": "paimon cache.* options (cache.expiration-interval etc.), SDK defaults; CACHE_ENABLED default true so the live catalog IS wrapped (CatalogFactory.createCatalog -> CachingCatalog.tryToCreate). This is the substrate that makes repeated getTable / listPartitions / manifest reads in-memory hits.",
+        "file": "org.apache.paimon.catalog.CachingCatalog (paimon-core 1.3.1, external SDK; wrapped in PaimonConnector.createCatalogFromContext at PaimonConnector.java:454)"
+      },
+      {
+        "name": "DRIVER_CLASS_LOADER_CACHE / REGISTERED_DRIVER_KEYS",
+        "scope": "none",
+        "keyedBy": "resolved driver URL / url#class (JDBC-flavor driver jar dedup, process-wide static)",
+        "ttl": "process lifetime; not a metadata cache",
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonConnector.java:89-90"
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "partial",
+      "evidence": "PaimonConnectorMetadata is acquired only through the Layer-2 funnel: PluginDrivenExternalTable.resolveConnectorTableHandle uses PluginDrivenMetadata.get(session, connector) (PluginDrivenMetadata.java:54-72 memoizes one ConnectorMetadata per (statement,catalog)); PluginDrivenScanNode additionally caches it in cachedMetadata (PluginDrivenScanNode.java:189/201-207) and memoizes resolveScanProvider() by currentHandle identity (PluginDrivenScanNode.java:182,245-259). So within a scan node planScan + getScanNodeProperties share one provider AND one currentHandle (with its transient Table), and resolveScanTable's transient hit works across them. schemaAtMemo is injected from the long-lived PaimonConnector into BOTH getMetadata (PaimonConnector.java:247) and getScanPlanProvider (PaimonConnector.java:311), so it is one per-catalog instance.",
+      "gaps": "The metadata does NOT hold a per-metadata-instance loaded-Table memo: getMetadata returns a FRESH PaimonConnectorMetadata per statement (PaimonConnector.java:244-248), and each fe-core op re-calls resolveConnectorTableHandle -> getTableHandle -> catalogOps.getTable (PaimonConnectorMetadata.java:211), building a new handle with a freshly-loaded transient Table. This is the SAME structural re-getTableHandle pattern iceberg's audit flagged, BUT for paimon it is not a remote-IO multiplier: paimon SDK CachingCatalog.tableCache makes each getTable an in-memory hit (default cache.enabled=true), and the transient handle collapses reloads within a single op. So the funnel's 'one metadata per statement' does not itself collapse table loads for paimon; the collapse is achieved by the paimon SDK cache + the transient fat-handle instead. A per-statement 'load once' table memo (iceberg PERF-07) would only save in-memory tableCache lookups + setPaimonTable churn -- negligible."
+    },
+    "hotPathFindings": [
+      {
+        "id": "PA-1",
+        "area": "partitions",
+        "problem": "listPartitionNames (PaimonConnectorMetadata.java:988) and listPartitionValues (PaimonConnectorMetadata.java:1057) call collectPartitions() DIRECTLY, bypassing partitionViewCache; only listPartitions() (PaimonConnectorMetadata.java:1019-1022) routes through the derived cache. So SHOW PARTITIONS and the partition_values() TVF re-run the display-name rendering (and re-issue catalogOps.listPartitions) instead of hitting the cross-query derived view. Variant C (cache exists, sibling hot paths miss it).",
+        "multiplier": "1x per SHOW PARTITIONS / partition_values() call (these are distinct statements, not looped); raw remote listPartitions blunted by paimon SDK partitionCache, so the residual cost is the CPU re-render only",
+        "cost": "cpu",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonConnectorMetadata.java:988"
+      },
+      {
+        "id": "PA-2",
+        "area": "query-plan",
+        "problem": "Per-statement table load: each fe-core metadata op rebuilds the handle via getTableHandle -> catalogOps.getTable (the iceberg re-getTableHandle pattern). NOT collapsed by the metadata itself, but blunted to an in-memory hit by paimon SDK CachingCatalog.tableCache and by the transient fat-handle within a single op.",
+        "multiplier": "~4-7 getTable per statement, each an in-memory CachingCatalog hit after the first (not remote)",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonConnectorMetadata.java:211"
+      },
+      {
+        "id": "PA-3",
+        "area": "stats-rowcount",
+        "problem": "getTableStatistics -> catalogOps.rowCount(table) sums split.rowCount() over table.newReadBuilder().newScan().plan().splits() -- a full manifest plan just to compute the base row count. No connector-level memo.",
+        "multiplier": "once per statement; caught cross-query by fe-core RowCountCache (PluginDrivenExternalTable.java:907) and manifest reads blunted by paimon SDK manifestCache",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonConnectorMetadata.java:1205"
+      },
+      {
+        "id": "PA-4",
+        "area": "schema",
+        "problem": "getTableSchema -> catalogOps.latestSchema(table) is a live schemaManager().latest() read of the schema directory (intentionally NOT off the frozen Table.rowType(), to catch external ALTER without a new snapshot). Not connector-cached.",
+        "multiplier": "once per fe-core schema-cache miss; cross-query caught by the fe-core generic schema cache (with schemaCacheTtlSecondOverride wiring meta.cache.paimon.table.ttl-second)",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonConnectorMetadata.java:250"
+      },
+      {
+        "id": "PA-5",
+        "area": "split-enum",
+        "problem": "planScanInternal -> planSplits(scan) reads snapshot/manifest files to enumerate the query's splits. This IS the query's data-planning read (not cacheable per-query). Per-scan/per-file invariants around it (vendedToken PaimonScanPlanProvider.java:559-560, weightDenominator :565, targetSplitSize lazy-once :593/624-626, partitionValues once per dataSplit reused across sub-splits :605/634) are already hoisted.",
+        "multiplier": "once per scan; repeated manifest reads across queries blunted by paimon SDK manifestCache",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/PaimonScanPlanProvider.java:461"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "none — name-only caches are safe for paimon. Unlike iceberg.rest.session=user (where per-user authorization lives inside the delegated loadTable), a paimon catalog authenticates once at catalog-creation time (Kerberos plugin UGI / HMS principal / static or JDBC creds), not per Doris session identity. The REST vended credential is extracted table-level from the shared catalog's RESTTokenFileIO at scan time (PaimonScanPlanProvider.extractVendedToken :916-927), NOT keyed on the querying Doris user, so a shared cross-query cache cannot serve one user's metadata to another. Confirmed: no SUPPORTS_USER_SESSION / isUserSessionEnabled anywhere in fe-connector-paimon or fe-connector-metastore-paimon; the PaimonRestMetaStoreProvider has zero per-user/identity/delegation logic; and the authz gate tools/check-authz-cache-sharding.sh targets IcebergConnector ONLY (paimon caches are intentionally not gated).",
+      "notes": "The three connector caches are constructed unconditionally (never nulled), which is correct for paimon (PaimonConnector.java:138-142 documents the rationale). Write-path read+write-share-one-txn consistency (iceberg's CatalogStatementTransaction co-holder) is N/A: paimon write is not migrated, so there is no write metadata/transaction to co-hold. Read-side MVCC consistency (stable snapshot pin across a query) is provided by PaimonLatestSnapshotCache feeding beginQuerySnapshot -> applySnapshot -> scan.snapshot-id."
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "already-has",
+        "rationale": "PaimonConnectorMetadata is acquired only through PluginDrivenMetadata.get (funnel memoizes one metadata per statement) and PluginDrivenScanNode.cachedMetadata + resolveScanProvider memo. Routing is complete. A per-statement loaded-Table memo on the metadata is NOT additionally needed (see cross-query-table-cache)."
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "no",
+        "rationale": "iceberg needed IcebergTableCache because post-cutover loadTable is a live REST/HMS round-trip. Paimon's live catalog is wrapped in paimon SDK CachingCatalog (tableCache, default on), so getTable is already an in-memory cross-query hit; and PaimonLatestSnapshotCache separately provides the legacy stable-snapshot-pin semantics a bare Table object would not (Table.latestSnapshot() reads live). Porting a connector-level Table cache would duplicate the SDK cache."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "already-has",
+        "rationale": "partitionViewCache (ConnectorPartitionViewCache, cross-query, keyed by db/table/snapshotId) memoizes the BUILT partition view, layered above paimon SDK partitionCache which memoizes the raw remote listPartitions. Equivalent to IcebergPartitionCache. (One gap: listPartitionNames/Values bypass it — finding PA-1.)"
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "No IcebergFormatCache analog is needed: paimon reads the default file format from table.options().getOrDefault(FILE_FORMAT,'parquet') (PaimonScanPlanProvider.java:525) — an in-memory option read off the cached Table — and per-file format by suffix (getFileFormatBySuffix). There is no unfiltered whole-table planFiles() fallback like iceberg PR #64134's."
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "No IcebergCommentCache analog is needed: paimon's table comment/properties come from ((DataTable)table).coreOptions().toMap() off the cached Table (PaimonConnectorMetadata.java:330); there is no separate remote getComment loaded N-per-query for information_schema.tables / SHOW TABLE STATUS."
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "already-has",
+        "rationale": "paimon SDK CachingCatalog carries a manifestCache (SegmentsCache<Path>) that caches manifest content for both planSplits and the rowCount plan. A connector-level manifest cache (iceberg PERF-04) is unnecessary."
+      },
+      {
+        "piece": "per-scan-hoist",
+        "needed": "already-has",
+        "rationale": "The scan already hoists loop-invariants once per scan: vended REST token (PaimonScanPlanProvider.java:559-560), FE split-weight denominator (:565), native target split size lazily once (:593,624-626). Equivalent to iceberg PERF-06's newStorageUriNormalizer(token)."
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "already-has",
+        "rationale": "getPartitionInfoMap is computed once per DataSplit (PaimonScanPlanProvider.java:605) and reused across all byte-slice sub-splits of the file (buildNativeRanges); the per-file deletion vector is attached to every sub-range. Equivalent to iceberg PERF-11's per-file invariant memo."
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "Paimon has no per-Doris-user session credential model (auth is at catalog-creation time; REST vended token is table-level from the shared catalog session, not user-keyed). Name-only caches cannot leak list!=load. No SUPPORTS_USER_SESSION; the authz gate targets iceberg only. Nulling caches under a session=user flag would be dead code."
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "already-has",
+        "rationale": "partitionViewCache uses the shared ConnectorPartitionViewCache/CacheSpec; PaimonLatestSnapshotCache is built on the shared MetaCacheEntry + CacheSpec toolkit. Only PaimonSchemaAtMemo uses a raw ConcurrentHashMap (clear-on-overflow) — it could optionally migrate to MetaCacheEntry for uniform TTL/metrics, but this is cosmetic, not a correctness or perf gap."
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "no",
+        "rationale": "Paimon write is not migrated to the connector (no write capability declared, PaimonConnector.java:318). There is no beginWrite/commit path and thus no write transaction to co-hold next to the read metadata. N/A until paimon write is migrated."
+      }
+    ],
+    "overallVerdict": "Paimon is ALREADY well-cached and does NOT need the iceberg hot-path/framework port. The iceberg framework's connector-side caches were needed because the P6 cutover left iceberg's loadTable/partitions/format/manifest reads uncached and living on live REST/HMS round-trips. Paimon's situation is structurally different on two axes: (1) the live paimon catalog is wrapped in the paimon SDK CachingCatalog (default on), giving in-memory tableCache / partitionCache / manifestCache — the metastore-client cache layer iceberg's SPI path lacks; and (2) the connector already restored the three legacy-semantics caches (PaimonLatestSnapshotCache stable-snapshot pin, PaimonSchemaAtMemo, partitionViewCache) plus a transient fat-handle and fully-hoisted per-scan/per-file invariants. The per-statement funnel already routes paimon's ConnectorMetadata. Of the 11 framework pieces: 6 already-has, 4 no (format/comment/authz/write-txn are structurally inapplicable), 1 no (cross-query table cache duplicates the SDK cache). The only actionable item is one P2 cleanup — route listPartitionNames/listPartitionValues through partitionViewCache (finding PA-1) — and it is low-value because the raw remote read is already blunted by paimon's partitionCache. Recommendation: do NOT apply iceberg-style caching to paimon; optionally take PA-1 as a small consistency cleanup and optionally migrate PaimonSchemaAtMemo onto the shared MetaCacheEntry toolkit for uniformity.",
+    "confidence": "high",
+    "verify": {
+      "verdict": "CONFIRMED",
+      "confirmed": [
+        "PA-1",
+        "PA-2",
+        "PA-3",
+        "PA-4",
+        "PA-5"
+      ],
+      "corrections": [
+        {
+          "claim": "paimon SDK CachingCatalog ... CACHE_ENABLED default true so the live catalog IS wrapped (CatalogFactory.createCatalog -> CachingCatalog.tryToCreate); paimon cache.* options (cache.expiration-interval etc.)",
+          "issue": "Immaterial label imprecision: the actual paimon option key string is 'cache-enabled' (hyphen), and the connector calls the paimon (not Doris) org.apache.paimon.catalog.CatalogFactory at PaimonConnector.java:454. The substantive claim is fully verified in bytecode.",
+          "correction": "Verified: paimon-core-1.3.1 CatalogFactory.createCatalog(ctx,cl) invokestatic CachingCatalog.tryToCreate, which gates on CatalogOptions.CACHE_ENABLED and areturns the raw catalog when false; the CACHE_ENABLED field is built as booleanType().defaultValue(Boolean.valueOf(true)) (iconst_1 at offset 202), description 'Controls whether the catalog will cache databases, tables, manifests and partitions.' Default IS true; wrap covers db/table/manifest/partition. No change to any conclusion."
+        }
+      ]
+    }
+  },
+  {
+    "connector": "maxcompute",
+    "migrationStatus": {
+      "inSpiReadyTypes": true,
+      "liveness": "live",
+      "notes": "CatalogFactory.java:57 lists \"max_compute\" in SPI_READY_TYPES, so a MaxCompute catalog is built as a PluginDrivenExternalCatalog around MaxComputeDorisConnector (CatalogFactory.java:110-118). No legacy MaxCompute classes remain in fe-core (find fe/fe-core -iname '*MaxCompute*' returns nothing); the only fe-core references are the display-compat engine-name switch (PluginDrivenExternalTable.java:1227-1230,1260-1261) and GSON migration (GsonUtils). Read path is fully cut over and live. Write path is also wired live (PhysicalPlanTranslator.visitPhysicalConnectorTableSink -> getWritePlanProvider(handle) -> planWrite, PhysicalPlanTranslator.java:676-...); the \"gate-closed/dormant until cutover\" javadoc in MaxComputeConnectorMetadata.beginTransaction:332 and MaxComputeWritePlanProvider:74 is stale relative to HEAD's SPI_READY_TYPES."
+    },
+    "currentCaches": [
+      {
+        "name": "MaxComputePartitionCache",
+        "scope": "cross-query",
+        "keyedBy": "(dbName, tableName); ODPS project is constant per catalog so excluded from key (PartitionKey, MaxComputePartitionCache.java:138)",
+        "ttl": "600s (DEFAULT_TTL_SECOND, MaxComputePartitionCache.java:74); capacity 10000 (line 75); overridable via meta.cache.max_compute.partition.* (CacheSpec.fromProperties, line 92)",
+        "file": "MaxComputePartitionCache.java:60-173; held final on the long-lived connector (MaxComputeDorisConnector.java:61,79-80); getPartitions:107; invalidation invalidateTable:113 / invalidateDb:118 / invalidateAll:123, wired to REFRESH via MaxComputeDorisConnector.invalidateTable:189 / invalidateDb:198 / invalidateAll:204 / invalidatePartition:213 (whole-table flush)"
+      },
+      {
+        "name": "ODPS Table in-object lazy memo",
+        "scope": "per-scan",
+        "keyedBy": "the single com.aliyun.odps.Table object carried by one MaxComputeTableHandle (transient field, MaxComputeTableHandle.java:37)",
+        "ttl": "life of the handle; ODPS SDK Table.reload() populates schema/fileNum/isExternal on first access then caches in-object",
+        "file": "MaxComputeConnectorMetadata.getTableHandle:124 builds it via structureHelper.getOdpsTable (McStructureHelper.java:156-160,294-298 = lazy, no RPC); first metadata access reloads (MaxComputeScanPlanProvider.java:187,189,194). NOT shared across handle resolutions -> each fresh handle reloads again."
+      },
+      {
+        "name": "fe-core SchemaCacheValue (PluginDrivenSchemaCacheValue)",
+        "scope": "cross-query",
+        "keyedBy": "fe-core ExternalTable schema cache (per table), not connector-owned",
+        "ttl": "fe-core external meta cache TTL / REFRESH",
+        "file": "PluginDrivenExternalTable.initSchema:430-471 -> getTableSchema runs once per schema-cache refresh, not per query; the connector rides this so getTableSchema/getColumnHandles are not re-issued per query."
+      },
+      {
+        "name": "PluginDrivenScanNode cachedMetadata + resolvedScanProvider",
+        "scope": "per-scan",
+        "keyedBy": "per scan-node; metadata via funnel (catalogId), provider by currentHandle identity",
+        "ttl": "life of the scan node",
+        "file": "PluginDrivenScanNode.java:189 (cachedMetadata), 184/245-260 (resolvedScanProvider memo). fe-core infrastructure, connector-agnostic."
+      },
+      {
+        "name": "EnvironmentSettings / SplitOptions / scan+write provider",
+        "scope": "cross-query",
+        "keyedBy": "per-connector one-time lazy init (config, not remote data)",
+        "ttl": "connector lifetime",
+        "file": "MaxComputeDorisConnector.doInit:94-128 (settings buildSettings:138, providers), MaxComputeScanPlanProvider.initFromProperties:117-161. Shared by scan and write planning (mirrors legacy catalog.getSettings)."
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "no",
+      "evidence": "MaxComputeConnectorMetadata is obtained only via MaxComputeDorisConnector.getMetadata(session) (MaxComputeDorisConnector.java:177-181), which is routed through PluginDrivenMetadata.get -> scope.getOrCreateMetadata(\"metadata:\"+catalogId) (PluginDrivenMetadata.java:70), so a statement uses exactly ONE MaxComputeConnectorMetadata per catalog (enforced build-wide by tools/check-fecore-metadata-funnel.sh). BUT that instance memoizes NOTHING: getTableHandle (MaxComputeConnectorMetadata.java:118-130) re-invokes structureHelper.tableExist (line 121 -> ODPS tables().exists() remote probe, McStructureHelper.java:129-137/218-225) AND structureHelper.getOdpsTable (line 124 -> a FRESH lazy Table) on every call. getMetadata itself is cheap (just wraps already-init odps/structureHelper/partitionCache), so the funnel's metadata memo saves no remote IO for MaxCompute.",
+      "gaps": "The funnel collapses metadata construction, not table resolution. Because the ConnectorMetadata holds no (db,table)->handle map, each of the ~13 resolveConnectorTableHandle sites (PluginDrivenExternalTable.java:160,463,607,717,821,882,955,1026,1061,1128 + resolveWriteCapabilityHandle 205/222/375/410) and each translator getTableHandle (PhysicalPlanTranslator.java:624,676; BindSink.java:675,714) pays its own ODPS exists() probe within one statement; every schema-accessing path (planScan, initSchema) reloads a fresh Table. This is the iceberg PERF-07 gap, unaddressed for MaxCompute."
+    },
+    "hotPathFindings": [
+      {
+        "id": "MC-1",
+        "area": "schema",
+        "problem": "getTableHandle issues a redundant remote ODPS tables().exists() probe on EVERY handle resolution (MaxComputeConnectorMetadata.java:121 -> McStructureHelper.tableExist), and neither the per-statement ConnectorMetadata nor the funnel memoizes the resolved handle. A single statement resolves the handle at many independent sites (scan translate, partition prune, row-count, per-column stats, write-capability probes), each paying one exists() RPC. The table is already a resolved catalog ExternalTable, so the existence check is pure waste (variants B single-chain-repeated-k-times + C funnel-memoizes-metadata-not-handle).",
+        "multiplier": "k = number of resolveConnectorTableHandle / getTableHandle sites reached per statement; ~2 for a warm-cache partitioned SELECT (scan create + getNameToPartitionItems), higher on cold fe-core stats caches (fetchRowCount + per-column getColumnStatistic) and on the write path (several write-capability probes each resolve a fresh handle)",
+        "cost": "remote-io",
+        "severity": "P1",
+        "memoizedAlready": false,
+        "file": "MaxComputeConnectorMetadata.java:118-130; McStructureHelper.java:129-137,218-225"
+      },
+      {
+        "id": "MC-2",
+        "area": "schema",
+        "problem": "Repeated lazy-Table reload: because handles are not memoized per statement, each fresh MaxComputeTableHandle carries its own unloaded ODPS Table, and each schema-accessing path (planScan checkOperationSupported/getFileNum/getSchema at MaxComputeScanPlanProvider.java:187,189,194; initSchema getTableSchema when the schema cache is cold) triggers its own Table.reload() RPC. Modest amplification (most non-scan paths use only db/table names, not the Table object), so ~1-2 reloads per statement rather than iceberg's 3-7x (variant B).",
+        "multiplier": "~1-2x per statement (vs 1 ideal)",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": true,
+        "file": "MaxComputeConnectorMetadata.java:124; MaxComputeScanPlanProvider.java:183-194"
+      },
+      {
+        "id": "MC-3",
+        "area": "split-enum",
+        "problem": "NON-finding / already clean: split enumeration has no per-split remote amplification. The ODPS read session is built once (buildBatchReadSession, the inherent planning cost), serialized once before the loop (serializeSession, MaxComputeScanPlanProvider.java:329), and the per-split loop only constructs MaxComputeScanRange objects sharing the one serialized-session string by reference (lines 337-372). getSplits calls planScan once. No per-split loadTable / getSchema.",
+        "multiplier": "1x (no amplification)",
+        "cost": "cpu",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "MaxComputeScanPlanProvider.java:326-377"
+      },
+      {
+        "id": "MC-4",
+        "area": "partitions",
+        "problem": "NON-finding for the data, subsumed by MC-1 for the handle: partition listing (listPartitions / listPartitionNames / listPartitionValues + fe-core getNameToPartitionItems/getNameToPartitionValues) is served by the cross-query MaxComputePartitionCache (TTL 600s), so the per-table ODPS getPartitions() is not re-issued per query. Only the getTableHandle exists() probe inside getNameToPartitionItems remains uncached (counted in MC-1). listPartitions deliberately ignores the pushdown filter (parity with legacy SHOW PARTITIONS) — full-set listing, but cached.",
+        "multiplier": "1x remote getPartitions per (db,table) per TTL window",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "MaxComputeConnectorMetadata.java:239-296; MaxComputePartitionCache.java:107; PluginDrivenExternalTable.java:830-831"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "low",
+      "notes": "MaxCompute authenticates with CATALOG-STATIC credentials (AK/SK, RAM-Role-ARN, or ECS-RAM-Role) baked into catalog properties at CREATE CATALOG and materialized once in MaxComputeDorisConnector.doInit -> MCConnectorClientFactory.createClient (MaxComputeDorisConnector.java:102; MCConnectorClientFactory.java:86-127). There is NO per-user credential vending, NO session=user analog, NO REST/OIDC session credential, NO kerberos doAs, NO per-identity metastore — all users of a catalog share one ODPS identity. Therefore the Layer-3 authz cache-isolation concern does NOT apply: the name-only MaxComputePartitionCache (keyed by db+table) cannot leak a can-LIST-cannot-LOAD user's metadata, and any per-statement handle memo (the MC-1 fix) would likewise be authz-safe (one statement = one identity, already pinned by PluginDrivenMetadata.java:63-69). tools/check-authz-cache-sharding.sh applies but MaxCompute is trivially compliant. Metadata staleness is bounded and correctness-safe: partition adds become visible ~<=600s without REFRESH (matches legacy TTL); drops may serve stale for up to TTL, self-healing on next miss. Write consistency: MaxCompute is NON-MVCC (PluginDrivenExternalTable base class, no MvccTable), so no read+write snapshot pin is needed; write correctness only requires the ODPS write session bound to the per-statement MaxComputeConnectorTransaction (setWriteSession) with block allocation keyed by txn_id — already provided."
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "yes",
+        "rationale": "Highest-value fix. The funnel already gives ONE MaxComputeConnectorMetadata per statement (PluginDrivenMetadata.java:70), but getTableHandle re-probes ODPS existence and hands back a fresh lazy Table each call (MaxComputeConnectorMetadata.java:118-130). Adding a per-instance Map<(db,table),MaxComputeTableHandle> so getTableHandle returns the same handle (one exists() probe, one Table.reload()) for the whole statement collapses MC-1 and MC-2 at once. Simpler than iceberg's scope-keyed load memo because the metadata instance is already per-statement. Also drop the redundant tableExist() probe for already-resolved reads."
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "partial",
+        "rationale": "fe-core SchemaCacheValue already caches the schema cross-query (initSchema not re-run per query), so the main cross-query need is covered. A connector-side cached ODPS Table (iceberg IcebergTableCache analog, 24h/REFRESH) would additionally save the per-query planScan reload (MC-2 cross-query dimension), but with staleness/TTL cost and only modest benefit. Optional, lower priority than the per-statement memo."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "already-has",
+        "rationale": "MaxComputePartitionCache is a complete cross-query partition-listing cache (keyed db+table, TTL 600s, capacity 10000, REFRESH-invalidated), shared by all three partition-listing SPI methods; MC-4 confirms it catches the hot partition read."
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "N/A: MaxCompute reads through the ODPS Storage API (arrow batches); there is no per-table file-format inference (no getFileFormat fallback / planFiles equivalent), so the iceberg IcebergFormatCache / PERF-03 problem does not exist here."
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "MaxCompute does not override getTableComment; the SPI default returns \"\" (ConnectorTableOps.java:336) with no remote call, so there is no N-per-query getComment load to cache (iceberg PERF-05 does not apply)."
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "no",
+        "rationale": "N/A: no manifest/snapshot model. The read session (buildBatchReadSession) and split assigner are the inherent per-query planning cost via the Storage API; estimateDataSizeByListingFiles/listFileSizes are not overridden (default -1/empty), so there is no file-listing hot path to memoize."
+      },
+      {
+        "piece": "per-scan-hoist",
+        "needed": "already-has",
+        "rationale": "Scan-invariant config (EnvironmentSettings, SplitOptions, timeouts) is hoisted to one-time lazy init on the connector/provider (MaxComputeDorisConnector.doInit, MaxComputeScanPlanProvider.initFromProperties), and the serialized read session is computed once before the split loop. The iceberg PERF-06 per-scan storage-URI normalizer does not apply (no per-file vended storage config)."
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "no",
+        "rationale": "N/A: MaxCompute splits carry only a split index/row-offset plus the one shared serialized-session string (already shared by reference across all ranges); there is no per-file partition JSON / partition-values / delete-carrier computation to memoize (iceberg PERF-11 C12/C15a/C13 do not apply)."
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "MaxCompute uses catalog-static AK/SK credentials with one shared ODPS identity per catalog; no session=user / OIDC / doAs. Name-only caches cannot leak or serve stale-authz across users, so the Layer-3 isolation (iceberg isUserSessionEnabled null-out / shouldBypassSchemaCache) is unnecessary."
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "already-has",
+        "rationale": "MaxComputePartitionCache is built on the shared fe-connector-cache toolkit (CacheSpec.fromProperties + MetaCacheEntry, MaxComputePartitionCache.java:20-21,92-97), mirroring CachingHmsClient/HiveFileListingCache. It does not use the higher-level ConnectorPartitionViewCache/PartitionViewCacheKey substrate, but that targets partition-derived sorted-range VIEWS (a separate CACHE-P1 concern), not the base partition listing."
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "already-has",
+        "rationale": "MaxComputeConnectorTransaction holds the per-statement write state (write session id, TableIdentifier, settings, accumulated TMCCommitData, block-id high-water mark), bound by MaxComputeWritePlanProvider.planWrite via setWriteSession and committed keyed by txn_id (MaxComputeConnectorTransaction.java:61-131). Non-MVCC, so no read+write snapshot sharing is required; the funnel's one-write-txn-per-statement (CatalogStatementTransaction) already coordinates it."
+      }
+    ],
+    "overallVerdict": "LIVE and already reasonably cached — NOT a P0 target like iceberg. MaxCompute has a proper cross-query partition cache on the shared toolkit, clean split enumeration with no per-split remote amplification, a per-statement write transaction, and rides fe-core's cross-query schema cache; it is non-MVCC and uses catalog-static credentials so Layer-3 authz isolation does not apply. The ONE real, applicable framework piece is per-statement handle/table memoization: getTableHandle performs a redundant remote ODPS tables().exists() probe on every resolution and returns a fresh lazy Table, and the funnel memoizes only the metadata, not the handle — so k independent handle-resolution sites in one statement each pay an exists() RPC (MC-1, P1) and schema-accessing paths reload the Table more than once (MC-2, P2). Recommend a small connector-side fix: memoize the resolved MaxComputeTableHandle per (db,table) inside the per-statement MaxComputeConnectorMetadata instance and drop the redundant existence probe for already-resolved reads; optionally add a cross-query ODPS Table cache later. This is a low-risk, high-leverage change, far smaller than the iceberg buildout.",
+    "confidence": "high",
+    "verify": {
+      "verdict": "CONFIRMED",
+      "confirmed": [
+        "MC-1",
+        "MC-2",
+        "MC-3",
+        "MC-4"
+      ],
+      "corrections": [
+        {
+          "claim": "find fe/fe-core -iname '*MaxCompute*' returns nothing",
+          "issue": "Literally false: it returns two compiled dirs fe/fe-core/target/classes/org/apache/doris/datasource/maxcompute and target/test-classes/.../maxcompute (stale build artifacts).",
+          "correction": "The SOURCE tree fe/fe-core/src is clean (no MaxCompute .java). The read/write cutover conclusion is unaffected; only the stated grep evidence is imprecise. Verify with: find fe/fe-core/src -iname '*MaxCompute*' (empty)."
+        },
+        {
+          "claim": "PluginDrivenScanNode.cachedMetadata + resolvedScanProvider ... PluginDrivenScanNode.java:189/184/245-260",
+          "issue": "File path implied by the funnel narrative (datasource/plugin/) is wrong.",
+          "correction": "PluginDrivenScanNode is at fe/fe-core/src/main/java/org/apache/doris/datasource/scan/PluginDrivenScanNode.java. All cited line numbers are correct there: currentHandle:152, resolvedScanProvider:184, cachedMetadata:189, metadata():203, resolveScanProvider():245-260."
+        },
+        {
+          "claim": "~13 resolveConnectorTableHandle / getTableHandle sites (PluginDrivenExternalTable.java:160,463,607,717,821,882,955,1026,1061,1128 + resolveWriteCapabilityHandle 205/222/375/410)",
+          "issue": "Direct resolveConnectorTableHandle count is 10, not 13; the extra 205/222/375/410 line refs point at resolveWriteCapabilityHandle callers which I did not individually confirm (the method definition is at 187).",
+          "correction": "Exactly 10 direct resolveConnectorTableHandle call sites confirmed at the listed lines, each in a distinct real planning entrypoint (getSyntheticScanPredicates:152, initSchema:430, getShowCreateTableDdl:599, fetchSyntheticWriteColumns:700, getNameToPartitionItems:807, getNameToPartitionValues:870, getSupportedSysTables:946, getColumnStatistic:1014, getChunkSizes:1049, fetchRowCount:1121). The write-capability probes add a few more. The 'k independent sites, none memoized' core of MC-1 holds regardless of the exact count."
+        },
+        {
+          "claim": "MC-2: ~1-2 reloads per statement",
+          "issue": "Slight understatement risk on the cold per-column stats path was checked and cleared, worth recording.",
+          "correction": "getColumnStatistic (fe-core:1014-1035) resolves a FRESH handle per column (so MC-1 exists()-probe amplifies to N-per-column on cold stats), BUT MaxComputeConnectorMetadata does NOT override getColumnStatistics (SPI default no-op, no remote call and no odpsTable access), so it triggers NO extra Table.reload(). MC-2's ~1-2x reload multiplier therefore holds; the per-column amplification is exists()-probe only, which the audit already flags qualitatively under MC-1 ('higher on cold stats caches')."
+        }
+      ]
+    }
+  },
+  {
+    "connector": "jdbc",
+    "migrationStatus": {
+      "inSpiReadyTypes": true,
+      "liveness": "live",
+      "notes": "jdbc 在 CatalogFactory.SPI_READY_TYPES 中 (fe/fe-core/.../datasource/CatalogFactory.java:57)。JdbcConnectorProvider.getType()=\"jdbc\" (JdbcConnectorProvider.java:41-42) 经 SPI 路由到 PluginDrivenExternalCatalog(CatalogFactory.java:110-118)。fe-core 侧 legacy JdbcExternalCatalog/JdbcExternalTable 已删除(find 无结果)。残留的 fe-core datasource/jdbc/client/JdbcClient 仅被 CDC/streaming-job 校验器引用(PostgresResourceValidator/StreamingJobUtils/CdcStreamTableValuedFunction),不在 catalog 查询热路径上。查询 TVF(JdbcQueryTableValueFunction:53-54)同样经 PluginDrivenMetadata.get 走连接器 getColumnsFromQuery。连接器整体 LIVE。"
+    },
+    "currentCaches": [
+      {
+        "name": "HikariDataSource 连接池(唯一实质性复用)",
+        "scope": "cross-query",
+        "keyedBy": "每 catalog 一个 client 一个池",
+        "ttl": "connector 生命周期,close() 时销毁",
+        "file": "fe/fe-connector/fe-connector-jdbc/src/main/java/org/apache/doris/connector/jdbc/client/JdbcConnectorClient.java:89"
+      },
+      {
+        "name": "CLASS_LOADER_MAP 驱动 classloader 缓存(泄漏修复)",
+        "scope": "cross-query",
+        "keyedBy": "driver URL",
+        "ttl": "进程级,永不淘汰(external regression 986696 Metaspace 泄漏修复)",
+        "file": "fe/fe-connector/fe-connector-jdbc/src/main/java/org/apache/doris/connector/jdbc/client/JdbcConnectorClient.java:78"
+      },
+      {
+        "name": "OceanBase compat-mode delegate 记忆(方言探测)",
+        "scope": "cross-query",
+        "keyedBy": "单 delegate/client, volatile double-checked",
+        "ttl": "client 生命周期",
+        "file": "fe/fe-connector/fe-connector-jdbc/src/main/java/org/apache/doris/connector/jdbc/client/JdbcOceanBaseConnectorClient.java:45"
+      },
+      {
+        "name": "ExternalSchemaCache(fe-core,前置在连接器 getTableSchema 之前)",
+        "scope": "cross-query",
+        "keyedBy": "SchemaCacheKey(table)",
+        "ttl": "expire-after-access(external_cache_expire_time_minutes_after_access)+ refresh/DDL 失效",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/ExternalMetaCacheMgr.java:365"
+      },
+      {
+        "name": "ExternalRowCountCache(fe-core,前置在 getTableStatistics 之前)",
+        "scope": "cross-query",
+        "keyedBy": "RowCountKey(catalog,db,table)",
+        "ttl": "expireAfterWrite ~1 天,异步刷新",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/ExternalRowCountCache.java:45"
+      },
+      {
+        "name": "MetaCache 名录缓存(fe-core,前置在 listDatabaseNames/listTableNames 之前)",
+        "scope": "cross-query",
+        "keyedBy": "db 名 / (db,table) 名",
+        "ttl": "expire-after-access + refresh 失效",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/metacache/MetaCache.java:65"
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "no",
+      "evidence": "所有 fe-core 读路径经 PluginDrivenMetadata.get 获取 metadata:initSchema(PluginDrivenExternalTable.java:449)、fetchRowCount(:1126)、getComment(:923)、PluginDrivenScanNode.buildColumnHandles(:1918-1920 via metadata())、JdbcQueryTableValueFunction(:53)。JdbcConnectorMetadata 无状态,仅持有 client+properties 引用,每次 getTableSchema/getColumnHandles/getTableStatistics 都原样转发 JdbcConnectorClient 做一次全新远程 round-trip,内部不做任何 memo(JdbcConnectorMetadata.java:119 getTableSchema、:162 getColumnHandles、:144 getTableStatistics)。JDBC 没有 iceberg 那种昂贵的 loaded Table 对象。",
+      "gaps": "funnel 保证每语句一个 JdbcConnectorMetadata,但该实例构造成本近乎为零,而真正昂贵的资源(HikariCP 连接池)已经是 per-catalog 单例(JdbcDorisConnector.getOrCreateClient:188),所以 funnel 的\"一实例合并\"对 JDBC 几乎无收益。扫描路径(buildConnectorSession,PluginDrivenExternalCatalog.java:1120)带有活的 per-statement scope,但 getColumnHandles 未在其上 memo,导致 scan 期仍重复远程取列。写路径 JdbcWritePlanProvider.buildInsertSql(:136)自行 new JdbcConnectorMetadata,完全绕开 funnel 记忆的实例。"
+    },
+    "hotPathFindings": [
+      {
+        "id": "HP-1",
+        "area": "schema",
+        "problem": "扫描规划期 buildColumnHandles→metadata.getColumnHandles→client.getJdbcColumnsInfo 触发一次全新远程 JDBC 元数据 round-trip(DatabaseMetaData.getColumns,MySQL 还可能追加 information_schema 查询),而这些列名+remote 名已被 fe-core ExternalSchemaCache 跨查询缓存(initSchema→getTableSchema 同样来自 getJdbcColumnsInfo)。属 variant C:缓存存在但列句柄热路径绕过它重新远程取。",
+        "multiplier": "每 scan node 约 1-2 次(getSplits/startSplit 二选一 + getOrLoadPropertiesResult 各一次;每查询 × jdbc 扫描数)",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-jdbc/src/main/java/org/apache/doris/connector/jdbc/JdbcConnectorMetadata.java:162"
+      },
+      {
+        "id": "HP-2",
+        "area": "write",
+        "problem": "JdbcWritePlanProvider.buildInsertSql 用 new JdbcConnectorMetadata(client,properties) 现构一个绕开 funnel 的实例,再调 getColumnHandles→getJdbcColumnsInfo 做远程取列以解析 local→remote 列名映射;这些映射已在 ExternalSchemaCache 中。variant C + 绕过 funnel。",
+        "multiplier": "每 INSERT 1 次(planWrite);EXPLAIN INSERT 追加 appendExplainInfo 共 2 次",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-jdbc/src/main/java/org/apache/doris/connector/jdbc/JdbcWritePlanProvider.java:136"
+      },
+      {
+        "id": "HP-3",
+        "area": "show",
+        "problem": "PluginDrivenExternalTable.getComment 每次直接调 metadata.getTableComment(无缓存);MySQL 覆写为远程 INFORMATION_SCHEMA 查询。仅 SHOW CREATE TABLE / DESC / information_schema 展示路径命中,不在查询规划热路径上。",
+        "multiplier": "每次 SHOW/DESC 1 次",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenExternalTable.java:925"
+      },
+      {
+        "id": "HP-4",
+        "area": "split-enum",
+        "problem": "(已最优,阴性对照)JdbcScanPlanProvider.planScan 零远程 IO:恒返回 1 个 scan range,纯 SQL 字符串拼装,BE JdbcJniReader 直接执行远程 SQL;estimateScanRangeCount()==1。无 split/file/manifest/partition 层,故 iceberg 式 per-split/per-file 放大问题在 JDBC 不存在。",
+        "multiplier": "1(常量)",
+        "cost": "cpu",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-jdbc/src/main/java/org/apache/doris/connector/jdbc/JdbcScanPlanProvider.java:66"
+      },
+      {
+        "id": "HP-5",
+        "area": "stats-rowcount",
+        "problem": "(已缓存,阴性对照)row-count 经 fetchRowCount→getTableStatistics→client.getRowCount,前置 ExternalRowCountCache 跨查询缓存;base getRowCount 返回 -1,MySQL/PG/Oracle/SQLServer 覆写为系统目录查询,均被缓存吸收。无 fetchRowCountFromFileList(连接器 dataSize 恒 -1)。",
+        "multiplier": "缓存命中后每查询 0 次远程",
+        "cost": "remote-io",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenExternalTable.java:1133"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "无。JDBC 使用 catalog 属性里固定的 user/password(JdbcConnectorProperties.USER/PASSWORD),烘焙进 HikariCP 数据源与 BE 的 TJdbcTable。所有 Doris 身份共享同一个远程 JDBC 用户,远程侧无 per-identity 元数据分歧,因此 name-only 缓存(fe-core schema/rowcount/name 缓存)不会泄漏 per-user 元数据,也不存在 can-LIST-cannot-LOAD 式 stale-authz。无 kerberos doAs / REST OIDC / per-identity metastore。",
+      "notes": "JdbcDorisConnector.getCapabilities 只声明 SUPPORTS_PASSTHROUGH_QUERY + SUPPORTS_METADATA_PRELOAD,未声明 SUPPORTS_USER_SESSION(JdbcDorisConnector.java:102-105);buildConnectorSession 仅当 supportsUserSession() 为真时注入委派凭证,此处为假,故不需要 iceberg 式 isUserSessionEnabled() 缓存置空 / shouldBypassSchemaCache 分片。写侧为 BE per-row auto-commit,beginTransaction 返回 NoOpConnectorTransaction(JdbcConnectorMetadata.java:286),读写无需共享同一 metadata/txn/snapshot。"
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "partial",
+        "rationale": "唯一真正适用的一块。scan 路径 buildColumnHandles 与 write 路径 buildInsertSql 各以 getColumnHandles 重复远程取列(getJdbcColumnsInfo),既无 per-statement memo、写侧还绕开 funnel 实例。在活的 statement scope 上 memo(或更优:让 fe-core buildColumnHandles 直接从已缓存的 PluginDrivenSchemaCacheValue 派生列句柄)即可合并每语句 1-2 次冗余 round-trip。优先级低(P2、remote-io 但廉价、无 split/file 放大)。"
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "no",
+        "rationale": "无 iceberg 式昂贵 loaded Table 对象可缓存;远程 schema/rowcount/名录已被 fe-core 跨查询缓存(ExternalSchemaCache/ExternalRowCountCache/MetaCache)前置,连接器侧无需自建跨查询表缓存。"
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "no",
+        "rationale": "JDBC 不暴露分区;planScan 恒发一个 scan range,无分区列举/裁剪。"
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "关系型透传,无文件格式解析;BE JdbcJniReader 直接跑远程 SQL。"
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "getTableComment 未缓存且 MySQL 为远程查询(HP-3),但仅 SHOW/DESC 展示路径命中,不在查询规划热路径,缓存价值边际。"
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "no",
+        "rationale": "无 manifest/文件清单;无 fetchRowCountFromFileList 路径(连接器 dataSize 恒 -1)。"
+      },
+      {
+        "piece": "per-scan-hoist",
+        "needed": "no",
+        "rationale": "planScan 已是 O(1) 纯 SQL 拼装、零远程 IO,无 loop-invariant 远程操作可外提。"
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "no",
+        "rationale": "恰好一个 split,estimateScanRangeCount()==1,无 per-file 不变量可 memo。"
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "固定 catalog 凭证、无 SUPPORTS_USER_SESSION;name-only 缓存不会泄漏 per-user 元数据,无需 session=user 隔离。"
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "no",
+        "rationale": "连接器无可迁移到 fe-connector-cache 工具箱的跨查询元数据缓存,仅有驱动 classloader map 与连接池等资源单例,非该工具箱职责。"
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "no",
+        "rationale": "JDBC 写为 BE 侧逐行 auto-commit,beginTransaction 返回 NoOpConnectorTransaction;无 FE 侧读写共享 txn/snapshot 需求。"
+      }
+    ],
+    "overallVerdict": "不要把 iceberg 式跨查询连接器缓存框架套到 jdbc 上——那会是投机式(违反 Rule 2)。JDBC 是关系型透传:planScan 零远程 IO、恒一个 scan range,没有 split/file/manifest/partition/snapshot 层,因此 iceberg 主要痛点(重复 loadTable、PARTITIONS 重扫、planFiles 无过滤全表)在 JDBC 结构性不存在。其昂贵的远程元数据(schema/columns、row-count、db/table 名录)已被 fe-core 跨查询缓存前置,连接池是 per-catalog 单例,驱动 classloader 进程级永驻。唯一真实缺口是扫描规划与写整形期 getColumnHandles 的冗余远程取列(HP-1/HP-2,均 P2、绕过已缓存 schema),恰当补救是小范围 per-statement memo 或让 fe-core 从已缓存 schema 派生列句柄,而非新增连接器缓存。",
+    "confidence": "high",
+    "verify": {
+      "verdict": "CONFIRMED",
+      "confirmed": [
+        "HP-1",
+        "HP-2",
+        "HP-3",
+        "HP-4",
+        "HP-5"
+      ],
+      "corrections": [
+        {
+          "claim": "jdbc 在 CatalogFactory.SPI_READY_TYPES 中 (CatalogFactory.java:57)",
+          "issue": "Line-number anchor slightly off. The claim itself is TRUE, but the ImmutableSet containing \"jdbc\" is not at line 57.",
+          "correction": "At HEAD the declaration `private static final Set<String> SPI_READY_TYPES =` is on line 56 and the `ImmutableSet.of(\"jdbc\", \"es\", \"trino-connector\", \"max_compute\", \"paimon\", \"iceberg\", \"hms\")` literal is on line 63-64 of fe/fe-core/src/main/java/org/apache/doris/datasource/CatalogFactory.java. Membership is confirmed either way."
+        },
+        {
+          "claim": "ExternalSchemaCache TTL = expire-after-access(external_cache_expire_time_minutes_after_access)",
+          "issue": "Config key name imprecise.",
+          "correction": "The actual Config field seen at ExternalRowCountCache.java:46 is `external_cache_expire_time_seconds_after_access` (seconds, not minutes) and `external_cache_refresh_time_minutes`. This is a cosmetic naming imprecision; the expire-after-access + refresh semantics claimed are correct."
+        },
+        {
+          "claim": "ExternalSchemaCache file: ExternalMetaCacheMgr.java:365",
+          "issue": "Anchor points to the accessor, not a distinct cache class.",
+          "correction": "Line 365 of ExternalMetaCacheMgr.java is `public Optional<SchemaCacheValue> getSchemaCacheValue(ExternalTable table, SchemaCacheKey key)` — the fe-core schema-cache accessor. Valid anchor for the mechanism; the schema-cache front-loading of getTableSchema is real and confirmed (initSchema at PluginDrivenExternalTable.java:449→getTableSchema :469)."
+        }
+      ]
+    }
+  },
+  {
+    "connector": "es",
+    "migrationStatus": {
+      "inSpiReadyTypes": true,
+      "liveness": "live",
+      "notes": "\"es\" is in SPI_READY_TYPES at fe/fe-core/.../datasource/CatalogFactory.java:56-57 (ImmutableSet.of(\"jdbc\",\"es\",...)); createCatalog routes it through the SPI path (line 110 -> ConnectorFactory.createConnector -> PluginDrivenExternalCatalog). EsConnectorProvider.getType()==\"es\" (EsConnectorProvider.java:34) is discovered via META-INF/services. The legacy fe-core EsExternalCatalog/EsExternalDatabase/EsExternalTable/EsScanNode were deleted (commit 4f455da5950) and BUILD_CONNECTOR_ES flipped default 0->1; only the unrelated internal-catalog EsTable.java/EsResource.java and the EsQuery function remain in fe-core. So the connector is the sole live ES path."
+    },
+    "currentCaches": [
+      {
+        "name": "EsConnector.restClient (per-catalog REST connection memo)",
+        "scope": "metastore-client",
+        "keyedBy": "none (single client per catalog, double-checked-locking lazy init)",
+        "ttl": "connector/catalog lifetime; never invalidated (rebuilt only if field is null)",
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsConnector.java:43,82-107"
+      },
+      {
+        "name": "EsConnectorRestClient.PLAIN_CLIENT / sslClient (static shared OkHttp clients)",
+        "scope": "metastore-client",
+        "keyedBy": "none (JVM-global; ssl vs plain)",
+        "ttl": "process lifetime",
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsConnectorRestClient.java:61-63,310-319"
+      },
+      {
+        "name": "Layer-2 per-statement funnel: PluginDrivenMetadata memoizes ONE EsConnectorMetadata per (statement,catalog)",
+        "scope": "per-statement",
+        "keyedBy": "\"metadata:\"+catalogId on the ConnectorStatementScope, identity-pinned by getUser",
+        "ttl": "one statement (closed at statement end); NONE scope memoizes nothing",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenMetadata.java:64,70"
+      },
+      {
+        "name": "ResolvedScanProvider memo: ONE EsScanPlanProvider per scan node",
+        "scope": "per-scan",
+        "keyedBy": "currentHandle identity",
+        "ttl": "scan-node lifetime",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/scan/PluginDrivenScanNode.java:254-259"
+      },
+      {
+        "name": "fe-core ExternalSchemaCache wrapping initSchema() -> getTableSchema() -> getMapping()",
+        "scope": "cross-query",
+        "keyedBy": "SchemaCacheKey (db.table/index)",
+        "ttl": "ExternalMetaCacheMgr schema cache (expire-after-write, REFRESH-invalidated)",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenExternalTable.java:430-470; fe/fe-core/src/main/java/org/apache/doris/datasource/ExternalTable.java:385-445"
+      },
+      {
+        "name": "fe-core RowCountCache wrapping fetchRowCount() (ES has no stats -> returns UNKNOWN, no ES-side remote heavy op)",
+        "scope": "cross-query",
+        "keyedBy": "table id",
+        "ttl": "row-count cache expiry",
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenExternalTable.java:907,1121-1133"
+      },
+      {
+        "name": "Connector-side dedicated scan-metadata cache (mapping field-context / shard routing / node topology)",
+        "scope": "none",
+        "keyedBy": "N/A — does not exist",
+        "ttl": "N/A",
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsScanPlanProvider.java:99,169,273-294 (re-fetched every call, no memo)"
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "no",
+      "evidence": "EsConnectorMetadata is obtained ONLY through PluginDrivenMetadata.get(session, connector) at every fe-core seam (PluginDrivenExternalTable.java:449,565,583,606,716,820,881,923,954,1025,1060,1126,1277; PluginDrivenScanNode buildColumnHandles metadata() at :1918-1920), so it IS routed through the Layer-2 funnel (one instance per statement). BUT the instance memoizes nothing: EsConnectorMetadata.getTableSchema (EsConnectorMetadata.java:81-94) calls restClient.getMapping() remotely on every call, and getColumnHandles (line 97-106) calls getTableSchema again -> a second remote mapping GET. The heavy scan-path metadata (shard routing + node topology + field-context mapping) is NOT on the funneled metadata at all: it lives on EsScanPlanProvider, a SEPARATE object (EsConnector.getScanPlanProvider() returns new EsScanPlanProvider each call, EsConnector.java:56-58; memoized only per-scan-node by ResolvedScanProvider). EsScanPlanProvider.planScan (line 99) and buildScanNodeProperties (line 169) each independently call fetchMetadataState (line 273-294) -> new EsMetadataState -> EsMetadataFetcher.fetch() -> getMapping + searchShards + getHttpNodes. So the funnel's \"one metadata per statement\" does NOT collapse the repeated ES remote loads.",
+      "gaps": "The funnel is present but unexploited. Neither EsConnectorMetadata (schema) nor EsScanPlanProvider (state) hangs a per-statement/per-scan memo, so a single SELECT re-fetches the mapping ~4x and shards/nodes ~2x. Fix is to hoist EsMetadataState once per scan (provider is already a single instance per scan node) and/or memoize schema on the per-statement EsConnectorMetadata."
+    },
+    "hotPathFindings": [
+      {
+        "id": "ES-F1",
+        "area": "split-enum",
+        "problem": "EsScanPlanProvider.fetchMetadataState() is invoked twice per query — once from planScan() (EsScanPlanProvider.java:99, via PluginDrivenScanNode getSplits:1303) and once from buildScanNodeProperties() (line 169, via getScanNodePropertiesResult, PluginDrivenScanNode:1863). Each call does EsMetadataFetcher.fetch() = searchShards (index/_search_shards GET) + getHttpNodes (_nodes/http GET, because NODES_DISCOVERY_DEFAULT=true) + getMapping. So the SAME shard routing and node topology are resolved from ES twice within one planning pass with no memo. Provider is already a single instance per scan node (ResolvedScanProvider), so a field memo keyed by (index,columnNames) collapses 2->1 with zero staleness risk.",
+        "multiplier": "2x per query (constant, not loop-amplified)",
+        "cost": "remote-io",
+        "severity": "P1",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsScanPlanProvider.java:99,169,273-294; EsMetadataFetcher.java:51-89"
+      },
+      {
+        "id": "ES-F2",
+        "area": "predicate",
+        "problem": "Inside each fetchMetadataState, EsMetadataFetcher.fetchMapping() (EsMetadataFetcher.java:57-58) calls restClient.getMapping(index) to build the field-context (keyword sniff / doc_value / date-compat) used for query-DSL pushdown. That exact index mapping was ALREADY fetched and cached cross-query at schema resolution (initSchema -> getTableSchema -> getMapping, behind ExternalSchemaCache). The scan path re-fetches it remotely instead of reusing the cached schema, ~2x per query (once per fetchMetadataState).",
+        "multiplier": "~2x per query (on top of the schema-cache copy)",
+        "cost": "remote-io",
+        "severity": "P1",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsMetadataFetcher.java:57-58; EsConnectorRestClient.java:161-168"
+      },
+      {
+        "id": "ES-F3",
+        "area": "schema",
+        "problem": "PluginDrivenScanNode.buildColumnHandles() calls metadata.getColumnHandles() -> EsConnectorMetadata.getColumnHandles (EsConnectorMetadata.java:97-106) -> getTableSchema -> restClient.getMapping() (raw remote GET, bypassing ExternalSchemaCache). buildColumnHandles runs at least twice per query (PluginDrivenScanNode.java:1263 in getSplits, and :1841 in getOrLoadPropertiesResult), so the mapping is re-fetched ~2x more. The funneled EsConnectorMetadata is a single per-statement instance, so memoizing the resolved schema on that instance would collapse this to 1x per statement.",
+        "multiplier": "2x per query",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsConnectorMetadata.java:81-106; fe/fe-core/src/main/java/org/apache/doris/datasource/scan/PluginDrivenScanNode.java:1263,1841,1917-1920"
+      },
+      {
+        "id": "ES-F4",
+        "area": "file-list",
+        "problem": "getTableHandle() -> restClient.existIndex() issues a remote index/_mapping GET every time a handle is resolved (EsConnectorMetadata.java:74; EsConnectorRestClient.java:104-114). Called from schema/stats/handle-resolution seams. Low cost (single lightweight GET) and the row-count seam is behind RowCountCache; flagged for completeness, not a hot loop.",
+        "multiplier": "1x per handle resolution",
+        "cost": "remote-io",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsConnectorMetadata.java:71-78; EsConnectorRestClient.java:104-114"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "No authorization-leak risk. The ES connector authenticates with a SINGLE catalog-level user/password baked into the shared EsConnectorRestClient at connector construction (EsConnector.java:95-100; EsConnectorRestClient.java:76-78 builds one Basic auth header). There is no per-user credential, no iceberg.rest.session=user analog, no kerberos doAs, no REST/OIDC per-identity delegation — all Doris users hit ES with the same identity. So name-only caches (by index) would NOT cause a list-not-equal-load metadata disclosure; the authz-cache-session-user isolation gate (tools/check-authz-cache-sharding.sh) is N/A here. The only consistency concern is DATA FRESHNESS: ES shard routing rebalances over time (ES's own refresh model), so shard/node topology must be resolved per statement and must NOT be cached cross-query — matching the legacy EsScanNode/EsMetaStateTracker which re-resolved shards at each scan.",
+      "notes": "No write path exists in the connector (EsConnectorMetadata overrides only list/exists/getTableHandle/getTableSchema/getColumnHandles/buildTableDescriptor; no beginWrite/commit/insert/sink), so there is no read+write one-metadata/one-txn consistency requirement. ES is read-only and non-partitioned (no listPartitions override), so no snapshot/version pinning is needed."
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "per-scan-hoist",
+        "needed": "yes",
+        "rationale": "The single genuine win. Hoist EsMetadataState (shards+nodes+field-context) to resolve ONCE per scan instead of twice (ES-F1). The provider is already one instance per scan node (ResolvedScanProvider), so a field memo keyed by (index,columnNames) is a small surgical change with zero staleness risk (same statement) and directly collapses planScan + getScanNodePropertiesResult double-fetch."
+      },
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "partial",
+        "rationale": "The Layer-2 funnel already routes EsConnectorMetadata (one instance per statement) and the arch gate is satisfied, but the connector does not exploit it: getTableSchema/getColumnHandles re-fetch the mapping remotely on each call (ES-F3), and the heavy scan state lives on a separate provider object the funnel does not cover. Adding a per-statement schema memo on EsConnectorMetadata (and hoisting state on the provider) would let the existing funnel actually collapse repeated loads."
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "partial",
+        "rationale": "Schema (mapping) is ALREADY cross-query cached by fe-core ExternalSchemaCache; the scan path just fails to reuse it (ES-F2). Serving the scan-path field-context from the already-cached schema removes the redundant cross-query mapping fetch without a new cache. A dedicated connector-side Table cache is not warranted. Shard/node topology must NOT be cross-query cached (freshness/rebalance)."
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "no",
+        "rationale": "The connector uses none of fe-connector-cache (CacheFactory/CacheSpec/MetaCacheEntry) and has no cross-query cache that needs to exist. The recommended fixes are per-statement/per-scan memos, not managed cross-query caches, so adopting the shared toolkit is unnecessary. Optional only if a mapping cache is later added."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "no",
+        "rationale": "ES tables are non-partitioned single indices; EsConnectorMetadata does not override listPartitions/getNameToPartitionItems. No PARTITIONS scan, no SHOW PARTITIONS heavy path."
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "File format is a fixed constant es_http (EsScanPlanProvider.java:174, mapFileFormatType es_http at PluginDrivenScanNode.java:1905). No per-query format inference / whole-table planFiles fallback like iceberg PERF-03."
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "EsConnectorMetadata does not override getComment; there is no per-table remote comment load driven N-per-query by information_schema/SHOW TABLE STATUS."
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "no",
+        "rationale": "No manifests or file listings. The shard-routing fetch is the structural analog but is freshness-sensitive (must stay per-statement), so it is a per-scan-hoist target, not a cross-query manifest cache."
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "no",
+        "rationale": "planScan builds scan ranges from an in-memory shard-routing map in a simple loop (EsScanPlanProvider.java:113-138) with no per-range/per-file remote call, so there is no per-split loop-invariant remote op to memoize."
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "Single catalog-level credential, no session=user / OIDC / kerberos doAs (EsConnector.java:95-100). Name-only caches cannot leak across users. The session-user shard gate is N/A."
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "no",
+        "rationale": "The ES connector is read-only: no beginWrite/commit/insert/sink in EsConnectorMetadata. No read+write shared-metadata/one-txn consistency requirement."
+      }
+    ],
+    "overallVerdict": "Do NOT apply the iceberg heavy framework to es. ES is read-only, non-partitioned, single-credential, with no snapshots/manifests/files/stats/writes, so almost every iceberg piece (table/partition/format/comment/manifest caches, authz session-user isolation, write-txn co-holder, per-file memo) is inapplicable. The connector currently has ZERO dedicated scan-metadata caching and re-fetches the index mapping ~4x and shard/node topology ~2x per single SELECT. The ONE worthwhile, low-risk fix is a per-scan hoist of EsMetadataState (resolve shards+nodes+field-context once per scan instead of twice, ES-F1) plus reusing the already-schema-cached mapping in the scan path (ES-F2) and memoizing schema on the per-statement EsConnectorMetadata for getColumnHandles (ES-F3). All are P1/P2 constant-factor (2-4x) wins, not loop-amplified P0s. Shard routing must stay per-statement (ES rebalance/refresh model) — do not add a cross-query shard cache.",
+    "confidence": "high",
+    "verify": {
+      "verdict": "ADJUSTED",
+      "confirmed": [
+        "ES-F1",
+        "ES-F2",
+        "ES-F3",
+        "ES-F4"
+      ],
+      "corrections": [
+        {
+          "claim": "frameworkPiecesNeeded.cross-query-table-cache + ES-F2 fix rationale: 'Serving the scan-path field-context from the already-cached schema removes the redundant cross-query mapping fetch WITHOUT a new cache' / 'reuse the cached schema'.",
+          "issue": "The fe-core ExternalSchemaCache stores only the parsed ConnectorTableSchema (column list). EsConnectorMetadata.getTableSchema builds `new ConnectorTableSchema(indexName, columns, \"ELASTICSEARCH\", Collections.emptyMap())` (EsConnectorMetadata.java:90-93) — an EMPTY properties map; the raw mapping JSON is discarded. But EsMetadataFetcher.fetchMapping needs the raw mapping (keyword-sniff / doc_value / date-compat) via EsMappingUtils.resolveFieldContext(columnNames, sourceIndex, indexMapping, mappingType) (EsMetadataFetcher.java:57-63). So the scan-path field context CANNOT be derived from the currently cached schema value.",
+          "correction": "The redundant remote mapping fetch (ES-F2) is REAL and the multiplier holds, but the proposed fix is understated: eliminating it requires either enriching ConnectorTableSchema to carry the raw mapping/field-context, or adding a per-statement/cross-query mapping (field-context) cache — i.e. it is NOT a zero-new-cache 'just reuse the schema' change. Files: fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsConnectorMetadata.java:90-93; EsMetadataFetcher.java:57-63; EsMappingUtils.resolveFieldContext.",
+          "file": "fe/fe-connector/fe-connector-es/src/main/java/org/apache/doris/connector/es/EsConnectorMetadata.java"
+        },
+        {
+          "claim": "currentCaches RowCountCache row: 'ES has no stats -> returns UNKNOWN, no ES-side remote heavy op'.",
+          "issue": "fetchRowCount (PluginDrivenExternalTable.java:1121-1133) first calls resolveConnectorTableHandle -> EsConnectorMetadata.getTableHandle -> restClient.existIndex (a remote `index/_mapping` GET, EsConnectorRestClient.java:104-114) BEFORE it can return UNKNOWN. EsConnectorMetadata does not override getTableStatistics (confirmed by grep), so getTableStatistics itself makes no ES RPC, but the handle-resolution step does perform one lightweight remote GET.",
+          "correction": "The phrase is defensible for 'heavy' op (there is none), but 'no ES-side remote op' would be wrong: the row-count seam still issues one lightweight existIndex `_mapping` GET during handle resolution (this is the same op as ES-F4). It sits behind RowCountCache so it is not per-query hot; precision note only. File: fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenExternalTable.java:1121-1133.",
+          "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenExternalTable.java"
+        }
+      ]
+    }
+  },
+  {
+    "connector": "trino",
+    "migrationStatus": {
+      "inSpiReadyTypes": true,
+      "liveness": "live",
+      "notes": "\"trino-connector\" is in SPI_READY_TYPES (CatalogFactory.java:57) and is routed through the SPI/PluginDriven path at CatalogFactory.java:110-118 -> PluginDrivenExternalCatalog. It is a LIVE, fully-wired connector: TrinoConnectorProvider (getType()=\"trino-connector\") -> TrinoDorisConnector (implements Connector) -> TrinoConnectorDorisMetadata (implements ConnectorMetadata) + TrinoScanPlanProvider. Architecturally unique among the 8 SPI connectors: it is a pass-through BRIDGE that embeds the REAL Trino connector SPI. TrinoBootstrap loads Trino plugins and creates one live io.trino.spi.connector.Connector per Doris catalog (TrinoDorisConnector.java:53,143-188); every Doris metadata/scan call delegates to that embedded Trino Connector's own ConnectorMetadata / ConnectorSplitManager. Not sibling-only, not dormant, not legacy."
+    },
+    "currentCaches": [
+      {
+        "name": "TrinoBootstrap.instance (Trino plugin-infra singleton: typeRegistry / handleResolver / pluginManager)",
+        "scope": "cross-query",
+        "keyedBy": "pluginDir (process-global, one per FE)",
+        "ttl": "process lifetime (never invalidated)",
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoBootstrap.java:100,141-156"
+      },
+      {
+        "name": "TrinoDorisConnector.trinoConnector (+trinoSession/catalogHandle) — the long-lived EMBEDDED Trino Connector object per catalog",
+        "scope": "cross-query",
+        "keyedBy": "Doris catalog (one embedded Trino Connector per catalog, double-checked-locking init)",
+        "ttl": "catalog lifetime; invalidated on catalog close via trinoConnector.shutdown()",
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoDorisConnector.java:53-57,133-141,95-102"
+      },
+      {
+        "name": "Embedded Trino connector's OWN metadata cache (e.g. CachingHiveMetastore / iceberg metadata cache / CachingJdbcClient) — the ACTUAL cross-query metadata cache for Trino tables",
+        "scope": "metastore-client",
+        "keyedBy": "Trino-connector-owned key; enabled+sized by connector config (e.g. hive.metastore-cache-ttl); NOT Doris-managed",
+        "ttl": "Trino config-driven (0/disabled by default in several Trino connectors)",
+        "file": "lives inside TrinoDorisConnector.trinoConnector; no source in this module — read through on every trinoConnector.getMetadata(...).getTableHandle(...)"
+      },
+      {
+        "name": "TrinoServicesProvider.catalogs (Trino-internal CatalogConnector holder)",
+        "scope": "cross-query",
+        "keyedBy": "CatalogHandle (one entry per Doris catalog)",
+        "ttl": "catalog lifetime",
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoServicesProvider.java:63"
+      },
+      {
+        "name": "TrinoPluginManager.connectorFactories (Trino ConnectorFactory registry)",
+        "scope": "cross-query",
+        "keyedBy": "ConnectorName",
+        "ttl": "process lifetime",
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoPluginManager.java:64"
+      },
+      {
+        "name": "Doris-connector-layer metadata/table/handle/schema cache",
+        "scope": "none",
+        "keyedBy": "n/a — NONE exists. TrinoConnectorDorisMetadata memoizes nothing; no fe-connector-cache toolkit dep (pom.xml has no fe-connector-cache); no ConcurrentHashMap/LoadingCache for metadata",
+        "ttl": "n/a",
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoConnectorDorisMetadata.java (whole class)"
+      },
+      {
+        "name": "(fe-core generic, NOT trino-specific) ExternalSchemaCache + RowCountCache",
+        "scope": "cross-query",
+        "keyedBy": "catalog.db.table name; shared by ALL external connectors",
+        "ttl": "external_cache_expire_time (name-keyed, REFRESH-invalidated)",
+        "file": "fe/fe-core/.../datasource/plugin/PluginDrivenExternalTable.java:430 (initSchema fills schema cache), :1121 (fetchRowCount fills rowcount cache)"
+      }
+    ],
+    "funnelParticipation": {
+      "funneled": true,
+      "metadataMemoizesLoadedTable": "no",
+      "evidence": "Routed through Layer-2 funnel: PluginDrivenScanNode.metadata()/create() and PluginDrivenExternalTable.initSchema()/fetchRowCount() all acquire the connector metadata via PluginDrivenMetadata.get(session, connector) (PluginDrivenScanNode.java:206,222; PluginDrivenExternalTable.java:449,1126), which memoizes ONE ConnectorMetadata per (statement,catalog) on ConnectorStatementScope and is enforced build-wide by tools/check-fecore-metadata-funnel.sh. So the statement holds exactly one TrinoConnectorDorisMetadata. HOWEVER that wrapper memoizes NOTHING internally: every method — listDatabaseNames:100-101, listTableNames:120-121, getTableHandle:152-153, getTableSchema:194-195, applyFilter:272-273, applyProjection:337-338 — opens a FRESH Trino transaction (beginTransaction READ_UNCOMMITTED) + a fresh trinoConnector.getMetadata(connSession,txn) and commits it in finally; TrinoScanPlanProvider.planScan opens yet another (TrinoScanPlanProvider.java:111-113). getTableHandle additionally eagerly resolves all column handles + N x getColumnMetadata (TrinoConnectorDorisMetadata.java:166-176). No resolved TrinoTableHandle / Trino Table is stashed on the scope. So the funnel gives 'one Doris wrapper per statement' but does NOT collapse repeated loads inside it — that is left to the embedded Trino connector's own cache.",
+      "gaps": "The funnel does not fix the 'load each table once per statement' concern at the connector layer the way iceberg PERF-07 does. But the residual multiplier is LOW because (a) fe-core's cross-query ExternalSchemaCache/RowCountCache absorb the repeated getTableHandle/getTableSchema across queries, and (b) each getTableHandle reads through the embedded Trino connector's own long-lived metastore cache. There is no partition/stats/MVCC/write surface for the funnel to protect (all default no-ops)."
+    },
+    "hotPathFindings": [
+      {
+        "id": "TRINO-H1",
+        "area": "query-plan",
+        "problem": "getTableHandle is the only remote-ish metadata op and is invoked from 3 distinct fe-core sites per cold statement — initSchema (PluginDrivenExternalTable.java:463), fetchRowCount (:1128) and scan-node create (PluginDrivenScanNode.java:228). Each opens a fresh Trino transaction + trinoConnector.getMetadata + getTableHandle + N x getColumnMetadata (TrinoConnectorDorisMetadata.java:144-185). No per-statement memo of the resolved handle in the wrapper.",
+        "multiplier": "~1x per SELECT on a warm fe-core schema+rowcount cache; ~3x cold — but the schema call is behind ExternalSchemaCache and the rowcount call behind RowCountCache (both cross-query), and each getTableHandle reads through the embedded Trino connector's own metastore cache",
+        "cost": "mixed",
+        "severity": "P2",
+        "memoizedAlready": true,
+        "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/scan/PluginDrivenScanNode.java:228"
+      },
+      {
+        "id": "TRINO-H2",
+        "area": "schema",
+        "problem": "During one cold schema load, getTableHandle already builds columnMetadataMap by calling getColumnMetadata for every column (TrinoConnectorDorisMetadata.java:170-176); getTableSchema then IGNORES that map and re-loops getColumnMetadata per column (:207-209). 2N getColumnMetadata for one initSchema, plus a second Trino transaction.",
+        "multiplier": "2N getColumnMetadata per cold schema load (N=columns); once per ExternalSchemaCache miss, not per query",
+        "cost": "cpu",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoConnectorDorisMetadata.java:207"
+      },
+      {
+        "id": "TRINO-H3",
+        "area": "predicate",
+        "problem": "applyFilter runs twice per scan: once in fe-core convertPredicate (PluginDrivenScanNode.java:824 -> TrinoConnectorDorisMetadata.applyFilter, its own Trino txn) and again inside TrinoScanPlanProvider.planScan (:126, another Trino txn). Same for projection (tryPushDownProjection vs planScan applyProjection). Predicate re-conversion (TrinoPredicateConverter) and pushdown recomputed on the already-loaded handle.",
+        "multiplier": "2x applyFilter + 2x applyProjection per scan",
+        "cost": "cpu",
+        "severity": "P2",
+        "memoizedAlready": false,
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoScanPlanProvider.java:126"
+      },
+      {
+        "id": "TRINO-H4",
+        "area": "split-enum",
+        "problem": "Split enumeration is fully delegated to Trino's ConnectorSplitManager.getSplits + BufferingSplitSource; the per-split loop only JSON-serializes the ConnectorSplit and extracts host addresses. Shared scan-invariant fields (tableHandle/txn/columnHandles/columnMetadata/options JSON) are already pre-serialized ONCE per scan before the split loop (TrinoScanPlanProvider.java:222-227), not per split.",
+        "multiplier": "shared fields 1x/scan (already hoisted); only unavoidable per-split JSON of the split itself remains",
+        "cost": "cpu",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoScanPlanProvider.java:221"
+      },
+      {
+        "id": "TRINO-H5",
+        "area": "partitions",
+        "problem": "No hot path: listPartitions, getTableStatistics, estimateDataSizeByListingFiles, getMvccPartitionView, getTableFreshness, getSyntheticScanPredicates, and the entire write path are NOT overridden -> interface defaults (empty / -1 / handle-unchanged). getNameToPartitionItems sees empty partitions; fetchRowCount returns UNKNOWN. So iceberg PERF-02 (PARTITIONS rescan), PERF-03 (format fallback), PERF-04 (manifest), PERF-07/R6 (write) have NO analog to fix here.",
+        "multiplier": "0 (no such call)",
+        "cost": "cpu",
+        "severity": "none",
+        "memoizedAlready": true,
+        "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoConnectorDorisMetadata.java:64"
+      }
+    ],
+    "authzConsistency": {
+      "perUserCredential": false,
+      "sessionUserRelevant": false,
+      "staleOrLeakRisk": "none — there is no per-user dimension to leak. TrinoBootstrap bakes a single static identity Identity.ofUser(\"user\") into the per-catalog Trino Session at CREATE CATALOG time (TrinoBootstrap.java:264-265) and reuses it for every Doris user. No REST OIDC, no kerberos doAs, no per-identity metastore, no vended per-user credentials. The embedded Trino connector authenticates to the underlying store with the STATIC credentials in the catalog properties (metastore auth / object-store keys). Doris's own privilege system governs who may query. A name-only cache would therefore NOT serve one user another user's metadata (no per-user authz to shard on); iceberg's session=user 'list != load' disclosure and the Layer-3 isolation / shouldBypassSchemaCache machinery are N/A here.",
+      "notes": "The PluginDrivenMetadata builder-identity pin (PluginDrivenMetadata.java:63-69) still runs but is vacuous for Trino since the identity is constant. Write-path consistency (read+write share one metadata/txn) is also N/A: TrinoConnectorDorisMetadata overrides zero write/DDL methods (createTable/dropTable/beginWrite/finishInsert/executeStmt count = 0), so trino-connector is read-only from Doris — no write txn co-holder requirement."
+    },
+    "frameworkPiecesNeeded": [
+      {
+        "piece": "per-statement-funnel-memoization",
+        "needed": "partial",
+        "rationale": "Already routed through the funnel (one wrapper/statement). Adding an internal per-statement memo of the resolved TrinoTableHandle would collapse the ~3 fresh Trino transactions/SELECT into one, but the payoff is small: fe-core's cross-query schema/rowcount caches already absorb most repeats, and the embedded Trino connector caches the getTable read-through. Low-priority nicety, not a correctness or scaling fix."
+      },
+      {
+        "piece": "cross-query-table-cache",
+        "needed": "no",
+        "rationale": "Would DOUBLE-CACHE with the embedded Trino connector's own metadata cache (CachingHiveMetastore / iceberg / CachingJdbcClient), which owns invalidation. A Doris-side Table/handle cache would freeze schema across external ALTER and reintroduce the stale-metadata class of bug Trino already solves; the TrinoTableHandle is also transaction-derived + transient/non-serializable. Do NOT add."
+      },
+      {
+        "piece": "partition-cache",
+        "needed": "no",
+        "rationale": "listPartitions is the interface default (empty); Trino exposes no partition view to Doris. Nothing to cache."
+      },
+      {
+        "piece": "format-cache",
+        "needed": "no",
+        "rationale": "No getFileFormat / file-format inference path (split+format handling is inside the embedded Trino connector and BE JNI scanner). iceberg PERF-03 has no analog."
+      },
+      {
+        "piece": "comment-cache",
+        "needed": "no",
+        "rationale": "getTableComment defaults to \"\"; comments ride on the columns already held by the cross-query ExternalSchemaCache. No N-per-query getComment load."
+      },
+      {
+        "piece": "manifest-or-file-list-cache",
+        "needed": "no",
+        "rationale": "No manifest/file-listing on the FE side; estimateDataSizeByListingFiles defaults to -1 and split enumeration is delegated to Trino's ConnectorSplitSource."
+      },
+      {
+        "piece": "per-scan-hoist",
+        "needed": "already-has",
+        "rationale": "TrinoScanPlanProvider already pre-serializes all scan-invariant fields once per scan before the split loop (TrinoScanPlanProvider.java:221-227); no per-file/per-split invariant is recomputed."
+      },
+      {
+        "piece": "per-file-split-memo",
+        "needed": "no",
+        "rationale": "The per-split loop only serializes each split's own JSON + host list (genuinely per-split); there is no shared per-file invariant (partition JSON / delete carriers) to memoize as in iceberg PERF-11."
+      },
+      {
+        "piece": "authz-session-user-isolation",
+        "needed": "no",
+        "rationale": "Static single identity, no per-user credential; no shared cache exists to shard, and no per-user leak is possible."
+      },
+      {
+        "piece": "shared-fe-connector-cache-adoption",
+        "needed": "no",
+        "rationale": "There is nothing safe to cache at the Doris connector layer (Trino owns metadata caching + invalidation), so adopting CacheFactory/ConnectorPartitionViewCache would only create a double-cache correctness hazard."
+      },
+      {
+        "piece": "write-txn-coholder",
+        "needed": "no",
+        "rationale": "Read-only connector: zero write/DDL method overrides. No write transaction to co-hold with the read metadata."
+      }
+    ],
+    "overallVerdict": "Do NOT apply the iceberg hot-path cache framework to trino-connector. It is a live pass-through BRIDGE that embeds the real Trino connector and delegates ALL metadata caching, partition/stats/split enumeration, and cache invalidation to that embedded connector. From Doris's view it has no partition/stats/MVCC/write/comment surface (all interface defaults), no per-user credentials, and no session=user analog. Its cross-query repeated-load protection already comes from two layers Doris does not need to duplicate: (1) fe-core's generic ExternalSchemaCache + RowCountCache, and (2) the embedded Trino connector's own metastore/metadata cache. Layer-2 funnel: already wired and gate-enforced; the wrapper itself memoizes nothing, but the residual per-statement multiplier is low (~1x warm). Layer-1 connector caches and Layer-3 authz isolation are actively contraindicated (double-caching + stale-metadata risk; no per-user dimension). The only optional, low-value improvements are P2 CPU cleanups: memoize the resolved TrinoTableHandle per statement to shed the extra Trino transactions, drop the getTableHandle/getTableSchema 2N getColumnMetadata re-fetch on cold schema load, and avoid the double applyFilter/applyProjection between convertPredicate and planScan. Recommended action: leave as-is (correctly delegated); optionally schedule the three P2 cleanups if a hot-catalog BI profile ever shows them.",
+    "confidence": "high",
+    "verify": {
+      "verdict": "CONFIRMED",
+      "confirmed": [
+        "TRINO-H1",
+        "TRINO-H2",
+        "TRINO-H3",
+        "TRINO-H4",
+        "TRINO-H5"
+      ],
+      "corrections": [
+        {
+          "claim": "Cache #4 'TrinoServicesProvider.catalogs' keyedBy: CatalogHandle",
+          "issue": "The map is actually keyed by the catalog-name String, not a CatalogHandle object; lookups derive the name from the handle.",
+          "correction": "TrinoServicesProvider.java:63 declares `ConcurrentMap<String, CatalogConnector> catalogs`; getConnectorServices(CatalogHandle) looks up via `catalogs.get(catalogHandle.getCatalogName())` (line 126). One entry per catalog (correct), but keyed by name String. Non-material.",
+          "file": "fe/fe-connector/fe-connector-trino/src/main/java/org/apache/doris/connector/trino/TrinoServicesProvider.java:63,126"
+        },
+        {
+          "claim": "TRINO-H3: '2x applyFilter per scan'",
+          "issue": "Precisely 2x only for a scan carrying a pushable predicate. For a filterless scan the fe-core convertPredicate arm short-circuits (guarded by empty conjuncts, and by TupleDomain.isAll() in the wrapper), so only planScan's applyFilter (with Constraint.alwaysTrue) runs = 1x.",
+          "correction": "convertPredicate returns early when conjuncts empty (PluginDrivenScanNode.java:819-820); TrinoConnectorDorisMetadata.applyFilter returns empty before opening a txn when tupleDomain.isAll() (TrinoConnectorDorisMetadata.java:266-268); planScan always calls Trino applyFilter (TrinoScanPlanProvider.java:126). So '2x' holds for the WHERE-filtered case the finding targets; overstated only for filterless scans. Finding stands.",
+          "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/scan/PluginDrivenScanNode.java:819"
+        },
+        {
+          "claim": "authzConsistency: the PluginDrivenMetadata builder-identity pin is 'vacuous for Trino since the identity is constant'",
+          "issue": "The pin keys on the Doris principal session.getUser(), not the constant Trino Identity.ofUser(\"user\"); it does vary per Doris user across statements. It is trivially satisfied WITHIN one statement (one statement = one user), which is why it never fires for trino — not because the identity is constant.",
+          "correction": "PluginDrivenMetadata.java:63-69 uses session.getUser() (Doris principal). The static Trino identity is a separate layer (TrinoBootstrap.java:264-265). Conclusion (no per-user leak) is correct; the stated reason conflates the two identity layers. Non-material.",
+          "file": "fe/fe-core/src/main/java/org/apache/doris/datasource/plugin/PluginDrivenMetadata.java:63"
+        }
+      ]
+    }
+  }
+]
