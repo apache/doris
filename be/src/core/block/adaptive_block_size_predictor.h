@@ -17,12 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <vector>
-
-#include "storage/olap_common.h"
+#include <cstddef>
 
 namespace doris {
 
@@ -40,12 +35,6 @@ class AdaptiveBlockSizePredictor {
 public:
     static constexpr size_t kDefaultProbeRows = 4096;
     static constexpr size_t kDefaultBlockSizeRows = 65535;
-
-    // Per-column metadata for computing segment-level hints.
-    struct ColumnMetadata {
-        ColumnId column_id;
-        uint64_t raw_bytes; // total raw data bytes for this column in the segment
-    };
 
     // |preferred_block_size_bytes|: target total bytes of each output block chunk.
     // |metadata_hint_bytes_per_row|: pre-computed conservative estimate from metadata (e.g.
@@ -66,7 +55,7 @@ public:
     // Never exceeds |block_size_rows|; never returns less than 1.
     // Uses pre-computed metadata hint for first-call estimate when no history exists.
     // Does NOT modify internal state (_has_history is only flipped by update()).
-    size_t predict_next_rows();
+    size_t predict_next_rows() const;
 
     bool has_history() const { return _has_history; }
 
@@ -85,9 +74,8 @@ private:
     // Whether at least one update() has been called (i.e. we have real measured history).
     bool _has_history = false;
 
-    // Cached conservative metadata estimate computed on the first predict_next_rows() call.
-    // Reused on subsequent first-round predictions (before _has_history is set) to avoid
-    // re-traversing the segment footer on every call.
+    // Conservative metadata estimate provided by the caller at construction.
+    // Reused for predictions before _has_history is set.
     double _metadata_hint_bytes_per_row = 0.0;
 
 #ifdef BE_TEST

@@ -26,6 +26,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "core/block/adaptive_block_size_predictor.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/scanner.h"
@@ -37,7 +38,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
-#include "storage/segment/adaptive_block_size_predictor.h"
 
 namespace doris {
 
