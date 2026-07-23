@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
@@ -180,7 +181,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
-        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
+        if (maxEndFile != null
+                && ObjectStorageGlob.compareUtf8Binary(currentOffset.endFile, maxEndFile) < 0) {
             return true;
         }
         return false;

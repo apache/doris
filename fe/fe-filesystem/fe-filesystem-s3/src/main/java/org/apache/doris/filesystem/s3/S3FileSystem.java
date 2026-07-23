@@ -17,8 +17,12 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,19 +52,30 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     @Override
-    protected String globListPrefix(String globPattern) {
-        if (isDirectoryBucketEndpoint()) {
-            return slashTerminatedNonGlobPrefix(globPattern);
+    public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
+            long maxFiles) throws IOException {
+        if (isDirectoryBucketEndpoint()
+                && ((startAfter != null && !startAfter.isEmpty()) || maxBytes > 0 || maxFiles > 0)) {
+            throw new IOException("S3 directory bucket glob listing does not support key-based pagination "
+                    + "because StartAfter is unsupported and object order is not lexicographical");
         }
-        return super.globListPrefix(globPattern);
+        return super.globListWithLimit(path, startAfter, maxBytes, maxFiles);
     }
 
     @Override
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
+    protected String globListListingPrefix(String globPattern) {
         if (isDirectoryBucketEndpoint()) {
-            return List.of(listPrefix);
+            return slashTerminatedNonGlobPrefix(globPattern);
         }
-        return super.globListPrefixes(globPattern, listPrefix);
+        return super.globListListingPrefix(globPattern);
+    }
+
+    @Override
+    protected List<String> globListObjectPrefixes(String globPattern, String listingPrefix) {
+        if (isDirectoryBucketEndpoint()) {
+            return List.of(listingPrefix);
+        }
+        return super.globListObjectPrefixes(globPattern, listingPrefix);
     }
 
     private boolean isDirectoryBucketEndpoint() {
@@ -85,7 +100,7 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     protected static List<String> expandedGlobListPrefixes(String globPattern) {
-        return S3CompatibleFileSystem.expandedGlobListPrefixes(globPattern);
+        return ObjectStorageGlob.expandedGlobListPrefixes(globPattern);
     }
 
     protected static String globToRegex(String glob) {
