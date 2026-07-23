@@ -195,12 +195,16 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
             return null;
         }
 
+        long scoreLimit = topN.getLimit() + topN.getOffset();
+        long pushedScoreLimit = shouldDisableSearchTopN(filter.getConjuncts(), extractedScorePredicate)
+                ? 0L : scoreLimit;
+
         // All conditions met, perform the push down.
         // This is the core action: push score() as a virtual column and also push the
         // topN info.
         Plan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
                 ImmutableList.of(), Optional.empty(),
-                topN.getOrderKeys(), Optional.of(topN.getLimit() + topN.getOffset()),
+                topN.getOrderKeys(), Optional.of(pushedScoreLimit),
                 scoreRangeInfo);
 
         // Rebuild the plan tree above the new scan.
@@ -237,6 +241,19 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
 
         // Rebuild the TopN node on top of the new project.
         return topN.withChildren(newProject);
+    }
+
+    private boolean shouldDisableSearchTopN(Set<Expression> conjuncts, Expression extractedScorePredicate) {
+        List<Expression> nonScoreConjuncts = conjuncts.stream()
+                .filter(conjunct -> extractedScorePredicate == null || !conjunct.equals(extractedScorePredicate))
+                .collect(ImmutableList.toImmutableList());
+
+        boolean hasSearchPredicate = nonScoreConjuncts.stream()
+                .anyMatch(conjunct -> !conjunct.collect(e -> e instanceof SearchExpression).isEmpty());
+        if (!hasSearchPredicate) {
+            return false;
+        }
+        return nonScoreConjuncts.size() > 1 || !(nonScoreConjuncts.get(0) instanceof SearchExpression);
     }
 
     /**
