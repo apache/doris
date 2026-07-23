@@ -34,6 +34,10 @@ bool DebugPoints::is_enable(const std::string& name) {
 }
 
 std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name) {
+    return get_debug_point_impl(name, nullptr);
+}
+
+std::shared_ptr<DebugPoint> DebugPoints::peek_debug_point(const std::string& name) {
     if (!config::enable_debug_points) {
         return nullptr;
     }
@@ -44,11 +48,41 @@ std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name
     }
 
     auto debug_point = it->second;
-    if ((debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) ||
-        (debug_point->execute_limit > 0 &&
-         debug_point->execute_num.fetch_add(1, std::memory_order_relaxed) >=
-                 debug_point->execute_limit)) {
-        remove(name);
+    if (debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) {
+        remove_if_same(name, debug_point);
+        return nullptr;
+    }
+    return debug_point;
+}
+
+std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_if(const std::string& name,
+                                                            const DebugPointPredicate& predicate) {
+    return get_debug_point_impl(name, &predicate);
+}
+
+std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_impl(
+        const std::string& name, const DebugPointPredicate* predicate) {
+    if (!config::enable_debug_points) {
+        return nullptr;
+    }
+    auto map_ptr = _debug_points.load();
+    auto it = map_ptr->find(name);
+    if (it == map_ptr->end()) {
+        return nullptr;
+    }
+
+    auto debug_point = it->second;
+    if (debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) {
+        remove_if_same(name, debug_point);
+        return nullptr;
+    }
+    if (predicate != nullptr && !(*predicate)(*debug_point)) {
+        return nullptr;
+    }
+    if (debug_point->execute_limit > 0 &&
+        debug_point->execute_num.fetch_add(1, std::memory_order_relaxed) >=
+                debug_point->execute_limit) {
+        remove_if_same(name, debug_point);
         return nullptr;
     }
 
@@ -73,6 +107,21 @@ void DebugPoints::remove(const std::string& name) {
     update([&](DebugPointMap& new_points) { exists = new_points.erase(name) > 0; });
 
     LOG(INFO) << "remove debug point: name=" << name << ", exists=" << exists;
+}
+
+void DebugPoints::remove_if_same(const std::string& name,
+                                 const std::shared_ptr<DebugPoint>& expected_debug_point) {
+    bool removed = false;
+    update([&](DebugPointMap& new_points) {
+        removed = false;
+        auto it = new_points.find(name);
+        if (it != new_points.end() && it->second == expected_debug_point) {
+            new_points.erase(it);
+            removed = true;
+        }
+    });
+
+    LOG(INFO) << "remove debug point if same: name=" << name << ", removed=" << removed;
 }
 
 void DebugPoints::update(std::function<void(DebugPointMap&)>&& handler) {

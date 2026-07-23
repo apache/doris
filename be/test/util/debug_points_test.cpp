@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <barrier>
 #include <chrono>
 #include <thread>
 
@@ -94,6 +95,84 @@ TEST(DebugPointsTest, AddTest) {
     DebugPoints::instance()->add_with_value("dbug4", "hello");
     EXPECT_EQ("hello",
               DebugPoints::instance()->get_debug_param_or_default<std::string>("dbug4", ""));
+}
+
+TEST(DebugPointsTest, PredicateDoesNotConsumeExecuteLimit) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 1;
+    debug_point->params["partition_id"] = "123";
+    DebugPoints::instance()->add("conditional", debug_point);
+
+    auto does_not_match = [](const DebugPoint& point) {
+        return point.param<int64_t>("partition_id") == 456;
+    };
+    EXPECT_EQ(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", does_not_match));
+    EXPECT_EQ(0, debug_point->execute_num.load());
+
+    auto matches = [](const DebugPoint& point) {
+        return point.param<int64_t>("partition_id") == 123;
+    };
+    EXPECT_NE(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", matches));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+    EXPECT_EQ(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", matches));
+    EXPECT_EQ(2, debug_point->execute_num.load());
+    EXPECT_FALSE(DebugPoints::instance()->is_enable("conditional"));
+}
+
+TEST(DebugPointsTest, ConcurrentReplacementSurvivesExhaustedLookup) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    auto exhausted_point = std::make_shared<DebugPoint>();
+    exhausted_point->execute_limit = 1;
+    exhausted_point->execute_num.store(1);
+    DebugPoints::instance()->add("conditional", exhausted_point);
+
+    std::barrier sync_point(2);
+    std::shared_ptr<DebugPoint> lookup_result;
+    std::thread lookup_thread([&] {
+        lookup_result =
+                DebugPoints::instance()->get_debug_point_if("conditional", [&](const DebugPoint&) {
+                    sync_point.arrive_and_wait();
+                    sync_point.arrive_and_wait();
+                    return true;
+                });
+    });
+
+    sync_point.arrive_and_wait();
+    auto replacement_point = std::make_shared<DebugPoint>();
+    DebugPoints::instance()->add("conditional", replacement_point);
+    sync_point.arrive_and_wait();
+    lookup_thread.join();
+
+    EXPECT_EQ(nullptr, lookup_result);
+    EXPECT_EQ(replacement_point, DebugPoints::instance()->get_debug_point("conditional"));
+}
+
+TEST(DebugPointsTest, PeekDoesNotConsumeExecuteLimit) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 1;
+    DebugPoints::instance()->add("peek", debug_point);
+
+    EXPECT_NE(nullptr, DebugPoints::instance()->get_debug_point("peek"));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+    EXPECT_EQ(debug_point, DebugPoints::instance()->peek_debug_point("peek"));
+    EXPECT_EQ(debug_point, DebugPoints::instance()->peek_debug_point("peek"));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+
+    std::string response;
+    HttpClient client;
+    ASSERT_TRUE(client.init(global_test_http_host + "/api/debug_point/status/peek").ok());
+    ASSERT_TRUE(client.execute(&response).ok());
+    EXPECT_NE(std::string::npos, response.find("\"exists\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"execute_num\":1"));
+    EXPECT_EQ(1, debug_point->execute_num.load());
 }
 
 void demo_callback() {
