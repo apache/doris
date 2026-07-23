@@ -17,9 +17,13 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -50,6 +54,8 @@ import org.junit.jupiter.api.Assertions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
@@ -243,6 +249,36 @@ public class PaimonMetadataOpsTest {
         Table table = catalog.getTable(identifier);
         Assert.assertEquals("4", table.options().get("bucket"));
         Assert.assertEquals("c0", table.options().get("bucket-key"));
+    }
+
+    @Test
+    public void testAlterTable() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        createTable("create table " + dbName + "." + tableName + " (id int) engine = paimon");
+
+        PaimonExternalDatabase dorisDb = (PaimonExternalDatabase) paimonCatalog.getDbNullable(dbName);
+        ExternalTable dorisTable = new PaimonExternalTable(10000L, tableName, tableName, paimonCatalog, dorisDb);
+
+        ops.addColumn(dorisTable, new Column("name", Type.STRING, true), null, 1L);
+        ops.addColumn(dorisTable, new Column("age", Type.INT, true), ColumnPosition.FIRST, 2L);
+        ops.addColumns(dorisTable,
+                Arrays.asList(new Column("city", Type.STRING, true), new Column("score", Type.DOUBLE, true)), 3L);
+        Assert.assertEquals(Arrays.asList("age", "id", "name", "city", "score"),
+                ops.getCatalog().getTable(identifier).rowType().getFieldNames());
+
+        ops.renameColumn(dorisTable, "city", "location", 4L);
+        ops.dropColumn(dorisTable, "score", 5L);
+        Assert.assertEquals(Arrays.asList("age", "id", "name", "location"),
+                ops.getCatalog().getTable(identifier).rowType().getFieldNames());
+
+        ops.updateTableProperties(dorisTable, Collections.singletonMap("snapshot.num-retained.min", "3"));
+        Assert.assertEquals("3", ops.getCatalog().getTable(identifier).options().get("snapshot.num-retained.min"));
+
+        String newTableName = tableName + "_renamed";
+        ops.renameTableImpl(dbName, tableName, newTableName);
+        Assert.assertFalse(ops.tableExist(dbName, tableName));
+        Assert.assertTrue(ops.tableExist(dbName, newTableName));
     }
 
     public void createTable(String sql) throws UserException {
