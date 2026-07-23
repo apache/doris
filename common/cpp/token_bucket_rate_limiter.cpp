@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "s3_rate_limiter.h"
+#include "token_bucket_rate_limiter.h"
 
-#include <glog/logging.h> // IWYU pragma: export
+#include <bthread/bthread.h>
+#include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <mutex>
-#include <thread>
 
 #if defined(__APPLE__)
 #include <ctime>
 #endif
 
 namespace doris {
-// Just 10^6.
 static constexpr auto NS = 1000000000UL;
 
-class S3RateLimiter::SimpleSpinLock {
+class TokenBucketRateLimiter::SimpleSpinLock {
 public:
     SimpleSpinLock() = default;
     ~SimpleSpinLock() = default;
@@ -48,7 +48,6 @@ public:
                              << spin_count;
                 spin_count = 0;
             }
-            // Spin until we acquire the lock
         }
     }
 
@@ -58,19 +57,18 @@ private:
     std::atomic_flag _flag = ATOMIC_FLAG_INIT;
 };
 
-S3RateLimiter::S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit)
+TokenBucketRateLimiter::TokenBucketRateLimiter(size_t max_speed, size_t max_burst, size_t limit)
         : _max_speed(max_speed),
           _max_burst(max_burst),
           _limit(limit),
-          _mutex(std::make_unique<S3RateLimiter::SimpleSpinLock>()),
+          _mutex(std::make_unique<TokenBucketRateLimiter::SimpleSpinLock>()),
           _remain_tokens(max_burst) {}
 
-S3RateLimiter::~S3RateLimiter() = default;
+TokenBucketRateLimiter::~TokenBucketRateLimiter() = default;
 
-S3RateLimiterHolder::~S3RateLimiterHolder() = default;
+TokenBucketRateLimiterHolder::~TokenBucketRateLimiterHolder() = default;
 
-std::pair<size_t, double> S3RateLimiter::_update_remain_token(long now, size_t amount) {
-    // Values obtained under lock to be checked after release
+std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now, size_t amount) {
     size_t count_value;
     double tokens_value;
     {
@@ -90,33 +88,31 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(long now, size_t a
     return {count_value, tokens_value};
 }
 
-int64_t S3RateLimiter::add(size_t amount) {
-    // Values obtained under lock to be checked after release
+int64_t TokenBucketRateLimiter::add(size_t amount) {
     auto duration = std::chrono::steady_clock::now().time_since_epoch();
     auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
     auto [count_value, tokens_value] = _update_remain_token(time_nano_count, amount);
 
     if (_limit && count_value > _limit) {
-        // CK would throw exception
         return -1;
     }
 
-    // Wait unless there is positive amount of remain_tokens - throttling
     int64_t sleep_time_ns = 0;
     if (_max_speed && tokens_value < 0) {
         sleep_time_ns = static_cast<int64_t>(-tokens_value / _max_speed * NS);
-        std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_time_ns));
+        bthread_usleep(sleep_time_ns / 1000);
     }
 
     return sleep_time_ns;
 }
 
-S3RateLimiterHolder::S3RateLimiterHolder(size_t max_speed, size_t max_burst, size_t limit,
-                                         std::function<void(int64_t)> metric_func)
-        : rate_limiter(std::make_unique<S3RateLimiter>(max_speed, max_burst, limit)),
+TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst,
+                                                           size_t limit,
+                                                           std::function<void(int64_t)> metric_func)
+        : rate_limiter(std::make_unique<TokenBucketRateLimiter>(max_speed, max_burst, limit)),
           metric_func(std::move(metric_func)) {}
 
-int64_t S3RateLimiterHolder::add(size_t amount) {
+int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
     int64_t sleep;
     {
         std::shared_lock read {rate_limiter_rw_lock};
@@ -126,31 +122,11 @@ int64_t S3RateLimiterHolder::add(size_t amount) {
     return sleep;
 }
 
-int S3RateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
+int TokenBucketRateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
     {
         std::unique_lock write {rate_limiter_rw_lock};
-        rate_limiter = std::make_unique<S3RateLimiter>(max_speed, max_burst, limit);
+        rate_limiter = std::make_unique<TokenBucketRateLimiter>(max_speed, max_burst, limit);
     }
     return 0;
-}
-
-std::string to_string(S3RateLimitType type) {
-    switch (type) {
-    case S3RateLimitType::GET:
-        return "get";
-    case S3RateLimitType::PUT:
-        return "put";
-    default:
-        return std::to_string(static_cast<size_t>(type));
-    }
-}
-
-S3RateLimitType string_to_s3_rate_limit_type(std::string_view value) {
-    if (value == "get") {
-        return S3RateLimitType::GET;
-    } else if (value == "put") {
-        return S3RateLimitType::PUT;
-    }
-    return S3RateLimitType::UNKNOWN;
 }
 } // namespace doris

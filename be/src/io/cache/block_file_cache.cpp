@@ -20,9 +20,12 @@
 
 #include "io/cache/block_file_cache.h"
 
+#include <sys/stat.h>
+
 #include <cstdio>
 #include <exception>
 #include <fstream>
+#include <random>
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -65,6 +68,28 @@ constexpr std::array<FileCacheType, 4> LRU_LOG_REPLAY_TYPES = {
 
 size_t file_cache_type_index(FileCacheType type) {
     return static_cast<size_t>(type);
+}
+
+bool same_identity(const DiskScanFileIdentity& lhs, const DiskScanFileIdentity& rhs) {
+    return lhs.dev == rhs.dev && lhs.ino == rhs.ino && lhs.size == rhs.size &&
+           lhs.mtime_sec == rhs.mtime_sec;
+}
+
+std::optional<DiskScanFileIdentity> get_current_identity(const std::filesystem::path& path) {
+    struct stat stat_buf;
+    if (::stat(path.c_str(), &stat_buf) != 0) {
+        return std::nullopt;
+    }
+    DiskScanFileIdentity identity;
+    identity.dev = static_cast<uint64_t>(stat_buf.st_dev);
+    identity.ino = static_cast<uint64_t>(stat_buf.st_ino);
+    identity.size = static_cast<uint64_t>(std::max<off_t>(stat_buf.st_size, 0));
+    identity.mtime_sec = static_cast<int64_t>(stat_buf.st_mtime);
+    return identity;
+}
+
+bool is_younger_than_grace(const DiskScanFileIdentity& identity, int64_t grace_seconds) {
+    return grace_seconds > 0 && UnixSeconds() - identity.mtime_sec < grace_seconds;
 }
 
 } // namespace
@@ -392,6 +417,28 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_update_lru_blocks_latency_us");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
                                                                  "file_cache_ttl_gc_latency_us");
+    _disk_scan_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_latency_us");
+    _disk_scan_rounds = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                              "file_cache_disk_scan_rounds");
+    _disk_scan_scanned_prefix_dirs = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_scanned_prefix_dirs");
+    _disk_scan_scanned_key_dirs = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_scanned_key_dirs");
+    _disk_scan_scanned_files = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_scanned_files");
+    _disk_scan_candidates = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_candidates");
+    _disk_scan_repaired_files = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_repaired_files");
+    _disk_scan_repaired_dirs = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_repaired_dirs");
+    _disk_scan_skipped_candidates = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_skipped_candidates");
+    _disk_scan_rate_limited_ns = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_rate_limited_ns");
+    _disk_scan_deleted_bytes = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_disk_scan_deleted_bytes");
     _shadow_queue_levenshtein_distance = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_shadow_queue_levenshtein_distance");
     for (FileCacheType type : {FileCacheType::DISPOSABLE, FileCacheType::NORMAL,
@@ -408,6 +455,17 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     }
     _lru_recorder_log_replay_idle_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_lru_recorder_log_replay_idle");
+    auto scan_metric = [this](int64_t ns) {
+        if (ns > 0) {
+            *_disk_scan_rate_limited_ns << static_cast<size_t>(ns);
+        }
+    };
+    _disk_scan_scan_limiter = std::make_unique<TokenBucketRateLimiterHolder>(
+            std::max<int64_t>(0, config::file_cache_disk_scan_scan_rate_qps),
+            std::max<int64_t>(0, config::file_cache_disk_scan_scan_rate_qps), 0, scan_metric);
+    _disk_scan_repair_limiter = std::make_unique<TokenBucketRateLimiterHolder>(
+            std::max<int64_t>(0, config::file_cache_disk_scan_repair_rate_qps),
+            std::max<int64_t>(0, config::file_cache_disk_scan_repair_rate_qps), 0, scan_metric);
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -528,6 +586,8 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     RETURN_IF_ERROR(_storage->init(this));
     _cache_background_monitor_thread = std::thread(&BlockFileCache::run_background_monitor, this);
     _cache_background_ttl_gc_thread = std::thread(&BlockFileCache::run_background_ttl_gc, this);
+    _cache_background_disk_scan_thread =
+            std::thread(&BlockFileCache::run_background_disk_scan_repair, this);
     _cache_background_gc_thread = std::thread(&BlockFileCache::run_background_gc, this);
     _cache_background_evict_in_advance_thread =
             std::thread(&BlockFileCache::run_background_evict_in_advance, this);
@@ -637,89 +697,6 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         _files.erase(hash);
         return {};
     }
-    // change to ttl if the blocks aren't ttl
-    if (context.cache_type == FileCacheType::TTL && _key_to_time.find(hash) == _key_to_time.end()) {
-        for (auto& [_, cell] : file_blocks) {
-            Status st = cell.file_block->update_expiration_time(context.expiration_time);
-            if (!st.ok()) {
-                LOG_WARNING("Failed to change key meta").error(st);
-            }
-
-            FileCacheType origin_type = cell.file_block->cache_type();
-            if (origin_type == FileCacheType::TTL) continue;
-            st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::TTL);
-            if (st.ok()) {
-                auto& queue = get_queue(origin_type);
-                queue.remove(cell.queue_iterator.value(), cache_lock);
-                _lru_recorder->record_queue_event(origin_type, CacheLRULogType::REMOVE,
-                                                  cell.file_block->get_hash_value(),
-                                                  cell.file_block->offset(), cell.size());
-                auto& ttl_queue = get_queue(FileCacheType::TTL);
-                cell.queue_iterator =
-                        ttl_queue.add(cell.file_block->get_hash_value(), cell.file_block->offset(),
-                                      cell.file_block->range().size(), cache_lock);
-                _lru_recorder->record_queue_event(FileCacheType::TTL, CacheLRULogType::ADD,
-                                                  cell.file_block->get_hash_value(),
-                                                  cell.file_block->offset(), cell.size());
-            } else {
-                LOG_WARNING("Failed to change key meta").error(st);
-            }
-        }
-        _key_to_time[hash] = context.expiration_time;
-        _time_to_key.insert(std::make_pair(context.expiration_time, hash));
-    }
-    if (auto iter = _key_to_time.find(hash);
-        // TODO(zhengyu): Why the hell the type is NORMAL while context set expiration_time?
-        (context.cache_type == FileCacheType::NORMAL || context.cache_type == FileCacheType::TTL) &&
-        iter != _key_to_time.end() && iter->second != context.expiration_time) {
-        // remove from _time_to_key
-        auto _time_to_key_iter = _time_to_key.equal_range(iter->second);
-        while (_time_to_key_iter.first != _time_to_key_iter.second) {
-            if (_time_to_key_iter.first->second == hash) {
-                _time_to_key_iter.first = _time_to_key.erase(_time_to_key_iter.first);
-                break;
-            }
-            _time_to_key_iter.first++;
-        }
-        for (auto& [_, cell] : file_blocks) {
-            Status st = cell.file_block->update_expiration_time(context.expiration_time);
-            if (!st.ok()) {
-                LOG_WARNING("Failed to change key meta").error(st);
-            }
-        }
-        if (context.expiration_time == 0) {
-            for (auto& [_, cell] : file_blocks) {
-                auto cache_type = cell.file_block->cache_type();
-                if (cache_type != FileCacheType::TTL) continue;
-                auto st = cell.file_block->change_cache_type_between_ttl_and_others(
-                        FileCacheType::NORMAL);
-                if (st.ok()) {
-                    if (cell.queue_iterator) {
-                        auto& ttl_queue = get_queue(FileCacheType::TTL);
-                        ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
-                        _lru_recorder->record_queue_event(FileCacheType::TTL,
-                                                          CacheLRULogType::REMOVE,
-                                                          cell.file_block->get_hash_value(),
-                                                          cell.file_block->offset(), cell.size());
-                    }
-                    auto& queue = get_queue(FileCacheType::NORMAL);
-                    cell.queue_iterator =
-                            queue.add(cell.file_block->get_hash_value(), cell.file_block->offset(),
-                                      cell.file_block->range().size(), cache_lock);
-                    _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
-                                                      cell.file_block->get_hash_value(),
-                                                      cell.file_block->offset(), cell.size());
-                } else {
-                    LOG_WARNING("Failed to change key meta").error(st);
-                }
-            }
-            _key_to_time.erase(iter);
-        } else {
-            _time_to_key.insert(std::make_pair(context.expiration_time, hash));
-            iter->second = context.expiration_time;
-        }
-    }
-
     FileBlocks result;
     auto block_it = file_blocks.lower_bound(range.left);
     if (block_it == file_blocks.end()) {
@@ -854,6 +831,17 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
                                                   std::lock_guard<std::mutex>& cache_lock) {
     DCHECK(size > 0);
 
+    CacheContext block_context = context;
+    if (auto file_iter = _files.find(hash);
+        file_iter != _files.end() && !file_iter->second.empty()) {
+        auto& first_block = file_iter->second.begin()->second.file_block;
+        auto existing_cache_type = first_block->cache_type();
+        if (context.cache_type == FileCacheType::TTL || existing_cache_type == FileCacheType::TTL) {
+            block_context.cache_type = existing_cache_type;
+            block_context.expiration_time = first_block->expiration_time();
+        }
+    }
+
     auto current_pos = offset;
     auto end_pos_non_included = offset + size;
 
@@ -864,23 +852,24 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
     while (current_pos < end_pos_non_included) {
         current_size = std::min(remaining_size, _max_file_block_size);
         remaining_size -= current_size;
-        state = try_reserve(hash, context, current_pos, current_size, cache_lock)
+        state = try_reserve(hash, block_context, current_pos, current_size, cache_lock)
                         ? state
                         : FileBlock::State::SKIP_CACHE;
         if (state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
             FileCacheKey key;
             key.hash = hash;
             key.offset = current_pos;
-            key.meta.type = context.cache_type;
-            key.meta.expiration_time = context.expiration_time;
+            key.meta.type = block_context.cache_type;
+            key.meta.expiration_time = block_context.expiration_time;
             auto file_block = std::make_shared<FileBlock>(key, current_size, this,
                                                           FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
         } else {
-            auto* cell = add_cell(hash, context, current_pos, current_size, state, cache_lock);
+            auto* cell =
+                    add_cell(hash, block_context, current_pos, current_size, state, cache_lock);
             if (cell) {
                 file_blocks.push_back(cell->file_block);
-                if (!context.is_cold_data) {
+                if (!block_context.is_cold_data) {
                     cell->update_atime();
                 }
             }
@@ -907,6 +896,15 @@ void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
     ///     [____]  [_]   [_________]  -- intersecting cache [block1, ..., blockN]
     ///
     /// For each such hole create a cell with file block state EMPTY.
+
+    CacheContext block_context = context;
+    if (!file_blocks.empty()) {
+        auto existing_cache_type = file_blocks.front()->cache_type();
+        if (context.cache_type == FileCacheType::TTL || existing_cache_type == FileCacheType::TTL) {
+            block_context.cache_type = existing_cache_type;
+            block_context.expiration_time = file_blocks.front()->expiration_time();
+        }
+    }
 
     auto it = file_blocks.begin();
     auto block_range = (*it)->range();
@@ -937,7 +935,7 @@ void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
 
         auto hole_size = block_range.left - current_pos;
 
-        file_blocks.splice(it, split_range_into_cells(hash, context, current_pos, hole_size,
+        file_blocks.splice(it, split_range_into_cells(hash, block_context, current_pos, hole_size,
                                                       FileBlock::State::EMPTY, cache_lock));
 
         current_pos = block_range.right + 1;
@@ -953,7 +951,7 @@ void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
         auto hole_size = range.right - current_pos + 1;
 
         file_blocks.splice(file_blocks.end(),
-                           split_range_into_cells(hash, context, current_pos, hole_size,
+                           split_range_into_cells(hash, block_context, current_pos, hole_size,
                                                   FileBlock::State::EMPTY, cache_lock));
     }
 }
@@ -2296,6 +2294,341 @@ void BlockFileCache::run_background_ttl_gc() {
         }
         *_ttl_gc_latency_us << (duration_ns / 1000);
     }
+}
+
+void BlockFileCache::run_background_disk_scan_repair() {
+    Thread::set_self_name("run_disk_scan");
+    if (config::file_cache_disk_scan_initial_jitter_ms > 0) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int64_t> dist(
+                0, std::max<int64_t>(0, config::file_cache_disk_scan_initial_jitter_ms));
+        std::unique_lock close_lock(_close_mtx);
+        _close_cv.wait_for(close_lock, std::chrono::milliseconds(dist(gen)));
+    }
+
+    while (!_close) {
+        if (!_async_open_done) {
+            std::unique_lock close_lock(_close_mtx);
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(100));
+            continue;
+        }
+
+        if (config::enable_file_cache_disk_scan_repair) {
+            auto result = run_disk_scan_repair_once();
+            if (result.repaired_files > 0 || result.repaired_dirs > 0) {
+                LOG(INFO) << "File cache disk scan repair finished. path=" << _cache_base_path
+                          << " repaired_files=" << result.repaired_files
+                          << " repaired_dirs=" << result.repaired_dirs
+                          << " skipped_candidates=" << result.skipped_candidates;
+            }
+        }
+
+        int64_t interval_ms = config::file_cache_disk_scan_interval_ms;
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_disk_scan_sleep_time", &interval_ms);
+        {
+            std::unique_lock close_lock(_close_mtx);
+            _close_cv.wait_for(close_lock,
+                               std::chrono::milliseconds(std::max<int64_t>(interval_ms, 1)));
+            if (_close) {
+                break;
+            }
+        }
+    }
+}
+
+DiskScanRoundResult BlockFileCache::run_disk_scan_repair_once() {
+    DiskScanRoundResult result;
+    if (!config::enable_file_cache_disk_scan_repair ||
+        _storage->get_type() != FileCacheStorageType::DISK || !_async_open_done) {
+        return result;
+    }
+
+    _disk_scan_scan_limiter->reset(std::max<int64_t>(0, config::file_cache_disk_scan_scan_rate_qps),
+                                   std::max<int64_t>(0, config::file_cache_disk_scan_scan_rate_qps),
+                                   0);
+    _disk_scan_repair_limiter->reset(
+            std::max<int64_t>(0, config::file_cache_disk_scan_repair_rate_qps),
+            std::max<int64_t>(0, config::file_cache_disk_scan_repair_rate_qps), 0);
+
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        std::vector<DiskScanRepairAction> actions;
+        actions.reserve(std::min<int64_t>(
+                std::max<int64_t>(1, config::file_cache_disk_scan_max_pending_repairs), 1024));
+        std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>, KeyHash>
+                ttl_dirs_by_hash;
+
+        std::string last_prefix;
+        auto on_key_dir = [&](const DiskScanKeyDirEntry& entry) -> Status {
+            ++result.scanned_key_dirs;
+            if (last_prefix != entry.prefix) {
+                last_prefix = entry.prefix;
+                ++result.scanned_prefix_dirs;
+            }
+            run_disk_scan_checkers(entry, &actions, &ttl_dirs_by_hash, &result);
+            if (actions.size() >= static_cast<size_t>(std::max<int64_t>(
+                                          1, config::file_cache_disk_scan_max_pending_repairs))) {
+                drain_disk_scan_actions(&actions, &result);
+            }
+            return Status::OK();
+        };
+        auto on_block_file = [&](const DiskScanBlockFileEntry& entry) -> Status {
+            ++result.scanned_files;
+            run_disk_scan_checkers(entry, &actions, &result);
+            if (actions.size() >= static_cast<size_t>(std::max<int64_t>(
+                                          1, config::file_cache_disk_scan_max_pending_repairs))) {
+                drain_disk_scan_actions(&actions, &result);
+            }
+            return Status::OK();
+        };
+        auto st =
+                _storage->scan_disk_cache(on_key_dir, on_block_file, _disk_scan_scan_limiter.get());
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to scan file cache disk. path=" << _cache_base_path
+                         << ", error=" << st;
+        }
+        finalize_disk_scan_ttl_checker(&ttl_dirs_by_hash, &actions, &result);
+        drain_disk_scan_actions(&actions, &result);
+    }
+
+    *_disk_scan_latency_us << (duration_ns / 1000);
+    *_disk_scan_rounds << 1;
+    *_disk_scan_scanned_prefix_dirs << result.scanned_prefix_dirs;
+    *_disk_scan_scanned_key_dirs << result.scanned_key_dirs;
+    *_disk_scan_scanned_files << result.scanned_files;
+    *_disk_scan_candidates << result.candidates;
+    *_disk_scan_repaired_files << result.repaired_files;
+    *_disk_scan_repaired_dirs << result.repaired_dirs;
+    *_disk_scan_skipped_candidates << result.skipped_candidates;
+    *_disk_scan_deleted_bytes << result.deleted_bytes;
+    return result;
+}
+
+void BlockFileCache::run_disk_scan_checkers(
+        const DiskScanKeyDirEntry& entry, std::vector<DiskScanRepairAction>* /* actions */,
+        std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>, KeyHash>*
+                ttl_dirs_by_hash,
+        DiskScanRoundResult* result) {
+    if (!config::file_cache_disk_scan_enable_ttl_duplicate_checker) {
+        return;
+    }
+    if (entry.expiration_time > 0) {
+        (*ttl_dirs_by_hash)[entry.hash].push_back(entry);
+    }
+}
+
+void BlockFileCache::run_disk_scan_checkers(const DiskScanBlockFileEntry& entry,
+                                            std::vector<DiskScanRepairAction>* actions,
+                                            DiskScanRoundResult* result) {
+    if (!config::file_cache_disk_scan_enable_disk_memory_checker) {
+        return;
+    }
+
+    if (is_younger_than_grace(entry.identity, config::file_cache_disk_scan_grace_seconds)) {
+        return;
+    }
+
+    if (entry.is_tmp) {
+        bool skip = false;
+        {
+            SCOPED_CACHE_LOCK(_mutex, this);
+            auto file_iter = _files.find(entry.hash);
+            if (file_iter != _files.end()) {
+                auto block_iter = file_iter->second.find(entry.offset);
+                if (block_iter != file_iter->second.end()) {
+                    std::lock_guard block_lock(block_iter->second.file_block->_mutex);
+                    auto state = block_iter->second.file_block->state_unlock(block_lock);
+                    skip = state == FileBlock::State::EMPTY ||
+                           state == FileBlock::State::DOWNLOADING;
+                }
+            }
+        }
+        if (skip || _storage->has_active_writer(entry.hash, entry.offset)) {
+            return;
+        }
+        actions->push_back({DiskScanRepairActionType::DELETE_FILE, entry.hash, entry.offset,
+                            entry.expiration_time, entry.file_path, entry.key_dir, entry.identity,
+                            DiskScanRepairReason::OLD_TMP_FILE});
+        ++result->candidates;
+        return;
+    }
+
+    bool disk_only = false;
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        auto file_iter = _files.find(entry.hash);
+        disk_only = file_iter == _files.end() || !file_iter->second.contains(entry.offset);
+    }
+    if (!disk_only) {
+        return;
+    }
+    actions->push_back({DiskScanRepairActionType::DELETE_FILE, entry.hash, entry.offset,
+                        entry.expiration_time, entry.file_path, entry.key_dir, entry.identity,
+                        DiskScanRepairReason::DISK_ONLY_FILE});
+    ++result->candidates;
+}
+
+void BlockFileCache::finalize_disk_scan_ttl_checker(
+        std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>, KeyHash>*
+                ttl_dirs_by_hash,
+        std::vector<DiskScanRepairAction>* actions, DiskScanRoundResult* result) {
+    if (!config::file_cache_disk_scan_enable_ttl_duplicate_checker) {
+        return;
+    }
+    for (auto& [hash, dirs] : *ttl_dirs_by_hash) {
+        std::sort(dirs.begin(), dirs.end(), [](const auto& lhs, const auto& rhs) {
+            return lhs.expiration_time < rhs.expiration_time;
+        });
+        dirs.erase(std::unique(dirs.begin(), dirs.end(),
+                               [](const auto& lhs, const auto& rhs) {
+                                   return lhs.expiration_time == rhs.expiration_time;
+                               }),
+                   dirs.end());
+        if (dirs.size() <= 1) {
+            continue;
+        }
+        uint64_t canonical_expiration_time = 0;
+        if (!disk_scan_hash_has_stable_canonical_expiration(hash, &canonical_expiration_time)) {
+            continue;
+        }
+        bool canonical_on_disk = false;
+        for (const auto& dir : dirs) {
+            canonical_on_disk |= dir.expiration_time == canonical_expiration_time;
+        }
+        if (!canonical_on_disk) {
+            continue;
+        }
+        for (const auto& dir : dirs) {
+            if (dir.expiration_time == canonical_expiration_time) {
+                continue;
+            }
+            actions->push_back({DiskScanRepairActionType::DELETE_DIR, hash, std::nullopt,
+                                dir.expiration_time, dir.key_dir, dir.key_dir, std::nullopt,
+                                DiskScanRepairReason::TTL_DUPLICATE_DIR});
+            ++result->candidates;
+            if (actions->size() >= static_cast<size_t>(std::max<int64_t>(
+                                           1, config::file_cache_disk_scan_max_pending_repairs))) {
+                drain_disk_scan_actions(actions, result);
+            }
+        }
+    }
+    ttl_dirs_by_hash->clear();
+}
+
+bool BlockFileCache::disk_scan_hash_has_stable_canonical_expiration(
+        const UInt128Wrapper& hash, uint64_t* canonical_expiration_time) {
+    SCOPED_CACHE_LOCK(_mutex, this);
+    auto file_iter = _files.find(hash);
+    if (file_iter == _files.end() || file_iter->second.empty()) {
+        return false;
+    }
+
+    bool has_canonical = false;
+    for (auto& [_, cell] : file_iter->second) {
+        std::lock_guard block_lock(cell.file_block->_mutex);
+        if (cell.file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADED) {
+            return false;
+        }
+        auto expiration_time = cell.file_block->expiration_time();
+        if (!has_canonical) {
+            *canonical_expiration_time = expiration_time;
+            has_canonical = true;
+        } else if (*canonical_expiration_time != expiration_time) {
+            return false;
+        }
+    }
+    return has_canonical;
+}
+
+void BlockFileCache::drain_disk_scan_actions(std::vector<DiskScanRepairAction>* actions,
+                                             DiskScanRoundResult* result) {
+    for (const auto& action : *actions) {
+        if (_close) {
+            ++result->skipped_candidates;
+            continue;
+        }
+        _disk_scan_repair_limiter->add(1);
+        if (action.type == DiskScanRepairActionType::DELETE_FILE) {
+            if (!disk_scan_file_is_deletable(action)) {
+                ++result->skipped_candidates;
+                continue;
+            }
+            auto st = _storage->delete_file_for_disk_scan(action.path);
+            if (st.ok()) {
+                ++result->repaired_files;
+                if (action.observed_identity) {
+                    result->deleted_bytes += action.observed_identity->size;
+                }
+            } else {
+                ++result->skipped_candidates;
+            }
+        } else {
+            if (!disk_scan_dir_is_deletable(action)) {
+                ++result->skipped_candidates;
+                continue;
+            }
+            auto st = _storage->delete_dir_for_disk_scan(action.path);
+            if (st.ok()) {
+                ++result->repaired_dirs;
+            } else {
+                ++result->skipped_candidates;
+            }
+        }
+    }
+    actions->clear();
+}
+
+bool BlockFileCache::disk_scan_file_is_deletable(const DiskScanRepairAction& action) {
+    if (!action.offset) {
+        return false;
+    }
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        auto file_iter = _files.find(action.hash);
+        if (file_iter != _files.end()) {
+            auto block_iter = file_iter->second.find(*action.offset);
+            if (block_iter != file_iter->second.end()) {
+                if (action.reason != DiskScanRepairReason::OLD_TMP_FILE) {
+                    return false;
+                }
+                std::lock_guard block_lock(block_iter->second.file_block->_mutex);
+                auto state = block_iter->second.file_block->state_unlock(block_lock);
+                if (state == FileBlock::State::EMPTY || state == FileBlock::State::DOWNLOADING) {
+                    return false;
+                }
+            }
+        }
+    }
+    if (_storage->has_active_writer(action.hash, *action.offset)) {
+        return false;
+    }
+    auto identity = get_current_identity(action.path);
+    if (!identity) {
+        return false;
+    }
+    if (action.observed_identity && !same_identity(*action.observed_identity, *identity)) {
+        return false;
+    }
+    return !is_younger_than_grace(*identity, config::file_cache_disk_scan_grace_seconds);
+}
+
+bool BlockFileCache::disk_scan_dir_is_deletable(const DiskScanRepairAction& action) {
+    uint64_t canonical_expiration_time = 0;
+    if (!disk_scan_hash_has_stable_canonical_expiration(action.hash, &canonical_expiration_time)) {
+        return false;
+    }
+    if (_storage->has_active_writer_for_hash(action.hash)) {
+        return false;
+    }
+    if (action.expiration_time == canonical_expiration_time) {
+        return false;
+    }
+    std::filesystem::path canonical_path =
+            action.path.parent_path() /
+            (action.hash.to_string() + "_" + std::to_string(canonical_expiration_time));
+    return std::filesystem::exists(canonical_path);
 }
 
 void BlockFileCache::run_background_gc() {

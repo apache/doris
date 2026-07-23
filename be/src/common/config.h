@@ -1236,6 +1236,15 @@ DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+DECLARE_mBool(enable_file_cache_disk_scan_repair);
+DECLARE_mInt64(file_cache_disk_scan_interval_ms);
+DECLARE_mInt64(file_cache_disk_scan_initial_jitter_ms);
+DECLARE_mInt64(file_cache_disk_scan_scan_rate_qps);
+DECLARE_mInt64(file_cache_disk_scan_repair_rate_qps);
+DECLARE_mInt64(file_cache_disk_scan_grace_seconds);
+DECLARE_mInt64(file_cache_disk_scan_max_pending_repairs);
+DECLARE_mBool(file_cache_disk_scan_enable_ttl_duplicate_checker);
+DECLARE_mBool(file_cache_disk_scan_enable_disk_memory_checker);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
 // used to persist lru information before be reboot and load the info back
