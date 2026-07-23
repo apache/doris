@@ -50,7 +50,9 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.zone.ZoneOffsetTransition;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -74,6 +76,8 @@ public class PaimonJniScanner extends JniScanner {
     static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.jni.enable_file_reader_async";
     static final String DORIS_FILE_CREATION_TIME_LOCAL_MILLIS =
             "doris.scan.file-creation-time-local-millis";
+    static final String DORIS_FILE_CREATION_TIME_EXISTING_MILLIS =
+            "doris.scan.file-creation-time-existing-millis";
     static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
 
     private final Map<String, String> params;
@@ -595,15 +599,32 @@ public class PaimonJniScanner extends JniScanner {
         String localMillis = params.get(PAIMON_OPTION_PREFIX + DORIS_FILE_CREATION_TIME_LOCAL_MILLIS);
         if (localMillis != null) {
             long lowerBound = Long.parseLong(localMillis);
-            // Paimon converts every file creation timestamp with the BE JVM's default zone.
-            // Convert the cutoff in this same JVM so mixed FE/BE zones cannot strengthen it.
-            long epochMillis = Timestamp.fromEpochMillis(lowerBound).toLocalDateTime()
-                    .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            long epochMillis = toFileCreationTimeEpochMillis(lowerBound, ZoneId.systemDefault());
+            String existingMillis = params.get(
+                    PAIMON_OPTION_PREFIX + DORIS_FILE_CREATION_TIME_EXISTING_MILLIS);
+            if (existingMillis != null) {
+                // The query predicate is an additional restriction and must never weaken a
+                // stronger cutoff already configured on the wrapped FileStoreTable.
+                epochMillis = Math.max(epochMillis, Long.parseLong(existingMillis));
+            }
             options.put(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), String.valueOf(epochMillis));
         }
         if (Boolean.parseBoolean(params.getOrDefault(DORIS_ENABLE_FILE_READER_ASYNC, "true")) == false) {
             options.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), MAX_ASYNC_READ_THRESHOLD);
         }
         return options;
+    }
+
+    private static long toFileCreationTimeEpochMillis(long localMillis, ZoneId zoneId) {
+        LocalDateTime localDateTime = Timestamp.fromEpochMillis(localMillis).toLocalDateTime();
+        ZoneOffsetTransition transition = zoneId.getRules().getTransition(localDateTime);
+        if (transition != null && transition.isGap()) {
+            // No file can have a wall-clock time inside a DST gap. Using the transition instant
+            // keeps the pushdown no stronger than the retained local-time predicate.
+            return transition.getInstant().toEpochMilli();
+        }
+        // Paimon converts every file creation timestamp with the BE JVM's default zone, so the
+        // cutoff must be converted in this same JVM when FE and BE zones differ.
+        return localDateTime.atZone(zoneId).toInstant().toEpochMilli();
     }
 }

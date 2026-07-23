@@ -24,8 +24,16 @@ import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.FilesTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -75,6 +83,74 @@ public class PaimonJniScannerTest {
         } finally {
             TimeZone.setDefault(original);
         }
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundUsesGapStartDuringDstTransition() throws Exception {
+        Map<String, String> params = createBaseParams();
+        params.put("paimon.doris.scan.file-creation-time-local-millis", "1772937000000");
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        Method buildTableOptions = PaimonJniScanner.class.getDeclaredMethod("buildTableOptions", Map.class);
+        buildTableOptions.setAccessible(true);
+
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"));
+            @SuppressWarnings("unchecked")
+            Map<String, String> options = (Map<String, String>) buildTableOptions.invoke(
+                    scanner, Collections.emptyMap());
+
+            Assert.assertEquals("1772953200000",
+                    options.get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+        } finally {
+            TimeZone.setDefault(original);
+        }
+    }
+
+    @Test
+    public void testQueryLowerBoundPreservesStrongerFilesTableOption() throws Exception {
+        Map<String, String> schemaOptions = new HashMap<>();
+        schemaOptions.put(CoreOptions.BUCKET.key(), "-1");
+        schemaOptions.put(CoreOptions.SCAN_MODE.key(), "from-file-creation-time");
+        schemaOptions.put(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), "2000");
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "k", DataTypes.INT())),
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                schemaOptions,
+                "");
+        FileStoreTable storeTable = FileStoreTableFactory.create(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder("paimon-table").toURI()),
+                schema);
+        FilesTable filesTable = new FilesTable(storeTable);
+
+        Map<String, String> params = createBaseParams();
+        params.put("paimon.doris.scan.file-creation-time-local-millis", "1000");
+        params.put("paimon.doris.scan.file-creation-time-existing-millis", "2000");
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        Method buildTableOptions = PaimonJniScanner.class.getDeclaredMethod("buildTableOptions", Map.class);
+        buildTableOptions.setAccessible(true);
+        Map<String, String> options;
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            @SuppressWarnings("unchecked")
+            Map<String, String> convertedOptions = (Map<String, String>) buildTableOptions.invoke(
+                    scanner, filesTable.options());
+            options = convertedOptions;
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        FilesTable copiedFilesTable = (FilesTable) filesTable.copy(options);
+        Field storeTableField = FilesTable.class.getDeclaredField("storeTable");
+        storeTableField.setAccessible(true);
+        FileStoreTable copiedStoreTable = (FileStoreTable) storeTableField.get(copiedFilesTable);
+        Assert.assertEquals("2000",
+                copiedStoreTable.options().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
     }
 
     @Test

@@ -96,6 +96,8 @@ public class PaimonScanNodeTest {
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(table);
         Mockito.when(systemTable.getSysTableType()).thenReturn("files");
+        Mockito.when(systemTable.getTableProperties()).thenReturn(Collections.singletonMap(
+                "scan.file-creation-time-millis", "1784596000000"));
         node.setSource(source);
         node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.GE,
                 new SlotRef(null, "creation_time"),
@@ -110,6 +112,8 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("1784595723456",
                 node.getFileScanRangeParams().getPaimonOptions()
                         .get(PaimonScanNode.DORIS_FILE_CREATION_TIME_LOCAL_MILLIS));
+        Assert.assertEquals("1784596000000", node.getFileScanRangeParams().getPaimonOptions()
+                .get(PaimonScanNode.DORIS_FILE_CREATION_TIME_EXISTING_MILLIS));
     }
 
     @Test
