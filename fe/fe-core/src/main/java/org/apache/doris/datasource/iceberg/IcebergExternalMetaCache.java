@@ -231,7 +231,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
                         latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
             }
-            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
+            return new IcebergSnapshotCacheValue(
+                    icebergPartitionInfo, latestIcebergSnapshot, IcebergUtils.getNameMapping(icebergTable));
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }

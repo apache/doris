@@ -1479,6 +1479,59 @@ suite("rf_partition_pruning", "nonConcurrent") {
                 + "ON f.region_id + f.region_id = d.dim_region",
         "BLOOM_FILTER", 5, 3)
 
+    // Test 50b: NoneMovable target expressions must not be evaluated speculatively
+    // against LIST partition values. The part_key=0 row is removed by keep_row=1
+    // before the join, so assert_true must not fail only because RF partition pruning
+    // evaluates the target expression on the p_zero boundary.
+    sql "drop table if exists rf_prune_expr_fact"
+    sql """
+        CREATE TABLE rf_prune_expr_fact (
+            id BIGINT NOT NULL,
+            part_key INT NOT NULL,
+            keep_row INT NOT NULL
+        ) DUPLICATE KEY(id)
+        PARTITION BY LIST(part_key) (
+            PARTITION p_zero VALUES IN (0),
+            PARTITION p_one VALUES IN (1)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql "INSERT INTO rf_prune_expr_fact VALUES (0, 0, 0), (1, 1, 1)"
+
+    sql "drop table if exists rf_prune_expr_dim"
+    sql """
+        CREATE TABLE rf_prune_expr_dim (
+            flag BOOLEAN NOT NULL
+        ) DUPLICATE KEY(flag)
+        DISTRIBUTED BY HASH(flag) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql "INSERT INTO rf_prune_expr_dim VALUES (true)"
+
+    sql "set enable_runtime_filter_partition_prune=false"
+    qt_rf_prune_expr_without_partition_prune """
+        SELECT /*+ SET_VAR(runtime_filter_type='IN') */ COUNT(*)
+        FROM rf_prune_expr_fact fact
+        JOIN [broadcast] rf_prune_expr_dim dim
+          ON assert_true(fact.part_key != 0, 'rfpp_expr_in_only_error') = dim.flag
+        WHERE fact.keep_row = 1
+    """
+
+    sql "set enable_runtime_filter_partition_prune=true"
+    qt_rf_prune_expr_with_partition_prune """
+        SELECT /*+ SET_VAR(runtime_filter_type='IN') */ COUNT(*)
+        FROM rf_prune_expr_fact fact
+        JOIN [broadcast] rf_prune_expr_dim dim
+          ON assert_true(fact.part_key != 0, 'rfpp_expr_in_only_error') = dim.flag
+        WHERE fact.keep_row = 1
+    """
+    assertNoPartitionPruningProfile(
+        "COUNT(*) FROM rf_prune_expr_fact fact JOIN [broadcast] rf_prune_expr_dim dim "
+                + "ON assert_true(fact.part_key != 0, 'rfpp_expr_in_only_error') = dim.flag "
+                + "WHERE fact.keep_row = 1",
+        "IN")
+
     // ============================================================
     // Test 51: String partition column (LIST partition on VARCHAR).
     //

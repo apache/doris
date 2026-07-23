@@ -70,9 +70,15 @@ struct FileScanRequest {
     // Columns read after row-level filtering. Predicate columns are also available for output and
     // should not be duplicated here.
     std::vector<LocalColumnIndex> non_predicate_columns;
+    // Predicate columns introduced only to evaluate hidden filter slots. Their values are dead
+    // after all file-local predicates run, although the shared file block still needs row-shaped
+    // placeholders until TableReader finalizes projected columns.
+    std::vector<LocalColumnId> predicate_only_columns;
     // file-local column id -> file-local output block position.
     std::map<LocalColumnId, LocalIndex> local_positions;
-    // Row-level filters converted to file-local expressions from table-level predicates.
+    // Row-level filters converted to file-local expressions from table-level predicates. Readers
+    // must enforce these exactly on returned rows; metadata pruning alone does not transfer
+    // predicate ownership away from TableReader.
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
@@ -88,6 +94,10 @@ struct FileScanRequest {
     bool is_count_star_placeholder(LocalColumnId column_id) const {
         return std::ranges::find(count_star_placeholder_columns, column_id) !=
                count_star_placeholder_columns.end();
+    }
+
+    bool is_predicate_only(LocalColumnId column_id) const {
+        return std::ranges::find(predicate_only_columns, column_id) != predicate_only_columns.end();
     }
 };
 

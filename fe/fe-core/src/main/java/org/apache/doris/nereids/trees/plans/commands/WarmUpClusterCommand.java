@@ -24,8 +24,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -141,7 +141,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
 
     private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
         if (!Strings.isNullOrEmpty(srcCluster)) {
-            ComputeGroup srcCg = cloudSys.getComputeGroupByName(srcCluster);
+            CloudComputeGroupMeta srcCg = cloudSys.getComputeGroupByName(srcCluster);
             if (srcCg != null && srcCg.isVirtual()) {
                 throw new AnalysisException("The srcClusterName " + srcCluster
                     + " is a virtual compute group, not support");
@@ -149,7 +149,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         }
 
         if (!Strings.isNullOrEmpty(dstCluster)) {
-            ComputeGroup dstCg = cloudSys.getComputeGroupByName(dstCluster);
+            CloudComputeGroupMeta dstCg = cloudSys.getComputeGroupByName(dstCluster);
             if (dstCg != null && dstCg.isVirtual()) {
                 throw new AnalysisException("The dstClusterName " + dstCluster
                     + " is a virtual compute group, not support");

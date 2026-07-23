@@ -719,6 +719,15 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
     ASSERT_NE(profile.get_info_string("PeerCacheNodes"), nullptr);
     EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
+
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    ASSERT_TRUE(children.contains("IO"));
+    EXPECT_TRUE(children.at("IO").contains("FileCache"));
 }
 
 TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
@@ -877,6 +886,29 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
+}
+
+TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
+    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
+    VExprContextSPtrs conjuncts {
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
+            runtime_filter_context(std::move(unsafe_predicate), 2),
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
+    };
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner.TEST_set_scanner_conjuncts(std::move(conjuncts));
+
+    EXPECT_EQ(scanner.TEST_table_reader_owned_conjunct_count(), 1);
+    EXPECT_EQ(scanner.TEST_scanner_residual_conjunct_count(), 2);
+    const auto* residual_predicates = profile.get_info_string("ScannerResidualPredicates");
+    ASSERT_NE(residual_predicates, nullptr);
+    EXPECT_FALSE(residual_predicates->empty());
+    EXPECT_NE(residual_predicates->find("SlotRef"), std::string::npos) << *residual_predicates;
 }
 
 } // namespace doris

@@ -415,20 +415,26 @@ public class Alter {
                         table.getDbName(), table.getName(), renameTableOp.getNewTableName());
             } else if (alterOp instanceof AddColumnOp) {
                 AddColumnOp addColumn = (AddColumnOp) alterOp;
-                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
+                table.getCatalog().addColumn(
+                        table, addColumn.getColumnPath(), addColumn.getColumn(), addColumn.getColPos());
             } else if (alterOp instanceof AddColumnsOp) {
                 AddColumnsOp addColumns = (AddColumnsOp) alterOp;
                 table.getCatalog().addColumns(table, addColumns.getColumns());
             } else if (alterOp instanceof DropColumnOp) {
                 DropColumnOp dropColumn = (DropColumnOp) alterOp;
-                table.getCatalog().dropColumn(table, dropColumn.getColName());
+                table.getCatalog().dropColumn(table, dropColumn.getColumnPath());
             } else if (alterOp instanceof RenameColumnOp) {
                 RenameColumnOp columnRename = (RenameColumnOp) alterOp;
                 table.getCatalog().renameColumn(
-                        table, columnRename.getColName(), columnRename.getNewColName());
+                        table, columnRename.getColumnPath(), columnRename.getNewColName());
             } else if (alterOp instanceof ModifyColumnOp) {
                 ModifyColumnOp modifyColumn = (ModifyColumnOp) alterOp;
-                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+                table.getCatalog().modifyColumn(
+                        table, modifyColumn.getColumnPath(), modifyColumn.getColumn(), modifyColumn.getColPos());
+            } else if (alterOp instanceof ModifyColumnCommentOp) {
+                ModifyColumnCommentOp modifyColumnComment = (ModifyColumnCommentOp) alterOp;
+                table.getCatalog().modifyColumnComment(
+                        table, modifyColumnComment.getColumnPath(), modifyColumnComment.getComment());
             } else if (alterOp instanceof ReorderColumnsOp) {
                 ReorderColumnsOp reorderColumns = (ReorderColumnsOp) alterOp;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());

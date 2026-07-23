@@ -93,6 +93,17 @@ public:
         return _should_run_adaptive_batch_size(predictor_initialized,
                                                current_split_uses_metadata_count);
     }
+    void TEST_set_scanner_conjuncts(VExprContextSPtrs conjuncts) {
+        _conjuncts = std::move(conjuncts);
+        _initialize_scanner_residual_conjuncts();
+    }
+    Status TEST_filter_output_block(Block* block) { return _filter_output_block(block); }
+    size_t TEST_table_reader_owned_conjunct_count() const {
+        return _table_reader_owned_conjunct_count;
+    }
+    size_t TEST_scanner_residual_conjunct_count() const {
+        return _scanner_residual_conjuncts.size();
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -110,6 +121,9 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
+    Status _filter_output_block(Block* block) override;
+    size_t _last_block_rows_read(const Block& block) const override;
+    size_t _last_block_bytes_read(const Block& block) const override;
     void _collect_profile_before_close() override;
     bool _should_update_load_counters() const override;
 
@@ -139,6 +153,12 @@ private:
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
+    Status _build_table_conjuncts(const VExprContextSPtrs& source,
+                                  VExprContextSPtrs* conjuncts) const;
+    Status _sync_table_reader_conjuncts();
+    static size_t _safe_conjunct_prefix_size(const VExprContextSPtrs& conjuncts);
+    void _initialize_scanner_residual_conjuncts();
+    void _refresh_scanner_residual_profile();
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
     void _reset_adaptive_batch_size_state();
@@ -174,6 +194,10 @@ private:
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
+    size_t _table_reader_owned_conjunct_count = 0;
+    // Scanner owns one persistent context vector for the first unsafe conjunct and every later
+    // conjunct. Hybrid child readers may be recreated or switched, but this state must not be.
+    VExprContextSPtrs _scanner_residual_conjuncts;
     std::vector<format::ColumnDefinition> _projected_columns;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
@@ -185,12 +209,20 @@ private:
     std::unordered_map<std::string, PartitionSlotInfo> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    io::FileCacheStatistics _reported_file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
 
+    RuntimeProfile::Counter* _scanner_total_timer = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _prepare_split_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_range_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _io_timer = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
@@ -199,6 +231,9 @@ private:
     RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_actual_bytes_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_residual_filter_timer = nullptr;
+    RuntimeProfile::Counter* _scanner_residual_rows_filtered_counter = nullptr;
+    RuntimeProfile* _scanner_profile = nullptr;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
@@ -207,6 +242,8 @@ private:
     int64_t _last_read_rows = 0;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
+    int64_t _reported_io_read_time = 0;
+    int _table_reader_applied_rf_num = 0;
 };
 
 } // namespace doris

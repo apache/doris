@@ -76,6 +76,7 @@ private:
     const TIcebergDeleteFileDesc* _delete_file_desc = nullptr;
     DeleteFileKind _delete_file_kind = DeleteFileKind::POSITION_DELETE;
     std::unique_ptr<format::TableReader> _position_reader;
+    RuntimeProfile* _position_reader_profile = nullptr;
     std::vector<ReadColumn> _read_columns;
     ColumnPtr _partition_value;
     roaring::Roaring64Map _dv_positions;

@@ -21,6 +21,8 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "common/thread_safety_annotations.h"
@@ -96,7 +98,9 @@ public:
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
-    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int applied_rf_num,
+                                              int& arrived_rf_num,
+                                              VExprContextSPtrs& arrived_conjuncts);
 
     Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
 
@@ -142,6 +146,9 @@ protected:
 
     AnnotatedMutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
+    // Preserve append identity independently of the cost-sorted operator snapshot. Every scanner
+    // needs the exact RF contexts added since its own applied count.
+    std::vector<std::pair<int, VExprContextSPtrs>> _late_arrival_conjunct_batches;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
     // condition cache filter stats

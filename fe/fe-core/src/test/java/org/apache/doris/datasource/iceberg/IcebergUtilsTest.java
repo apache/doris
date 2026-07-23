@@ -365,6 +365,20 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesNestedNonBinaryInitialDefault() {
+        Schema schema = new Schema(Types.NestedField.optional(10, "s", Types.StructType.of(
+                Types.NestedField.optional("added_int")
+                        .withId(11)
+                        .ofType(Types.IntegerType.get())
+                        .withInitialDefault(7)
+                        .build())));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+
+        Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
+    }
+
+    @Test
     public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),

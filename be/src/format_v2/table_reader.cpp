@@ -41,6 +41,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
@@ -49,6 +50,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
 #include "util/string_util.h"
@@ -143,6 +145,93 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
+    ColumnDefinition identity;
+    if (field.__isset.id) {
+        identity.identifier = Field::create_field<TYPE_INT>(field.id);
+    }
+    identity.name = field.__isset.name ? field.name : "";
+    identity.name_mapping =
+            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
+    identity.has_name_mapping =
+            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
+    if (!field.__isset.nestedField) {
+        return identity;
+    }
+    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
+        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
+            if (const auto* child = get_field_ptr(child_ptr); child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+            }
+        }
+    } else if (field.nestedField.__isset.array_field &&
+               field.nestedField.array_field.__isset.item_field) {
+        if (const auto* child = get_field_ptr(field.nestedField.array_field.item_field);
+            child != nullptr) {
+            identity.children.push_back(build_schema_identity_from_external_field(*child));
+            identity.children.back().name = "element";
+        }
+    } else if (field.nestedField.__isset.map_field) {
+        if (field.nestedField.map_field.__isset.key_field) {
+            if (const auto* child = get_field_ptr(field.nestedField.map_field.key_field);
+                child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+                identity.children.back().name = "key";
+            }
+        }
+        if (field.nestedField.map_field.__isset.value_field) {
+            if (const auto* child = get_field_ptr(field.nestedField.map_field.value_field);
+                child != nullptr) {
+                identity.children.push_back(build_schema_identity_from_external_field(*child));
+                identity.children.back().name = "value";
+            }
+        }
+    }
+    return identity;
+}
+
+const ColumnDefinition* find_identity_child(const ColumnDefinition& projected_child,
+                                            const ColumnDefinition& identity_parent) {
+    const auto child_it = std::ranges::find_if(
+            identity_parent.children, [&](const ColumnDefinition& identity_child) {
+                if (projected_child.has_identifier_field_id() &&
+                    identity_child.has_identifier_field_id()) {
+                    return projected_child.get_identifier_field_id() ==
+                           identity_child.get_identifier_field_id();
+                }
+                if (to_lower(projected_child.name) == to_lower(identity_child.name)) {
+                    return true;
+                }
+                return std::ranges::any_of(
+                        identity_child.name_mapping, [&](const std::string& alias) {
+                            return to_lower(projected_child.name) == to_lower(alias);
+                        });
+            });
+    return child_it == identity_parent.children.end() ? nullptr : &*child_it;
+}
+
+void attach_full_schema_identity(ColumnDefinition* projected, const ColumnDefinition& identity) {
+    DORIS_CHECK(projected != nullptr);
+    // Access-path children control materialization, but wrapper discovery needs sibling IDs that
+    // were pruned from that projection. Keep the complete identity tree on a separate channel.
+    projected->identity_children = identity.children;
+    for (auto& projected_child : projected->children) {
+        if (const auto* identity_child = find_identity_child(projected_child, identity);
+            identity_child != nullptr) {
+            attach_full_schema_identity(&projected_child, *identity_child);
+        }
+    }
+}
+
+void clear_initial_default_metadata(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    column->initial_default_value.reset();
+    column->initial_default_value_is_base64 = false;
+    for (auto& child : column->children) {
+        clear_initial_default_metadata(&child);
+    }
+}
+
 bool external_field_matches_name(const schema::external::TField& field, const std::string& name) {
     if (field.__isset.name && to_lower(field.name) == to_lower(name)) {
         return true;
@@ -189,6 +278,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
                     field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {},
+            .has_name_mapping = field.__isset.name_mapping_is_authoritative &&
+                                field.name_mapping_is_authoritative,
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
@@ -298,12 +389,32 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
+    if (!supports_iceberg_scan_semantics_v1(params)) {
+        // Old BEs used one ordered current-name/alias pass. Preserve that result for old-FE plans
+        // until the explicit scan-semantics marker makes exact-name precedence cluster-wide.
+        for (const auto& field_ptr : schema->root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr && external_field_matches_name(*field, column.name)) {
+                return field;
+            }
+        }
+        return nullptr;
+    }
+    // A reused name identifies the newly added field, not an older sibling that retained that
+    // spelling as an alias. Exhaust exact current names before consulting historical aliases.
     for (const auto& field_ptr : schema->root_field.fields) {
         const auto* field = get_field_ptr(field_ptr);
-        if (field == nullptr) {
-            continue;
+        if (field != nullptr && field->__isset.name &&
+            to_lower(field->name) == to_lower(column.name)) {
+            return field;
         }
-        if (external_field_matches_name(*field, column.name)) {
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.name_mapping &&
+            std::ranges::any_of(field->name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(column.name);
+            })) {
             return field;
         }
     }
@@ -486,8 +597,20 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
         return Status::OK();
     }
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
+    const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    if (!use_current_semantics) {
+        // IDs and encoded defaults predate the result-changing semantics. Strip only the new
+        // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
+        clear_initial_default_metadata(&*context->schema_column);
+    }
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
+    column->has_name_mapping = context->schema_column->has_name_mapping;
+    // Projected roots already carry a generic FE default expression, but Iceberg binary defaults
+    // need the raw Base64 marker so missing-file materialization can decode rather than copy text.
+    column->initial_default_value = context->schema_column->initial_default_value;
+    column->initial_default_value_is_base64 =
+            context->schema_column->initial_default_value_is_base64;
     return Status::OK();
 }
 
@@ -520,24 +643,15 @@ std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field
 }
 
 Status TableReader::init(TableReadOptions&& options) {
-    _scan_params = options.scan_params;
-    _format = options.format;
-    _io_ctx = options.io_ctx;
-    _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
-    _file_slot_descs = options.file_slot_descs;
-    _push_down_agg_type = options.push_down_agg_type;
-    _push_down_count_columns = options.push_down_count_columns;
-    _initial_condition_cache_digest = options.condition_cache_digest;
-    _condition_cache_digest = _initial_condition_cache_digest;
-    _projected_columns = std::move(options.projected_columns);
-    _system_properties = create_system_properties(_scan_params);
-    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
-    _conjuncts = std::move(options.conjuncts);
-
     if (_scanner_profile != nullptr) {
-        static const char* table_profile = "TableReader";
-        ADD_TIMER_WITH_LEVEL(_scanner_profile, table_profile, 1);
+        const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
+        static const char* table_profile = file_scan_profile::TABLE_READER;
+        static const char* file_reader_profile = file_scan_profile::FILE_READER;
+        _profile.total_timer = hierarchy.table_reader;
+        _profile.file_reader_total_timer = hierarchy.file_reader;
+        _profile.init_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "InitTime", table_profile, 1);
         _profile.num_delete_files = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteFiles",
                                                                  TUnit::UNIT, table_profile, 1);
         _profile.num_delete_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "NumDeleteRows",
@@ -564,16 +678,124 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PrepareSplitTime", table_profile, 1);
         _profile.finalize_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "FinalizeBlockTime", table_profile, 1);
+        _profile.residual_filter_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "ResidualFilterTime", table_profile, 1);
         _profile.create_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "CreateReaderTime", table_profile, 1);
         _profile.pushdown_agg_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
-        _profile.runtime_filter_partition_prune_timer = ADD_TIMER_WITH_LEVEL(
-                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", 1);
-        _profile.runtime_filter_partition_pruned_range_counter = ADD_COUNTER_WITH_LEVEL(
-                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
+        _profile.runtime_filter_partition_prune_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", table_profile, 1);
+        _profile.runtime_filter_partition_pruned_range_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT,
+                table_profile, 1);
+        _profile.close_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "CloseTime", table_profile, 1);
+        // Lifecycle timer names remain globally unique because RuntimeProfile's visual hierarchy
+        // does not namespace counters that share the same display parent.
+        _profile.file_reader_init_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderInitTime", file_reader_profile, 1);
+        _profile.file_reader_schema_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderGetSchemaTime", file_reader_profile, 1);
+        _profile.file_reader_mapper_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderCreateColumnMapperTime", file_reader_profile, 1);
+        _profile.file_reader_open_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderOpenTime", file_reader_profile, 1);
+        _profile.file_reader_get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderGetBlockTime", file_reader_profile, 1);
+        _profile.file_reader_aggregate_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderAggregatePushDownTime", file_reader_profile, 1);
+        _profile.file_reader_close_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileReaderCloseTime", file_reader_profile, 1);
+    }
+    // Establish lifecycle timers before consuming options or constructing filesystem properties;
+    // placing these scopes at the tail records only scope teardown and hides expensive init work.
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.init_timer);
+    _scan_params = options.scan_params;
+    _format = options.format;
+    _io_ctx = options.io_ctx;
+    _runtime_state = options.runtime_state;
+    _file_slot_descs = options.file_slot_descs;
+    _push_down_agg_type = options.push_down_agg_type;
+    _push_down_count_columns = options.push_down_count_columns;
+    _initial_condition_cache_digest = options.condition_cache_digest;
+    _condition_cache_digest = _initial_condition_cache_digest;
+    _table_reader_owned_conjunct_count =
+            options.table_reader_owned_conjunct_count.value_or(options.conjuncts.size());
+    DORIS_CHECK_LE(_table_reader_owned_conjunct_count, options.conjuncts.size());
+    _projected_columns = std::move(options.projected_columns);
+    if (supports_iceberg_scan_semantics_v1(_scan_params)) {
+        for (auto& projected_column : _projected_columns) {
+            const auto* schema_field = find_external_root_field(_scan_params, projected_column);
+            if (schema_field != nullptr) {
+                attach_full_schema_identity(
+                        &projected_column,
+                        build_schema_identity_from_external_field(*schema_field));
+            }
+        }
+    }
+    _system_properties = create_system_properties(_scan_params);
+    _mapper_options.mode = TableColumnMappingMode::BY_NAME;
+    return _replace_conjuncts(options.conjuncts);
+}
+
+Status TableReader::_prepare_conjunct(const VExprContextSPtr& source, VExprContextSPtr* prepared) {
+    DORIS_CHECK(source != nullptr);
+    DORIS_CHECK(source->root() != nullptr);
+    DORIS_CHECK(prepared != nullptr);
+    VExprSPtr root;
+    RETURN_IF_ERROR(clone_table_expr_tree(source->root(), &root));
+    auto conjunct = VExprContext::create_shared(std::move(root));
+    RETURN_IF_ERROR(conjunct->prepare(_runtime_state, RowDescriptor {}));
+    RETURN_IF_ERROR(conjunct->open(_runtime_state));
+    *prepared = std::move(conjunct);
+    return Status::OK();
+}
+
+Status TableReader::_replace_conjuncts(const VExprContextSPtrs& conjuncts) {
+    VExprContextSPtrs prepared;
+    prepared.reserve(conjuncts.size());
+    for (const auto& source : conjuncts) {
+        VExprContextSPtr conjunct;
+        RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        prepared.push_back(std::move(conjunct));
+    }
+    _conjuncts = std::move(prepared);
+    return Status::OK();
+}
+
+Status TableReader::append_conjuncts_with_ownership(const VExprContextSPtrs& conjuncts,
+                                                    size_t table_reader_owned_conjunct_count) {
+    DORIS_CHECK(!_appended_table_reader_owned_conjunct_count.has_value());
+    _appended_table_reader_owned_conjunct_count = table_reader_owned_conjunct_count;
+    auto status = append_conjuncts(conjuncts);
+    _appended_table_reader_owned_conjunct_count.reset();
+    return status;
+}
+
+Status TableReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
+    const size_t owned_count =
+            _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
+    DORIS_CHECK_LE(owned_count, conjuncts.size());
+    // Once Scanner owns a suffix, later predicates cannot be inserted into the TableReader-owned
+    // prefix without reordering them ahead of that stateful/error-preserving barrier.
+    DORIS_CHECK(owned_count == 0 || _table_reader_owned_conjunct_count == _conjuncts.size());
+    for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
+        const auto& source = conjuncts[conjunct_index];
+        VExprContextSPtr conjunct;
+        RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        _conjuncts.push_back(conjunct);
+        if (conjunct_index < owned_count) {
+            ++_table_reader_owned_conjunct_count;
+        }
+        if (_current_task != nullptr && conjunct_index < owned_count) {
+            // The active reader has already fixed its localized predicate set. Appended runtime
+            // filters must remain residual until the next split rebuilds its FileScanRequest.
+            _remaining_conjuncts.push_back(std::move(conjunct));
+        }
     }
     return Status::OK();
 }
@@ -582,22 +804,83 @@ Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
     _constant_pruning_safe_filter_count = 0;
     bool in_safe_prefix = true;
-    for (const auto& conjunct : _conjuncts) {
+    for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
+        const auto& conjunct = _conjuncts[conjunct_index];
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
         // `_table_filters` omits expressions without slot references, but such an expression still
         // occupies a position in the row-level conjunct order. Record how many localized filters
         // precede the first unsafe original conjunct so constant pruning cannot jump over a
-        // slotless non-deterministic/error-preserving barrier.
-        if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
+        // slotless non-deterministic/error-preserving barrier. An unsafe predicate is either kept
+        // on TableReader's post-materialization path by a standalone caller or carried only for
+        // analysis when FileScannerV2 owns the ordered suffix.
+        if (in_safe_prefix && !is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
-        if (!in_safe_prefix) {
-            continue;
-        }
+        const size_t filters_before = _table_filters.size();
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
-        _constant_pruning_safe_filter_count = _table_filters.size();
+        for (size_t filter_index = filters_before; filter_index < _table_filters.size();
+             ++filter_index) {
+            _table_filters[filter_index].source_conjunct_index = conjunct_index;
+            _table_filters[filter_index].can_localize = in_safe_prefix;
+        }
+        if (in_safe_prefix) {
+            _constant_pruning_safe_filter_count = _table_filters.size();
+        }
+    }
+    return Status::OK();
+}
+
+Status TableReader::_prepare_all_conjuncts_as_remaining() {
+    // Expression contexts carry mutable state (for example sequence/stateful functions). Select
+    // from the TableReader-owned contexts instead of reopening clones for every split.
+    _remaining_conjuncts.assign(
+            _conjuncts.begin(),
+            _conjuncts.begin() + cast_set<ptrdiff_t>(_table_reader_owned_conjunct_count));
+    return Status::OK();
+}
+
+Status TableReader::_prepare_remaining_conjuncts(
+        const FilterLocalizationResult& localization_result) {
+    DORIS_CHECK(localization_result.localized_filters.size() == _table_filters.size());
+    std::vector<bool> localized_conjuncts(_conjuncts.size(), false);
+    for (size_t filter_index = 0; filter_index < _table_filters.size(); ++filter_index) {
+        if (!localization_result.localized_filters[filter_index]) {
+            continue;
+        }
+        const size_t source_index = _table_filters[filter_index].source_conjunct_index;
+        DORIS_CHECK(source_index < localized_conjuncts.size());
+        localized_conjuncts[source_index] = true;
+    }
+
+    _remaining_conjuncts.clear();
+    for (size_t conjunct_index = 0; conjunct_index < _table_reader_owned_conjunct_count;
+         ++conjunct_index) {
+        if (localized_conjuncts[conjunct_index]) {
+            continue;
+        }
+        _remaining_conjuncts.push_back(_conjuncts[conjunct_index]);
+    }
+    return Status::OK();
+}
+
+Status TableReader::_filter_remaining_conjuncts(Block* block, size_t* rows) {
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(rows != nullptr);
+    if (*rows == 0 || _remaining_conjuncts.empty()) {
+        return Status::OK();
+    }
+    SCOPED_TIMER(_profile.residual_filter_timer);
+    const size_t rows_before_filter = *rows;
+    auto status = VExprContext::filter_block(_remaining_conjuncts, block, block->columns());
+    if (!status.ok() && _format == FileFormat::ORC) {
+        status.prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    RETURN_IF_ERROR(status);
+    *rows = block->columns() == 0 ? rows_before_filter : block->rows();
+    if (_io_ctx != nullptr) {
+        _io_ctx->predicate_filtered_rows += rows_before_filter - *rows;
     }
     return Status::OK();
 }
@@ -723,7 +1006,12 @@ Status TableReader::create_next_reader(bool* eos) {
     if (_batch_size > 0) {
         _data_reader.reader->set_batch_size(_batch_size);
     }
-    Status st = _data_reader.reader->init(_runtime_state);
+    Status st;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_init_timer);
+        st = _data_reader.reader->init(_runtime_state);
+    }
     if (!st.ok()) {
         if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
             *eos = true;
@@ -754,10 +1042,16 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
+    const bool enable_mapping_varbinary = _scan_params != nullptr &&
+                                          _scan_params->__isset.enable_mapping_varbinary &&
+                                          _scan_params->enable_mapping_varbinary;
     if (_format == FileFormat::PARQUET) {
+        // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
+        // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
+        // match the table type.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -828,8 +1122,12 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 }
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
+    SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
+    // Predicate localization belongs to the physical schema of one split. Clear the previous
+    // ownership before any early return so a pruned or failed split cannot leak it to the next one.
+    _remaining_conjuncts.clear();
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
     _condition_cache_digest_covers_current_split = options.condition_cache_digest.has_value();
     if (options.condition_cache_digest.has_value()) {
@@ -843,7 +1141,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
         _condition_cache_digest = _initial_condition_cache_digest;
     }
     if (options.conjuncts.has_value()) {
-        _conjuncts = *options.conjuncts;
+        RETURN_IF_ERROR(_replace_conjuncts(*options.conjuncts));
     }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
@@ -862,6 +1160,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
+    _remaining_file_level_count = -1;
     _current_split_uses_metadata_count = false;
     _current_reader_reached_eof = false;
     RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,
@@ -912,7 +1211,7 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
         // Keep only the safe prefix of the original conjunct order. If an unsafe conjunct is
         // skipped, a later predicate could prune the split before the unsafe one reaches its
         // normal row-level evaluation point.
-        if (!_is_safe_to_pre_execute(conjunct)) {
+        if (!is_safe_to_pre_execute(conjunct)) {
             break;
         }
         std::set<GlobalIndex> global_indices;
@@ -948,7 +1247,7 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
                                            can_filter_all);
 }
 
-bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
+bool TableReader::is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
     DORIS_CHECK(conjunct != nullptr);
     DORIS_CHECK(conjunct->root() != nullptr);
     const auto root = conjunct->root();
