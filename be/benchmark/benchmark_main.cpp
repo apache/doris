@@ -17,6 +17,7 @@
 
 #include <benchmark/benchmark.h>
 
+#include "benchmark_arrow_validation.hpp"
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
