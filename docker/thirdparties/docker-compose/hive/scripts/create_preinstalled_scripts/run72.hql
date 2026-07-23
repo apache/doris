@@ -1,4 +1,5 @@
-CREATE TABLE invalid_utf8_data (
+drop table if exists invalid_utf8_data;
+create table invalid_utf8_data (
     id INT,
     corrupted_data STRING,
     string_data1 STRING,
@@ -10,7 +11,10 @@ LINES TERMINATED BY '\n'
 location '/user/doris/preinstalled_data/text/utf8_check';
 
 
-CREATE TABLE invalid_utf8_data2 (
+drop table if exists invalid_utf8_data2;
+
+
+create table invalid_utf8_data2 (
     id INT,
     corrupted_data STRING,
     string_data1 STRING,
@@ -23,9 +27,3 @@ WITH SERDEPROPERTIES (
     "escapeChar" = "\\"
 )
 location '/user/doris/preinstalled_data/text/utf8_check';
-
-
-
-msck repair table invalid_utf8_data;
-msck repair table invalid_utf8_data2;
-

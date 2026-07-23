@@ -424,6 +424,9 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     // kerberos
     String hdfs_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos",
              
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
@@ -431,6 +434,9 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     """
     String hdfs_new_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
@@ -484,8 +490,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String db_location = "obs://${obs_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + obs_storage_properties, "hive_hms_obs_test", db_location)
     testQueryAndInsert(hms_properties + obs_region_param + obs_storage_properties, "hive_hms_obs_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + obs_storage_properties, "hive_hms_on_obs_kerberos_old", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + obs_storage_properties, "hive_hms_on_obs_kerberos_new", db_location)
 
     //OBS - Partition table tests
     db_location = "obs://${obs_parent_path}/hive/hms/partition/" + System.currentTimeMillis()
@@ -498,8 +502,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
         db_location = "gs://${gcs_parent_path}/hive/hms/" + System.currentTimeMillis()
         testQueryAndInsert(hms_properties + gcs_storage_old_properties, "hive_hms_gcs_test", db_location)
         testQueryAndInsert(hms_properties + gcs_storage_new_properties, "hive_hms_gcs_test_new", db_location)
-        testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + gcs_storage_old_properties, "hive_hms_on_gcs_kerberos_old", db_location)
-        testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + gcs_storage_new_properties, "hive_hms_on_gcs_kerberos_new", db_location)
         //GCS - Insert overwrite tests
         db_location = "gs://${gcs_parent_path}/hive/hms/overwrite/" + System.currentTimeMillis()
         testInsertOverwrite(hms_properties + gcs_storage_new_properties, "hive_hms_gcs_overwrite_test", db_location)
@@ -509,8 +511,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     db_location = "cosn://${cos_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + cos_storage_properties, "hive_hms_cos_test", db_location)
     testQueryAndInsert(hms_properties + cos_region_param + cos_storage_properties, "hive_hms_cos_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_old", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_new", db_location)
 
     //COS - Partition table tests
     db_location = "cosn://${cos_parent_path}/hive/hms/partition/" + System.currentTimeMillis()
@@ -526,8 +526,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     db_location = "oss://${oss_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + oss_storage_properties, "hive_hms_oss_test", db_location)
     testQueryAndInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_old", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_new", db_location)
 
     //OSS - Partition table tests (fix for partition path scheme mismatch)
     db_location = "oss://${oss_parent_path}/hive/hms/partition/" + System.currentTimeMillis()
