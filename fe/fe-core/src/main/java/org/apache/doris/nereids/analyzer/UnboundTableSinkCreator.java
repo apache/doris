@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -161,8 +162,8 @@ public class UnboundTableSinkCreator {
     /**
      * create unbound sink for dictionary sink
      */
-    public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Dictionary dictionary,
-            LogicalPlan child, boolean adaptiveLoad) {
-        return new UnboundDictionarySink<>(dictionary, child, adaptiveLoad);
+    public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Database database,
+            Dictionary dictionary, LogicalPlan child, boolean adaptiveLoad) {
+        return new UnboundDictionarySink<>(database, dictionary, child, adaptiveLoad);
     }
 }
