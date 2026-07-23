@@ -167,6 +167,7 @@ struct ColumnMapping {
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
     bool allow_idless_complex_wrapper_projection = false;
+    bool enable_row_lineage_virtual_columns = false;
 
     std::string debug_string() const;
 };

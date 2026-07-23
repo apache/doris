@@ -840,6 +840,13 @@ TEST(PaimonHybridReaderTest, ScannerStatefulResidualSurvivesNativeJniNativeSwitc
     EXPECT_EQ(observed_invocations, std::vector<int>({0, 1, 2}));
 }
 
+TEST(PaimonHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {
+    paimon::PaimonHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader.TEST_set_child_condition_cache_hits(3, 5);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 8);
+}
+
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_paimon_hybrid_count_column_test";

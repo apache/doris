@@ -77,6 +77,8 @@ std::vector<size_t> adaptive_prefetch_prefix(
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats,
         double minimum_reach_probability);
 bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence);
+Status validate_ephemeral_expr_result_column(size_t original_columns, int result_column_id,
+                                             size_t current_columns);
 Status build_native_prefetch_ranges(
         const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,

@@ -1271,6 +1271,10 @@ ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::materialize_dictionary_values(
     // interpretation as ordinary data-page decoding.
     const DataTypePtr dictionary_type = remove_nullable(target_type);
     const DataTypeSerDeSPtr dictionary_serde = dictionary_type->get_serde();
+    // The probe is the first typed read for this reader. Publish its SerDe identity now so the
+    // first dictionary-ID batch does not mistake initialization for a type change and drop cache.
+    _serde_type = dictionary_type.get();
+    _serde = dictionary_serde;
     if (_materialization_state.dictionary_generation !=
         dictionary_decoder->dictionary_generation()) {
         _materialization_state.typed_dictionary = dictionary_type->create_column();
@@ -1285,6 +1289,9 @@ ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::materialize_dictionary_values(
         DORIS_CHECK_EQ(_materialization_state.typed_dictionary->size(),
                        dictionary_decoder->dictionary_size());
         _materialization_state.dictionary_generation = dictionary_decoder->dictionary_generation();
+#ifdef BE_TEST
+        ++_dictionary_materialization_count;
+#endif
     }
 
     auto result = _materialization_state.typed_dictionary->clone_empty();
@@ -1350,11 +1357,16 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     }
 
     const DataTypePtr serde_type = is_dict_filter ? file_type : materialization_type;
-    if (_serde_type != serde_type.get() || _dictionary_index_only != is_dict_filter) {
+    const bool serde_type_changed = _serde_type != serde_type.get();
+    if (serde_type_changed || _dictionary_index_only != is_dict_filter) {
         _serde_type = serde_type.get();
         _serde = serde_type->get_serde();
         _dictionary_index_only = is_dict_filter;
-        _materialization_state.reset_dictionary();
+        // Switching between typed values and dictionary IDs does not invalidate the dictionary
+        // materialized by the pruning probe. Preserve it unless the logical SerDe type changed.
+        if (serde_type_changed) {
+            _materialization_state.reset_dictionary();
+        }
     }
     _decode_context.dictionary_index_only = is_dict_filter;
 

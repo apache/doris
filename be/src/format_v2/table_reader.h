@@ -226,6 +226,7 @@ public:
     size_t TEST_table_reader_owned_conjunct_count() const {
         return _table_reader_owned_conjunct_count;
     }
+    void TEST_set_condition_cache_hit_count(int64_t hits) { _condition_cache_hit_count = hits; }
     bool TEST_current_data_file_is_immutable() const {
         DORIS_CHECK(_current_task != nullptr);
         DORIS_CHECK(_current_task->data_file != nullptr);
@@ -404,7 +405,7 @@ public:
         return Status::OK();
     }
 
-    int64_t condition_cache_hit_count() const { return _condition_cache_hit_count; }
+    virtual int64_t condition_cache_hit_count() const { return _condition_cache_hit_count; }
 
     virtual std::string debug_string() const;
 

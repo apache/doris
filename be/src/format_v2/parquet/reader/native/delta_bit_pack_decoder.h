@@ -672,6 +672,12 @@ Status DeltaBitPackDecoder<T>::_init_header() {
     if (_mini_blocks_per_block == 0) {
         return Status::InvalidArgument("Cannot have zero miniblock per block");
     }
+    // Parquet requires integral block geometry; truncating here would silently decode fewer
+    // values than the header declares and desynchronize the following block.
+    if (UNLIKELY(_values_per_block % _mini_blocks_per_block != 0)) {
+        return Status::Corruption("Parquet delta block size {} is not divisible by {} miniblocks",
+                                  _values_per_block, _mini_blocks_per_block);
+    }
     _values_per_mini_block = _values_per_block / _mini_blocks_per_block;
     if (_values_per_mini_block == 0) {
         return Status::InvalidArgument("Cannot have zero value per miniblock");
