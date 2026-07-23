@@ -20,6 +20,9 @@
 #include <gtest/gtest.h>
 #include <stdint.h>
 
+#include <cmath>
+#include <iterator>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
@@ -27,6 +30,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_percentile.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_topn.h"
 #include "vec/columns/column.h"
@@ -34,6 +38,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -182,6 +187,42 @@ TEST(AggTest, percentile_query_option_routes_default_names_to_v2) {
                         false, be_version, {.new_version_percentile = true, .column_names = {}});
     ASSERT_NE(percentile_array_v2, nullptr);
     EXPECT_EQ(percentile_array_v2->get_name(), "percentile_array_v2");
+}
+
+TEST(AggTest, percentile_v2_skips_nan) {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double values[] = {1.0, nan, 2.0};
+    const double all_nan_values[] = {nan, nan};
+
+    PercentileExactState<TYPE_DOUBLE> scalar_state;
+    scalar_state.add_single_range(values, std::size(values), 0.5);
+    EXPECT_DOUBLE_EQ(1.5, scalar_state.get());
+
+    PercentileExactState<TYPE_DOUBLE> all_nan_scalar_state;
+    all_nan_scalar_state.add_single_range(all_nan_values, std::size(all_nan_values), 0.5);
+    EXPECT_TRUE(std::isnan(all_nan_scalar_state.get()));
+
+    PaddedPODArray<Float64> quantiles {0.25, 0.5, 0.75};
+    NullMap null_map(quantiles.size(), false);
+
+    PercentileExactState<TYPE_DOUBLE> array_state;
+    array_state.add_many_range(values, std::size(values), quantiles, null_map, 0, quantiles.size());
+    auto array_result = ColumnFloat64::create();
+    array_state.insert_result_into(*array_result);
+    ASSERT_EQ(3, array_result->size());
+    EXPECT_DOUBLE_EQ(1.25, array_result->get_element(0));
+    EXPECT_DOUBLE_EQ(1.5, array_result->get_element(1));
+    EXPECT_DOUBLE_EQ(1.75, array_result->get_element(2));
+
+    PercentileExactState<TYPE_DOUBLE> all_nan_array_state;
+    all_nan_array_state.add_many_range(all_nan_values, std::size(all_nan_values), quantiles,
+                                       null_map, 0, quantiles.size());
+    auto all_nan_array_result = ColumnFloat64::create();
+    all_nan_array_state.insert_result_into(*all_nan_array_result);
+    ASSERT_EQ(3, all_nan_array_result->size());
+    for (size_t i = 0; i < all_nan_array_result->size(); ++i) {
+        EXPECT_TRUE(std::isnan(all_nan_array_result->get_element(i)));
+    }
 }
 
 TEST(AggTest, window_function_test2) {

@@ -24,8 +24,10 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "util/percentile_util.h"
@@ -504,7 +506,7 @@ struct PercentileExactState {
 
     double get() const {
         if (!inited_flag || levels.empty() || values.empty()) {
-            return 0.0;
+            return std::numeric_limits<double>::quiet_NaN();
         }
 
         DCHECK_EQ(levels.quantiles.size(), 1);
@@ -513,7 +515,7 @@ struct PercentileExactState {
 
     void insert_result_into(IColumn& to) const {
         auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
-        if (!inited_flag || levels.empty() || values.empty()) {
+        if (!inited_flag || levels.empty()) {
             return;
         }
 
@@ -521,6 +523,13 @@ struct PercentileExactState {
         size_t size = levels.quantiles.size();
         column_data.resize(old_size + size);
         auto* result = column_data.data() + old_size;
+
+        if (values.empty()) {
+            for (size_t i = 0; i < size; ++i) {
+                result[i] = std::numeric_limits<double>::quiet_NaN();
+            }
+            return;
+        }
 
         if (values.size() == 1) {
             for (size_t i = 0; i < size; ++i) {
@@ -583,7 +592,15 @@ private:
             return;
         }
         values.reserve(values.size() + count);
-        values.insert_assume_reserved(data, data + count);
+        if constexpr (std::is_floating_point_v<ValueType>) {
+            for (size_t i = 0; i < count; ++i) {
+                if (!std::isnan(data[i])) {
+                    values.push_back(data[i]);
+                }
+            }
+        } else {
+            values.insert_assume_reserved(data, data + count);
+        }
     }
 
     double _get_result(double quantile) const {
