@@ -53,6 +53,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.DateTimeUtils;
+import org.apache.paimon.utils.PartitionPathUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1071,9 +1072,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Shared partition collector backing {@link #listPartitionNames}, {@link #listPartitions} and
-     * {@link #listPartitionValues}. Replicates the legacy fe-core display-name logic
+     * {@link #listPartitionValues}. Replicates the fe-core display-name logic
      * ({@code PaimonUtil.generatePartitionInfo} + {@code isLegacyPartitionName}) so the rendered
-     * partition names stay byte-identical to the pre-migration behavior.
+     * partition names stay byte-identical to fe-core — including #65904, which drives value order from
+     * the partition columns and escapes path-special characters in the name via the Paimon SDK.
      */
     private List<ConnectorPartitionInfo> collectPartitions(PaimonTableHandle paimonHandle) {
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
@@ -1130,20 +1132,29 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
 
         List<ConnectorPartitionInfo> result = new ArrayList<>(paimonPartitions.size());
+        // Two distinct specs whose values contain path-special characters could still render to the same
+        // escaped name only if they are genuinely-duplicate remote metadata; fail loud rather than let a
+        // later map-put silently drop one. Parity with fe-core #65904.
+        Set<String> seenPartitionNames = new HashSet<>();
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
-            StringBuilder sb = new StringBuilder();
-            // Per-value SQL-NULL flags, built in this SAME loop so flag i aligns with name segment i (which is
-            // how fe-core re-parses the rendered name positionally at PluginDrivenMvccExternalTable).
-            List<Boolean> nullFlags = new ArrayList<>(spec.size());
-            // Ordered rendered values, collected in this SAME loop so value i == name segment i (exactly what
-            // fe-core used to re-parse out of the rendered name); supplied so fe-core skips the parse.
-            List<String> orderedValues = new ArrayList<>(spec.size());
-            for (Map.Entry<String, String> entry : spec.entrySet()) {
-                sb.append(entry.getKey()).append("=");
-                String value = entry.getValue();
+            // Both lists are driven by partitionKeys (the partition-COLUMN order), NOT Paimon's spec
+            // iteration order, so index i aligns with the partition-column type i that fe-core
+            // (PluginDrivenMvccExternalTable.toListPartitionItem) zips them against.
+            // Per-value SQL-NULL flags:
+            List<Boolean> nullFlags = new ArrayList<>(partitionKeys.size());
+            // Ordered rendered values, supplied so fe-core never parses values back out of the name:
+            List<String> orderedValues = new ArrayList<>(partitionKeys.size());
+            // Rendered spec fed to PartitionPathUtils.generatePartitionPath so the partition NAME escapes
+            // path-special characters (/ = [ ] * ...) exactly like the Paimon SDK. Without escaping, two
+            // distinct specs whose values contain '/' or '=' would concat to the same Hive-style name and
+            // collide (one partition item silently lost). Parity with fe-core #65904.
+            LinkedHashMap<String, String> renderedSpec = new LinkedHashMap<>();
+            for (String partitionColumnName : partitionKeys) {
+                String value = spec.get(partitionColumnName);
                 boolean isNull = defaultPartitionName.equals(value);
                 nullFlags.add(isNull);
+                String rendered;
                 if (isNull) {
                     // Genuine NULL partition value. Supply isNull=true so the FE bridge
                     // (PluginDrivenMvccExternalTable.toListPartitionItem) builds a typed NullLiteral and
@@ -1152,24 +1163,24 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     // The name is still normalized to the Doris-canonical sentinel (partition-name identity is
                     // preserved; the value string is ignored once the flag marks it null). Handled before the
                     // DATE branch so a null DATE partition does not crash on Integer.parseInt("__DEFAULT_PARTITION__").
-                    orderedValues.add(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION);
-                    sb.append(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION).append("/");
-                } else if (legacyName && dateColumns.contains(entry.getKey())) {
+                    rendered = ConnectorPartitionValues.HIVE_DEFAULT_PARTITION;
+                } else if (legacyName && dateColumns.contains(partitionColumnName)) {
                     // When partition.legacy-name = true (default), Paimon stores DATE as days since
                     // 1970-01-01 (epoch integer), so render it via the Paimon SDK formatDate; when
                     // false the value is already a human-readable date string.
-                    String rendered = DateTimeUtils.formatDate(Integer.parseInt(value));
-                    orderedValues.add(rendered);
-                    sb.append(rendered).append("/");
+                    rendered = DateTimeUtils.formatDate(Integer.parseInt(value));
                 } else {
-                    orderedValues.add(value);
-                    sb.append(value).append("/");
+                    rendered = value;
                 }
+                orderedValues.add(rendered);
+                renderedSpec.put(partitionColumnName, rendered);
             }
-            if (sb.length() > 0) {
-                sb.deleteCharAt(sb.length() - 1);
+            // generatePartitionPath returns "k1=v1/k2=v2/" (escaped values, trailing separator); drop it.
+            String partitionPath = PartitionPathUtils.generatePartitionPath(renderedSpec);
+            String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
+            if (!seenPartitionNames.add(partitionName)) {
+                throw new IllegalStateException("Duplicate Paimon partition name: " + partitionName);
             }
-            String partitionName = sb.toString();
             // partitionValues = RAW spec (un-rendered): downstream indexes by raw remote keys.
             result.add(new ConnectorPartitionInfo(
                     partitionName,
