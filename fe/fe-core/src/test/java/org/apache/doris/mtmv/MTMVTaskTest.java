@@ -42,6 +42,7 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
+import org.apache.doris.mtmv.ivm.IvmRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
@@ -69,6 +70,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -380,7 +382,7 @@ public class MTMVTaskTest {
                     });
 
             Deencapsulation.invoke(task, "refreshPartitions", Sets.newHashSet(poneName), Collections.emptyMap(),
-                    Optional.empty());
+                    Optional.empty(), RefreshMode.PARTITIONS);
         } finally {
             ConnectContext.remove();
         }
@@ -459,12 +461,13 @@ public class MTMVTaskTest {
         MTMVRefreshContext refreshContext = mockIvmRefreshContext();
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenReturn(
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(
                         IvmRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
             Assert.assertEquals("FALLBACK_ALLOWED", result.toString());
-            Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.eq(mtmv), Mockito.any());
+            Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.any());
         }
 
         Assert.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED.name(),
@@ -480,15 +483,20 @@ public class MTMVTaskTest {
         int originalMaxQueryRetryTime = Config.max_query_retry_time;
         Config.max_query_retry_time = 1;
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenThrow(
-                        new RuntimeException(new RpcException("be", "rpc failed")))
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenThrow(
+                                new RuntimeException(new RpcException("be", "rpc failed")))
                         .thenReturn(IvmRefreshResult.success()))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
 
             Assert.assertEquals("SUCCESS", result.toString());
+            ArgumentCaptor<IvmRefreshContext> refreshContextCaptor =
+                    ArgumentCaptor.forClass(IvmRefreshContext.class);
             Mockito.verify(ignored.constructed().get(0), Mockito.times(2))
-                    .doRefresh(Mockito.eq(mtmv), Mockito.any());
+                    .doRefresh(refreshContextCaptor.capture());
+            Assert.assertNotSame(refreshContextCaptor.getAllValues().get(0),
+                    refreshContextCaptor.getAllValues().get(1));
         } finally {
             Config.max_query_retry_time = originalMaxQueryRetryTime;
         }
@@ -526,14 +534,15 @@ public class MTMVTaskTest {
         MTMVRefreshContext refreshContext = mockIvmRefreshContext();
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, constructionContext) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any()))
+                (mock, constructionContext) -> Mockito.when(
+                        mock.doRefresh(Mockito.any()))
                         .thenReturn(IvmRefreshResult.success()))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
 
             Assert.assertEquals("SUCCESS", result.toString());
             Assert.assertEquals(1, ignored.constructed().size());
-            Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.eq(mtmv), Mockito.any());
+            Mockito.verify(ignored.constructed().get(0)).doRefresh(Mockito.any());
         }
     }
 
@@ -544,7 +553,8 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         MTMVRefreshContext refreshContext = mockIvmRefreshContext();
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenReturn(
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(
                         IvmRefreshResult.fallback(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, "layout drift")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
@@ -563,7 +573,8 @@ public class MTMVTaskTest {
         MTMVRefreshContext refreshContext = mockIvmRefreshContext();
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenReturn(
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(
                         IvmRefreshResult.fallback(IvmFailureReason.BINLOG_BROKEN, "broken baseline")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
@@ -602,7 +613,8 @@ public class MTMVTaskTest {
         Deencapsulation.setField(task, "refreshMode", MTMVTask.MTMVTaskRefreshMode.PARTIAL);
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenReturn(
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(
                         IvmRefreshResult.fallback(IvmFailureReason.BINLOG_NOT_ENABLED, "no_binlog")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);
@@ -640,7 +652,8 @@ public class MTMVTaskTest {
             Deencapsulation.setField(task, "refreshMode", MTMVTask.MTMVTaskRefreshMode.PARTIAL);
 
             try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenReturn(
+                    (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(
                             IvmRefreshResult.fallback(IvmFailureReason.PLAN_SIGNATURE_MISMATCH,
                                     "layout drift")))) {
                 Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
@@ -666,7 +679,8 @@ public class MTMVTaskTest {
         MTMVRefreshContext refreshContext = mockIvmRefreshContext();
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
-                (mock, constructionContext) -> Mockito.when(mock.doRefresh(Mockito.eq(mtmv), Mockito.any())).thenReturn(
+                (mock, constructionContext) -> Mockito.when(
+                        mock.doRefresh(Mockito.any())).thenReturn(
                         IvmRefreshResult.fallback(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, "delta failed")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request);

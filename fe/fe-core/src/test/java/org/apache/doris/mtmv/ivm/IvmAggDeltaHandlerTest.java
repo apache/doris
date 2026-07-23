@@ -439,7 +439,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testAggMissingRewriteResultThrows() {
         LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
         MTMV mtmv = buildMtmvFromPlan(agg.getOutput());
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null, false);
         IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0),
                 agg.child(0).getOutput().get(0), agg.child(0).getOutput().get(1), 0);
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor() {
@@ -468,7 +468,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         };
 
         Assertions.assertFalse(new IvmAggDeltaHandler().rewriteAggregate(agg, visitor,
-                new IvmRefreshContext(buildMtmvFromPlan(agg.getOutput()), new ConnectContext(), null)).isPresent());
+                new IvmRefreshContext(buildMtmvFromPlan(agg.getOutput()), new ConnectContext(), null, false)).isPresent());
     }
 
     @Test

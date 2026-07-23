@@ -63,6 +63,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
@@ -492,7 +493,7 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return;
         }
-        executePartitionBasedRefresh(context);
+        executePartitionBasedRefresh(context, RefreshMode.COMPLETE);
     }
 
     private AttemptResultType executeIvmAttempt(MTMVRefreshContext refreshContext,
@@ -537,8 +538,13 @@ public class MTMVTask extends AbstractTask {
         }
         IvmRefreshResult ivmResult;
         try {
-            ivmResult = executeWithRetry(
-                    () -> ivmRefreshManager.doRefresh(mtmv, this::recordQueryId), "IVM refresh");
+            ivmResult = executeWithRetry(() -> {
+                IvmRefreshContext ivmRefreshContext = new IvmRefreshContext(mtmv,
+                        MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK),
+                        getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
+                        this::recordQueryId);
+                return ivmRefreshManager.doRefresh(ivmRefreshContext);
+            }, "IVM refresh");
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", detail=" + Util.getRootCauseMessage(e), e);
@@ -600,11 +606,11 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return true;
         }
-        executePartitionBasedRefresh(partitionPlan.context);
+        executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS);
         return true;
     }
 
-    private void executePartitionBasedRefresh(MTMVRefreshContext context)
+    private void executePartitionBasedRefresh(MTMVRefreshContext context, RefreshMode refreshMode)
             throws JobException, AnalysisException {
         boolean useIvmFallbackStreams = mtmv.isIvm();
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
@@ -637,7 +643,7 @@ public class MTMVTask extends AbstractTask {
                             execPartitionNames);
             try {
                 IvmPlanSignature planSignature = refreshPartitionsWithRetry(execPartitionNames, tableWithPartKey,
-                        rewriteContext);
+                        rewriteContext, refreshMode);
                 if (useIvmFallbackStreams) {
                     if (fullRefreshPlanSignature == null) {
                         fullRefreshPlanSignature = planSignature;
@@ -684,9 +690,10 @@ public class MTMVTask extends AbstractTask {
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
             Map<TableIf, String> tableWithPartKey,
-            Optional<IvmRewriteContext> rewriteContext)
+            Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
-        return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey, rewriteContext),
+        return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey,
+                        rewriteContext, refreshMode),
                 "partition refresh, execPartitionNames=" + execPartitionNames);
     }
 
@@ -743,7 +750,7 @@ public class MTMVTask extends AbstractTask {
 
     private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey,
-            Optional<IvmRewriteContext> rewriteContext)
+            Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         // Create MTMV context first so that new StatementContext() captures the
         // correct thread-local ConnectContext (with MTMV disabled rules, etc.).
@@ -772,7 +779,7 @@ public class MTMVTask extends AbstractTask {
         };
         try {
             executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                    getDummyStmt(refreshPartitionNames), customizer);
+                    getRefreshAuditStmt(refreshMode, refreshPartitionNames), customizer);
         } finally {
             recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
         }
@@ -815,20 +822,20 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private String getDummyStmt(Set<String> refreshPartitionNames) {
+    private String getRefreshAuditStmt(RefreshMode refreshMode, Set<String> refreshPartitionNames) {
         String mvName = mtmv.getName();
         DatabaseIf database = mtmv.getDatabase();
         if (database != null) {
             mvName = database.getFullName() + "." + mvName;
             CatalogIf catalog = database.getCatalog();
             if (catalog != null) {
-                mvName = catalog.getName() + mvName;
+                mvName = catalog.getName() + "." + mvName;
             }
         }
         return String.format(
                 "Asynchronous materialized view refresh task, mvName: %s,"
-                        + "taskId: %s, partitions refreshed by this insert overwrite: %s",
-                mvName, super.getTaskId(), refreshPartitionNames);
+                        + "taskId: %s, refreshMode: %s, partitions: %s",
+                mvName, super.getTaskId(), refreshMode, refreshPartitionNames);
     }
 
     @Override
