@@ -34,7 +34,11 @@ import java.util.Set;
  * Stages a complex-type {@code MODIFY COLUMN} onto an iceberg {@link UpdateSchema} by recursively diffing the
  * table's CURRENT iceberg type against the requested NEW iceberg type (built by
  * {@link IcebergSchemaBuilder#buildColumnType} from the neutral {@code ConnectorType}, which now carries the
- * per-element nullability + per-STRUCT-field comments needed to drive the diff).
+ * per-element nullability + per-STRUCT-field comments needed to drive the diff). The same neutral
+ * {@code ConnectorType} is passed alongside as {@code newConn} so the walk can read each STRUCT field's
+ * {@code commentSpecified} flag — the one datum the iceberg type cannot carry (it stores only a doc string,
+ * and a Doris field records an omitted COMMENT as an empty string, identical to {@code COMMENT ''}) — and thus
+ * preserve a nested field's CURRENT doc when its COMMENT was omitted instead of clearing it.
  *
  * <p>Connector-internal, pure (no remote calls — it only stages {@code UpdateSchema} operations; the seam
  * commits). It is a faithful port of the legacy fe-core {@code IcebergMetadataOps.applyStruct/List/MapChange}
@@ -60,25 +64,40 @@ public final class IcebergComplexTypeDiff {
      * Stages the diff of {@code newType} over {@code oldType} (both rooted at {@code path}) onto
      * {@code updateSchema}. {@code oldType} must be a complex type; {@code newType} must be the SAME category.
      *
+     * <p>{@code newConn} is the neutral type {@code newType} was built from (structurally identical — same
+     * child order / field names), carried so the diff can read each STRUCT field's {@code commentSpecified}
+     * flag, which the iceberg {@code newType} (only a doc string per field) cannot represent. When it is
+     * {@code null} (legacy callers) every field is treated as comment-specified, i.e. the prior behavior of
+     * taking the new field's doc verbatim.</p>
+     *
      * @throws DorisConnectorException for any unsupported / illegal change (the caller maps it to a DdlException)
      */
-    public static void apply(UpdateSchema updateSchema, String path, Type oldType, Type newType) {
+    public static void apply(UpdateSchema updateSchema, String path, Type oldType, Type newType,
+            ConnectorType newConn) {
         switch (oldType.typeId()) {
             case STRUCT:
                 requireSameCategory(oldType, newType);
-                applyStructChange(updateSchema, path, oldType.asStructType(), newType.asStructType());
+                applyStructChange(updateSchema, path, oldType.asStructType(), newType.asStructType(), newConn);
                 break;
             case LIST:
                 requireSameCategory(oldType, newType);
-                applyListChange(updateSchema, path, (Types.ListType) oldType, (Types.ListType) newType);
+                applyListChange(updateSchema, path, (Types.ListType) oldType, (Types.ListType) newType, newConn);
                 break;
             case MAP:
                 requireSameCategory(oldType, newType);
-                applyMapChange(updateSchema, path, (Types.MapType) oldType, (Types.MapType) newType);
+                applyMapChange(updateSchema, path, (Types.MapType) oldType, (Types.MapType) newType, newConn);
                 break;
             default:
                 throw new DorisConnectorException("Unsupported complex type for modify: " + oldType);
         }
+    }
+
+    /** The neutral child at {@code index} of {@code newConn}, or null when {@code newConn} is null / shorter. */
+    private static ConnectorType childConn(ConnectorType newConn, int index) {
+        if (newConn == null || index >= newConn.getChildren().size()) {
+            return null;
+        }
+        return newConn.getChildren().get(index);
     }
 
     /**
@@ -139,7 +158,7 @@ public final class IcebergComplexTypeDiff {
     }
 
     private static void applyStructChange(UpdateSchema updateSchema, String path,
-            Types.StructType oldStruct, Types.StructType newStruct) {
+            Types.StructType oldStruct, Types.StructType newStruct, ConnectorType newConn) {
         List<Types.NestedField> oldFields = oldStruct.fields();
         List<Types.NestedField> newFields = newStruct.fields();
 
@@ -161,6 +180,12 @@ public final class IcebergComplexTypeDiff {
                         + "' to '" + newField.name() + "'");
             }
 
+            // #65329 omit-preserves-metadata: an omitted COMMENT on this field keeps its CURRENT doc; only an
+            // explicit COMMENT (incl. "") overrides it. The iceberg newField only carries the (empty) doc, so
+            // the "was it specified?" bit comes from the parallel neutral child.
+            boolean commentSpecified = newConn == null || newConn.isChildCommentSpecified(i);
+            String targetDoc = commentSpecified ? newField.doc() : oldField.doc();
+
             Type oldFieldType = oldField.type();
             Type newFieldType = newField.type();
             if (oldFieldType.isPrimitiveType()) {
@@ -170,15 +195,15 @@ public final class IcebergComplexTypeDiff {
                             + " in nested types");
                 }
                 requireNotNarrowed(oldField, newField, fieldPath);
-                boolean commentChanged = !Objects.equals(oldField.doc(), newField.doc());
+                boolean commentChanged = !Objects.equals(oldField.doc(), targetDoc);
                 if (typeChanged || commentChanged) {
-                    updateSchema.updateColumn(fieldPath, newFieldType.asPrimitiveType(), newField.doc());
+                    updateSchema.updateColumn(fieldPath, newFieldType.asPrimitiveType(), targetDoc);
                 }
             } else {
                 requireNotNarrowed(oldField, newField, fieldPath);
-                apply(updateSchema, fieldPath, oldFieldType, newFieldType);
-                if (!Objects.equals(oldField.doc(), newField.doc())) {
-                    updateSchema.updateColumnDoc(fieldPath, newField.doc());
+                apply(updateSchema, fieldPath, oldFieldType, newFieldType, childConn(newConn, i));
+                if (!Objects.equals(oldField.doc(), targetDoc)) {
+                    updateSchema.updateColumnDoc(fieldPath, targetDoc);
                 }
             }
 
@@ -203,7 +228,7 @@ public final class IcebergComplexTypeDiff {
     }
 
     private static void applyListChange(UpdateSchema updateSchema, String path,
-            Types.ListType oldList, Types.ListType newList) {
+            Types.ListType oldList, Types.ListType newList, ConnectorType newConn) {
         String elementPath = path + "." + oldList.field(oldList.elementId()).name();
         Type oldElement = oldList.elementType();
         Type newElement = newList.elementType();
@@ -219,7 +244,9 @@ public final class IcebergComplexTypeDiff {
             }
         } else {
             requireElementNotNarrowed(oldList, newList, elementPath);
-            apply(updateSchema, elementPath, oldElement, newElement);
+            // ARRAY element is neutral child 0; its own doc is not carried (iceberg rejects element comments),
+            // but a STRUCT nested inside the element still needs its per-field commentSpecified.
+            apply(updateSchema, elementPath, oldElement, newElement, childConn(newConn, 0));
         }
         if (!oldList.isElementOptional() && newList.isElementOptional()) {
             updateSchema.makeColumnOptional(elementPath);
@@ -227,7 +254,7 @@ public final class IcebergComplexTypeDiff {
     }
 
     private static void applyMapChange(UpdateSchema updateSchema, String path,
-            Types.MapType oldMap, Types.MapType newMap) {
+            Types.MapType oldMap, Types.MapType newMap, ConnectorType newConn) {
         // Legacy parity: a MAP key type may not change.
         if (!oldMap.keyType().equals(newMap.keyType())) {
             throw new DorisConnectorException("Cannot change MAP key type from " + oldMap.keyType()
@@ -248,7 +275,9 @@ public final class IcebergComplexTypeDiff {
             }
         } else {
             requireValueNotNarrowed(oldMap, newMap, valuePath);
-            apply(updateSchema, valuePath, oldValue, newValue);
+            // MAP value is neutral child 1 (child 0 is the key); a STRUCT nested inside the value needs its
+            // per-field commentSpecified.
+            apply(updateSchema, valuePath, oldValue, newValue, childConn(newConn, 1));
         }
         if (!oldMap.isValueOptional() && newMap.isValueOptional()) {
             updateSchema.makeColumnOptional(valuePath);

@@ -188,15 +188,19 @@ public final class ConnectorColumnConverter {
             List<ConnectorType> types = new ArrayList<>();
             List<Boolean> nullables = new ArrayList<>();
             List<String> comments = new ArrayList<>();
+            List<Boolean> commentSpecified = new ArrayList<>();
             // Carry each field's nullability + comment so a connector can preserve a NOT NULL / commented
-            // STRUCT field and diff a complex MODIFY COLUMN field-by-field; legacy carried neither.
+            // STRUCT field and diff a complex MODIFY COLUMN field-by-field; legacy carried neither. Also carry
+            // isCommentSpecified() so the diff can tell an omitted COMMENT (preserve the current doc) from
+            // COMMENT '' (clear it) — the comment string is "" for both (#65329 omit-preserves-metadata).
             for (StructField f : struct.getFields()) {
                 names.add(f.getName());
                 types.add(toConnectorType(f.getType()));
                 nullables.add(f.getContainsNull());
                 comments.add(f.getComment());
+                commentSpecified.add(f.isCommentSpecified());
             }
-            return ConnectorType.structOf(names, types, nullables, comments);
+            return ConnectorType.structOf(names, types, nullables, comments, commentSpecified);
         } else if (dorisType instanceof ScalarType) {
             ScalarType scalar = (ScalarType) dorisType;
             PrimitiveType primitiveType = scalar.getPrimitiveType();
