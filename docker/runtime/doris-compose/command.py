@@ -657,6 +657,7 @@ class UpCommand(Command):
                 args.add_be_num = 3
 
             cloud_store_config = {}
+            external_ms_cluster = getattr(args, 'external_ms', None)
             if args.cloud:
                 add_fdb_num = 1
                 if not args.add_ms_num:
