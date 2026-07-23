@@ -307,5 +307,6 @@ Contact us through the following mailing list.
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
 some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
 
+<!-- FEUT CPU baseline: master at 2025-12-31 18:13:41 +08:00. Test-only PR; do not merge. -->
 
 
