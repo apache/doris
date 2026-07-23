@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.DropRefChange;
@@ -282,6 +283,55 @@ public interface ConnectorTableOps {
     default void reorderColumns(ConnectorSession session, ConnectorTableHandle handle,
             List<String> newOrder) {
         throw new DorisConnectorException("REORDER COLUMNS not supported");
+    }
+
+    // ---- Nested (dotted-path) column evolution ----
+    // #65329 dotted column paths (e.g. `s.b`, `arr.element.c`, `m.value`) are carried neutrally by
+    // {@link ConnectorColumnPath}; a single-part path targets a top-level column. Connectors that support
+    // nested column schema evolution (iceberg) override these; others inherit the throwing default. The
+    // fe-core bridge routes top-level ADD/DROP/RENAME/MODIFY through the flat ops above and reserves these
+    // {@code *NestedColumn} ops for the nested case, except {@link #modifyColumnComment}, which is the sole
+    // entrypoint for the new `MODIFY COLUMN ... COMMENT` op (flat and nested alike). Distinct names (rather
+    // than overloads of the flat String/ConnectorColumn ops) keep {@code Mockito.any()} / null call sites in
+    // connector tests unambiguous.
+
+    /**
+     * Adds a field at {@code path} (the full path of the new field: its parent struct plus the new leaf name).
+     *
+     * @param position where to place the new field within its parent struct; {@code null} appends at the end.
+     */
+    default void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+        throw new DorisConnectorException("nested ADD COLUMN not supported");
+    }
+
+    /** Drops the field at {@code path}. */
+    default void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path) {
+        throw new DorisConnectorException("nested DROP COLUMN not supported");
+    }
+
+    /** Renames the field at {@code path} to {@code newName} (a leaf name, not a path). */
+    default void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, String newName) {
+        throw new DorisConnectorException("nested RENAME COLUMN not supported");
+    }
+
+    /**
+     * Modifies the field at {@code path} (type / comment / nullability), optionally repositioning it within
+     * its parent struct.
+     *
+     * @param position where to move the field; {@code null} keeps its current position.
+     */
+    default void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+        throw new DorisConnectorException("nested MODIFY COLUMN not supported");
+    }
+
+    /** Sets (or clears, with {@code ""}) the comment/doc of the field at {@code path}. */
+    default void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, String comment) {
+        throw new DorisConnectorException("MODIFY COLUMN COMMENT not supported");
     }
 
     /** Creates or replaces a named branch (snapshot ref) on the table. */

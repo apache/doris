@@ -44,6 +44,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
@@ -899,47 +900,103 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * column op through the {@code ColumnPath} overloads; the base {@link ExternalCatalog} throws for them, so
      * without these overrides even top-level iceberg column DDL would fall through to "not supported for
      * catalog". Each override handles the top-level (non-nested) case by delegating to the matching flat
-     * override above (which routes to {@code ConnectorTableOps}); nested paths are dispatched to the
-     * path-addressed connector ops. See also the neutral {@code ConnectorColumnPath} plumbing in
-     * fe-connector-api.
+     * override above (which routes to {@code ConnectorTableOps}); nested paths are neutralized to
+     * {@link ConnectorColumnPath} and dispatched to the path-addressed connector ops. {@code MODIFY COLUMN
+     * COMMENT} (a #65329 op with no flat equivalent) always goes through the path op.
      */
     @Override
     public void addColumn(TableIf dorisTable, ColumnPath columnPath, Column column, ColumnPosition position)
             throws UserException {
-        if (columnPath.isNested()) {
-            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        if (!columnPath.isNested()) {
+            addColumn(dorisTable, column, position);
+            return;
         }
-        addColumn(dorisTable, column, position);
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.addNestedColumn(session, handle, toConnectorPath(columnPath),
+                    ConnectorColumnConverter.toConnectorColumn(column), toConnectorPosition(position));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
     }
 
     @Override
     public void dropColumn(TableIf dorisTable, ColumnPath columnPath) throws UserException {
-        if (columnPath.isNested()) {
-            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        if (!columnPath.isNested()) {
+            dropColumn(dorisTable, columnPath.getTopLevelName());
+            return;
         }
-        dropColumn(dorisTable, columnPath.getTopLevelName());
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropNestedColumn(session, handle, toConnectorPath(columnPath));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
     }
 
     @Override
     public void renameColumn(TableIf dorisTable, ColumnPath columnPath, String newName) throws UserException {
-        if (columnPath.isNested()) {
-            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        if (!columnPath.isNested()) {
+            renameColumn(dorisTable, columnPath.getTopLevelName(), newName);
+            return;
         }
-        renameColumn(dorisTable, columnPath.getTopLevelName(), newName);
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.renameNestedColumn(session, handle, toConnectorPath(columnPath), newName);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
     }
 
     @Override
     public void modifyColumn(TableIf dorisTable, ColumnPath columnPath, Column column, ColumnPosition position)
             throws UserException {
-        if (columnPath.isNested()) {
-            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        if (!columnPath.isNested()) {
+            modifyColumn(dorisTable, column, position);
+            return;
         }
-        modifyColumn(dorisTable, column, position);
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.modifyNestedColumn(session, handle, toConnectorPath(columnPath),
+                    ConnectorColumnConverter.toConnectorColumn(column), toConnectorPosition(position));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
     }
 
     @Override
     public void modifyColumnComment(TableIf dorisTable, ColumnPath columnPath, String comment) throws UserException {
-        throw new DdlException("Modify column comment is not yet supported for catalog: " + getName());
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.modifyColumnComment(session, handle, toConnectorPath(columnPath), comment);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
     }
 
     /**
@@ -1106,6 +1163,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return position.isFirst()
                 ? ConnectorColumnPosition.FIRST
                 : ConnectorColumnPosition.after(position.getLastCol());
+    }
+
+    private static ConnectorColumnPath toConnectorPath(ColumnPath columnPath) {
+        return ConnectorColumnPath.of(columnPath.getParts());
     }
 
     /**

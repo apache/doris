@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorSortField;
@@ -1235,6 +1236,167 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to reorder columns in Iceberg table "
                     + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    // ===== Nested (dotted-path) column evolution (#65329) — mirror legacy IcebergMetadataOps ColumnPath ops =====
+    // The fe-core bridge routes ONLY nested paths to add/drop/rename/modify (top-level still flows through the
+    // flat ops above); modifyColumnComment is the sole entrypoint for MODIFY COLUMN ... COMMENT and receives both
+    // flat and nested paths. The neutral column is turned into an iceberg type PURELY (outside auth), then the
+    // whole resolve + UpdateSchema commit runs through the seam inside ONE auth context (no partial commit).
+    // NOTE (parity gap, deliberate): like the connector's existing flat column ops, these do NOT enforce the
+    // legacy row-lineage-column mutation guard (validateRowLineageColumnMutation) — the connector guards v3
+    // reserved columns only at CREATE (rejectReservedRowLineageColumns) and on the schema read path.
+
+    /**
+     * Adds a nested field at {@code path}, mirroring legacy {@code IcebergMetadataOps.addColumn(ColumnPath,...)}:
+     * a new nested field must be nullable; the parent must resolve to a struct and the leaf must not collide with
+     * an existing sibling (checked in the seam against the loaded schema). A single-part path degrades to the flat
+     * {@link #addColumn(ConnectorSession, ConnectorTableHandle, ConnectorColumn, ConnectorColumnPosition)}.
+     */
+    @Override
+    public void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!path.isNested()) {
+            addColumn(session, handle, column, position);
+            return;
+        }
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        validateCommonColumnInfo(column);
+        if (column.getDefaultValue() != null) {
+            throw new DorisConnectorException(
+                    "DEFAULT and ON UPDATE are not supported for Iceberg nested ADD COLUMN: " + path.getFullPath());
+        }
+        if (!column.isNullable()) {
+            throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
+        }
+        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
+                column.getComment(), null, column.isNullable());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.addNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change, position);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to add nested column " + path.getFullPath()
+                    + " to Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Drops the nested field at {@code path}, mirroring legacy {@code IcebergMetadataOps.dropColumn(ColumnPath,...)}.
+     */
+    @Override
+    public void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path) {
+        if (!path.isNested()) {
+            dropColumn(session, handle, path.getTopLevelName());
+            return;
+        }
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.dropNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop nested column " + path.getFullPath()
+                    + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Renames the nested field at {@code path} to {@code newName}, mirroring legacy
+     * {@code IcebergMetadataOps.renameColumn(ColumnPath,...)} (with the iceberg identifier-field path fixup).
+     */
+    @Override
+    public void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, String newName) {
+        if (!path.isNested()) {
+            renameColumn(session, handle, path.getTopLevelName(), newName);
+            return;
+        }
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.renameNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, newName);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to rename nested column " + path.getFullPath()
+                    + " to " + newName + " in Iceberg table " + iceHandle.getDbName() + "."
+                    + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Modifies the nested field at {@code path}, mirroring legacy {@code IcebergMetadataOps.modifyColumn(
+     * ColumnPath,...)}: a primitive change is an iceberg promotion, a complex change is diffed field-by-field
+     * ({@link IcebergComplexTypeDiff}); a complex modify may only carry a NULL default. The
+     * {@code nullableSpecified}/{@code commentSpecified} #65329 flags (threaded from the fe-catalog Column via
+     * {@code ConnectorColumnConverter.toConnectorColumn}) drive the omit-preserves-metadata behavior in the seam.
+     */
+    @Override
+    public void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!path.isNested()) {
+            modifyColumn(session, handle, column, position);
+            return;
+        }
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        validateCommonColumnInfo(column);
+        if (column.getDefaultValue() != null) {
+            if (isComplexType(column.getType())) {
+                throw new DorisConnectorException(
+                        "Complex type default value only supports NULL: " + path.getFullPath());
+            }
+            throw new DorisConnectorException(
+                    "Modifying default values is not supported for Iceberg columns: " + path.getFullPath());
+        }
+        Type icebergType;
+        try {
+            icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        } catch (DorisConnectorException buildError) {
+            throw upgradeNestedModifyError(iceHandle, column, buildError);
+        }
+        IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
+                column.getComment(), null, column.isNullable());
+        boolean nullableSpecified = column.isNullableSpecified();
+        boolean commentSpecified = column.isCommentSpecified();
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.modifyNestedColumn(iceHandle.getDbName(), iceHandle.getTableName(), path, change,
+                        nullableSpecified, commentSpecified, position);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to modify nested column " + path.getFullPath()
+                    + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Sets (or clears) the comment/doc of the field at {@code path}, mirroring legacy
+     * {@code IcebergMetadataOps.modifyColumnComment}. This is the sole entrypoint for {@code MODIFY COLUMN ...
+     * COMMENT} (no flat SPI equivalent) and handles BOTH a single-part (flat column) and a nested path; a comment
+     * on a list-element / map-value pseudo-field is rejected in the seam.
+     */
+    @Override
+    public void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, String comment) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.modifyColumnComment(iceHandle.getDbName(), iceHandle.getTableName(), path, comment);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to modify comment for column " + path.getFullPath()
+                    + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
         }
     }
 
