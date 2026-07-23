@@ -58,6 +58,15 @@ public final class ConnectorColumn {
     // engine consumers then ask Column.isReservedPassthrough() instead of string-matching source column names.
     // Defaults false; set via reservedPassthrough().
     private final boolean reservedPassthrough;
+    // #65329 "omit-preserves-metadata" markers for MODIFY COLUMN: whether the DDL explicitly stated a
+    // nullability / a comment (as opposed to omitting it). fe-core's ConnectorColumnConverter.toConnectorColumn
+    // populates these from the fe-catalog Column.isNullableSpecified()/isCommentSpecified(); the iceberg nested
+    // MODIFY path reads them so an omitted nullability never widens a field and an omitted comment keeps the
+    // field's current doc. Default false (unspecified); set via withSpecified(). Intentionally NOT part of
+    // equals()/hashCode() — they are DDL-intent hints, not column identity, and were absent historically, so
+    // excluding them keeps every pre-existing equality unchanged.
+    private final boolean nullableSpecified;
+    private final boolean commentSpecified;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -78,13 +87,13 @@ public final class ConnectorColumn {
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
         this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true,
-                UNSET_UNIQUE_ID, false);
+                UNSET_UNIQUE_ID, false, false, false);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId,
-            boolean reservedPassthrough) {
+            boolean reservedPassthrough, boolean nullableSpecified, boolean commentSpecified) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -97,6 +106,8 @@ public final class ConnectorColumn {
         this.visible = visible;
         this.uniqueId = uniqueId;
         this.reservedPassthrough = reservedPassthrough;
+        this.nullableSpecified = nullableSpecified;
+        this.commentSpecified = commentSpecified;
     }
 
     /**
@@ -106,7 +117,8 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, true, visible, uniqueId, reservedPassthrough);
+                isKey, isAutoInc, isAggregated, true, visible, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified);
     }
 
     /**
@@ -115,7 +127,8 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn invisible() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId, reservedPassthrough);
+                isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified);
     }
 
     /**
@@ -126,7 +139,19 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn reservedPassthrough() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, true);
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, true,
+                nullableSpecified, commentSpecified);
+    }
+
+    /**
+     * Returns a copy of this column carrying the #65329 nullability/comment "specified" markers. See
+     * {@link #isNullableSpecified()} / {@link #isCommentSpecified()}; used by
+     * {@code ConnectorColumnConverter.toConnectorColumn} to thread the fe-catalog Column flags across the SPI.
+     */
+    public ConnectorColumn withSpecified(boolean nullableSpecified, boolean commentSpecified) {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified);
     }
 
     /**
@@ -137,7 +162,8 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn withUniqueId(int uniqueId) {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough);
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId, reservedPassthrough,
+                nullableSpecified, commentSpecified);
     }
 
     public String getName() {
@@ -186,6 +212,16 @@ public final class ConnectorColumn {
 
     public boolean isReservedPassthrough() {
         return reservedPassthrough;
+    }
+
+    /** Whether the DDL explicitly stated a nullability (#65329 MODIFY COLUMN omit-preserves). */
+    public boolean isNullableSpecified() {
+        return nullableSpecified;
+    }
+
+    /** Whether the DDL explicitly stated a comment (#65329 MODIFY COLUMN omit-preserves). */
+    public boolean isCommentSpecified() {
+        return commentSpecified;
     }
 
     @Override
