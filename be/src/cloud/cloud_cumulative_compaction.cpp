@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_cumulative_compaction.h"
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -44,9 +46,13 @@ using namespace ErrorCode;
 namespace cloud {
 
 bool is_single_rowset_compaction_candidate(const RowsetSharedPtr& rowset) {
-    return !rowset->rowset_meta()->has_delete_predicate() &&
-           rowset->rowset_meta()->is_segments_overlapping() &&
-           rowset->num_segments() >= config::cloud_single_rowset_compaction_min_segments;
+    const auto& rowset_meta = rowset->rowset_meta();
+    const int64_t overlap_unit_count =
+            rowset_meta->segments_overlap() == NONOVERLAPPING_WITHIN_GROUP
+                    ? static_cast<int64_t>(rowset_meta->segment_group_sizes().size())
+                    : rowset->num_segments();
+    return !rowset_meta->has_delete_predicate() && rowset_meta->is_segments_overlapping() &&
+           overlap_unit_count >= config::cloud_single_rowset_compaction_min_segments;
 }
 
 bool should_use_single_rowset_grouped_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -56,6 +62,51 @@ bool should_use_single_rowset_grouped_compaction(const std::vector<RowsetSharedP
            tablet_schema.num_key_columns() > 0 && tablet_schema.cluster_key_uids().empty() &&
            config::enable_cloud_single_rowset_compaction && input_rowsets.size() == 1 &&
            is_single_rowset_compaction_candidate(input_rowsets.front());
+}
+
+std::vector<SegmentGroupMergeRange> build_segment_group_merge_ranges(const RowsetMeta& rowset_meta,
+                                                                     int64_t segment_group_size) {
+    DORIS_CHECK_GT(segment_group_size, 1);
+    DORIS_CHECK_GT(rowset_meta.num_segments(), 0);
+
+    std::vector<SegmentGroupMergeRange> ranges;
+    if (rowset_meta.segments_overlap() == NONOVERLAPPING_WITHIN_GROUP) {
+        const auto& input_segment_group_sizes = rowset_meta.segment_group_sizes();
+        const int64_t input_group_count = cast_set<int64_t>(input_segment_group_sizes.size());
+        DORIS_CHECK_GT(input_group_count, 0);
+        ranges.reserve(cast_set<size_t>((input_group_count + segment_group_size - 1) /
+                                        segment_group_size));
+
+        int64_t segment_end = 0;
+        for (int64_t group_start = 0; group_start < input_group_count;
+             group_start += segment_group_size) {
+            const int64_t group_end = std::min(group_start + segment_group_size, input_group_count);
+            const int64_t segment_start = segment_end;
+            for (int64_t group_index = group_start; group_index < group_end; ++group_index) {
+                const int32_t input_group_size =
+                        input_segment_group_sizes.Get(cast_set<int>(group_index));
+                DORIS_CHECK_GT(input_group_size, 0);
+                segment_end += input_group_size;
+            }
+
+            ranges.push_back({.segment_start = segment_start,
+                              .segment_end = segment_end,
+                              .merge_way_num = group_end - group_start});
+        }
+        DORIS_CHECK_EQ(segment_end, rowset_meta.num_segments());
+    } else {
+        ranges.reserve(cast_set<size_t>((rowset_meta.num_segments() + segment_group_size - 1) /
+                                        segment_group_size));
+        for (int64_t segment_start = 0; segment_start < rowset_meta.num_segments();
+             segment_start += segment_group_size) {
+            const int64_t segment_end =
+                    std::min(segment_start + segment_group_size, rowset_meta.num_segments());
+            ranges.push_back({.segment_start = segment_start,
+                              .segment_end = segment_end,
+                              .merge_way_num = segment_end - segment_start});
+        }
+    }
+    return ranges;
 }
 
 } // namespace cloud
@@ -266,12 +317,24 @@ Status CloudCumulativeCompaction::execute_compact() {
     return st;
 }
 
+bool CloudCumulativeCompaction::should_calculate_new_cumulative_point(
+        int64_t input_cumulative_point) const {
+    if (!_single_rowset_compaction_segment_group_size.has_value()) {
+        return true;
+    }
+
+    DORIS_CHECK_EQ(_input_rowsets.size(), 1);
+    DORIS_CHECK(_output_rowset != nullptr);
+    return _input_rowsets.front()->start_version() == input_cumulative_point &&
+           _output_rowset->rowset_meta()->segments_overlap() == NONOVERLAPPING;
+}
+
 Status CloudCumulativeCompaction::modify_rowsets() {
     // calculate new cumulative point
     int64_t input_cumulative_point = cloud_tablet()->cumulative_layer_point();
     auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
     int64_t new_cumulative_point = input_cumulative_point;
-    if (!_single_rowset_compaction_segment_group_size.has_value()) {
+    if (should_calculate_new_cumulative_point(input_cumulative_point)) {
         new_cumulative_point =
                 _engine.cumu_compaction_policy(compaction_policy)
                         ->new_cumulative_point(cloud_tablet(), _output_rowset, _last_delete_version,
@@ -567,14 +630,14 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                                  config::cumulative_compaction_min_deltas, &_input_rowsets,
                                  &_last_delete_version, &compaction_score);
 
-    if (config::enable_cloud_single_rowset_compaction) {
+    const int64_t segment_group_size = config::cloud_single_rowset_compaction_segment_group_size;
+    if (config::enable_cloud_single_rowset_compaction && segment_group_size > 1) {
         for (const auto& rowset : _input_rowsets) {
             if (cloud::should_use_single_rowset_grouped_compaction(
                         {rowset}, *cloud_tablet()->tablet_schema(), compaction_policy)) {
                 auto grouped_input_rowset = rowset;
                 _input_rowsets = {std::move(grouped_input_rowset)};
-                _single_rowset_compaction_segment_group_size =
-                        config::cloud_single_rowset_compaction_segment_group_size;
+                _single_rowset_compaction_segment_group_size = segment_group_size;
                 return Status::OK();
             }
         }
@@ -601,11 +664,7 @@ Status CloudCumulativeCompaction::prepare_merge_input_rowsets(MergeInputRowsetsR
     }
 
     const int64_t segment_group_size = *_single_rowset_compaction_segment_group_size;
-    if (segment_group_size <= 0) {
-        return Status::InvalidArgument(
-                "cloud_single_rowset_compaction_segment_group_size must be positive, value={}",
-                segment_group_size);
-    }
+    DORIS_CHECK_GT(segment_group_size, 1);
     result->is_segment_grouped = true;
     result->segment_group_size = segment_group_size;
     return Status::OK();
@@ -620,12 +679,10 @@ Status CloudCumulativeCompaction::do_merge_input_rowsets(
 
     const int64_t segment_group_size = result->segment_group_size;
     const auto& input_rowset = _input_rowsets.front();
-    const int64_t segment_group_count =
-            (input_rowset->num_segments() + segment_group_size - 1) / segment_group_size;
-    for (int64_t segment_start = 0; segment_start < input_rowset->num_segments();
-         segment_start += segment_group_size) {
-        const int64_t segment_end =
-                std::min(segment_start + segment_group_size, input_rowset->num_segments());
+    const auto segment_ranges = cloud::build_segment_group_merge_ranges(
+            *input_rowset->rowset_meta(), segment_group_size);
+    for (size_t range_index = 0; range_index < segment_ranges.size(); ++range_index) {
+        const auto& range = segment_ranges[range_index];
         const int32_t output_segment_start = _output_rs_writer->get_allocated_segment_id();
 
         RowsetReaderSharedPtr rs_reader;
@@ -635,10 +692,10 @@ Status CloudCumulativeCompaction::do_merge_input_rowsets(
 
         Merger::Statistics group_stats;
         group_stats.rowid_conversion = _stats.rowid_conversion;
-        RETURN_IF_ERROR(execute_merge(group_readers, segment_end - segment_start, &group_stats,
-                                      std::make_pair(segment_start, segment_end),
-                                      {.total_ranges = segment_group_count,
-                                       .range_index = segment_start / segment_group_size}));
+        RETURN_IF_ERROR(execute_merge(group_readers, range.merge_way_num, &group_stats,
+                                      std::make_pair(range.segment_start, range.segment_end),
+                                      {.total_ranges = cast_set<int64_t>(segment_ranges.size()),
+                                       .range_index = cast_set<int64_t>(range_index)}));
 
         _stats.output_rows += group_stats.output_rows;
         _stats.merged_rows += group_stats.merged_rows;
@@ -652,7 +709,7 @@ Status CloudCumulativeCompaction::do_merge_input_rowsets(
         const int32_t output_segment_end = _output_rs_writer->get_allocated_segment_id();
         const int32_t output_group_size = output_segment_end - output_segment_start;
         if (output_group_size > 0) {
-            ++result->output_segment_group_count;
+            result->output_segment_group_sizes.push_back(output_group_size);
         }
     }
     return Status::OK();
@@ -663,8 +720,9 @@ void CloudCumulativeCompaction::update_output_rowset_after_build(
     if (!result.is_segment_grouped) {
         return;
     }
-    if (result.output_segment_group_count > 1) {
-        _output_rowset->rowset_meta()->set_segments_overlap(OVERLAPPING);
+    if (result.output_segment_group_sizes.size() > 1) {
+        _output_rowset->rowset_meta()->set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+        _output_rowset->rowset_meta()->set_segment_group_sizes(result.output_segment_group_sizes);
     }
 
     const auto& input_rowset = _input_rowsets.front();
@@ -674,7 +732,9 @@ void CloudCumulativeCompaction::update_output_rowset_after_build(
             .tag("input_segments", input_rowset->num_segments())
             .tag("segment_group_size", result.segment_group_size)
             .tag("output_segments", _output_rowset->num_segments())
-            .tag("output_groups", result.output_segment_group_count);
+            .tag("output_groups", result.output_segment_group_sizes.size())
+            .tag("output_segment_group_sizes",
+                 fmt::format("[{}]", fmt::join(result.output_segment_group_sizes, ", ")));
 }
 
 void CloudCumulativeCompaction::update_cumulative_point() {

@@ -386,7 +386,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.txn_expiration = _expiration;
         context.version = rs_reader->version();
         context.rowset_state = VISIBLE;
-        context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        const auto input_segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        // Cloud schema change rewrites remote rowsets, so the input group layout is no longer
+        // applicable. Fall back to the conservative overlap state without assuming that the
+        // rewritten segments are globally ordered.
+        context.segments_overlap = input_segments_overlap == NONOVERLAPPING_WITHIN_GROUP
+                                           ? OVERLAPPING
+                                           : input_segments_overlap;
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);

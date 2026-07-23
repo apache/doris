@@ -107,7 +107,7 @@ protected:
     struct MergeInputRowsetsResult {
         bool is_segment_grouped = false;
         int64_t segment_group_size = 0;
-        int64_t output_segment_group_count = 0;
+        std::vector<int32_t> output_segment_group_sizes;
     };
 
     Status merge_input_rowsets();

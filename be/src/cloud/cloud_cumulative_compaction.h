@@ -30,13 +30,24 @@
 
 namespace doris {
 
+class RowsetMeta;
+
 namespace cloud {
+
+struct SegmentGroupMergeRange {
+    int64_t segment_start;
+    int64_t segment_end;
+    int64_t merge_way_num;
+};
 
 bool is_single_rowset_compaction_candidate(const RowsetSharedPtr& rowset);
 
 bool should_use_single_rowset_grouped_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                                  const TabletSchema& tablet_schema,
                                                  std::string_view compaction_policy);
+
+std::vector<SegmentGroupMergeRange> build_segment_group_merge_ranges(const RowsetMeta& rowset_meta,
+                                                                     int64_t segment_group_size);
 
 } // namespace cloud
 
@@ -69,6 +80,8 @@ private:
                                   MergeInputRowsetsResult* result) override;
 
     void update_output_rowset_after_build(const MergeInputRowsetsResult& result) override;
+
+    bool should_calculate_new_cumulative_point(int64_t input_cumulative_point) const;
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
 
