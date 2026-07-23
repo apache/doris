@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -53,9 +56,11 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
@@ -66,6 +71,8 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -205,6 +212,75 @@ public class StatsCalculatorTest {
         Statistics stats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, stats.columnStatistics().size());
         Assertions.assertNotNull(stats.columnStatistics().get(slot1));
+    }
+
+    @Test
+    public void testComputeOlapScanScalesNumNullsForSelectedPartitions() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+
+        Env env = Mockito.mock(Env.class);
+        AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
+        StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
+        StatisticsCache.OlapTableStatistics olapTableStatistics
+                = Mockito.mock(StatisticsCache.OlapTableStatistics.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
+        Partition selectedPartition = Mockito.mock(Partition.class);
+
+        long selectedPartitionId = 1L;
+        long baseIndexId = 10L;
+        Column column = new Column("val", PrimitiveType.INT);
+        SlotReference slot = new SlotReference(new ExprId(1), "val", IntegerType.INSTANCE, true,
+                ImmutableList.of("test", "tbl"), table, column, table, column);
+        ColumnStatistic tableStatistic = new ColumnStatisticBuilder(12)
+                .setNdv(1)
+                .setMinValue(2)
+                .setMaxValue(2)
+                .setMinExpr(new IntLiteral(2))
+                .setMaxExpr(new IntLiteral(2))
+                .setNumNulls(3)
+                .build();
+
+        Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
+        Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
+        Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
+        Mockito.when(olapTableStatistics.getColumnStatistics("val", connectContext)).thenReturn(tableStatistic);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of(selectedPartitionId));
+        Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slot));
+        Mockito.when(scan.getVirtualColumns()).thenReturn(ImmutableList.of());
+        Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
+        Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
+        Mockito.when(table.getRowCountForPartitionIndex(selectedPartitionId, baseIndexId, true)).thenReturn(4L);
+        Mockito.when(table.getPartitionNum()).thenReturn(3);
+        Mockito.when(table.getPartition(selectedPartitionId)).thenReturn(selectedPartition);
+        Mockito.when(table.getQualifiedDbName()).thenReturn("test");
+        Mockito.when(selectedPartition.getName()).thenReturn("p1");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            Statistics statistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+            ColumnStatistic result = statistics.findColumnStatistics(slot);
+
+            Assertions.assertEquals(4, statistics.getRowCount(), 0.001);
+            Assertions.assertNotNull(result);
+            Assertions.assertEquals(1, result.ndv, 0.001);
+            Assertions.assertEquals(2, result.minValue, 0.001);
+            Assertions.assertEquals(2, result.maxValue, 0.001);
+            Assertions.assertEquals(4, result.count, 0.001);
+            Assertions.assertEquals(1, result.numNulls, 0.001);
+            Assertions.assertEquals("2", result.minExpr.getStringValue());
+            Assertions.assertEquals("2", result.maxExpr.getStringValue());
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
     }
 
     @Test
