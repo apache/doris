@@ -17,6 +17,7 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
@@ -50,6 +51,33 @@ public class PaimonJniScannerTest {
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+    }
+
+    @Test
+    public void testExplicitTableReadBatchSizeOverridesDorisDefault() {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+
+        Map<String, String> defaultOptions = scanner.buildTableOptions(Collections.emptyMap());
+        Assert.assertEquals("128", defaultOptions.get(CoreOptions.READ_BATCH_SIZE.key()));
+
+        Map<String, String> tableOptions = new HashMap<>();
+        tableOptions.put(CoreOptions.READ_BATCH_SIZE.key(), "4096");
+        Map<String, String> options = scanner.buildTableOptions(tableOptions);
+        Assert.assertEquals("4096", options.get(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
+    public void testDorisAsyncReaderSafetyOptionOverridesTableOption() {
+        Map<String, String> params = createBaseParams();
+        params.put(PaimonJniScanner.DORIS_ENABLE_FILE_READER_ASYNC, "false");
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        Map<String, String> tableOptions = new HashMap<>();
+        tableOptions.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), "1 MiB");
+
+        Map<String, String> options = scanner.buildTableOptions(tableOptions);
+
+        Assert.assertEquals(PaimonJniScanner.MAX_ASYNC_READ_THRESHOLD,
+                options.get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
     }
 
     @Test

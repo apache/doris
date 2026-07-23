@@ -25,12 +25,19 @@ import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.options.CatalogOptions;
+import org.apache.paimon.options.ConfigOption;
+import org.apache.paimon.options.FallbackKey;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.options.OptionsUtils;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -53,12 +60,23 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     public abstract String getPaimonCatalogType();
 
     private static final String USER_PROPERTY_PREFIX = "paimon.";
+    /** The suffix after this prefix is passed to Paimon as a dynamic table option. */
+    public static final String TABLE_OPTION_PREFIX = "paimon.table-option.";
+    private static final SupportedTableOptions SUPPORTED_TABLE_OPTIONS = SupportedTableOptions.build();
+
+    private Map<String, String> tableOptionsMap = Collections.emptyMap();
 
     protected AbstractPaimonProperties(Map<String, String> props) {
         super(Type.PAIMON, props);
     }
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
+
+    @Override
+    public void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        tableOptionsMap = extractTableOptions();
+    }
 
     protected void appendCatalogOptions() {
         if (StringUtils.isNotBlank(warehouse)) {
@@ -68,10 +86,11 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
         // FIXME(cmy): Rethink these custom properties
         origProps.forEach((k, v) -> {
-            if (k.toLowerCase().startsWith(USER_PROPERTY_PREFIX)) {
+            if (k.toLowerCase(Locale.ROOT).startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
                 if (StringUtils.isNotBlank(newKey)) {
-                    boolean excluded = userStoragePrefixes.stream().anyMatch(k::startsWith);
+                    boolean excluded = isTableOptionProperty(k)
+                            || userStoragePrefixes.stream().anyMatch(k::startsWith);
                     if (!excluded) {
                         catalogOptions.set(newKey, v);
                     }
@@ -118,6 +137,90 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         } else {
             // Another thread already initialized it; return the existing one
             return catalogOptionsMapRef.get();
+        }
+    }
+
+    public Map<String, String> getTableOptionsMap() {
+        return tableOptionsMap;
+    }
+
+    public static boolean isTableOptionProperty(String key) {
+        return key.toLowerCase(Locale.ROOT).startsWith(TABLE_OPTION_PREFIX);
+    }
+
+    private Map<String, String> extractTableOptions() {
+        Map<String, String> tableOptions = new LinkedHashMap<>();
+        origProps.forEach((key, value) -> {
+            if (isTableOptionProperty(key)) {
+                String tableOptionKey = key.substring(TABLE_OPTION_PREFIX.length());
+                if (StringUtils.isBlank(tableOptionKey)) {
+                    throw new IllegalArgumentException(
+                            "Paimon table option name must not be empty after prefix " + TABLE_OPTION_PREFIX);
+                }
+                validateTableOption(tableOptionKey, value);
+                tableOptions.put(tableOptionKey, value);
+            }
+        });
+        return Collections.unmodifiableMap(tableOptions);
+    }
+
+    private void validateTableOption(String key, String value) {
+        ConfigOption<?> option = SUPPORTED_TABLE_OPTIONS.find(key);
+        if (option == null) {
+            throw new IllegalArgumentException("Unsupported Paimon table option '" + key
+                    + "' for the bundled Paimon version");
+        }
+
+        try {
+            new Options(Collections.singletonMap(key, value)).get(option);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid value for Paimon table option '" + key + "': "
+                    + e.getMessage(), e);
+        }
+    }
+
+    private static final class SupportedTableOptions {
+        private final Map<String, ConfigOption<?>> exactOptions;
+        private final Map<String, ConfigOption<?>> prefixOptions;
+
+        private SupportedTableOptions(Map<String, ConfigOption<?>> exactOptions,
+                Map<String, ConfigOption<?>> prefixOptions) {
+            this.exactOptions = exactOptions;
+            this.prefixOptions = prefixOptions;
+        }
+
+        private static SupportedTableOptions build() {
+            Map<String, ConfigOption<?>> exactOptions = new HashMap<>();
+            Map<String, ConfigOption<?>> prefixOptions = new HashMap<>();
+            for (ConfigOption<?> option : CoreOptions.getOptions()) {
+                addOption(exactOptions, prefixOptions, option.key(), option);
+                for (FallbackKey fallbackKey : option.fallbackKeys()) {
+                    addOption(exactOptions, prefixOptions, fallbackKey.getKey(), option);
+                }
+            }
+            return new SupportedTableOptions(
+                    Collections.unmodifiableMap(exactOptions), Collections.unmodifiableMap(prefixOptions));
+        }
+
+        private static void addOption(Map<String, ConfigOption<?>> exactOptions,
+                Map<String, ConfigOption<?>> prefixOptions, String key, ConfigOption<?> option) {
+            exactOptions.put(key, option);
+            if (OptionsUtils.canBePrefixMap(option)) {
+                prefixOptions.put(key, option);
+            }
+        }
+
+        private ConfigOption<?> find(String key) {
+            ConfigOption<?> option = exactOptions.get(key);
+            if (option != null) {
+                return option;
+            }
+            for (Map.Entry<String, ConfigOption<?>> entry : prefixOptions.entrySet()) {
+                if (OptionsUtils.filterPrefixMapKey(entry.getKey(), key)) {
+                    return entry.getValue();
+                }
+            }
+            return null;
         }
     }
 

@@ -86,4 +86,47 @@ public class AbstractPaimonPropertiesTest {
         Assertions.assertTrue("3".equals(result.get("fs.s3a.replication.factor")));
     }
 
+    @Test
+    void testExtractAndValidateTableOptions() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.read.batch-size", "4096");
+        input.put("paimon.table-option.file.compression.per.level.0", "lz4");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+
+        testProps.initNormalizeAndCheckProps();
+        testProps.buildCatalogOptions();
+
+        Assertions.assertEquals("4096", testProps.getTableOptionsMap().get("read.batch-size"));
+        Assertions.assertEquals(
+                "lz4", testProps.getTableOptionsMap().get("file.compression.per.level.0"));
+        Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("table-option.read.batch-size"));
+    }
+
+    @Test
+    void testRejectUnknownTableOption() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.option-does-not-exist", "value");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+
+        Assertions.assertTrue(exception.getMessage().contains("option-does-not-exist"));
+    }
+
+    @Test
+    void testRejectInvalidTableOptionValue() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.read.batch-size", "not-an-integer");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+
+        Assertions.assertTrue(exception.getMessage().contains("read.batch-size"));
+    }
+
 }

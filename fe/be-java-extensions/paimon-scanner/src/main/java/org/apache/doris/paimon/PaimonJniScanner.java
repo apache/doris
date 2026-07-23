@@ -23,6 +23,7 @@ import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
@@ -65,9 +66,9 @@ public class PaimonJniScanner extends JniScanner {
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
-    static final String ENABLE_JNI_IO_MANAGER = "paimon.doris.enable_jni_io_manager";
-    static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
-    static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
+    static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
+    static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
+    static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
     static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.jni.enable_file_reader_async";
     static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
@@ -585,9 +586,10 @@ public class PaimonJniScanner extends JniScanner {
         return value.split(delimiter);
     }
 
-    private Map<String, String> buildTableOptions(Map<String, String> tableOptions) {
+    @VisibleForTesting
+    Map<String, String> buildTableOptions(Map<String, String> tableOptions) {
         Map<String, String> options = new HashMap<>(tableOptions);
-        options.put(CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize));
+        options.putIfAbsent(CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize));
         if (Boolean.parseBoolean(params.getOrDefault(DORIS_ENABLE_FILE_READER_ASYNC, "true")) == false) {
             options.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), MAX_ASYNC_READ_THRESHOLD);
         }

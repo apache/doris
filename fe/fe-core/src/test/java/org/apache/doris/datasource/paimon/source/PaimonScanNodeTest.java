@@ -548,9 +548,9 @@ public class PaimonScanNodeTest {
     @Test
     public void testGetBackendPaimonOptionsForJniIOManager() {
         Map<String, String> props = new HashMap<>();
-        props.put("paimon.doris.enable_jni_io_manager", "true");
-        props.put("paimon.doris.jni_io_manager.tmp_dir", "/tmp/doris-paimon");
-        props.put("paimon.doris.jni_io_manager.impl_class", "org.example.CustomIOManager");
+        props.put("paimon.jni.enable_jni_io_manager", "true");
+        props.put("paimon.jni.io_manager.tmp_dir", "/tmp/doris-paimon");
+        props.put("paimon.jni.io_manager.impl_class", "org.example.CustomIOManager");
 
         CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
         Mockito.when(catalogProperty.getProperties()).thenReturn(props);
@@ -566,10 +566,10 @@ public class PaimonScanNodeTest {
         node.setSource(source);
 
         Map<String, String> backendOptions = node.getBackendPaimonOptions();
-        Assert.assertEquals("true", backendOptions.get("doris.enable_jni_io_manager"));
-        Assert.assertEquals("/tmp/doris-paimon", backendOptions.get("doris.jni_io_manager.tmp_dir"));
+        Assert.assertEquals("true", backendOptions.get("jni.enable_jni_io_manager"));
+        Assert.assertEquals("/tmp/doris-paimon", backendOptions.get("jni.io_manager.tmp_dir"));
         Assert.assertEquals("org.example.CustomIOManager",
-                backendOptions.get("doris.jni_io_manager.impl_class"));
+                backendOptions.get("jni.io_manager.impl_class"));
         Assert.assertEquals(3, backendOptions.size());
     }
 
