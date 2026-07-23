@@ -31,6 +31,9 @@ import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.paimon.data.BinaryString;
@@ -187,13 +190,74 @@ final class PaimonArrowConverter {
         }
 
         for (int i = 0; i < rowCount; i++) {
-            values[i] = vector.isNull(i) ? null
-                    : convertToPaimonType(vector.getObject(i), arrowField, targetType);
+            values[i] = convertVectorValue(vector, i, arrowField, targetType);
         }
         return values;
     }
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Object convertVectorValue(
+            FieldVector vector, int index, Field arrowField, DataType targetType) {
+        if (vector.isNull(index)) {
+            return null;
+        }
+        if (vector instanceof StructVector && targetType instanceof RowType) {
+            return convertStructVector((StructVector) vector, index, (RowType) targetType);
+        }
+        if (vector instanceof MapVector && targetType instanceof MapType) {
+            return convertMapVector((MapVector) vector, index, (MapType) targetType);
+        }
+        if (vector instanceof ListVector && targetType instanceof ArrayType) {
+            return convertArrayVector((ListVector) vector, index, (ArrayType) targetType);
+        }
+        if (vector instanceof IntVector) {
+            return ((IntVector) vector).get(index);
+        }
+        if (vector instanceof BigIntVector) {
+            return ((BigIntVector) vector).get(index);
+        }
+        if (vector instanceof SmallIntVector) {
+            return ((SmallIntVector) vector).get(index);
+        }
+        if (vector instanceof TinyIntVector) {
+            return ((TinyIntVector) vector).get(index);
+        }
+        if (vector instanceof Float4Vector) {
+            return ((Float4Vector) vector).get(index);
+        }
+        if (vector instanceof Float8Vector) {
+            return ((Float8Vector) vector).get(index);
+        }
+        if (vector instanceof BitVector) {
+            return ((BitVector) vector).get(index) == 1;
+        }
+        if (vector instanceof DateDayVector) {
+            return ((DateDayVector) vector).get(index);
+        }
+        if (vector instanceof VarCharVector) {
+            byte[] value = ((VarCharVector) vector).get(index);
+            return targetType instanceof BinaryType || targetType instanceof VarBinaryType
+                    ? value : BinaryString.fromBytes(value);
+        }
+        if (vector instanceof VarBinaryVector) {
+            return ((VarBinaryVector) vector).get(index);
+        }
+        if (vector instanceof TimeStampVector) {
+            ArrowType.Timestamp timestampType = (ArrowType.Timestamp) arrowField.getType();
+            return toPaimonTimestamp(
+                    arrowTimestampToMicros(((TimeStampVector) vector).get(index), timestampType),
+                    timestampType, targetType);
+        }
+        if (vector instanceof DecimalVector) {
+            DecimalVector decimalVector = (DecimalVector) vector;
+            int precision = decimalVector.getPrecision();
+            int scale = decimalVector.getScale();
+            BigDecimal decimal = getBigDecimalFromArrowBuf(
+                    decimalVector.getDataBuffer(), index, scale, DecimalVector.TYPE_WIDTH);
+            return Decimal.fromBigDecimal(decimal, precision, scale);
+        }
+        return convertToPaimonType(vector.getObject(index), arrowField, targetType);
+    }
+
     private Object convertToPaimonType(Object value, Field arrowField, DataType targetType) {
         if (value == null) {
             return null;
@@ -250,70 +314,65 @@ final class PaimonArrowConverter {
             BigDecimal decimal = (BigDecimal) value;
             return Decimal.fromBigDecimal(decimal, decimal.precision(), decimal.scale());
         }
-        if (targetType instanceof RowType && value instanceof Map) {
-            return convertStruct((Map<?, ?>) value, (RowType) targetType, arrowField);
-        }
-        if (targetType instanceof MapType && value instanceof List) {
-            return convertMap((List<?>) value, (MapType) targetType, arrowField);
-        }
-        if (targetType instanceof ArrayType && value instanceof List) {
-            return convertArray((List<?>) value, (ArrayType) targetType, arrowField);
-        }
         return value;
     }
 
-    private GenericRow convertStruct(Map<?, ?> mapValue, RowType rowType, Field arrowField) {
+    private GenericRow convertStructVector(
+            StructVector vector, int index, RowType rowType) {
         List<DataField> childFields = rowType.getFields();
         GenericRow row = new GenericRow(childFields.size());
         for (int i = 0; i < childFields.size(); i++) {
             DataField childField = childFields.get(i);
-            row.setField(i, convertToPaimonType(mapValue.get(childField.name()),
-                    findChildField(arrowField, childField.name()), childField.type()));
+            FieldVector childVector = findChildVector(vector, childField.name());
+            if (childVector == null) {
+                throw new IllegalArgumentException(
+                        "Arrow struct does not contain Paimon field " + childField.name());
+            }
+            row.setField(i, convertVectorValue(
+                    childVector, index, childVector.getField(), childField.type()));
         }
         return row;
     }
 
-    private GenericMap convertMap(List<?> values, MapType mapType, Field arrowField) {
-        Field keyField = null;
-        Field valueField = null;
-        if (arrowField != null && !arrowField.getChildren().isEmpty()) {
-            Field entries = arrowField.getChildren().get(0);
-            if (entries.getChildren().size() >= 2) {
-                keyField = entries.getChildren().get(0);
-                valueField = entries.getChildren().get(1);
-            }
+    private GenericMap convertMapVector(
+            MapVector vector, int index, MapType mapType) {
+        StructVector entries = (StructVector) vector.getDataVector();
+        List<FieldVector> entryVectors = entries.getChildrenFromFields();
+        if (entryVectors.size() < 2) {
+            throw new IllegalArgumentException("Arrow map must contain key and value vectors");
         }
-        String keyName = keyField == null ? "key" : keyField.getName();
-        String valueName = valueField == null ? "value" : valueField.getName();
+        FieldVector keyVector = entryVectors.get(0);
+        FieldVector valueVector = entryVectors.get(1);
+        int start = vector.getElementStartIndex(index);
+        int end = vector.getElementEndIndex(index);
         Map<Object, Object> converted = new HashMap<>();
-        for (Object element : values) {
-            if (element instanceof Map) {
-                Map<?, ?> entry = (Map<?, ?>) element;
-                converted.put(
-                        convertToPaimonType(entry.get(keyName), keyField, mapType.getKeyType()),
-                        convertToPaimonType(entry.get(valueName), valueField,
-                                mapType.getValueType()));
-            }
+        for (int entryIndex = start; entryIndex < end; entryIndex++) {
+            converted.put(
+                    convertVectorValue(
+                            keyVector, entryIndex, keyVector.getField(), mapType.getKeyType()),
+                    convertVectorValue(
+                            valueVector, entryIndex, valueVector.getField(),
+                            mapType.getValueType()));
         }
         return new GenericMap(converted);
     }
 
-    private GenericArray convertArray(List<?> values, ArrayType arrayType, Field arrowField) {
-        Object[] converted = new Object[values.size()];
-        Field elementField = arrowField == null || arrowField.getChildren().isEmpty()
-                ? null : arrowField.getChildren().get(0);
-        for (int i = 0; i < values.size(); i++) {
-            converted[i] = convertToPaimonType(
-                    values.get(i), elementField, arrayType.getElementType());
+    private GenericArray convertArrayVector(
+            ListVector vector, int index, ArrayType arrayType) {
+        FieldVector elementVector = vector.getDataVector();
+        int start = vector.getElementStartIndex(index);
+        int end = vector.getElementEndIndex(index);
+        Object[] converted = new Object[end - start];
+        for (int elementIndex = start; elementIndex < end; elementIndex++) {
+            converted[elementIndex - start] = convertVectorValue(
+                    elementVector, elementIndex, elementVector.getField(),
+                    arrayType.getElementType());
         }
         return new GenericArray(converted);
     }
 
-    private static Field findChildField(Field parent, String name) {
-        if (parent == null || parent.getChildren() == null) {
-            return null;
-        }
-        for (Field child : parent.getChildren()) {
+    private static FieldVector findChildVector(StructVector parent, String name) {
+        for (FieldVector child : parent.getChildrenFromFields()) {
             if (child.getName().equals(name)) {
                 return child;
             }
