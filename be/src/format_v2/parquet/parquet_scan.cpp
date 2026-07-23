@@ -999,8 +999,13 @@ std::vector<format::LocalColumnIndex> ParquetScanScheduler::adaptive_predicate_p
         }
     } else if (!schedule.single_column_conjuncts.empty()) {
         positions.reserve(schedule.single_column_conjuncts.size());
-        for (const size_t position : schedule.single_column_conjuncts | std::views::keys) {
-            positions.push_back(position);
+        for (const auto& column : request.predicate_columns) {
+            const size_t position = request.local_positions.at(column.column_id()).value();
+            if (schedule.single_column_conjuncts.contains(position)) {
+                // Cold adaptive statistics intentionally preserve request order; iterating the
+                // hash map here would make the first decoded predicate depend on bucket layout.
+                positions.push_back(position);
+            }
         }
     } else if (!schedule.remaining_stages.empty()) {
         // Match execution's first reachable stage. Warming columns owned only by later residuals
@@ -1877,8 +1882,13 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         // reader skips rows already rejected by earlier predicates instead of materializing them.
         _ordered_predicate_positions_scratch.clear();
         _ordered_predicate_positions_scratch.reserve(schedule.single_column_conjuncts.size());
-        for (const size_t position : schedule.single_column_conjuncts | std::views::keys) {
-            _ordered_predicate_positions_scratch.push_back(position);
+        for (const auto& column : request.predicate_columns) {
+            const size_t position = request.local_positions.at(column.column_id()).value();
+            if (schedule.single_column_conjuncts.contains(position)) {
+                // The request order is the stable cold-start policy until measured costs can
+                // reorder predicates; unordered-map iteration can defeat an early selective filter.
+                _ordered_predicate_positions_scratch.push_back(position);
+            }
         }
         _ordered_predicate_positions_scratch = detail::order_adaptive_predicates(
                 _ordered_predicate_positions_scratch, _predicate_runtime_stats);
@@ -2023,6 +2033,11 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         for (const int position : delete_positions) {
             DORIS_CHECK(position >= 0);
             required_delete_positions.push_back(cast_set<size_t>(position));
+        }
+        if (required_delete_positions.empty() && !_predicate_positions_scratch.empty()) {
+            // An all-literal equality-delete predicate has no slot dependency, but its hidden
+            // row-count carrier must still be materialized so the result matches selected_rows.
+            required_delete_positions.push_back(_predicate_positions_scratch.front());
         }
         RETURN_IF_ERROR(materialize_predicate_positions(required_delete_positions));
         RETURN_IF_ERROR(compact_predicate_columns_with_profile(false));
