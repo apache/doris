@@ -120,6 +120,7 @@ if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-u
     -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/query-result-target/ &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/prepare.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/compile.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/run-parquet-microbenchmark.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/deploy.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/run-tpch.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/run-tpcds.sh &&

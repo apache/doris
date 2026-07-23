@@ -139,7 +139,7 @@ sudo docker run -i --rm \
     -v "${git_storage_path}":/root/git \
     -v "${teamcity_build_checkoutDir}":/root/doris \
     "${docker_image}" \
-    /bin/bash -c "mkdir -p ${git_storage_path} \
+    /bin/bash -o pipefail -c "mkdir -p ${git_storage_path} \
                     && cp -r /root/git/* ${git_storage_path}/ \
                     && cd /root/doris \
                     && export CCACHE_LOGFILE=/tmp/cache.debug \
@@ -149,8 +149,19 @@ sudo docker run -i --rm \
                     && export ENABLE_PCH=OFF \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
-                    && bash build.sh --fe --be --clean 2>&1 | tee build.log"
+                    && bash build.sh --fe --be --clean 2>&1 | tee build.log \
+                    && mkdir -p parquet-benchmark-results \
+                    && bash build.sh --benchmark --output /root/doris/parquet-benchmark-output 2>&1 | tee parquet-benchmark-results/build.log \
+                    && bash regression-test/pipeline/performance/run-parquet-microbenchmark.sh"
+docker_status=$?
 set +x
+if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then
+    echo "##teamcity[publishArtifacts 'parquet-benchmark-results => parquet-microbenchmark']"
+fi
+if [[ "${docker_status}" -ne 0 ]]; then
+    echo "ERROR: performance build or Parquet microbenchmark failed"
+    exit "${docker_status}"
+fi
 set -x
 succ_symble="Successfully build Doris"
 if [[ -d output ]] && grep "${succ_symble}" "${teamcity_build_checkoutDir}"/build.log; then
