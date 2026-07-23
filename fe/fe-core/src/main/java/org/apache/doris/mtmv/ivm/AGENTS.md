@@ -69,8 +69,15 @@ IVM no longer uses mock `scan.withTso(tso)` bindings in incremental refresh rewr
 ## Explain Refresh Plans
 
 Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL` to inspect the incremental IVM refresh
-plan without changing MV/IVM persisted state. The overview form prints the normalized MV plan and
-the rewritten incremental refresh plan.
+plan without changing MV/IVM persisted state. By default, the rewritten plan matches the current
+refresh execution scope and only contains streams with pending data; it may be an empty relation
+when all streams are up to date.
+
+Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH ALL STREAMS` to inspect the complete
+incremental rewrite shape, including streams that are currently up to date. This is a structural
+Explain mode and does not change the persisted MV/IVM state. The Explain output format is unchanged;
+stream offsets and lag are not included in the plan output and should be inspected with the stream
+metadata commands instead.
 
 Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name COMPLETE` to inspect the complete MTMV refresh plan
 through the same dry-run path used by normal complete refresh planning.
@@ -79,10 +86,13 @@ Typed explain forms continue to work on both refresh modes, for example:
 
 ```sql
 EXPLAIN ANALYZED PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL;
+EXPLAIN LOGICAL PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH ALL STREAMS;
 EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name COMPLETE;
 ```
 
-`EXPLAIN REFRESH` currently supports only `INCREMENTAL` and `COMPLETE`.
+`EXPLAIN REFRESH` supports only `INCREMENTAL` and `COMPLETE`; partition-scoped refresh syntax is
+not supported by Explain Refresh. Partition-scoped refresh remains available through ordinary
+`REFRESH MATERIALIZED VIEW ... PARTITION(S)` commands.
 
 ## DML Factor from `__DORIS_STREAM_CHANGE_TYPE__`
 

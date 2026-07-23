@@ -83,11 +83,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }
 
-    private Plan generateMergedDelta(Plan plan, boolean includeUpToDateStreams) {
-        return generateMergedDelta(plan, includeUpToDateStreams, null);
+    private Plan generateMergedDelta(Plan plan, boolean includeExhaustedStreams) {
+        return generateMergedDelta(plan, includeExhaustedStreams, null);
     }
 
-    private Plan generateMergedDelta(Plan plan, boolean includeUpToDateStreams, String excludedTriggerTables) {
+    private Plan generateMergedDelta(Plan plan, boolean includeExhaustedStreams, String excludedTriggerTables) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(plan, connectContext);
         Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
@@ -98,7 +98,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                     PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables));
         }
         return new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult,
-                IvmRewriteContext.incremental(mtmv, includeUpToDateStreams), connectContext);
+                IvmRewriteContext.incremental(mtmv, includeExhaustedStreams), connectContext);
     }
 
     private LogicalJoin<LogicalOlapScan, LogicalOlapScan> crossJoin(
@@ -162,7 +162,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertThrows(NullPointerException.class,
                 () -> new IvmRefreshContext(mtmv, null, null));
         Assertions.assertTrue(new IvmRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult(), true)
-                .isIncludeUpToDateStreams());
+                .isIncludeExhaustedStreams());
     }
 
     @Test

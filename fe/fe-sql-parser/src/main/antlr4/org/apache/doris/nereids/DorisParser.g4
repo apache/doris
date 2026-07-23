@@ -150,8 +150,10 @@ createMaterializedViewStatement
     ;
 
 refreshMaterializedViewStatement
-    : explain? REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
-        (partitionSpec | refreshPolicy)                                                         #refreshMTMV
+    : explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        explainRefreshPolicy                                                                     #explainRefreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        (partitionSpec | refreshPolicy)                                                           #refreshMTMV
     ;
 
 alterMaterializedViewStatement
@@ -1265,6 +1267,11 @@ refreshSchedule
 
 refreshPolicy
     : refreshMethod refreshFallback?
+    ;
+
+explainRefreshPolicy
+    : INCREMENTAL (WITH ALL STREAMS)?
+    | COMPLETE
     ;
 
 refreshFallback
