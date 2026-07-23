@@ -151,45 +151,48 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
 
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         List<List<Expression>> newGroupingSets = new ArrayList<>();
+        List<Long> originalGroupingIdValues = repeat.toShapes().computeGroupingIdValue();
+        List<Long> remainingGroupingIdValues = new ArrayList<>();
         for (int i = 0; i < repeat.getGroupingSets().size(); ++i) {
             if (i == maxGroupIndex) {
                 continue;
             }
             newGroupingSets.add(repeat.getGroupingSets().get(i));
+            remainingGroupingIdValues.add(originalGroupingIdValues.get(i));
         }
         List<NamedExpression> groupingFunctionSlots = new ArrayList<>();
         LogicalRepeat<Plan> newRepeat = constructRepeat(repeat, aggregateConsumer, newGroupingSets,
-                originToConsumerMap, groupingFunctionSlots);
+                remainingGroupingIdValues, originToConsumerMap, groupingFunctionSlots);
         Set<Expression> needRemovedExprSet = getNeedAddNullExpressions(repeat, newGroupingSets, maxGroupIndex);
         Map<AggregateFunction, Slot> aggFuncToSlot = new HashMap<>();
         LogicalAggregate<Plan> topAgg = constructAgg(aggregate, originToConsumerMap, newRepeat, groupingFunctionSlots,
                 aggFuncToSlot);
         LogicalProject<Plan> project = constructProject(aggregate, originToConsumerMap, needRemovedExprSet,
-                groupingFunctionSlots, topAgg, aggFuncToSlot);
-        LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionSlots);
+                groupingFunctionSlots, newRepeat.getGroupingId().get(), topAgg, aggFuncToSlot);
+        LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionSlots,
+                originalGroupingIdValues.get(maxGroupIndex));
         return constructUnion(project, directChild, aggregate);
     }
 
     /**
      * Get the direct child plan for the union operation.
-     * If there are grouping function slots, wrap the consumer with a project that adds
-     * zero literals for each grouping function slot to match the output schema.
+     * If the output contains internal grouping id or grouping function slots, wrap the consumer with a project
+     * that adds the original grouping id and zero literals for the grouping function slots.
      *
      * @param directConsumer the CTE consumer for the direct path
      * @param groupingFunctionSlots the list of grouping function slots to handle
+     * @param groupingIdValue original internal grouping id for the maximum grouping set
      * @return the direct child plan, possibly wrapped with a project
      */
-    private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer, List<NamedExpression> groupingFunctionSlots) {
-        LogicalPlan directChild = directConsumer;
-        if (!groupingFunctionSlots.isEmpty()) {
-            ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
-            builder.addAll(directConsumer.getOutput());
-            for (int i = 0; i < groupingFunctionSlots.size(); ++i) {
-                builder.add(new Alias(new BigIntLiteral(0)));
-            }
-            directChild = new LogicalProject<Plan>(builder.build(), directConsumer);
+    private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer, List<NamedExpression> groupingFunctionSlots,
+            long groupingIdValue) {
+        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+        builder.addAll(directConsumer.getOutput());
+        builder.add(new Alias(new BigIntLiteral(groupingIdValue)));
+        for (int i = 0; i < groupingFunctionSlots.size(); ++i) {
+            builder.add(new Alias(new BigIntLiteral(0)));
         }
-        return directChild;
+        return new LogicalProject<Plan>(builder.build(), directConsumer);
     }
 
     /**
@@ -304,7 +307,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      */
     private LogicalProject<Plan> constructProject(LogicalAggregate<? extends Plan> aggregate,
             Map<Slot, Slot> originToConsumerMap, Set<Expression> needRemovedExprSet,
-            List<NamedExpression> groupingFunctionSlots, LogicalAggregate<Plan> topAgg,
+            List<NamedExpression> groupingFunctionSlots, SlotReference groupingId, LogicalAggregate<Plan> topAgg,
             Map<AggregateFunction, Slot> aggFuncToSlot) {
         LogicalRepeat<?> repeat = (LogicalRepeat<?>) aggregate.child(0);
         Set<ExprId> originGroupingFunctionId = new HashSet<>();
@@ -335,6 +338,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 projects.add(replacedExpr.toSlot());
             }
         }
+        projects.add(groupingId);
         projects.addAll(groupingFunctionSlots);
         return new LogicalProject<>(projects.build(), topAgg);
     }
@@ -370,6 +374,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             }
             unionOutputs.add(expr.toSlot());
         }
+        unionOutputs.add(repeat.getGroupingId().get());
         unionOutputs.addAll(groupingFunctionSlots);
         return new LogicalUnion(Qualifier.ALL, unionOutputs, childrenOutputs, ImmutableList.of(),
                 false, ImmutableList.of(aggregateProject, directConsumer));
@@ -601,7 +606,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * @return a new LogicalRepeat with replaced expressions
      */
     private LogicalRepeat<Plan> constructRepeat(LogicalRepeat<Plan> repeat, LogicalPlan child,
-            List<List<Expression>> newGroupingSets, Map<Slot, Slot> producerToDirectConsumerSlotMap,
+            List<List<Expression>> newGroupingSets, List<Long> remainingGroupingIdValues,
+            Map<Slot, Slot> producerToDirectConsumerSlotMap,
             List<NamedExpression> groupingFunctionSlots) {
         List<List<Expression>> replacedNewGroupingSets = new ArrayList<>();
         for (List<Expression> groupingSet : newGroupingSets) {
@@ -617,7 +623,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         for (NamedExpression groupingFunction : newGroupingFunctions) {
             groupingFunctionSlots.add(groupingFunction.toSlot());
         }
-        return repeat.withNormalizedExpr(replacedNewGroupingSets, replacedRepeatOutputs,
-                repeat.getGroupingId().get(), child);
+        Slot groupingId = repeat.getGroupingId().get();
+        return repeat.withGroupingIdValues(replacedNewGroupingSets, replacedRepeatOutputs,
+                new SlotReference(groupingId.getName(), groupingId.getDataType(), false), remainingGroupingIdValues,
+                child);
     }
 }

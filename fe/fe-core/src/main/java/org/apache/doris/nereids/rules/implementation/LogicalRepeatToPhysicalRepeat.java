@@ -32,6 +32,7 @@ public class LogicalRepeatToPhysicalRepeat extends OneImplementationRuleFactory 
                 repeat.getGroupingSets(),
                 repeat.getOutputExpressions(),
                 repeat.getGroupingId().get(),
+                repeat.getGroupingIdValues(),
                 repeat.getLogicalProperties(),
                 repeat.child()
             )

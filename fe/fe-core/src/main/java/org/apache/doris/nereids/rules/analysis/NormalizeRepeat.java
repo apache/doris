@@ -213,7 +213,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         normalizedRepeatOutput = normalizedRepeatOutput.stream()
                 .filter(expr -> !expr.equals(groupingId))
                 .collect(Collectors.toList());
-        LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
+        LogicalRepeat<Plan> normalizedRepeat = repeat.withGroupingIdValues(
                 (List) normalizedGroupingSets, normalizedRepeatOutput, groupingId, normalizedChild);
 
         List<Expression> normalizedAggGroupBy = ImmutableList.<Expression>builder()
