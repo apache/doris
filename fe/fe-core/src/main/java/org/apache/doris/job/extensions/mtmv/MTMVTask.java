@@ -537,7 +537,8 @@ public class MTMVTask extends AbstractTask {
         }
         IvmRefreshResult ivmResult;
         try {
-            ivmResult = executeWithRetry(() -> ivmRefreshManager.doRefresh(mtmv), "IVM refresh");
+            ivmResult = executeWithRetry(
+                    () -> ivmRefreshManager.doRefresh(mtmv, this::recordQueryId), "IVM refresh");
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
                     + ", detail=" + Util.getRootCauseMessage(e), e);
@@ -769,9 +770,12 @@ public class MTMVTask extends AbstractTask {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
         };
-        executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                getDummyStmt(refreshPartitionNames), customizer);
-        lastQueryId = DebugUtil.printId(executor.getContext().queryId());
+        try {
+            executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
+                    getDummyStmt(refreshPartitionNames), customizer);
+        } finally {
+            recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+        }
         if (getStatus() == TaskStatus.CANCELED) {
             throw new JobException("task is CANCELED");
         }
@@ -802,6 +806,12 @@ public class MTMVTask extends AbstractTask {
         } catch (ComputeGroupException e) {
             computeGroup = FeConstants.null_string;
             LOG.warn("failed to resolve compute group for mtmv task, taskId: {}", getTaskId(), e);
+        }
+    }
+
+    private void recordQueryId(String queryId) {
+        if (!Strings.isNullOrEmpty(queryId)) {
+            lastQueryId = queryId;
         }
     }
 
