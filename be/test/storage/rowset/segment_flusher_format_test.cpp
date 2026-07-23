@@ -1643,7 +1643,8 @@ protected:
             const auto current_path = file_writer_creator.path(segment_id);
             const auto golden_path =
                     fmt::format("{}/{}/segment_{}.dat", kGoldenDir, case_name, segment_id);
-            if (context.partial_update_info != nullptr) {
+            if (context.partial_update_info != nullptr &&
+                context.partial_update_info->is_partial_update()) {
                 // Partial update may intentionally change physical column/page order. Compare all
                 // stored columns and the primary-key index after reading both Segment files.
                 const bool read_primary_keys = context.enable_unique_key_merge_on_write;
