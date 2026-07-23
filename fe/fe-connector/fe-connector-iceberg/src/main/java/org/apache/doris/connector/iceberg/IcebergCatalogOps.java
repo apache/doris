@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
@@ -156,6 +157,39 @@ public interface IcebergCatalogOps {
 
     /** Reorders the columns of {@code dbName.tableName} to match {@code newOrder} (full ordered name list). */
     void reorderColumns(String dbName, String tableName, List<String> newOrder);
+
+    // ---- Nested (dotted-path) column evolution (#65329) — resolve the path + commit an UpdateSchema ----
+    // Default methods so the whole execution lives in IcebergNestedColumnEvolution off the one seam primitive
+    // (loadTable); an implementation (or a recording fake) only supplies loadTable and inherits the behavior.
+
+    /** Adds the nested field at {@code path} to {@code dbName.tableName} at {@code position} (null = append). */
+    default void addNestedColumn(String dbName, String tableName, ConnectorColumnPath path,
+            IcebergColumnChange column, ConnectorColumnPosition position) {
+        IcebergNestedColumnEvolution.addColumn(loadTable(dbName, tableName), path, column, position);
+    }
+
+    /** Drops the nested field at {@code path} from {@code dbName.tableName}. */
+    default void dropNestedColumn(String dbName, String tableName, ConnectorColumnPath path) {
+        IcebergNestedColumnEvolution.dropColumn(loadTable(dbName, tableName), path);
+    }
+
+    /** Renames the nested field at {@code path} to {@code newName} (a leaf name) in {@code dbName.tableName}. */
+    default void renameNestedColumn(String dbName, String tableName, ConnectorColumnPath path, String newName) {
+        IcebergNestedColumnEvolution.renameColumn(loadTable(dbName, tableName), path, newName);
+    }
+
+    /** Modifies the nested field at {@code path} (type/comment/nullable) of {@code dbName.tableName}, optional move. */
+    default void modifyNestedColumn(String dbName, String tableName, ConnectorColumnPath path,
+            IcebergColumnChange column, boolean nullableSpecified, boolean commentSpecified,
+            ConnectorColumnPosition position) {
+        IcebergNestedColumnEvolution.modifyColumn(loadTable(dbName, tableName), path, column,
+                nullableSpecified, commentSpecified, position);
+    }
+
+    /** Sets (or clears) the comment of the flat-or-nested field at {@code path} of {@code dbName.tableName}. */
+    default void modifyColumnComment(String dbName, String tableName, ConnectorColumnPath path, String comment) {
+        IcebergNestedColumnEvolution.modifyColumnComment(loadTable(dbName, tableName), path, comment);
+    }
 
     // ---- Branch / tag refs (B4) — build + commit a ManageSnapshots; needs the live Table ----
 
