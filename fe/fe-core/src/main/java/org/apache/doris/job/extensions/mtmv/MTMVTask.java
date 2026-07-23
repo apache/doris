@@ -102,7 +102,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.function.Consumer;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -539,8 +538,11 @@ public class MTMVTask extends AbstractTask {
         IvmRefreshResult ivmResult;
         try {
             ivmResult = executeWithRetry(() -> {
+                ConnectContext ivmConnectContext = MTMVPlanUtil.createMTMVContext(mtmv,
+                        MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+                setupComputeGroup(ivmConnectContext);
                 IvmRefreshContext ivmRefreshContext = new IvmRefreshContext(mtmv,
-                        MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK),
+                        ivmConnectContext,
                         getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
                         this::recordQueryId);
                 return ivmRefreshManager.doRefresh(ivmRefreshContext);
@@ -773,13 +775,10 @@ public class MTMVTask extends AbstractTask {
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-        Consumer<ConnectContext> customizer = ctx -> {
-            setComputeGroup(ctx);
-            recordComputeGroup(ctx);
-        };
+        setupComputeGroup(mtmvCtx);
         try {
             executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                    getRefreshAuditStmt(refreshMode, refreshPartitionNames), customizer);
+                    getRefreshAuditStmt(refreshMode, refreshPartitionNames));
         } finally {
             recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
         }
@@ -796,17 +795,14 @@ public class MTMVTask extends AbstractTask {
                 "IVM COMPLETE refresh did not produce a plan signature");
     }
 
-    private void setComputeGroup(ConnectContext ctx) {
-        String taskComputeGroup = taskContext.getComputeGroup();
-        if (Config.isCloudMode() && !Strings.isNullOrEmpty(taskComputeGroup)) {
-            ctx.setCloudCluster(taskComputeGroup);
-        }
-    }
-
-    private void recordComputeGroup(ConnectContext ctx) {
+    private void setupComputeGroup(ConnectContext ctx) {
         if (!Config.isCloudMode()) {
             computeGroup = FeConstants.null_string;
             return;
+        }
+        String taskComputeGroup = taskContext.getComputeGroup();
+        if (!Strings.isNullOrEmpty(taskComputeGroup)) {
+            ctx.setCloudCluster(taskComputeGroup);
         }
         try {
             computeGroup = ctx.getCloudCluster(false);

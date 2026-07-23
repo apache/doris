@@ -279,7 +279,7 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testRecordComputeGroupFromContext() {
+    public void testSetupComputeGroupFromContext() {
         String originCloudUniqueId = Config.cloud_unique_id;
         try {
             Config.cloud_unique_id = "test_cloud";
@@ -287,7 +287,7 @@ public class MTMVTaskTest {
             ctx.setCloudCluster("cg1");
             MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
 
-            Deencapsulation.invoke(task, "recordComputeGroup", ctx);
+            Deencapsulation.invoke(task, "setupComputeGroup", ctx);
             TRow row = task.getTvfInfo("job1");
 
             Assert.assertEquals("cg1", row.getColumnValue()
@@ -298,7 +298,7 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testSetComputeGroupFromTaskContext() {
+    public void testSetupComputeGroupFromTaskContext() {
         String originCloudUniqueId = Config.cloud_unique_id;
         try {
             Config.cloud_unique_id = "test_cloud";
@@ -307,9 +307,12 @@ public class MTMVTaskTest {
                     RefreshMode.COMPLETE, true, "cg1");
             MTMVTask task = new MTMVTask(mtmv, relation, context);
 
-            Deencapsulation.invoke(task, "setComputeGroup", ctx);
+            Deencapsulation.invoke(task, "setupComputeGroup", ctx);
 
             Assert.assertEquals("cg1", ctx.getSessionVariable().getCloudCluster());
+            TRow row = task.getTvfInfo("job1");
+            Assert.assertEquals("cg1", row.getColumnValue()
+                    .get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase())).getStringVal());
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
         }
