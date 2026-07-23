@@ -22,9 +22,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.util.StreamingJobUtils;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
@@ -36,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 
 public class CdcStreamTableValuedFunctionTest {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
     public void testDeleteSignIsExcludedByDefault() throws Exception {
@@ -68,6 +72,17 @@ public class CdcStreamTableValuedFunctionTest {
                 () -> new CdcStreamTableValuedFunction(properties));
 
         Assert.assertTrue(exception.getMessage().contains("include_delete_sign"));
+    }
+
+    @Test
+    public void testMysqlJdbcUrlIsNormalizedInPayload() throws Exception {
+        CdcStreamTableValuedFunction function = new CdcStreamTableValuedFunction(baseProperties());
+
+        FetchRecordRequest request = OBJECT_MAPPER.readValue(
+                function.getBackendConnectProperties().get("http.payload"), FetchRecordRequest.class);
+        Assert.assertEquals("jdbc:mysql://localhost:3306/test_db?yearIsDateType=false"
+                        + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8",
+                request.getConfig().get(DataSourceConfigKeys.JDBC_URL));
     }
 
     private List<Column> getTableColumns(Map<String, String> properties) throws Exception {
