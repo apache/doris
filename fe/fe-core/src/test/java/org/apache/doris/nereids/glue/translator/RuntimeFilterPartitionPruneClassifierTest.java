@@ -118,6 +118,35 @@ class RuntimeFilterPartitionPruneClassifierTest {
     }
 
     @Test
+    void testSyncMvAliasMatchesCopiedBaseColumnByUniqueId() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column copiedBaseColumn = new Column("part_col", PrimitiveType.INT);
+        copiedBaseColumn.setUniqueId(1);
+        copiedBaseColumn.setComment("copied metadata");
+        Column mvColumn = createSyncMvColumn("mv_part_col", 0, copiedBaseColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
+    void testSyncMvAliasMatchesLegacyCopiedBaseColumnByEquality() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        Column copiedBaseColumn = new Column("part_col", PrimitiveType.INT);
+        Column mvColumn = createSyncMvColumn("mv_part_col", 0, copiedBaseColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
     void testSyncMvAliasUsesLineageInsteadOfIndexLocalUniqueId() {
         Column partitionColumn = new Column("part_col", PrimitiveType.INT);
         partitionColumn.setUniqueId(1);

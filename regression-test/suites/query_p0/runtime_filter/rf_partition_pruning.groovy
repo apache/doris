@@ -1668,6 +1668,19 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql "set enable_materialized_view_rewrite=true"
     sql "set pre_materialized_view_rewrite_strategy='TRY_IN_RBO'"
 
+    explain {
+        verbose true
+        sql """
+            SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+                COUNT(*), COALESCE(SUM(f.v), 0)
+            FROM rf_prune_mv_alias_fact f
+            JOIN [broadcast] (
+                SELECT k FROM rf_prune_mv_alias_dim WHERE scenario = 'one'
+            ) d ON f.k = d.k
+        """
+        contains "TABLE: rf_prune_mv_alias_fact(rf_prune_mv_alias_detail)"
+    }
+
     order_qt_sync_mv_alias_minmax """
         SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
             COUNT(*), COALESCE(SUM(f.v), 0)
