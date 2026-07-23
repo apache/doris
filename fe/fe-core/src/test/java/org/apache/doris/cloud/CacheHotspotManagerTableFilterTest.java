@@ -905,8 +905,9 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(200000, matched);
         System.out.println("[Perf] 200K tables, wildcard match-all: " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 1500,
-                "200K regex matches should complete within 1.5s, took " + elapsedMs + " ms");
+        // Shared FE UT workers need a broad guardrail; exact throughput belongs in dedicated benchmarks.
+        Assertions.assertTrue(elapsedMs < 3000,
+                "200K regex matches should complete within 3s, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -1041,8 +1042,9 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(200000 * iterations, totalMatched);
         System.out.println("[Perf] 200K tables × 5 cycles: total=" + totalMs + " ms, avg=" + avgMs + " ms/cycle");
-        Assertions.assertTrue(avgMs < 1000,
-                "Avg per refresh cycle for 200K tables should be < 1s, avg=" + avgMs + " ms");
+        // Shared FE UT workers need a broad guardrail; exact throughput belongs in dedicated benchmarks.
+        Assertions.assertTrue(avgMs < 2000,
+                "Avg per refresh cycle for 200K tables should be < 2s, avg=" + avgMs + " ms");
     }
 
     private static class RecordingAppender extends AbstractAppender {
