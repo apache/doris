@@ -74,6 +74,28 @@ under the License.
             <artifactId>commons-lang</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Runtime-only: the BE trino-connector scanner's oshi (pulled via trino-main) initializes
+             com.sun.jna.platform.linux.Udev, which calls com.sun.jna.Native.load(String, Class) (jna >= 5.0).
+             JNI scanners load through JniScannerClassLoader, a parent-first URLClassLoader whose parent is the
+             BE system classpath; that classpath (bin/start_be.sh) places preload-extensions ahead of
+             lib/hadoop_hdfs, whose bundled jna is < 5.0. jna used to reach this shared preload classpath
+             transitively via fe-common -> trino-main -> oshi, so the modern jna shadowed the hadoop copy; after
+             ca840c9dbea made fe-common trino-free it was evicted, and the scanner's own bundled jna cannot win
+             (parent-first resolves Native from the hadoop jar first) -> NoSuchMethodError. Restore it here (the
+             shared parent of all JNI scanners), mirroring the commons-lang / fastutil-core restorations. Pin
+             both core and platform to 5.13.0 (what oshi 6.4.5 pulls and what fe-core pins inline). -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.13.0</version>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-memory-unsafe</artifactId>
