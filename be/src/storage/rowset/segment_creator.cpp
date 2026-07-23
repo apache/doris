@@ -116,8 +116,8 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
         RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     } else {
         // the horizontal writer has no streaming feed, build it all up front
-        RETURN_IF_ERROR(segment_v2::materialize_derived_columns(transform_ctx.derived_column,
-                                                                &flush_block));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(segment_v2::materialize_derived_columns(
+                transform_ctx.derived_column, &flush_block));
         std::unique_ptr<segment_v2::SegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));

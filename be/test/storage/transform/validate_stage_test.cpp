@@ -200,6 +200,18 @@ TEST_F(ValidateStageTest, CompositionBinlogMow) {
               (std::vector<std::string_view> {"MowRowBinlogDerive"}));
 }
 
+// Non-direct binlog writers receive blocks that are already in binlog schema.
+TEST_F(ValidateStageTest, CompositionNonDirectBinlogEmpty) {
+    auto schema = create_mow_schema(/*has_seq=*/false);
+    RowsetWriterContext rwc = direct_rwc(schema);
+    rwc.write_binlog_opt().enable = true;
+
+    for (auto write_type : {DataWriteType::TYPE_DEFAULT, DataWriteType::TYPE_SCHEMA_CHANGE}) {
+        rwc.write_type = write_type;
+        EXPECT_TRUE(build_transform_chain(rwc).empty());
+    }
+}
+
 // =============================================================================
 // 1.2 ValidateStage branches (V1-V9). ValidateStage is the chain's first stage
 // on every non-compaction, non-binlog path, so we build the real chain and drive

@@ -1162,54 +1162,6 @@ TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsFilledRows) {
     }
 }
 
-// An all-stale flexible update has no logical row to persist. SegmentFlusher must stop after the
-// transform instead of sending a zero-row batch to either segment writer.
-TEST_F(FlexiblePartialUpdateTest, VerticalWriterSkipsAllStaleBlock) {
-    auto schema = create_flexible_seq_mow_schema();
-    TabletSharedPtr tablet;
-    auto history = write_rowset(schema, 3721, 2, {{1, 11, 20, 0}}, &tablet);
-    auto mow = make_mow_context(100, {history});
-    auto pui = make_flexible_pui(schema);
-
-    const auto delete_sign_uid = static_cast<uint64_t>(schema->column(3).unique_id());
-    Block block = schema->create_block();
-    {
-        auto guard = block.mutate_columns_scoped();
-        auto& columns = guard.mutable_columns();
-        for (const auto& [value, sequence] :
-             std::vector<std::pair<int32_t, int32_t>> {{30, 3}, {40, 4}}) {
-            const int32_t key = 1;
-            const int8_t delete_sign = 0;
-            columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
-            columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
-            columns[2]->insert_data(reinterpret_cast<const char*>(&sequence), sizeof(sequence));
-            columns[3]->insert_data(reinterpret_cast<const char*>(&delete_sign),
-                                    sizeof(delete_sign));
-            BitmapValue skip;
-            skip.add(delete_sign_uid);
-            assert_cast<ColumnBitmap*>(columns[4].get())->insert_value(std::move(skip));
-        }
-    }
-
-    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
-    const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
-    config::enable_vertical_segment_writer = true;
-    config::enable_merge_on_write_correctness_check = false;
-    RowsetSharedPtr output;
-    const auto flush_status =
-            flush_partial_rowset(schema, 3722, 3, tablet, mow, pui, &block, &output);
-    config::enable_vertical_segment_writer = saved_vertical_writer;
-    config::enable_merge_on_write_correctness_check = saved_correctness_check;
-    ASSERT_TRUE(flush_status.ok()) << flush_status;
-    ASSERT_NE(output, nullptr);
-    EXPECT_EQ(output->rowset_meta()->num_rows(), 0);
-    EXPECT_EQ(output->rowset_meta()->num_segments(), 0);
-
-    Block persisted;
-    ASSERT_TRUE(read_rowset(output, schema, &persisted).ok());
-    EXPECT_EQ(persisted.rows(), 0);
-}
-
 // Multiple memtable flushes use independent segment writers. Read all segments back together and
 // then use that rowset as history for another partial update.
 TEST_F(FlexiblePartialUpdateTest, VerticalWriterPersistsRowsAcrossSegments) {

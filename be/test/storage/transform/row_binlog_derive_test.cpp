@@ -99,6 +99,8 @@ protected:
             int len = 4;
             if (type == "TINYINT") {
                 len = 1;
+            } else if (type == "BIGINT") {
+                len = 8;
             } else if (type == "LARGEINT") {
                 len = 16;
             }
@@ -149,6 +151,8 @@ protected:
             int len = 4;
             if (type == "TINYINT") {
                 len = 1;
+            } else if (type == "BIGINT") {
+                len = 8;
             } else if (type == "LARGEINT") {
                 len = 16;
             }
@@ -262,7 +266,9 @@ protected:
             c->set_type(type);
             c->set_is_key(is_key);
             int len = 4;
-            if (type == "LARGEINT") {
+            if (type == "BIGINT") {
+                len = 8;
+            } else if (type == "LARGEINT") {
                 len = 16;
             }
             c->set_length(len);
@@ -490,8 +496,7 @@ TEST_F(RowBinlogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     {
         auto guard = block.mutate_columns_scoped();
         auto& columns = guard.mutable_columns();
-        int32_t values[2][6] = {{1, 101, 1001, 11, 10001, 111},
-                                {2, 102, 1002, 22, 10002, 222}};
+        int32_t values[2][6] = {{1, 101, 1001, 11, 10001, 111}, {2, 102, 1002, 22, 10002, 222}};
         for (const auto& row : values) {
             for (size_t cid = 0; cid < 6; ++cid) {
                 columns[cid]->insert_data(reinterpret_cast<const char*>(&row[cid]),
@@ -599,6 +604,8 @@ TEST_F(RowBinlogDeriveTest, MowUpdateAndAppendTakesHistoryV2) {
     ASSERT_EQ(block.rows(), 2);
     const int lsn_idx = binlog_schema->binlog_lsn_col_idx();
     const int op_idx = binlog_schema->binlog_op_col_idx();
+    EXPECT_TRUE(read_is_null(block, binlog_schema->binlog_tso_col_idx(), 0));
+    EXPECT_TRUE(read_is_null(block, binlog_schema->binlog_tso_col_idx(), 1));
     // op: key 1 existed -> UPDATE; key 99 new -> APPEND
     EXPECT_EQ(read_op(block, op_idx, 0), ROW_BINLOG_UPDATE);
     EXPECT_EQ(read_op(block, op_idx, 1), ROW_BINLOG_APPEND);
@@ -702,7 +709,7 @@ TEST_F(RowBinlogDeriveTest, MowDeleteExistingAndNewKey) {
 // covers value columns only (not the key, not delete_sign).
 TEST_F(RowBinlogDeriveTest, MowBeforeImageMirrorsHistory) {
     auto source_schema = create_binlog_pu_source_schema(); // k1,v1,v2,delete_sign(3 hidden)
-    auto binlog_schema = create_binlog_before_schema(); // + __BEFORE__v1__/v2__ + TSO/LSN/OP
+    auto binlog_schema = create_binlog_before_schema();    // + __BEFORE__v1__/v2__ + TSO/LSN/OP
     ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 6);
     ASSERT_EQ(binlog_schema->num_columns(), 8U);
 

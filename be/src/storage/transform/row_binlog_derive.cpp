@@ -96,8 +96,7 @@ Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
     Block before_block = binlog_schema.create_block_by_cids(before_cids);
     DCHECK(retriever != nullptr);
     DCHECK_EQ(before_cids.size(), value_source_cids.size());
-    RETURN_IF_ERROR(
-            retriever->build_before_block(&before_block, value_source_cids, 0, num_rows));
+    RETURN_IF_ERROR(retriever->build_before_block(&before_block, value_source_cids, 0, num_rows));
     size_t col_pos_in_block = 0;
     for (auto cid : before_cids) {
         out.replace_by_position(cid, before_block.get_by_position(col_pos_in_block++).column);
@@ -208,8 +207,7 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
             c->value_source_cids.emplace_back(cid);
         }
     }
-    c->before_col_start =
-            c->normal_col_start + cast_set<uint32_t>(c->normal_source_cids.size());
+    c->before_col_start = c->normal_col_start + cast_set<uint32_t>(c->normal_source_cids.size());
     c->write_before = cfg.write_before;
     // No BEFORE image => the binlog schema must have no BEFORE columns, or `out`
     // would carry unfilled BEFORE columns and row counts wouldn't match the swap.
@@ -221,10 +219,8 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
     return Status::OK();
 }
 
-// Reads the delete-sign column at `delete_sign_pos`, or nullptr when it's absent
-// (-1) or shorter than num_rows.
 // A view over the delete-sign column, or nullopt when the schema has no
-// delete-sign column (e.g. a DUP table).
+// delete-sign column or the column does not cover the requested rows.
 std::optional<std::span<const Int8>> read_delete_signs(const Block* block, int32_t delete_sign_pos,
                                                        size_t num_rows) {
     if (delete_sign_pos == -1) {

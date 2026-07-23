@@ -47,7 +47,6 @@
 namespace doris {
 
 using segment_v2::build_transform_chain;
-using segment_v2::DerivedColumn;
 using segment_v2::materialize_derived_columns;
 using segment_v2::TransformExecContext;
 

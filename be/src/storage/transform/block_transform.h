@@ -115,7 +115,8 @@ private:
 
 // The single place that decides which transforms a write path gets:
 //   - compaction: empty (rows are already final)
-//   - binlog sub-writer: [RowBinlogDerive]
+//   - direct binlog sub-writer: [RowBinlogDerive]
+//   - non-direct binlog sub-writer: empty (rows are already in binlog schema)
 //   - fixed partial update: [Validate, FixedFill, VariantParse, RowStoreFill]
 //   - flexible partial update: [Validate, FlexibleFill, RowStoreFill, VariantParse]
 //   - direct / schema change / transient flush: [Validate, RowStoreFill, VariantParse]

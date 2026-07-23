@@ -184,6 +184,9 @@ BlockTransformChain build_transform_chain(const RowsetWriterContext& context) {
         return BlockTransformChain {};
     }
     if (context.write_binlog_opt().enable) {
+        if (context.write_type != DataWriteType::TYPE_DIRECT) {
+            return BlockTransformChain {};
+        }
         // binlog<row> sub-writer: only the source -> binlog-schema derivation;
         // binlog schemas have no variant or row-store columns. Plain (no probe)
         // for DUP and no-BEFORE upserts; MoW (with probe) for partial update or
