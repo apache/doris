@@ -37,6 +37,7 @@
 #include "cpp/aws_common.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
+#include "util/hash_util.hpp"
 
 namespace Aws::S3 {
 class S3Client;
@@ -89,24 +90,25 @@ struct S3ClientConf {
     std::string role_arn;
     std::string external_id;
 
-    uint64_t get_hash() const {
-        uint64_t hash_code = 0;
-        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
-        hash_code ^= crc32_hash(ak + sk);
-        hash_code ^= crc32_hash(token);
-        hash_code ^= crc32_hash(endpoint);
-        hash_code ^= crc32_hash(region);
-        hash_code ^= crc32_hash(bucket);
-        hash_code ^= max_connections;
-        hash_code ^= request_timeout_ms;
-        hash_code ^= connect_timeout_ms;
-        hash_code ^= use_virtual_addressing;
-        hash_code ^= need_override_endpoint;
-        hash_code ^= static_cast<int>(provider);
+    bool operator==(const S3ClientConf&) const = default;
 
-        hash_code ^= static_cast<int>(cred_provider_type);
-        hash_code ^= crc32_hash(role_arn);
-        hash_code ^= crc32_hash(external_id);
+    uint64_t get_hash() const {
+        size_t hash_code = 0;
+        HashUtil::hash_combine(hash_code, endpoint);
+        HashUtil::hash_combine(hash_code, region);
+        HashUtil::hash_combine(hash_code, ak);
+        HashUtil::hash_combine(hash_code, sk);
+        HashUtil::hash_combine(hash_code, token);
+        HashUtil::hash_combine(hash_code, bucket);
+        HashUtil::hash_combine(hash_code, static_cast<int>(provider));
+        HashUtil::hash_combine(hash_code, max_connections);
+        HashUtil::hash_combine(hash_code, request_timeout_ms);
+        HashUtil::hash_combine(hash_code, connect_timeout_ms);
+        HashUtil::hash_combine(hash_code, use_virtual_addressing);
+        HashUtil::hash_combine(hash_code, need_override_endpoint);
+        HashUtil::hash_combine(hash_code, static_cast<int>(cred_provider_type));
+        HashUtil::hash_combine(hash_code, role_arn);
+        HashUtil::hash_combine(hash_code, external_id);
         return hash_code;
     }
 
@@ -119,6 +121,10 @@ struct S3ClientConf {
                 request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
                 role_arn, external_id);
     }
+};
+
+struct S3ClientConfHash {
+    size_t operator()(const S3ClientConf& conf) const { return conf.get_hash(); }
 };
 
 struct S3Conf {
@@ -184,7 +190,8 @@ private:
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;
-    std::unordered_map<uint64_t, std::shared_ptr<io::ObjStorageClient>> _cache;
+    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
+            _cache;
     std::string _ca_cert_file_path;
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 #ifdef BE_TEST

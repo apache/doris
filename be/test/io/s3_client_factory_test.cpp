@@ -62,6 +62,29 @@ TEST_F(S3ClientFactoryTest, GcpWorkloadIdentityClientCreation) {
     EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
 }
 
+TEST_F(S3ClientFactoryTest, ClientIdentityDistinguishesAddressingAndEndpointOverride) {
+    S3ClientConf path_style_conf {
+            .endpoint = "https://config-identity-test.example.com",
+            .region = "us-east-1",
+            .ak = "access-key",
+            .sk = "secret-key",
+            .use_virtual_addressing = false,
+            .need_override_endpoint = true,
+    };
+    S3ClientConf virtual_hosted_conf = path_style_conf;
+    virtual_hosted_conf.use_virtual_addressing = true;
+    virtual_hosted_conf.need_override_endpoint = false;
+
+    EXPECT_NE(path_style_conf, virtual_hosted_conf);
+    EXPECT_NE(path_style_conf.get_hash(), virtual_hosted_conf.get_hash());
+
+    auto path_style_client = S3ClientFactory::instance().create(path_style_conf);
+    auto virtual_hosted_client = S3ClientFactory::instance().create(virtual_hosted_conf);
+    ASSERT_NE(path_style_client, nullptr);
+    ASSERT_NE(virtual_hosted_client, nullptr);
+    EXPECT_NE(path_style_client, virtual_hosted_client);
+}
+
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientFactory& factory = S3ClientFactory::instance();
     S3ClientConf anonymous_conf;

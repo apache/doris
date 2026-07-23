@@ -87,7 +87,7 @@ Status ObjClientHolder::init() {
 Status ObjClientHolder::reset(const S3ClientConf& conf) {
     {
         std::shared_lock lock(_mtx);
-        if (conf.get_hash() == _conf.get_hash()) {
+        if (conf == _conf) {
             return Status::OK(); // Same conf
         }
     }

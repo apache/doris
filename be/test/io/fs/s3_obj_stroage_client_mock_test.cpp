@@ -209,6 +209,35 @@ TEST_F(S3ObjStorageClientMockTest, reset_uses_complete_client_configuration) {
     EXPECT_TRUE(reset_conf.sk.empty());
 }
 
+TEST_F(S3ObjStorageClientMockTest, reset_distinguishes_addressing_and_endpoint_override) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    int created_clients = 0;
+    S3ClientFactory::instance().set_client_creator_for_test([&](const S3ClientConf&) {
+        ++created_clients;
+        return std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    });
+
+    S3ClientConf initial_conf {
+            .endpoint = "https://s3.us-east-1.amazonaws.com",
+            .region = "us-east-1",
+            .ak = "access-key",
+            .sk = "secret-key",
+            .use_virtual_addressing = false,
+            .need_override_endpoint = true,
+    };
+    ObjClientHolder holder(initial_conf);
+    EXPECT_TRUE(holder.init().ok());
+
+    S3ClientConf updated_conf = initial_conf;
+    updated_conf.use_virtual_addressing = true;
+    updated_conf.need_override_endpoint = false;
+    EXPECT_TRUE(holder.reset(updated_conf).ok());
+    S3ClientFactory::instance().clear_client_creator_for_test();
+
+    EXPECT_EQ(created_clients, 2);
+    EXPECT_EQ(holder.s3_client_conf(), updated_conf);
+}
+
 TEST_F(S3ObjStorageClientMockTest, explicit_credentials_override_stale_workload_identity) {
     cloud::ObjectStoreInfoPB info;
     info.set_endpoint("https://storage.googleapis.com");

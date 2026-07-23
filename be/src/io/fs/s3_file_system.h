@@ -62,7 +62,10 @@ public:
     // For error msg
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
-    const S3ClientConf& s3_client_conf() { return _conf; }
+    S3ClientConf s3_client_conf() const {
+        std::shared_lock lock(_mtx);
+        return _conf;
+    }
 
 private:
     mutable std::shared_mutex _mtx;

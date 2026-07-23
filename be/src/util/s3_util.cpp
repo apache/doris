@@ -317,9 +317,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
 #endif
 
     {
-        uint64_t hash = s3_conf.get_hash();
         std::lock_guard l(_lock);
-        auto it = _cache.find(hash);
+        auto it = _cache.find(s3_conf);
         if (it != _cache.end()) {
             return it->second;
         }
@@ -330,9 +329,11 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
                               : _create_s3_client(s3_conf);
 
     {
-        uint64_t hash = s3_conf.get_hash();
         std::lock_guard l(_lock);
-        _cache[hash] = obj_client;
+        auto [it, inserted] = _cache.emplace(s3_conf, obj_client);
+        if (!inserted) {
+            return it->second;
+        }
     }
     return obj_client;
 }
