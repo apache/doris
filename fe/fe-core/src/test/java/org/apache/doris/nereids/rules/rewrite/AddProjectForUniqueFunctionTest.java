@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -129,15 +131,80 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
                 .getPlan();
         Assertions.assertInstanceOf(LogicalJoin.class, root);
         LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
+        Assertions.assertEquals(studentOlapScan, newJoin.left());
+        Assertions.assertInstanceOf(LogicalProject.class, newJoin.right());
+        LogicalProject<?> rightProject = (LogicalProject<?>) newJoin.right();
+        Assertions.assertEquals(scoreOlapScan, rightProject.child());
+        Alias alias = (Alias) rightProject.getProjects().get(rightProject.getProjects().size() - 1);
+        Assertions.assertEquals(alias.child(), random);
+        Assertions.assertEquals(ImmutableList.of(), newJoin.getHashJoinConjuncts());
+        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), sid)), newJoin.getOtherJoinConjuncts());
+        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), new DoubleLiteral(1.0))), newJoin.getMarkJoinConjuncts());
+        Assertions.assertEquals(JoinType.CROSS_JOIN, newJoin.getJoinType());
+    }
+
+    @Test
+    void testRewriteJoinProjectRepeatedUniqueToRightSide() {
+        LogicalOlapScan scoreOlapScan
+                = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+        SlotReference score = (SlotReference) scoreOlapScan.getOutput().get(2);
+        Random random = new Random();
+        Add repeated = new Add(score, random);
+        LogicalJoin<?, ?> join = new LogicalJoin<Plan, Plan>(JoinType.INNER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new GreaterThanEqual(repeated, new DoubleLiteral(0.1)),
+                        new LessThanEqual(repeated, new DoubleLiteral(0.5))),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                studentOlapScan,
+                scoreOlapScan,
+                null);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new AddProjectForUniqueFunction())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, root);
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
+        Assertions.assertEquals(studentOlapScan, newJoin.left());
+        Assertions.assertInstanceOf(LogicalProject.class, newJoin.right());
+        LogicalProject<?> rightProject = (LogicalProject<?>) newJoin.right();
+        Assertions.assertEquals(scoreOlapScan, rightProject.child());
+        Alias alias = (Alias) rightProject.getProjects().get(rightProject.getProjects().size() - 1);
+        Assertions.assertEquals(random, alias.child());
+        Assertions.assertTrue(newJoin.getOtherJoinConjuncts().stream()
+                .allMatch(conjunct -> conjunct.anyMatch(alias.toSlot()::equals)));
+    }
+
+    @Test
+    void testRewriteJoinProjectRepeatedUniqueToLeftSideByDefault() {
+        LogicalOlapScan scoreOlapScan
+                = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+        Random random = new Random();
+        LogicalJoin<?, ?> join = new LogicalJoin<Plan, Plan>(JoinType.INNER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new GreaterThanEqual(random, new DoubleLiteral(0.1)),
+                        new LessThanEqual(random, new DoubleLiteral(0.5))),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                studentOlapScan,
+                scoreOlapScan,
+                null);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new AddProjectForUniqueFunction())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalJoin.class, root);
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
         Assertions.assertInstanceOf(LogicalProject.class, newJoin.left());
+        Assertions.assertEquals(scoreOlapScan, newJoin.right());
         LogicalProject<?> leftProject = (LogicalProject<?>) newJoin.left();
         Assertions.assertEquals(studentOlapScan, leftProject.child());
-        Assertions.assertEquals(scoreOlapScan, newJoin.right());
         Alias alias = (Alias) leftProject.getProjects().get(leftProject.getProjects().size() - 1);
-        Assertions.assertEquals(alias.child(), random);
-        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), sid)), newJoin.getHashJoinConjuncts());
-        Assertions.assertEquals(ImmutableList.of(), newJoin.getOtherJoinConjuncts());
-        Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), new DoubleLiteral(1.0))), newJoin.getMarkJoinConjuncts());
-        Assertions.assertEquals(JoinType.INNER_JOIN, newJoin.getJoinType());
+        Assertions.assertEquals(random, alias.child());
+        Assertions.assertTrue(newJoin.getOtherJoinConjuncts().stream()
+                .allMatch(conjunct -> conjunct.anyMatch(alias.toSlot()::equals)));
     }
+
 }

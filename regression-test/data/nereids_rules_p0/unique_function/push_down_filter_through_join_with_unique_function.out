@@ -65,3 +65,12 @@ PhysicalResultSink
 --------PhysicalProject[(cast(id as BIGINT) * 5) AS `expr_(cast(id as BIGINT) * 5)`, t3.id]
 ----------PhysicalOlapScan[t2]
 
+-- !push_down_filter_through_join_4 --
+PhysicalResultSink
+--filter(((cast(id as DOUBLE) + random()) > 0.2) and (random() > 0.1))
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalProject[t1.id]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[t2.id]
+--------PhysicalOlapScan[t2]
+
