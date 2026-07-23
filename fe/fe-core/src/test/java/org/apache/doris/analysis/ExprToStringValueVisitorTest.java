@@ -388,6 +388,32 @@ public class ExprToStringValueVisitorTest {
         }
     }
 
+    @Test
+    public void testDateLiteralTimeStampTzHistoricalOffsetStreamLoad() throws Exception {
+        // BE's TIMESTAMPTZ parser consumes only HH:MM offsets (minutes 00/30/45).
+        // Historical zone offsets can include seconds (e.g. Asia/Shanghai before
+        // 1901 had LMT +08:05:43), which BE would reject on group-commit or
+        // transactional-insert PDataRow paths.  Stream-load rendering must
+        // serialise in UTC format so BE can round-trip.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            // Pre-standard-offset instant: 1900-01-01 00:00:00 UTC.
+            DateLiteral d = DateLiteralUtils.createDateLiteral("1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // Stream-load path must emit UTC format.
+            Assertions.assertEquals("1900-01-01 00:00:00+00:00",
+                    V.visitDateLiteral(d, StringValueContext.forStreamLoad(FormatOptions.getDefault())));
+            // Query path shows the historical wall clock with full offset.
+            String queryResult = V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()));
+            Assertions.assertTrue(queryResult.contains("+08:05:43"),
+                    "Query path should render historical offset with seconds: " + queryResult);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     // ======================== CastExpr ========================
 
     @Test
