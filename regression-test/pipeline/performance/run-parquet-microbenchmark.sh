@@ -54,7 +54,7 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
     fi
 
     docker_image="${performance_docker_image:-apache/doris:build-env-ldb-toolchain-latest}"
-    docker_name="parquet-microbenchmark-${TEAMCITY_BUILD_ID:-${commit_id_from_trigger}}"
+    docker_name="parquet-microbenchmark-${TEAMCITY_BUILD_ID:-${commit_id_from_trigger:-manual}}"
     if sudo docker run -i --rm \
         --name "${docker_name}" \
         -e PARQUET_MICROBENCHMARK_IN_CONTAINER=true \
