@@ -20,11 +20,15 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.TimeZone;
 
 public class DateLiteralUtilsTest {
 
@@ -423,5 +427,77 @@ public class DateLiteralUtilsTest {
 
         // Verify getStringValue includes +00:00 suffix for TimestampTz
         Assertions.assertTrue(dl.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testDatetimeWithTzOffsetDstAwareUnixTimestamp() throws AnalysisException {
+        // Regression: createDateLiteral must compute the timezone offset using
+        // the target date rather than Instant.now().  When the session timezone
+        // has DST (e.g. America/Chicago = UTC-5 summer, UTC-6 winter), a winter-
+        // target value with +00:00 suffix was shifted using the summer DST
+        // offset, then unixTimestamp() applied the winter offset, producing a
+        // 1-hour error.
+        TimeZone originalTz = TimeZone.getDefault();
+        ConnectContext savedCtx = ConnectContext.get();
+        try {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.getSessionVariable().setTimeZone("America/Chicago");
+
+            // Winter-target instant: 2027-01-01 00:00:00 UTC.
+            long expectedEpochMs = Instant.parse("2027-01-01T00:00:00Z").toEpochMilli();
+
+            // Z suffix
+            DateLiteral dlZ = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00Z", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dlZ.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter 'Z' suffix must produce correct UTC epoch ms");
+
+            // +00:00 suffix
+            DateLiteral dl00 = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00+00:00", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dl00.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter '+00:00' suffix must produce correct UTC epoch ms");
+
+            // UTC suffix
+            DateLiteral dlUtc = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00UTC", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dlUtc.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter 'UTC' suffix must produce correct UTC epoch ms");
+
+            // GMT suffix
+            DateLiteral dlGmt = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00GMT", Type.DATETIME);
+            Assertions.assertEquals(expectedEpochMs,
+                    dlGmt.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter 'GMT' suffix must produce correct UTC epoch ms");
+
+            // Summer-target baseline: a +00:00 value for July must also work.
+            long summerEpochMs = Instant.parse("2027-07-01T00:00:00Z").toEpochMilli();
+            DateLiteral dlSummer = DateLiteralUtils.createDateLiteral(
+                    "2027-07-01 00:00:00+00:00", Type.DATETIME);
+            Assertions.assertEquals(summerEpochMs,
+                    dlSummer.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Summer '+00:00' suffix must also produce correct UTC epoch ms");
+
+            // Non-UTC offset with DST zone: -05:00 in winter should produce
+            // 2027-01-01 05:00:00 UTC = +5h from original.
+            long minus5EpochMs = Instant.parse("2027-01-01T05:00:00Z").toEpochMilli();
+            DateLiteral dlMinus5 = DateLiteralUtils.createDateLiteral(
+                    "2027-01-01 00:00:00-05:00", Type.DATETIME);
+            Assertions.assertEquals(minus5EpochMs,
+                    dlMinus5.unixTimestamp(TimeUtils.getTimeZone()),
+                    "Winter '-05:00' suffix must produce correct UTC epoch ms");
+        } finally {
+            TimeZone.setDefault(originalTz);
+            if (savedCtx != null) {
+                savedCtx.setThreadLocalInfo();
+            } else {
+                ConnectContext.remove();
+            }
+        }
     }
 }
