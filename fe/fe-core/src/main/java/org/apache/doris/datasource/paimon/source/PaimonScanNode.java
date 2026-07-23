@@ -56,6 +56,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
@@ -63,6 +65,7 @@ import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.system.SystemTableLoader;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -174,7 +177,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         long startTime = System.currentTimeMillis();
-        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
+        serializedTable = PaimonUtil.encodeObjectToString(getPaimonTableForBackend());
         // Todo: Get the current schema id of the table, instead of using -1.
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
@@ -188,6 +191,58 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
         }
+    }
+
+    /**
+     * Build the Paimon table object that is serialized to the BE.
+     *
+     * <p>Every table loaded from a metastore-backed Paimon catalog (HMS / DLF) carries a Paimon
+     * {@code HiveCatalogLoader} in its {@link org.apache.paimon.table.CatalogEnvironment}. The BE
+     * only reads — via FE-resolved splits and the object store — and never needs the catalog, yet
+     * deserializing that loader forces the whole Hive metastore stack onto the BE classpath:
+     * {@code HiveConf}, the metastore API, and, when a system table resolves its latest snapshot,
+     * even the metastore client (DLF's {@code ProxyMetaStoreClient} and its REST stack). So we
+     * serialize a catalog-less table to the BE:
+     * <ul>
+     *   <li>data table: drop the catalog loader. A {@link FileStoreTable} is fully defined by
+     *       fileIO / location / schema / catalogEnvironment, and its dynamic options (time travel,
+     *       incremental) are merged into the schema by {@code copy(...)}, so rebuilding from
+     *       fileIO / location / schema preserves everything except the catalog loader.</li>
+     *   <li>system table (e.g. {@code $snapshots}): rebuild it over a catalog-less data table so
+     *       {@code SnapshotManager#latestSnapshotId} lists the snapshot directory on the filesystem
+     *       instead of calling the metastore.</li>
+     * </ul>
+     */
+    private Table getPaimonTableForBackend() {
+        Table paimonTable = source.getPaimonTable();
+        if (paimonTable instanceof FileStoreTable) {
+            return dropCatalogLoader((FileStoreTable) paimonTable);
+        }
+        if (!(source.getExternalTable() instanceof PaimonSysExternalTable)) {
+            return paimonTable;
+        }
+        PaimonSysExternalTable sysTable = (PaimonSysExternalTable) source.getExternalTable();
+        // System tables ignore snapshot semantics, so the empty snapshot resolves the base table.
+        Table dataTable = sysTable.getSourceTable().getPaimonTable(Optional.empty());
+        if (!(dataTable instanceof FileStoreTable)) {
+            return paimonTable;
+        }
+        Table catalogLessSysTable = SystemTableLoader.load(
+                sysTable.getSysTableType(), dropCatalogLoader((FileStoreTable) dataTable));
+        return catalogLessSysTable == null ? paimonTable : catalogLessSysTable;
+    }
+
+    /**
+     * Return an equivalent {@link FileStoreTable} without the catalog loader, so the BE never
+     * deserializes a {@code HiveCatalogLoader} (and snapshot loading uses the filesystem instead of
+     * the catalog's metastore). fileIO / location / schema (and the schema's options) are preserved.
+     */
+    private static FileStoreTable dropCatalogLoader(FileStoreTable dataTable) {
+        if (dataTable.catalogEnvironment().catalogLoader() == null) {
+            return dataTable;
+        }
+        return FileStoreTableFactory.create(
+                dataTable.fileIO(), dataTable.location(), dataTable.schema());
     }
 
     @VisibleForTesting
