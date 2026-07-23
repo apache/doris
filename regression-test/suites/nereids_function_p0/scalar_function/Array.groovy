@@ -1207,11 +1207,20 @@ suite("nereids_scalar_fn_Array") {
     qt_array_range_datetime1 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
     qt_array_range_datetime2 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
     qt_array_range_datetime3 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 quarter), interval kint quarter) from fn_test order by kdtmv2s1;"""
+    qt_array_range_int32_upper_bound """select array_range(2147483646, 2147483647, 2);"""
+    qt_array_range_int32_upper_bound_multiple_elements """select array_range(2147483644, 2147483647, 2);"""
+    qt_array_range_int32_upper_bound_non_const """select array_range(cast(number + 2147483646 as int), 2147483647, 2) from numbers("number" = "1");"""
+    qt_array_range_datetime_day_upper_bound """select array_range(cast('9999-12-30' as datetimev2), cast('9999-12-31' as datetimev2), interval 2 day);"""
+    qt_array_range_datetime_second_upper_bound """select array_range(cast('9999-12-31 23:59:58' as datetimev2), cast('9999-12-31 23:59:59' as datetimev2), interval 2 second);"""
+    qt_array_range_datetime_year_upper_bound """select array_range(cast('9998-12-31' as datetimev2), cast('9999-12-31' as datetimev2), interval 2 year);"""
+    qt_array_range_datetime_month_end """select array_range(cast('2020-01-31' as datetimev2), cast('2020-03-30' as datetimev2), interval 1 month);"""
     qt_sequence_int_one_para """select sequence(kint) from fn_test order by kint;"""
     qt_sequence_int_two_para """select sequence(kint, kint+2) from fn_test order by kint;"""
     qt_sequence_int_three_para """select sequence(kint-1, kint+2, 1) from fn_test order by kint;"""
+    qt_sequence_int32_upper_bound """select sequence(2147483646, 2147483647, 2);"""
     qt_sequence_datetime_default """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 day)) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_day """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
+    qt_sequence_datetime_upper_bound """select sequence(cast('9999-12-30' as datetimev2), cast('9999-12-31' as datetimev2), interval 2 day);"""
     qt_sequence_datetime_week """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_month """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+3 month), interval kint month) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_year """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+3 year), interval kint year) from fn_test order by kdtmv2s1;"""
@@ -1229,6 +1238,10 @@ suite("nereids_scalar_fn_Array") {
 
     test {
         sql "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval 5000 year), interval 1 second) from fn_test"
+        exception "Array size exceeds the limit 1000000"
+    }
+    test {
+        sql """select array_range(cast('9999-12-08 20:26:38' as datetimev2), cast('9999-12-31 23:59:59' as datetimev2), interval 2 second)"""
         exception "Array size exceeds the limit 1000000"
     }
     sql "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval 5000 year), interval 500 year) from fn_test"
