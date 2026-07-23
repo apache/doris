@@ -146,6 +146,7 @@ protected:
     void set_self_split_weight(int64_t weight) {
         _self_split_weight = static_cast<int32_t>(weight);
     }
+    virtual Status _close_jni_scanner();
 
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;

@@ -260,21 +260,41 @@ Status JniReader::get_table_schema(std::string& table_schema_str) {
 // =========================================================================
 
 Status JniReader::close() {
-    if (!_closed) {
-        _closed = true;
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
-        if (_scanner_opened) {
-            RETURN_IF_ERROR(_publish_current_split_profile(env));
-
-            // _fill_block may be failed and returned, we should release table in close.
-            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-        }
+    if (_closed) {
+        return Status::OK();
     }
-    return Status::OK();
+    auto close_status = _close_jni_scanner();
+    if (close_status.ok()) {
+        _closed = true;
+    }
+    return close_status;
+}
+
+Status JniReader::_close_jni_scanner() {
+    if (!_scanner_opened) {
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    const auto profile_status = _publish_current_split_profile(env);
+    if (!profile_status.ok()) {
+        // Profile collection is best effort and must not prevent Java resource cleanup.
+        LOG(WARNING) << "failed to collect JNI profile during close: " << profile_status;
+    }
+
+    // _fill_block may fail before releasing the current Java table. releaseTable() is idempotent,
+    // and Java close must still run if it fails so connector resources can be released.
+    auto cleanup_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
+    auto java_close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_close).call();
+    if (cleanup_status.ok() && !java_close_status.ok()) {
+        cleanup_status = std::move(java_close_status);
+    }
+    if (cleanup_status.ok()) {
+        _scanner_opened = false;
+    }
+    // Keep the Java object and opened state on failure so close() can retry the cleanup.
+    return cleanup_status;
 }
 
 // =========================================================================

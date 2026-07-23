@@ -47,6 +47,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/count_reader.h"
+#include "format/table/paimon_jni_reader.h"
 #include "format_v2/expr/cast.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -192,6 +193,35 @@ public:
         _cur_reader = std::move(current);
         _cached_paimon_jni_reader = std::move(cached);
     }
+
+    bool has_current_reader() const { return _cur_reader != nullptr; }
+};
+
+struct RetryablePaimonJniCloseState {
+    int close_calls = 0;
+};
+
+class RetryableClosePaimonJniReader final : public PaimonJniReader {
+public:
+    RetryableClosePaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                  RuntimeState* state, RuntimeProfile* profile,
+                                  const TFileRangeDesc& range,
+                                  const TFileScanRangeParams* range_params,
+                                  std::shared_ptr<RetryablePaimonJniCloseState> close_state)
+            : PaimonJniReader(file_slot_descs, state, profile, range, range_params),
+              _close_state(std::move(close_state)) {}
+
+protected:
+    Status _close_jni_scanner() override {
+        ++_close_state->close_calls;
+        if (_close_state->close_calls == 1) {
+            return Status::InternalError("injected Paimon JNI close failure");
+        }
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<RetryablePaimonJniCloseState> _close_state;
 };
 
 class PaimonCountSplitSource final : public SplitSourceConnector {
@@ -1088,6 +1118,34 @@ TEST(FileScannerTest, CloseRetainedReadersAfterCurrentReaderFailure) {
     EXPECT_TRUE(scanner.close(&state).ok());
     EXPECT_EQ(current_state->close_calls, 2);
     EXPECT_EQ(cached_state->close_calls, 1);
+}
+
+TEST(FileScannerTest, RetriesPaimonJniCleanupAfterInnerCloseFailure) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner");
+    RetainedReaderCloseFileScanner scanner(&state, &profile);
+
+    auto range = paimon_jni_count_range("retry-close", 1);
+    TFileScanRangeParams scan_params;
+    std::vector<SlotDescriptor*> file_slot_descs;
+    auto close_state = std::make_shared<RetryablePaimonJniCloseState>();
+    scanner.set_retained_readers(
+            std::make_unique<RetryableClosePaimonJniReader>(file_slot_descs, &state, &profile,
+                                                            range, &scan_params, close_state),
+            nullptr);
+
+    const auto first_close = scanner.close(&state);
+    EXPECT_FALSE(first_close.ok());
+    EXPECT_NE(first_close.to_string().find("injected Paimon JNI close failure"), std::string::npos);
+    EXPECT_EQ(close_state->close_calls, 1);
+    EXPECT_TRUE(scanner.has_current_reader());
+
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
+    EXPECT_FALSE(scanner.has_current_reader());
+
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
 }
 
 TEST(FileScannerTest, CloseRetainedReadersAfterCachedReaderFailure) {
