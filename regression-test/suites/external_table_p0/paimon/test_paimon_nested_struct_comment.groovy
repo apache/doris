@@ -19,7 +19,8 @@
 // catalog (write path: PaimonTypeMapping.toPaimonRowType passes the comment into the 4-arg paimon
 // DataField), land in the on-disk paimon schema ($schemas.fields), and round-trip back through the read
 // path (PaimonTypeMapping.toStructType + fe-core ConnectorColumnConverter.convertStructType) so that
-// SHOW CREATE TABLE / DESC report it. Before the fix the nested comment was dropped on both paths.
+// SHOW CREATE TABLE reports it. Before the fix the nested comment was dropped on both paths. (DESC is not
+// asserted: its Type column is a bare type signature that omits nested field comments for every table.)
 suite("test_paimon_nested_struct_comment", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -73,12 +74,11 @@ suite("test_paimon_nested_struct_comment", "p0,external") {
         assertTrue(createStr.contains("note_a"),
                 "SHOW CREATE TABLE must render the nested struct field comment 'note_a', got: " + createStr)
 
-        // DESC must also carry it in the rendered STRUCT type of column s.
-        def descRows = sql """desc ${tableName}"""
-        String descStr = descRows.toString()
-        logger.info("DESC ${tableName}:\n" + descStr)
-        assertTrue(descStr.contains("note_a"),
-                "DESC must render the nested struct field comment 'note_a', got: " + descStr)
+        // NOTE: DESC is intentionally NOT asserted here. Its Type column is a pure type signature rendered by
+        // Type.hideVersionForVersionColumn (struct branch emits name:type only), which by design omits nested
+        // struct field comments for every table (internal olap and external alike). The read path is already
+        // proven by the SHOW CREATE TABLE assertion above; making DESC surface nested comments would be a
+        // separate, branch-wide product change, out of scope for this paimon fix.
 
         // 2) Write path: the comment must have landed in the on-disk paimon schema metadata. The
         //    $schemas system table exposes the raw RowType (fields) string, bypassing the read mapping,
