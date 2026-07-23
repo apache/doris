@@ -63,6 +63,9 @@ class RowTtlVisibilityPlanTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1',\n"
                 + "  'enable_unique_key_merge_on_write' = 'true',\n"
+                + "  'binlog.enable' = 'true',\n"
+                + "  'binlog.format' = 'ROW',\n"
+                + "  'binlog.need_historical_value' = 'true',\n"
                 + "  'enable_row_ttl' = 'true',\n"
                 + "  'function_column.ttl_col' = 'event_time',\n"
                 + "  'function_column.ttl' = '1 day');");
@@ -99,6 +102,15 @@ class RowTtlVisibilityPlanTest extends TestWithFeService {
         assertContains(plan, "row_ttl_is_visible");
         assertContains(plan, "event_time");
         assertContains(plan, Column.COMMIT_TSO_COL);
+    }
+
+    @Test
+    void testMowTimeTravelAppliesSourceTimeTtlAfterReconstruction() {
+        String plan = rewrittenPlan("select ttl_source_mow.k, ttl_source_mow.v "
+                + "from ttl_source_mow for version as of 1");
+        assertContains(plan, "LogicalUnion");
+        assertContains(plan, "row_ttl_is_visible");
+        assertContains(plan, "event_time");
     }
 
     private String rewrittenPlan(String sql) {

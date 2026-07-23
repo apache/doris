@@ -337,9 +337,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
-    if (tschema.__isset.row_ttl_source_column_unique_id) {
-        _row_ttl_source_column_uid = tschema.row_ttl_source_column_unique_id;
-        DORIS_CHECK(tschema.__isset.row_ttl_source_column);
+    _row_ttl_source_column_uid = tschema.row_ttl_source_column_unique_id;
+    DORIS_CHECK_EQ(_row_ttl_source_column_uid >= 0,
+                   tschema.__isset.row_ttl_source_column);
+    if (_row_ttl_source_column_uid >= 0) {
         _row_ttl_source_column = _obj_pool.add(new TabletColumn());
         _row_ttl_source_column->init_from_thrift(tschema.row_ttl_source_column);
     }

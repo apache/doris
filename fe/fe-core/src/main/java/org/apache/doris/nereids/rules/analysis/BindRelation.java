@@ -614,6 +614,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // only after the historical row version has been reconstructed.
         LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
         left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
+        left = addRowTtlFilter(left, olapTable, true);
 
         // right: binlog MIN_DELTA over tso>t1, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
@@ -634,6 +635,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, Pair.of(targetTso, null),
                 true);
         right = projectFromOriginSlots(right, visibleOutput);
+        right = addRowTtlFilter(right, olapTable, true);
 
         // both children are bound; BindExpression aligns by position and fills the union output.
         // buildNewOutputs() rebuilds the union output slots with empty qualifiers, so wrap the union
@@ -641,10 +643,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // fully-qualified name (catalog.db.table) rather than the table-less qualifier, otherwise
         // qualified references such as t.k / t.* fail to bind (the dup path keeps the original scan
         // slots that already carry the table name in their qualifier).
-        LogicalPlan reconstructed = new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right));
-        reconstructed = addRowTtlFilter(reconstructed, olapTable, true);
-        reconstructed = projectFromOriginSlots(reconstructed, visibleOutput);
-        return new LogicalSubQueryAlias<>(baseScan.qualified(), reconstructed);
+        return new LogicalSubQueryAlias<>(baseScan.qualified(),
+                new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right)));
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,

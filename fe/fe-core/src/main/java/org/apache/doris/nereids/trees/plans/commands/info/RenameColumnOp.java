@@ -93,8 +93,6 @@ public class RenameColumnOp extends AlterTableOp {
             }
         }
 
-        FeNameFormat.checkColumnName(newColName);
-
         if (columnPath.isNested()) {
             FeNameFormat.checkColumnNameBypassSystemColumnPrefix(newColName);
         } else {
