@@ -37,6 +37,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "exec/scan/file_scanner_v2.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -139,6 +142,54 @@ public:
         SCOPED_TIMER(_profile.prepare_split_timer);
         return Status::OK();
     }
+};
+
+class AppendTrackingTableReader final : public TableReader {
+public:
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts) override {
+        appended_conjuncts += conjuncts.size();
+        owned_conjuncts += _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
+        return Status::OK();
+    }
+
+    size_t appended_conjuncts = 0;
+    size_t owned_conjuncts = 0;
+};
+
+class OneRowTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    Status get_block(Block* block, bool* eos) override {
+        auto column = ColumnInt32::create();
+        column->insert_value(1);
+        block->replace_by_position(0, std::move(column));
+        *eos = false;
+        return Status::OK();
+    }
+};
+
+class StatefulHybridPredicate final : public VExpr {
+public:
+    explicit StatefulHybridPredicate(std::vector<int>* observed_invocations)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _observed_invocations(observed_invocations) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        _observed_invocations->push_back(_invocation++);
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_constant() const override { return false; }
+    bool is_deterministic() const override { return false; }
+
+private:
+    std::vector<int>* const _observed_invocations;
+    mutable int _invocation = 0;
+    const std::string _expr_name = "StatefulHybridPredicate";
 };
 
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
@@ -260,6 +311,102 @@ TEST(HudiHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
     const auto child_batch_sizes = reader.TEST_child_batch_sizes();
     EXPECT_EQ(child_batch_sizes.first, 123);
     EXPECT_EQ(child_batch_sizes.second, 123);
+}
+
+TEST(HudiHybridReaderTest, ReportsActiveChildMaterializedBlockStats) {
+    hudi::HudiHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader._current_split_reader = reader._native_reader.get();
+    reader._native_reader->_last_materialized_block_stats = {
+            .has_materialized_input = true, .rows = 7, .bytes = 70, .allocated_bytes = 96};
+
+    const auto& stats = reader.last_materialized_block_stats();
+    EXPECT_TRUE(stats.has_materialized_input);
+    EXPECT_EQ(stats.rows, 7);
+    EXPECT_EQ(stats.bytes, 70);
+    EXPECT_EQ(stats.allocated_bytes, 96);
+}
+
+TEST(HudiHybridReaderTest, LateConjunctReachesInitializedNativeAndJniChildren) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    hudi::HudiHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    auto native_reader = std::make_unique<AppendTrackingTableReader>();
+    auto jni_reader = std::make_unique<AppendTrackingTableReader>();
+    auto* native_reader_ptr = native_reader.get();
+    auto* jni_reader_ptr = jni_reader.get();
+    reader._native_reader = std::move(native_reader);
+    reader._jni_reader = std::move(jni_reader);
+
+    auto literal = VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                           Field::create_field<TYPE_INT>(1));
+    ASSERT_TRUE(reader.append_conjuncts_with_ownership(
+                              {VExprContext::create_shared(std::move(literal))}, 0)
+                        .ok());
+    EXPECT_EQ(native_reader_ptr->appended_conjuncts, 1);
+    EXPECT_EQ(jni_reader_ptr->appended_conjuncts, 1);
+    EXPECT_EQ(native_reader_ptr->owned_conjuncts, 0);
+    EXPECT_EQ(jni_reader_ptr->owned_conjuncts, 0);
+}
+
+TEST(HudiHybridReaderTest, ScannerStatefulResidualSurvivesNativeJniNativeSwitch) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("hudi_scanner_stateful_residual");
+    TFileScanRangeParams scan_params;
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    auto hybrid_reader = std::make_unique<hudi::HudiHybridReader>();
+    auto* hybrid_reader_ptr = hybrid_reader.get();
+    hybrid_reader_ptr->TEST_set_child_reader_factories(
+            [] { return std::make_unique<OneRowTableReader>(); },
+            [] { return std::make_unique<OneRowTableReader>(); });
+
+    std::vector<int> observed_invocations;
+    auto conjunct = VExprContext::create_shared(
+            std::make_shared<StatefulHybridPredicate>(&observed_invocations));
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor {}).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    FileScannerV2 scanner(&state, &profile, std::move(hybrid_reader));
+    scanner.TEST_set_scanner_conjuncts({std::move(conjunct)});
+
+    const std::vector<ColumnDefinition> projected_columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>()),
+    };
+    ASSERT_TRUE(hybrid_reader_ptr
+                        ->init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = {},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = &scan_params,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = &profile,
+                        })
+                        .ok());
+
+    auto run_split = [&](FileFormat format, TFileFormatType::type thrift_format) {
+        SplitReadOptions split;
+        split.current_split_format = format;
+        split.current_range.__set_format_type(thrift_format);
+        ASSERT_TRUE(hybrid_reader_ptr->prepare_split(split).ok());
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(hybrid_reader_ptr->get_block(&block, &eos).ok());
+        ASSERT_TRUE(scanner.TEST_filter_output_block(&block).ok());
+    };
+    run_split(FileFormat::PARQUET, TFileFormatType::FORMAT_PARQUET);
+    run_split(FileFormat::JNI, TFileFormatType::FORMAT_JNI);
+    run_split(FileFormat::PARQUET, TFileFormatType::FORMAT_PARQUET);
+
+    EXPECT_EQ(observed_invocations, std::vector<int>({0, 1, 2}));
 }
 
 TEST(HudiHybridReaderTest, NativeCountStarReportsMetadataRowsThroughHybridReader) {

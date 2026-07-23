@@ -76,7 +76,9 @@ struct FileScanRequest {
     std::vector<LocalColumnId> predicate_only_columns;
     // file-local column id -> file-local output block position.
     std::map<LocalColumnId, LocalIndex> local_positions;
-    // Row-level filters converted to file-local expressions from table-level predicates.
+    // Row-level filters converted to file-local expressions from table-level predicates. Readers
+    // must enforce these exactly on returned rows; metadata pruning alone does not transfer
+    // predicate ownership away from TableReader.
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
