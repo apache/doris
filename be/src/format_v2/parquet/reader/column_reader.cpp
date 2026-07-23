@@ -82,7 +82,7 @@ Status ParquetColumnReader::select_with_dictionary_filter(const SelectionVector&
 }
 
 Status ParquetColumnReader::select_with_plain_filter(const SelectionVector&, uint16_t, int64_t,
-                                                     const VExprSPtrs&, int,
+                                                     const VExprSPtrs&, int, IColumn*,
                                                      IColumn::Filter* row_filter,
                                                      bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);

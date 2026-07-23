@@ -339,8 +339,9 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
 
 Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* filter_data,
                                                   bool filter_all, const VExprSPtrs& conjuncts,
-                                                  int column_id, IColumn::Filter* row_filter,
-                                                  int64_t* rows_read, bool* used_filter) {
+                                                  int column_id, IColumn* projected_column,
+                                                  IColumn::Filter* row_filter, int64_t* rows_read,
+                                                  bool* used_filter) {
     DORIS_CHECK(rows >= 0);
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(rows_read != nullptr);
@@ -362,8 +363,8 @@ Status NativeColumnReader::read_with_plain_filter(int64_t rows, const uint8_t* f
         IColumn::Filter loop_filter;
         bool loop_used = false;
         RETURN_IF_ERROR(_native_reader->read_plain_filter(
-                conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read), &loop_filter,
-                &loop_rows, &eof, &loop_used));
+                conjuncts, column_id, filter, static_cast<size_t>(rows - *rows_read),
+                projected_column, &loop_filter, &loop_rows, &eof, &loop_used));
         if (!loop_used) {
             if (UNLIKELY(*rows_read != 0)) {
                 // Footer encoding lists are untrusted. Once a prior page advanced the cursor, a
@@ -592,6 +593,7 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
 Status NativeColumnReader::select_with_plain_filter(const SelectionVector& selection,
                                                     uint16_t selected_rows, int64_t batch_rows,
                                                     const VExprSPtrs& conjuncts, int column_id,
+                                                    IColumn* projected_column,
                                                     IColumn::Filter* row_filter,
                                                     bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
@@ -602,7 +604,8 @@ Status NativeColumnReader::select_with_plain_filter(const SelectionVector& selec
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     int64_t rows_read = 0;
     RETURN_IF_ERROR(read_with_plain_filter(batch_rows, filter_data, selected_rows == 0, conjuncts,
-                                           column_id, row_filter, &rows_read, used_filter));
+                                           column_id, projected_column, row_filter, &rows_read,
+                                           used_filter));
     if (!*used_filter) {
         return Status::OK();
     }

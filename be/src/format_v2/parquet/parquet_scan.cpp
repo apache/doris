@@ -1597,8 +1597,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         }
 
         if (single_column_conjuncts != nullptr &&
-            !residual_predicate_positions.contains(block_position) &&
-            request.is_predicate_only(local_id)) {
+            !residual_predicate_positions.contains(block_position)) {
             VExprSPtrs direct_conjuncts;
             direct_conjuncts.reserve(single_column_conjuncts->size());
             std::ranges::transform(*single_column_conjuncts, std::back_inserter(direct_conjuncts),
@@ -1607,9 +1606,14 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 const uint16_t selected_rows_before = *selected_rows;
                 IColumn::Filter compact_filter;
                 bool used_filter = false;
+                const bool predicate_only = request.is_predicate_only(local_id);
+                // The raw decoder cannot rewind after evaluating PLAIN bytes. Project survivors
+                // in that same pass when later output still needs this predicate column.
+                IColumn* projected_column = predicate_only ? nullptr : column.get();
                 RETURN_IF_ERROR(column_reader->select_with_plain_filter(
                         *selection, *selected_rows, batch_rows, direct_conjuncts,
-                        cast_set<int>(block_position), &compact_filter, &used_filter));
+                        cast_set<int>(block_position), projected_column, &compact_filter,
+                        &used_filter));
                 if (used_filter) {
                     DORIS_CHECK_EQ(compact_filter.size(), selected_rows_before);
                     update_counter_if_not_null(_scan_profile.plain_predicate_direct_batches, 1);
@@ -1625,11 +1629,15 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                         *selected_rows = apply_compact_filter_to_selection(
                                 compact_filter, selection, selected_rows_before);
                     }
-                    // This slot is absent from every residual/delete conjunct, so no later
-                    // expression can observe its payload. Keep only the block row-shape contract.
-                    auto placeholder = column->clone_empty();
-                    placeholder->insert_many_defaults(*selected_rows);
-                    file_block->replace_by_position(block_position, std::move(placeholder));
+                    if (predicate_only) {
+                        // This slot is absent from every residual/delete conjunct, so no later
+                        // expression can observe its payload. Keep only the block row-shape contract.
+                        auto placeholder = column->clone_empty();
+                        placeholder->insert_many_defaults(*selected_rows);
+                        file_block->replace_by_position(block_position, std::move(placeholder));
+                    } else {
+                        file_block->replace_by_position(block_position, std::move(column));
+                    }
                     read_column_positions.push_back(cast_set<uint32_t>(block_position));
                     remember_column_selection(cast_set<uint32_t>(block_position));
                     *predicate_columns_filtered = true;

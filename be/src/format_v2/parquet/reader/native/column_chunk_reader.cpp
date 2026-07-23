@@ -656,11 +656,12 @@ Status decode_selected_nullable_values(IColumn& column, const DataTypeSerDe& ser
 class PlainPredicateConsumer final : public ParquetFixedValueConsumer {
 public:
     PlainPredicateConsumer(const VExprSPtrs& conjuncts, DataTypePtr data_type, int column_id,
-                           IColumn::Filter* matches)
+                           IColumn::Filter* matches, IColumn* projected_column)
             : _conjuncts(conjuncts),
               _data_type(std::move(data_type)),
               _column_id(column_id),
-              _matches(matches) {
+              _matches(matches),
+              _projected_column(projected_column) {
         DORIS_CHECK(_matches != nullptr);
     }
 
@@ -672,6 +673,23 @@ public:
                                                                   _data_type, _column_id,
                                                                   _matches->data() + old_size));
         }
+        if (_projected_column != nullptr) {
+            size_t row = 0;
+            while (row < num_values) {
+                while (row < num_values && (*_matches)[old_size + row] == 0) {
+                    ++row;
+                }
+                const size_t run_begin = row;
+                while (row < num_values && (*_matches)[old_size + row] != 0) {
+                    ++row;
+                }
+                if (row != run_begin) {
+                    _projected_column->insert_many_raw_data(
+                            reinterpret_cast<const char*>(values + run_begin * value_width),
+                            row - run_begin);
+                }
+            }
+        }
         return Status::OK();
     }
 
@@ -680,6 +698,7 @@ private:
     DataTypePtr _data_type;
     int _column_id;
     IColumn::Filter* _matches;
+    IColumn* _projected_column;
 };
 
 } // namespace
@@ -1455,8 +1474,8 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_plain_values(
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
         const VExprSPtrs& conjuncts, int column_id, ColumnSelectVector& select_vector,
-        NullMap* selected_nulls, IColumn::Filter* physical_matches, IColumn::Filter* row_filter,
-        bool* used_filter) {
+        NullMap* selected_nulls, IColumn::Filter* physical_matches, IColumn* projected_column,
+        IColumn::Filter* row_filter, bool* used_filter) {
     DORIS_CHECK(selected_nulls != nullptr);
     DORIS_CHECK(physical_matches != nullptr);
     DORIS_CHECK(row_filter != nullptr);
@@ -1521,7 +1540,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_plain_values(
         RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
     } else {
         PlainPredicateConsumer consumer(conjuncts, _field_schema->data_type, column_id,
-                                        physical_matches);
+                                        physical_matches, projected_column);
         RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
         DORIS_CHECK_EQ(physical_matches->size(), selection.selected_values);
     }

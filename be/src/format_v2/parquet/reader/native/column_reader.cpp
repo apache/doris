@@ -1049,7 +1049,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_values(
         size_t num_values, const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map,
-        IColumn::Filter* row_filter) {
+        IColumn* projected_column, IColumn::Filter* row_filter) {
     DORIS_CHECK(row_filter != nullptr);
     _null_run_lengths.clear();
     if (_chunk_reader->max_def_level() > 0) {
@@ -1092,7 +1092,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_value
     bool used_filter = false;
     RETURN_IF_ERROR(_chunk_reader->filter_plain_values(
             conjuncts, column_id, _select_vector, &_plain_predicate_nulls,
-            &_plain_predicate_matches, row_filter, &used_filter));
+            &_plain_predicate_matches, projected_column, row_filter, &used_filter));
     // Chunk encodings are prevalidated before any definition level is consumed, so a false result
     // here would make a materializing fallback observe an advanced level cursor.
     DORIS_CHECK(used_filter);
@@ -1102,7 +1102,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_plain_filter_value
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
         const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map, size_t batch_size,
-        IColumn::Filter* row_filter, size_t* read_rows, bool* eof, bool* used_filter) {
+        IColumn* projected_column, IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
+        bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(read_rows != nullptr);
     DORIS_CHECK(eof != nullptr);
@@ -1158,7 +1159,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_plain_filter(
                     std::min(static_cast<size_t>(range.to() - range.from()), batch_size - has_read);
             IColumn::Filter fragment_filter;
             RETURN_IF_ERROR(_read_plain_filter_values(values, conjuncts, column_id, filter_map,
-                                                      &fragment_filter));
+                                                      projected_column, &fragment_filter));
             row_filter->insert(row_filter->end(), fragment_filter.begin(), fragment_filter.end());
             has_read += values;
             *read_rows += values;

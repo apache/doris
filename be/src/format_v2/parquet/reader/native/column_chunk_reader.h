@@ -167,11 +167,12 @@ public:
                               ColumnSelectVector& select_vector);
 
     // Evaluate selected fixed-width PLAIN values and return one keep byte per selected logical
-    // row. NULL comparisons are false and therefore never enter the physical consumer.
+    // row. NULL comparisons are false and therefore never enter the physical consumer; non-null
+    // matches are appended to projected_column when requested.
     Status filter_plain_values(const VExprSPtrs& conjuncts, int column_id,
                                ColumnSelectVector& select_vector, NullMap* selected_nulls,
-                               IColumn::Filter* physical_matches, IColumn::Filter* row_filter,
-                               bool* used_filter);
+                               IColumn::Filter* physical_matches, IColumn* projected_column,
+                               IColumn::Filter* row_filter, bool* used_filter);
     bool can_filter_plain_values(const VExprSPtrs& conjuncts, int column_id) const;
 
     // Get the repetition level decoder of current page.

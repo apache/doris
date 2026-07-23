@@ -188,7 +188,7 @@ public:
 
     // Evaluate a predicate-only scalar directly from fixed-width PLAIN page bytes. The default is
     // a non-consuming fallback for nested and synthetic readers.
-    virtual Status read_plain_filter(const VExprSPtrs&, int, FilterMap&, size_t,
+    virtual Status read_plain_filter(const VExprSPtrs&, int, FilterMap&, size_t, IColumn*,
                                      IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
                                      bool* used_filter) {
         DORIS_CHECK(row_filter != nullptr);
@@ -280,8 +280,9 @@ public:
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
     Status read_plain_filter(const VExprSPtrs& conjuncts, int column_id, FilterMap& filter_map,
-                             size_t batch_size, IColumn::Filter* row_filter, size_t* read_rows,
-                             bool* eof, bool* used_filter) override;
+                             size_t batch_size, IColumn* projected_column,
+                             IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
+                             bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
@@ -399,7 +400,8 @@ private:
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,
                         FilterMap& filter_map, bool is_dict_filter);
     Status _read_plain_filter_values(size_t num_values, const VExprSPtrs& conjuncts, int column_id,
-                                     FilterMap& filter_map, IColumn::Filter* row_filter);
+                                     FilterMap& filter_map, IColumn* projected_column,
+                                     IColumn::Filter* row_filter);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);
