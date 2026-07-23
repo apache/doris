@@ -142,15 +142,12 @@ public:
     bool close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
-    // Close/park `stream_id` after its EOS was sent, then collect stream ids that are
-    // now safe to close into `to_close`. A non-incremental stream is returned right
-    // away; an incremental stream is parked (fencing) until all CLOSE_LOADs arrive,
-    // after which any thread reaching here drains the parked streams. Registration +
-    // the all-received check are under one lock, and only a stream whose EOS was sent
-    // is ever collected -- this closes both the split-lock leak race and the
-    // close-before-EOS race.
-    void mark_eos_sent_and_collect(int64_t stream_id, bool is_incremental,
-                                   std::vector<int64_t>* to_close);
+    // Close/park `stream_id` after its EOS was sent, then return stream ids that are
+    // now safe to close. A non-incremental stream is returned right away; an incremental
+    // stream is parked (fencing) until all CLOSE_LOADs arrive, after which any thread
+    // reaching here drains the parked streams. Only a stream whose EOS was sent is ever
+    // returned -- this closes both the split-lock leak race and the close-before-EOS race.
+    std::vector<int64_t> mark_eos_sent_and_collect(int64_t stream_id, bool is_incremental);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;

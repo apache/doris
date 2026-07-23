@@ -525,9 +525,10 @@ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
     return true;
 }
 
-void LoadStream::mark_eos_sent_and_collect(int64_t stream_id, bool is_incremental,
-                                           std::vector<int64_t>* to_close) {
+std::vector<int64_t> LoadStream::mark_eos_sent_and_collect(int64_t stream_id,
+                                                          bool is_incremental) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
+    std::vector<int64_t> to_close;
     // A non-incremental stream is closed as soon as its own CLOSE_LOAD (and EOS)
     // is handled -- this is the first batch of streams, known up front, not subject
     // to fencing. Closing it promptly also means a duplicate/late CLOSE_LOAD lands
@@ -540,7 +541,7 @@ void LoadStream::mark_eos_sent_and_collect(int64_t stream_id, bool is_incrementa
         // so every parked id is safe to close.
         _eos_sent_stream_ids.push_back(stream_id);
     } else {
-        to_close->push_back(stream_id);
+        to_close.push_back(stream_id);
     }
     // `_close_load_cnt == _total_streams` means every CLOSE_LOAD has been counted by
     // close(). Latch it so that any thread reaching here afterwards also drains the
@@ -550,11 +551,12 @@ void LoadStream::mark_eos_sent_and_collect(int64_t stream_id, bool is_incrementa
         _all_close_load_received = true;
     }
     if (_all_close_load_received) {
-        for (auto parked_id : _eos_sent_stream_ids) {
-            to_close->push_back(parked_id);
+        for (const auto& parked_id : _eos_sent_stream_ids) {
+            to_close.push_back(parked_id);
         }
         _eos_sent_stream_ids.clear();
     }
+    return to_close;
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
@@ -817,8 +819,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         // Registration happens only after step 2, so a collected stream already had
         // its EOS delivered (fixes the close-before-EOS race); the all-received latch
         // inside makes any late thread drain the parked streams (fixes the leak race).
-        std::vector<int64_t> streams_to_close;
-        mark_eos_sent_and_collect(id, is_incremental, &streams_to_close);
+        auto streams_to_close = mark_eos_sent_and_collect(id, is_incremental);
         for (auto& closing_id : streams_to_close) {
             brpc::StreamClose(closing_id);
         }
