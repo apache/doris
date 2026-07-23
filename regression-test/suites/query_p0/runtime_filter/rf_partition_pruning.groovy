@@ -1678,7 +1678,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
                 SELECT k FROM rf_prune_mv_alias_dim WHERE scenario = 'one'
             ) d ON f.k = d.k
         """
-        contains "TABLE: rf_prune_mv_alias_fact(rf_prune_mv_alias_detail)"
+        contains "rf_prune_mv_alias_fact(rf_prune_mv_alias_detail)"
     }
 
     order_qt_sync_mv_alias_minmax """
@@ -1696,7 +1696,145 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "MIN_MAX", 4, 3)
 
     // ============================================================
-    // Test 54: Switch off enable_runtime_filter_partition_prune -> no pruning
+    // Test 54: Ordinary rollup column IDs are local to that index.
+    // The rollup's v column and the base partition column k both have ID 1,
+    // but v must not use k's partition boundaries.
+    // ============================================================
+    sql "drop table if exists rf_prune_rollup_collision_fact"
+    sql """
+        CREATE TABLE rf_prune_rollup_collision_fact (
+            id BIGINT NOT NULL,
+            k INT NOT NULL,
+            v BIGINT NOT NULL
+        ) DUPLICATE KEY(id, k)
+        PARTITION BY RANGE(k) (
+            PARTITION p0 VALUES [(0),(10)),
+            PARTITION p1 VALUES [(10),(20))
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES(
+            "replication_num" = "1",
+            "light_schema_change" = "true"
+        )
+    """
+    sql """INSERT INTO rf_prune_rollup_collision_fact VALUES (1, 7, 107), (2, 17, 207)"""
+    sql """
+        ALTER TABLE rf_prune_rollup_collision_fact
+        ADD ROLLUP rf_prune_rollup_id_v(id, v)
+    """
+    waitingMVTaskFinishedByMvName(
+        context.dbName, "rf_prune_rollup_collision_fact", "rf_prune_rollup_id_v")
+    sql "sync"
+
+    sql "drop table if exists rf_prune_rollup_value_dim"
+    sql """
+        CREATE TABLE rf_prune_rollup_value_dim (
+            scenario VARCHAR(16) NOT NULL,
+            value BIGINT NOT NULL
+        ) DUPLICATE KEY(scenario, value)
+        DISTRIBUTED BY HASH(value) BUCKETS 2
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO rf_prune_rollup_value_dim
+        VALUES ('rollup', 107), ('aggregate', 13)
+    """
+
+    explain {
+        verbose true
+        sql """
+            SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+                COUNT(*), COALESCE(SUM(f.v), 0)
+            FROM (
+                SELECT id, v
+                FROM rf_prune_rollup_collision_fact INDEX rf_prune_rollup_id_v
+            ) f
+            JOIN [broadcast] (
+                SELECT value FROM rf_prune_rollup_value_dim WHERE scenario = 'rollup'
+            ) d ON f.v = d.value
+        """
+        contains "rf_prune_rollup_collision_fact(rf_prune_rollup_id_v)"
+    }
+    order_qt_rollup_local_unique_id_collision """
+        SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+            COUNT(*), COALESCE(SUM(f.v), 0)
+        FROM (
+            SELECT id, v
+            FROM rf_prune_rollup_collision_fact INDEX rf_prune_rollup_id_v
+        ) f
+        JOIN [broadcast] (
+            SELECT value FROM rf_prune_rollup_value_dim WHERE scenario = 'rollup'
+        ) d ON f.v = d.value
+    """
+    assertNoPartitionPruningProfile(
+        "count(*), coalesce(sum(f.v), 0) "
+                + "FROM (SELECT id, v FROM rf_prune_rollup_collision_fact "
+                + "INDEX rf_prune_rollup_id_v) f "
+                + "JOIN [broadcast] (SELECT value FROM rf_prune_rollup_value_dim "
+                + "WHERE scenario = 'rollup') d ON f.v = d.value",
+        "MIN_MAX")
+
+    // ============================================================
+    // Test 55: Aggregate MV columns are not value-preserving aliases.
+    // sum_k=13 is stored in partition [0,10); applying k's raw boundary to
+    // sum_k would incorrectly prune the matching row.
+    // ============================================================
+    sql "drop table if exists rf_prune_aggregate_mv_fact"
+    sql """
+        CREATE TABLE rf_prune_aggregate_mv_fact (
+            grp INT NOT NULL,
+            k INT NOT NULL
+        ) DUPLICATE KEY(grp, k)
+        PARTITION BY RANGE(k) (
+            PARTITION p0 VALUES [(0),(10)),
+            PARTITION p1 VALUES [(10),(20))
+        )
+        DISTRIBUTED BY HASH(grp) BUCKETS 2
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO rf_prune_aggregate_mv_fact VALUES (1, 6), (1, 7), (2, 16)"""
+    create_sync_mv(context.dbName, "rf_prune_aggregate_mv_fact", "rf_prune_aggregate_mv_sum", """
+        SELECT grp AS mv_grp, SUM(k) AS sum_k
+        FROM rf_prune_aggregate_mv_fact
+        GROUP BY grp
+    """)
+
+    explain {
+        verbose true
+        sql """
+            SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+                COUNT(*), COALESCE(SUM(f.sum_k), 0)
+            FROM (
+                SELECT sum_k
+                FROM rf_prune_aggregate_mv_fact INDEX rf_prune_aggregate_mv_sum
+            ) f
+            JOIN [broadcast] (
+                SELECT value FROM rf_prune_rollup_value_dim WHERE scenario = 'aggregate'
+            ) d ON f.sum_k = d.value
+        """
+        contains "rf_prune_aggregate_mv_fact(rf_prune_aggregate_mv_sum)"
+    }
+    order_qt_aggregate_mv_not_alias """
+        SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+            COUNT(*), COALESCE(SUM(f.sum_k), 0)
+        FROM (
+            SELECT sum_k
+            FROM rf_prune_aggregate_mv_fact INDEX rf_prune_aggregate_mv_sum
+        ) f
+        JOIN [broadcast] (
+            SELECT value FROM rf_prune_rollup_value_dim WHERE scenario = 'aggregate'
+        ) d ON f.sum_k = d.value
+    """
+    assertNoPartitionPruningProfile(
+        "count(*), coalesce(sum(f.sum_k), 0) "
+                + "FROM (SELECT sum_k FROM rf_prune_aggregate_mv_fact "
+                + "INDEX rf_prune_aggregate_mv_sum) f "
+                + "JOIN [broadcast] (SELECT value FROM rf_prune_rollup_value_dim "
+                + "WHERE scenario = 'aggregate') d ON f.sum_k = d.value",
+        "MIN_MAX")
+
+    // ============================================================
+    // Test 56: Switch off enable_runtime_filter_partition_prune -> no pruning
     // ============================================================
     sql "set enable_runtime_filter_partition_prune=false"
     def token_off = UUID.randomUUID().toString()

@@ -1385,8 +1385,9 @@ public class OlapScanNode extends ScanNode {
             return;
         }
 
-        // Bind boundaries to the actual RF leaf slots. For a synchronous MV
-        // alias, resolve its base partition column through the bound defineExpr.
+        // Bind boundaries to the actual RF leaf slots. The shared resolver
+        // validates selected-index lineage before returning a base partition
+        // column ordinal.
         Map<Integer, Integer> pruningSlotToPartitionColumnIndex = Maps.newTreeMap();
         PlanNodeId myId = getId();
         for (RuntimeFilter rf : runtimeFilters) {
@@ -1399,7 +1400,8 @@ public class OlapScanNode extends ScanNode {
             Preconditions.checkState(targetSlotIds.size() == 1);
             SlotId targetSlotId = targetSlotIds.iterator().next();
             SlotDescriptor targetSlot = Preconditions.checkNotNull(desc.getSlot(targetSlotId.asInt()));
-            int partitionColumnIndex = findPartitionColumnIndex(targetSlot.getColumn(), partColumns);
+            int partitionColumnIndex = RuntimeFilterPartitionColumnResolver.findPartitionColumnIndex(
+                    this, targetSlot.getColumn());
             Preconditions.checkState(partitionColumnIndex >= 0);
             pruningSlotToPartitionColumnIndex.put(targetSlotId.asInt(), partitionColumnIndex);
         }
@@ -1429,44 +1431,6 @@ public class OlapScanNode extends ScanNode {
         if (!boundaries.isEmpty()) {
             olapScanNode.setPartitionBoundaries(boundaries);
         }
-    }
-
-    private int findPartitionColumnIndex(Column targetColumn, List<Column> partitionColumns) {
-        targetColumn = getBaseColumn(targetColumn);
-        if (targetColumn == null) {
-            return -1;
-        }
-        for (int i = 0; i < partitionColumns.size(); i++) {
-            Column partitionColumn = partitionColumns.get(i);
-            if (targetColumn == partitionColumn) {
-                return i;
-            }
-            // Metadata reload and deep copy do not preserve Column object identity.
-            // Prefer stable unique IDs when present; legacy schemas without unique
-            // IDs must fall back to structural equality.
-            int targetUniqueId = targetColumn.getUniqueId();
-            int partitionUniqueId = partitionColumn.getUniqueId();
-            if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                    && partitionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE) {
-                if (targetUniqueId == partitionUniqueId) {
-                    return i;
-                }
-            } else if (targetColumn.equals(partitionColumn)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private Column getBaseColumn(Column targetColumn) {
-        if (!targetColumn.isMaterializedViewColumn()) {
-            return targetColumn;
-        }
-        Expr defineExpr = targetColumn.getDefineExpr();
-        if (defineExpr instanceof SlotRef && ((SlotRef) defineExpr).getColumn() != null) {
-            return ((SlotRef) defineExpr).getColumn();
-        }
-        return null;
     }
 
     private void addRangeBoundary(List<TPartitionBoundary> boundaries, long partitionId,
