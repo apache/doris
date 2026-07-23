@@ -30,18 +30,18 @@
 - **产品代码仍 0 改动，e2e 未跑。** 设计里 `file:line` 是 2026-07-23 HEAD 侦察快照。
 - **核心结论**：走"先建底座"，但**底座几乎现成** → 整套 A/B/C + hudi/mc/es 消费 **全程 0 行 fe-core 改动**（D4 原"提炼进 fe-core"被侦察推翻：per-statement memo 底座已在 `fe-connector-api`，owner 二次确认不动 fe-core；iceberg 本轮就改挂）。
 
-## ⚠️ 进行中：PR-0 已完成（2026-07-23）→ 下一步 PR-1；动每个文件前先按 HEAD 重侦察
+## ⚠️ 进行中：PR-0 + PR-1 已完成（2026-07-23）→ 下一步 PR-2；动每个文件前先按 HEAD 重侦察
 
-设计已 owner 确认，已开工。**PR-0 完成**（预编译执行连接器作用域 reset 回归守门 + 外表可达性查实 + FINAL 设计机制描述更正；见 [`progress.md`](./progress.md) "2026-07-23 (3)"）。**下一步 = PR-1**（通用缓存封装升格，见下表；侦察已给出更正：无兼容子类可删、ttl 映射 6 处、iceberg 5 缓存均独立 `final class`）。
+设计已 owner 确认，已开工。**PR-0 完成**（预编译执行连接器作用域 reset 回归守门 + 外表可达性查实 + FINAL 设计机制描述更正；见 [`progress.md`](./progress.md) "2026-07-23 (3)"）。**PR-1 完成**（通用缓存封装升格为 `ConnectorMetadataCache`，纯重命名 + 构造器加 `entryName`，66 分区视图缓存测试证零变化；commit `a804145faaa`，见 "2026-07-23 (4)"）。**下一步 = PR-2**（语句作用域通用 helper `ConnectorStatementScopes.resolveInStatement` 放 `fe-connector-api`=0 行 fe-core，+ iceberg `sharedTable` 改委派、byte-identical parity 测试；见下表）。
 
-**但设计里行号/乘数是 2026-07-23 快照，动每个文件前按符号重 grep 确认**（memory `execution-blueprint-overestimates-recon-first`；本轮又添两例侦察更正——PR-0 机制"新 context"实为"复用+显式 reset"、PR-1"删兼容子类"实为无子类可删）。
+**但设计里行号/乘数是 2026-07-23 快照，动每个文件前按符号重 grep 确认**（memory `execution-blueprint-overestimates-recon-first`；本轮又添侦察更正——PR-0 机制"新 context"实为"复用+显式 reset"、PR-1"删兼容子类"实为无子类可删）。PR-2 侦察已确认 `ConnectorStatementScopes`/`resolveInStatement` 尚不存在（须新建）、iceberg `sharedTable` 当前 key = `"iceberg.table:"+catalogId+":"+db+":"+table+":"+queryId`（改委派须逐字节复现）。
 
 ## 实施路线（8 个独立 PR，foundation-first；详见 FINAL 设计 §Sequencing / §Risk register / §Verification plan）
 
 | PR | 主题 | 关键约束 / 守门 |
 |---|---|---|
 | **PR-0** ✅（2026-07-23 完成） | 验预编译 `EXECUTE` 重执行时 statement scope 是否每次刷新 | 已加 `ConnectorStatementScopeTest.executeCommandResetsConnectorScopePerExecution`（驱动 `ExecuteCommand.run()`、变异验证仅该测试变红）；**机制更正**：不是"新 context"而是复用 context + `ExecuteCommand.java:95` 显式 reset；**外表可达性已查实**（走普通 `executor.execute()` 路，非 OLAP 短路） |
-| **PR-1** 通用缓存封装（`fe-connector-cache`） | 升格 `ConnectorPartitionViewCache[V]`→`ConnectorMetadataCache[V]`；`PartitionViewCacheKey`→`ConnectorTableKey`；**删**旧类、iceberg/hive/paimon 改挂；修陈旧 javadoc | 纯加+改名+删；反应堆 test-compile + 现有 partition-view 测试证零变化 |
+| **PR-1** ✅（2026-07-23 完成，commit `a804145faaa`） | 升格 `ConnectorPartitionViewCache[V]`→`ConnectorMetadataCache[V]`；`PartitionViewCacheKey`→`ConnectorTableKey`；构造器加 `entryName` 参数；iceberg/hive/paimon 改挂；修陈旧 javadoc。**更正**：无"旧类可删"（是重命名非删除）；**收窄**：ttl 去重 + 预解析 CacheSpec 构造器推迟到 PR-3（避免二次翻动 iceberg 手写缓存） | ✅ `install -pl cache,hive,iceberg,paimon -am` BUILD SUCCESS；66 分区视图缓存测试 0 失败，条目名/配置项/键逐字节不变 |
 | **PR-2** 语句作用域 helper（`fe-connector-api`）+ iceberg 改挂 | 加 `ConnectorStatementScopes.resolveInStatement` + namespace 注册表；iceberg 私有包装改委派（key 逐字节不变） | **fe-core 0 行**；iceberg per-statement memo 测试证成本不变 |
 | **PR-3** iceberg 5 缓存收敛到通用封装 | 用 pre-resolved `CacheSpec` 构造器、**钉死旧 entry 名**（`iceberg-table` 等，防 dashboard/`*ForTest` 断） | **`invalidateDb` parity 测试**（Namespace-equals→String-equals，须证 Doris iceberg 命名空间单层等价）；连接器侧保留凭证置空 |
 | **PR-4** 旗舰 hudi | metaClient+schema 每语句 1 次；HMS 走 `CachingHmsClient`；`(表,已完成instant)` 跨查询分区缓存；per-scan hoist | **记忆"不可关闭投影"非原始 metaClient**（scope 末关所有 AutoCloseable）；instant **每语句重取最新已完成**、只缓存分区列表；pom 加 `fe-connector-cache` + **验 Caffeine≥2.9.3 自带**；**e2e 必需**（异构+独立 hudi-on-HMS + 并发提交分区列举） |

@@ -48,3 +48,16 @@
   - ④iceberg 5 缓存**全独立 `final class`**、均建于 `MetaCacheEntry`、**无一** extends `ConnectorPartitionViewCache`；entry 名 hyphen（`iceberg-table` 等，非 `iceberg.table`）→ PR-3 钉死 legacy 名。
   - ⑤`ConnectorStatementScopeImpl` 在 **fe-core**（`org.apache.doris.connector`，引用 fe-core `CatalogStatementTransaction`），interface 在 fe-connector-api；iceberg 经 fe-connector-spi **传递**依赖 api、hudi 直接依赖 → PR-2 的 `ConnectorStatementScopes` helper 放 fe-connector-api 仍**0 行 fe-core**。
 - **下一步**：PR-1 通用缓存封装升格（`ConnectorPartitionViewCache[V]`→`ConnectorMetadataCache[V]`、`PartitionViewCacheKey`→`ConnectorTableKey`、6 处 ttl 映射收进 `CacheSpec`、修 stale javadoc "no consumers yet"、iceberg/hive/paimon 改挂）；纯加+改名+删，反应堆 test-compile + 现有 partition-view 测试证零变化。**动每个文件前按 HEAD 重侦察**。
+
+---
+
+## 2026-07-23 (4) — PR-1 完成：通用缓存封装升格为 ConnectorMetadataCache（纯重命名，行为不变）
+
+- **做了什么**：
+  1. 动码前按 HEAD 重侦察全部改名点（`ConnectorPartitionViewCache` / `PartitionViewCacheKey` 的所有引用，15 文件 4 模块），确认无外部脚本/配置引用、新名无冲突。
+  2. 把已经通用的缓存封装正式升格：`ConnectorPartitionViewCache<V>`→`ConnectorMetadataCache<V>`、`PartitionViewCacheKey`→`ConnectorTableKey`（含文件改名，`git mv` 保留历史）；构造器由硬编码 `"partition_view"` 改为显式传 `(engine, entryName, props)`，供后续连接器注册独立命名的缓存条目。
+  3. hive/iceberg/paimon（生产+测试）共 12 文件改挂新名；三连接器构造点显式传 `"partition_view"` → 条目名、`meta.cache.<engine>.partition_view.*` 配置项、缓存键**逐字节不变**。修 stale "no consumers yet" javadoc。
+  4. **收窄设计原 bundling**（Rule 2/3）：TTL≤0 禁用映射去重（6 处复制）+ 预解析 CacheSpec 构造器**推迟到 iceberg 收敛那步**做（那批 6 处里 5 个是 iceberg 手写缓存类，下一步本就重写它们，避免二次翻动）。
+- **验证**：`mvn install -pl cache,hive,iceberg,paimon -am`（**install 非 test**——hive/iceberg/paimon 经 fe-connector-hms 依赖 hive-shade jar，`-am test` 不产 shade jar 会在 hms 编译期挂，见 build 坑 1）：BUILD SUCCESS，四模块全过；7 个分区视图缓存测试类共 **66 测试 0 失败**（ConnectorMetadataCacheTest 11 + hive 5+4 + paimon 7+7 + iceberg 25+7）。
+- **踩坑记录（供后续机械改名复用）**：`sed 's/ConnectorPartitionViewCache/ConnectorMetadataCache/g'` **子串过匹配**——把测试类名 `HiveConnectorPartitionViewCacheTest` 也改成 `HiveConnectorMetadataCacheTest`（但文件名没改）→ checkstyle `OuterTypeFilename` 报错。教训：跨文件类名机械改名用**词边界** `\b`（`Hive`+`ConnectorPartitionViewCache` 间无边界，`\b` 可避免误伤）；或改后用"文件名 vs public 类名"扫描兜底（本轮已用该扫描定位唯一误伤）。
+- **下一步**：PR-2 语句作用域通用 helper（`ConnectorStatementScopes.resolveInStatement` + namespace 注册表，放 `fe-connector-api`，**0 行 fe-core**）+ iceberg 私有 `IcebergStatementScope.sharedTable` 改委派（key 逐字节不变，须 byte-identical parity 测试）。动码前按 HEAD 重侦察。
