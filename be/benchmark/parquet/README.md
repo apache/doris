@@ -59,9 +59,9 @@ be/output/lib/benchmark_test \
   --benchmark_out_format=json
 ```
 
-The complex-residual case uses a compound `AND` with two two-column children. The first preserves
-the requested selectivity; the second references two new columns and accepts every row that
-reaches it:
+The complex-residual case uses a production compound `AND` tree. Its first child,
+`c0 < selectivity_percent`, preserves the requested selectivity; its second child, `c2 = c3`,
+references two new columns and accepts every row that reaches it:
 
 ```shell
 be/output/lib/benchmark_test \

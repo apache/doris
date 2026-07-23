@@ -24,6 +24,7 @@
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -40,13 +41,17 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "parquet_benchmark_scenarios.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
@@ -268,52 +273,6 @@ private:
     const std::string _expr_name = "ParquetBenchmarkInt32LessThan";
 };
 
-class Int32PairSumLessThanExpr final : public VExpr {
-public:
-    Int32PairSumLessThanExpr(int left_column_id, int right_column_id, int32_t upper_bound)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false),
-              _left_column_id(left_column_id),
-              _right_column_id(right_column_id),
-              _upper_bound(upper_bound) {}
-
-    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        DORIS_CHECK(block != nullptr);
-        const auto& left =
-                assert_cast<const ColumnNullable&>(*block->get_by_position(_left_column_id).column);
-        const auto& right = assert_cast<const ColumnNullable&>(
-                *block->get_by_position(_right_column_id).column);
-        const auto& left_values = assert_cast<const ColumnInt32&>(left.get_nested_column());
-        const auto& right_values = assert_cast<const ColumnInt32&>(right.get_nested_column());
-        auto result = ColumnUInt8::create(count, 0);
-        auto& matches = result->get_data();
-        for (size_t row = 0; row < count; ++row) {
-            const size_t input_row = selector == nullptr ? row : (*selector)[row];
-            matches[row] =
-                    !left.is_null_at(input_row) && !right.is_null_at(input_row) &&
-                    left_values.get_element(input_row) + right_values.get_element(input_row) <
-                            _upper_bound;
-        }
-        result_column = std::move(result);
-        return Status::OK();
-    }
-
-    bool is_constant() const override { return false; }
-
-    void collect_slot_column_ids(std::set<int>& column_ids) const override {
-        column_ids.insert(_left_column_id);
-        column_ids.insert(_right_column_id);
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-
-private:
-    const int _left_column_id;
-    const int _right_column_id;
-    const int32_t _upper_bound;
-    const std::string _expr_name = "ParquetBenchmarkInt32PairSumLessThan";
-};
-
 inline VExprContextSPtr make_predicate(int column_position, int selectivity_percent) {
     auto context = VExprContext::create_shared(
             std::make_shared<Int32LessThanExpr>(column_position, selectivity_percent));
@@ -322,20 +281,53 @@ inline VExprContextSPtr make_predicate(int column_position, int selectivity_perc
     return context;
 }
 
-inline VExprContextSPtr make_complex_residual_predicate(int selectivity_percent) {
+inline VExprSPtr make_int32_comparison(const std::string& function_name, TExprOpcode::type opcode,
+                                       VExprSPtr left, VExprSPtr right) {
+    const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName name;
+    name.__set_function_name(function_name);
+    TFunction function;
+    function.__set_name(name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({left->data_type()->to_thrift(), right->data_type()->to_thrift()});
+    function.__set_ret_type(bool_type->to_thrift());
+    function.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(bool_type->to_thrift());
+    node.__set_fn(function);
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto comparison = VectorizedFnCall::create_shared(node);
+    comparison->add_child(std::move(left));
+    comparison->add_child(std::move(right));
+    return comparison;
+}
+
+inline VExprContextSPtr make_complex_residual_predicate(int selectivity_percent, int first_position,
+                                                        int later_left_position,
+                                                        int later_right_position,
+                                                        const DataTypePtr& int_type) {
+    const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
     TExprNode node;
     node.__set_node_type(TExprNodeType::COMPOUND_PRED);
     node.__set_opcode(TExprOpcode::COMPOUND_AND);
-    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_type(bool_type->to_thrift());
     node.__set_num_children(2);
-    node.__set_is_nullable(false);
+    node.__set_is_nullable(true);
     auto compound = VCompoundPred::create_shared(node);
-    compound->add_child(std::make_shared<Int32PairSumLessThanExpr>(0, 1, 2 * selectivity_percent));
-    compound->add_child(std::make_shared<Int32PairSumLessThanExpr>(2, 3, 200));
-    auto context = VExprContext::create_shared(std::move(compound));
-    context->_prepared = true;
-    context->_opened = true;
-    return context;
+    compound->add_child(make_int32_comparison(
+            "lt", TExprOpcode::LT,
+            VSlotRef::create_shared(first_position, first_position, -1, int_type, "c0"),
+            VLiteral::create_shared(remove_nullable(int_type),
+                                    Field::create_field<TYPE_INT>(selectivity_percent))));
+    compound->add_child(make_int32_comparison(
+            "eq", TExprOpcode::EQ,
+            VSlotRef::create_shared(later_left_position, later_left_position, -1, int_type, "c2"),
+            VSlotRef::create_shared(later_right_position, later_right_position, -1, int_type,
+                                    "c3")));
+    return VExprContext::create_shared(std::move(compound));
 }
 
 inline Block make_block(const std::vector<format::ColumnDefinition>& schema) {
@@ -347,10 +339,17 @@ inline Block make_block(const std::vector<format::ColumnDefinition>& schema) {
 }
 
 struct ReaderSession {
+    ~ReaderSession() {
+        for (const auto& context : opened_conjuncts) {
+            context->close();
+        }
+    }
+
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     std::unique_ptr<format::parquet::ParquetReader> reader;
     std::vector<format::ColumnDefinition> schema;
     std::shared_ptr<format::FileScanRequest> request;
+    VExprContextSPtrs opened_conjuncts;
 };
 
 inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& path,
@@ -389,15 +388,25 @@ inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& p
                 make_predicate(static_cast<int>(predicate_position), scenario.selectivity_percent));
     } else if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
         DORIS_CHECK(scenario.schema_width >= 5);
-        for (int column = 0; column < 4; ++column) {
+        std::array<int, 3> predicate_columns {0, 2, 3};
+        std::array<int, 3> predicate_positions {};
+        for (size_t index = 0; index < predicate_columns.size(); ++index) {
+            const int column = predicate_columns[index];
             const auto predicate_id = format::LocalColumnId(column);
             throw_if_error(request_builder.add_predicate_column(predicate_id));
             session->request->predicate_only_columns.push_back(predicate_id);
+            predicate_positions[index] =
+                    static_cast<int>(session->request->local_positions.at(predicate_id).value());
         }
         throw_if_error(request_builder.add_non_predicate_column(
                 format::LocalColumnId(scenario.schema_width - 1)));
-        session->request->conjuncts.push_back(
-                make_complex_residual_predicate(scenario.selectivity_percent));
+        auto context = make_complex_residual_predicate(
+                scenario.selectivity_percent, predicate_positions[0], predicate_positions[1],
+                predicate_positions[2], session->schema[0].type);
+        throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
+        throw_if_error(context->open(&session->runtime_state));
+        session->request->conjuncts.push_back(context);
+        session->opened_conjuncts.push_back(std::move(context));
     } else {
         throw_if_error(request_builder.add_non_predicate_column(format::LocalColumnId(0)));
         if (scenario.schema_width > 1) {
@@ -458,7 +467,7 @@ inline int projected_columns(const ReaderScenario& scenario) {
         return 1;
     }
     if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
-        return 5;
+        return 4;
     }
     return std::min(2, scenario.schema_width);
 }
@@ -505,13 +514,7 @@ inline void run_reader(benchmark::State& state, ReaderScenario scenario) {
 
 inline bool register_reader_benchmarks() {
     for (const auto& scenario : reader_scenarios()) {
-        std::string name =
-                "ParquetReader/" + to_string(scenario.operation) + "/" +
-                to_string(scenario.encoding) + "/null_" + std::to_string(scenario.null_percent) +
-                "/" + to_string(scenario.null_pattern) + "/sel_" +
-                std::to_string(scenario.selectivity_percent) + "/" +
-                to_string(scenario.projection) + "/width_" + std::to_string(scenario.schema_width) +
-                "/predicate_" + std::to_string(scenario.predicate_position);
+        std::string name = "ParquetReader/" + reader_scenario_name(scenario);
         benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State& state) {
             run_reader(state, scenario);
         })->Unit(benchmark::kNanosecond);

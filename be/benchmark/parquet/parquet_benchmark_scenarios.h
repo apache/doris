@@ -270,4 +270,12 @@ inline std::string to_string(ReaderOperation value) {
     return "unknown";
 }
 
+inline std::string reader_scenario_name(const ReaderScenario& scenario) {
+    return to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/null_" +
+           std::to_string(scenario.null_percent) + "/" + to_string(scenario.null_pattern) +
+           "/sel_" + std::to_string(scenario.selectivity_percent) + "/" +
+           to_string(scenario.projection) + "/width_" + std::to_string(scenario.schema_width) +
+           "/predicate_" + std::to_string(scenario.predicate_position);
+}
+
 } // namespace doris::parquet_benchmark

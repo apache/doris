@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <set>
+#include <string>
 #include <tuple>
 
 namespace doris::parquet_benchmark {
@@ -108,6 +109,17 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
             }));
         }
     }
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixHasExactUniqueRegistrationNames) {
+    const auto scenarios = reader_scenarios();
+    EXPECT_EQ(scenarios.size(), 152);
+
+    std::set<std::string> names;
+    for (const auto& scenario : scenarios) {
+        names.insert(reader_scenario_name(scenario));
+    }
+    EXPECT_EQ(names.size(), scenarios.size());
 }
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversComplexResidualLazyMaterialization) {

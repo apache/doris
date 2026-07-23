@@ -42,7 +42,7 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetDecoder/'  # currently 152
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetReader/'   # currently 138
+  | grep -c '^ParquetReader/'   # currently 152
 ```
 
 When running the binary directly from `be/build_RELEASE/bin`, make sure the JVM and third-party
@@ -111,7 +111,7 @@ selection with clustered and alternating selection ranges, for 152 registered ca
 | DELTA_BYTE_ARRAY | BYTE_ARRAY |
 
 `ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
-deduplication it contains 138 cases covering:
+deduplication it contains 152 cases covering:
 
 - operations: open-to-first-block, full scan, predicate scan, complex residual scan, limit 1, and
   limit 1000;
@@ -168,9 +168,9 @@ Fixture contents and writer settings are:
 - every non-null value is `row % 100`;
 - the predicate is `value < selectivity_percent`, so the threshold maps directly to the intended
   non-null selectivity;
-- the complex residual scan evaluates a compound `AND` whose first child is
-  `(c0 + c1) < 2 * selectivity_percent` and whose always-true second child is `(c2 + c3) < 200`,
-  exposing whether later-only columns are decoded eagerly;
+- the complex residual scan evaluates a production expression tree whose first child is
+  `c0 < selectivity_percent` and whose always-true second child is `c2 = c3`, exposing whether
+  later-only columns are decoded eagerly;
 - alternating nulls use a 101-row period and `(row * 37) % 101`, avoiding direct correlation with
   the 100-value predicate period;
 - clustered nulls use contiguous null prefixes inside each 1,024-row cluster;

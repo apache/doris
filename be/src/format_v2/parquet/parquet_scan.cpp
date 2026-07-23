@@ -1550,6 +1550,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     for (auto& rows : _predicate_column_selection_scratch | std::views::values) {
         rows.clear();
     }
+    // A generation becomes dirty only when filtering changes SelectionVector. Columns read after
+    // an all-pass stage already share its coordinates, so rewalking every prior mapping is wasted.
+    bool predicate_columns_need_alignment = false;
 
     auto remember_column_selection = [&](uint32_t position) {
         auto& rows = _predicate_column_selection_scratch[position];
@@ -1564,6 +1567,8 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     auto compact_predicate_columns = [&](bool discard_predicate_only_payload) -> Status {
         bool compacted = false;
         int64_t compacted_bytes = 0;
+        update_counter_if_not_null(_scan_profile.predicate_alignment_columns,
+                                   cast_set<int64_t>(read_column_positions.size()));
         for (const uint32_t position : read_column_positions) {
             auto& source_rows = _predicate_column_selection_scratch[position];
             const auto& old_column = file_block->get_by_position(position).column;
@@ -1776,6 +1781,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                        static_cast<int64_t>(new_selected_rows);
         }
         if (new_selected_rows != selected_rows_before) {
+            predicate_columns_need_alignment = true;
             *selected_rows = can_filter_all
                                      ? 0
                                      : apply_compact_filter_to_selection(compact_filter, selection,
@@ -1803,6 +1809,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                        static_cast<int64_t>(new_selected_rows);
         }
         if (new_selected_rows != selected_rows_before) {
+            predicate_columns_need_alignment = true;
             *selected_rows = can_filter_all
                                      ? 0
                                      : apply_compact_filter_to_selection(compact_filter, selection,
@@ -1843,6 +1850,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             compact_filter.resize_fill(selected_rows_before, 0);
         }
         if (can_filter_all || count_selected_rows(compact_filter) != selected_rows_before) {
+            predicate_columns_need_alignment = true;
             *selected_rows = can_filter_all
                                      ? 0
                                      : apply_compact_filter_to_selection(compact_filter, selection,
@@ -1928,6 +1936,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                     RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(conjunct_it->second));
                 }
             }
+            if (*selected_rows != rows_before) {
+                predicate_columns_need_alignment = true;
+            }
             if (sample) {
                 const double cost_per_row = static_cast<double>(MonotonicNanos() - start_ns) /
                                             std::max<uint16_t>(rows_before, 1);
@@ -1993,10 +2004,16 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
 
     auto compact_predicate_columns_with_profile =
             [&](bool discard_predicate_only_payload) -> Status {
+        if (!discard_predicate_only_payload && !predicate_columns_need_alignment) {
+            return Status::OK();
+        }
         const int64_t start_ns = MonotonicNanos();
         auto status = compact_predicate_columns(discard_predicate_only_payload);
         update_counter_if_not_null(_scan_profile.predicate_compaction_time,
                                    MonotonicNanos() - start_ns);
+        if (status.ok()) {
+            predicate_columns_need_alignment = false;
+        }
         return status;
     };
 
