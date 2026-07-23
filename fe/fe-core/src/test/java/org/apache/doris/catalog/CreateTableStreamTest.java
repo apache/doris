@@ -100,7 +100,7 @@ public class CreateTableStreamTest extends TestWithFeService {
                 () -> createTable("create stream if not exists test_stream.s2 on table test_stream.tbl1\n"
                                       + "properties('type' = 'non_existent_type', 'show_initial_rows' = 'true'); "));
         // properties not exist
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown properties: {non_existent_property=a}",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown properties: [non_existent_property]",
                 () -> createTable("create stream if not exists test_stream.s2 on table test_stream.tbl1\n"
                                       + "properties('non_existent_property' = 'a'); "));
         dropDatabase("test_stream");
