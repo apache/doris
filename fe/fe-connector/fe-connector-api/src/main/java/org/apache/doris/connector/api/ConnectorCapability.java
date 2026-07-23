@@ -162,5 +162,22 @@ public enum ConnectorCapability {
      * sink trait {@code ConnectorWritePlanProvider.requiresFullSchemaWriteOrder()}, which governs how rows are
      * ordered on the write path, not whether the CREATE TABLE DDL accepts the clause.</p>
      */
-    SUPPORTS_SORT_ORDER
+    SUPPORTS_SORT_ORDER,
+    /**
+     * Indicates the connector supports {@code ALTER TABLE} column schema-change DDL, including
+     * dotted nested paths (e.g. {@code ADD/DROP/RENAME/MODIFY COLUMN s.b}, {@code arr.element},
+     * {@code m.value}) and {@code MODIFY COLUMN ... COMMENT}.
+     *
+     * <p>The nereids {@code AlterTableCommand} column-operation validation admits the Iceberg-style
+     * schema-change clause set (nested paths, the {@code MODIFY COLUMN COMMENT} op) for a plugin-driven
+     * table only when its connector declares this (replacing the legacy exact-class {@code instanceof
+     * IcebergExternalTable} gate). The actual mutation is routed through {@code PluginDrivenExternalCatalog}'s
+     * {@code ColumnPath} column-DDL overrides into the connector's {@link ConnectorTableOps} column-evolution
+     * ops. Resolved per-table via {@code hasScanCapability} so an iceberg-on-HMS table (whose catalog
+     * connector is hive) inherits it through the reflected per-table capability set, exactly like
+     * {@link #SUPPORTS_NESTED_COLUMN_PRUNE}. Connectors without column schema-change support (JDBC, ES,
+     * paimon/maxcompute today) must NOT declare it so their tables reject nested paths at analysis and
+     * column DDL stays unsupported.</p>
+     */
+    SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE
 }
