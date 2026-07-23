@@ -61,3 +61,20 @@
 - **验证**：`mvn install -pl cache,hive,iceberg,paimon -am`（**install 非 test**——hive/iceberg/paimon 经 fe-connector-hms 依赖 hive-shade jar，`-am test` 不产 shade jar 会在 hms 编译期挂，见 build 坑 1）：BUILD SUCCESS，四模块全过；7 个分区视图缓存测试类共 **66 测试 0 失败**（ConnectorMetadataCacheTest 11 + hive 5+4 + paimon 7+7 + iceberg 25+7）。
 - **踩坑记录（供后续机械改名复用）**：`sed 's/ConnectorPartitionViewCache/ConnectorMetadataCache/g'` **子串过匹配**——把测试类名 `HiveConnectorPartitionViewCacheTest` 也改成 `HiveConnectorMetadataCacheTest`（但文件名没改）→ checkstyle `OuterTypeFilename` 报错。教训：跨文件类名机械改名用**词边界** `\b`（`Hive`+`ConnectorPartitionViewCache` 间无边界，`\b` 可避免误伤）；或改后用"文件名 vs public 类名"扫描兜底（本轮已用该扫描定位唯一误伤）。
 - **下一步**：PR-2 语句作用域通用 helper（`ConnectorStatementScopes.resolveInStatement` + namespace 注册表，放 `fe-connector-api`，**0 行 fe-core**）+ iceberg 私有 `IcebergStatementScope.sharedTable` 改委派（key 逐字节不变，须 byte-identical parity 测试）。动码前按 HEAD 重侦察。
+
+---
+
+## 2026-07-24 — PR-2 完成：语句作用域通用 helper `ConnectorStatementScopes`（0 行 fe-core，iceberg 改挂 byte-identical）
+
+- **做了什么**（commit `ae8c925074d`，严格 4 文件、零 fe-core 源码）：
+  1. 动码前按 HEAD 重侦察全部承重事实：`ConnectorStatementScopes`(复数)不存在须新建；iceberg 现键 `"iceberg.table:" + catalogId + ":" + db + ":" + table + ":" + queryId`；`ConnectorStatementScope.computeIfAbsent(String,Supplier<T>)`/`ConnectorSession.getCatalogId():long`/`getQueryId():String`/`getStatementScope():default NONE` 逐一核对；`rewritableDeleteSupply` 是 `(catalogId,queryId)`-keyed scan→write 累加器（非表解析）→留 iceberg 私有；4 个 `sharedTable` 调用方（metadata/scan/write/transaction）签名不变、仅 body 委派。
+  2. 新增 `fe-connector-api` 的 `ConnectorStatementScopes.resolveInStatement(session, keyNamespace, db, table, loader)`：复用已存在的 `ConnectorStatementScope.computeIfAbsent` 原语，统一"每语句解析一次 db.table"的**安全关键键约定**（丢 queryId=跨执行泄漏、丢 catalogId=跨目录 MERGE 撞车、丢 namespace=异构网关下值类型撞车→ClassCastException）；null session / NONE scope 每次跑 loader（load-every-time 不变）。namespace 注册表以 `ICEBERG_TABLE="iceberg.table"` 落地（hudi/mc/es 保留、各自 PR 接入时声明）。
+  3. iceberg `IcebergStatementScope.sharedTable` 改为委派该 helper，用 `ICEBERG_TABLE` 命名空间**逐字节复现**历史键前缀 → 4 resolver 命中/未命中/NONE 回落全等。
+- **验证**：
+  - `install -pl fe-connector-api,fe-connector-iceberg -am` BUILD SUCCESS，全模块 0 checkstyle。
+  - 新 `ConnectorStatementScopesTest` **8 测试**（memo-once / 5 轴逐一隔离 / namespace 值类型隔离(否则 CCE) / null+NONE load-every-time / 键逐字节断言）；`IcebergStatementScopeTest` **7 测试**（+ byte-key parity `"iceberg.table:7:db1:t:q1"` + iceberg 级 null-session）；**iceberg 全模块 1133 测试 0 失败**（4 个 sharedTable 调用方测试类全绿：Transaction 66/Metadata 51/Scan 114/Write 42）。
+  - **铁律 A 核实**：`git diff --numstat -- 'fe/fe-core/**'` 空 → 0 行 fe-core。
+  - **4 路对抗净室复审**（byte-parity / callers / iron-rules-leak / test-quality）全判 **PARITY_HOLDS**、无一 refutes_parity；据其两条反馈**加固测试**：①测试替身 `getSessionId()` 改为 ≠ `getQueryId()`（否则 queryId→sessionId 误改会跨查询泄漏却无测试能红）②补 iceberg 级 null-session 测试。
+  - **Rule 9 变异验证**：把 helper 键 `getQueryId()`→`getSessionId()`，**恰好两个 byte-key 测试变红**（api 1/8、iceberg 1/7）、其余全绿；已逐字节还原（`git diff` 该行回 `getQueryId()`）。
+- **一条 surface 给 owner（非阻塞）**：`ICEBERG_TABLE` 常量放在中立 SPI 层 `fe-connector-api` 上，两名评审标为 minor 层次瑕疵（中立 SPI 里出现连接器名），但同时判定"可接受的命名空间注册表、非有害泄漏"——这是设计 §B 修订#7 owner 已签的**中心化 uniqueness 注册表**（防 R9 跨连接器 namespace 撞车的唯一审计点）；若移到各连接器自持则失去中心审计点。保持设计原样，如 owner 更偏好各连接器自持常量可轻量改。
+- **下一步**：PR-3 iceberg 5 个手写缓存收敛到 `ConnectorMetadataCache`（pre-resolved `CacheSpec` 构造器 + **钉死 legacy entry 名** `iceberg-table` 等 + 连接器侧凭证置空保留 + **`invalidateDb` parity 测试**：Namespace-equals→String-equals 须证 Doris iceberg 命名空间单层等价）；含 PR-1 推迟的 6 处 `ttl≤0→disabled` 映射去重。动每个文件前按 HEAD 重侦察。
