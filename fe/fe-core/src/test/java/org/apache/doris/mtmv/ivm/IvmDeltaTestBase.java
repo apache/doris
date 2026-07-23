@@ -144,7 +144,7 @@ abstract class IvmDeltaTestBase {
     protected OlapTableStream getRegisteredStream(OlapTable baseTable, long mvId) {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
         Assertions.assertNotNull(db, "test_db should exist");
-        return (OlapTableStream) db.getTableNullable(IvmUtil.streamName(mvId, baseTable.getName()));
+        return (OlapTableStream) db.getTableNullable(IvmUtil.streamName(mvId, baseTable.getFullQualifiers()));
     }
 
     protected void advanceStreamToBaseTable(OlapTable baseTable, OlapTableStream stream) {
@@ -187,7 +187,7 @@ abstract class IvmDeltaTestBase {
             db = new Database(10_000L, "test_db");
             Env.getCurrentEnv().unprotectCreateDb(db);
         }
-        String streamName = IvmUtil.streamName(mvId, baseTable.getName());
+        String streamName = IvmUtil.streamName(mvId, baseTable.getFullQualifiers());
         db.unregisterTable(streamName);
         OlapTableStream stream = new OlapTableStream(baseTable.getId() + 10_000L + mvId,
                 streamName, baseTable.getFullSchema(), baseTable);
