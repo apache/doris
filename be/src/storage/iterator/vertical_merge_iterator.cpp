@@ -504,14 +504,12 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
 
         auto ctx = _merge_heap.top();
         _merge_heap.pop();
-        if (ctx->is_same()) {
-            tmp_row_sources.emplace_back(ctx->order(), true);
-        } else {
-            tmp_row_sources.emplace_back(ctx->order(), false);
-        }
-        if (ctx->is_same() &&
-            ((_keys_type == KeysType::UNIQUE_KEYS && _key_group_cluster_key_idxes.empty()) ||
-             _keys_type == KeysType::AGG_KEYS)) {
+        const bool merged =
+                ctx->is_same() &&
+                ((_keys_type == KeysType::UNIQUE_KEYS && _key_group_cluster_key_idxes.empty()) ||
+                 _keys_type == KeysType::AGG_KEYS);
+        tmp_row_sources.emplace_back(ctx->order(), merged);
+        if (merged) {
             // skip cur row, copy pre ctx
             ++_merged_rows;
             if (pre_ctx) {
