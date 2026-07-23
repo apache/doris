@@ -296,9 +296,10 @@ suite("test_routine_load_alter","p0") {
             sql "truncate table ${tableName}"
         }
 
-        // Test switching the target together with existing job and Kafka properties.
+        // Test target-only switching and reject a target incompatible with the existing load description.
         def srcTableName = "test_routine_load_alter_src"
         def dstTableName = "test_routine_load_alter_dst"
+        def invalidDstTableName = "test_routine_load_alter_invalid_dst"
         def alterTargetTopic = "test_routine_load_alter_target_table_${System.currentTimeMillis()}"
         def alterTargetJob = "test_alter_target_table_${System.currentTimeMillis()}"
         def alterTopicProducer = null
@@ -318,6 +319,7 @@ suite("test_routine_load_alter","p0") {
         try {
             sql "DROP TABLE IF EXISTS ${srcTableName}"
             sql "DROP TABLE IF EXISTS ${dstTableName}"
+            sql "DROP TABLE IF EXISTS ${invalidDstTableName}"
             for (String targetTable in [srcTableName, dstTableName]) {
                 sql """
                     CREATE TABLE ${targetTable} (
@@ -333,6 +335,20 @@ suite("test_routine_load_alter","p0") {
                     PROPERTIES ("replication_allocation" = "tag.location.default: 1")
                 """
             }
+            sql """
+                CREATE TABLE ${invalidDstTableName} (
+                    `k1` int NULL,
+                    `k2` string NULL,
+                    `v1` date NULL,
+                    `v2` string NULL,
+                    `v3` datetime NULL,
+                    `v4` string NULL,
+                    `required_col` int NOT NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+            """
 
             def topicProps = new Properties()
             topicProps.put("bootstrap.servers", kafka_broker.toString())
@@ -356,7 +372,8 @@ suite("test_routine_load_alter","p0") {
 
             sql """
                 CREATE ROUTINE LOAD ${alterTargetJob} ON ${srcTableName}
-                COLUMNS TERMINATED BY ","
+                COLUMNS TERMINATED BY ",",
+                COLUMNS(k1, k2, v1, v2, v3, v4)
                 PROPERTIES
                 (
                     "max_batch_interval" = "5",
@@ -378,19 +395,24 @@ suite("test_routine_load_alter","p0") {
             assertEquals(srcTableName, showBeforeAlter[0][6].toString())
             def progressBeforeAlter = showBeforeAlter[0][15].toString()
 
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${alterTargetJob}
+                    SET TARGET TABLE = "${invalidDstTableName}"
+                """
+                exception "Column has no default value, column=required_col"
+            }
+            def showAfterFailedAlter = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
+            assertEquals(srcTableName, showAfterFailedAlter[0][6].toString())
+            assertEquals(progressBeforeAlter, showAfterFailedAlter[0][15].toString())
+
             sql """
                 ALTER ROUTINE LOAD FOR ${alterTargetJob}
                 SET TARGET TABLE = "${dstTableName}"
-                PROPERTIES("max_error_number" = "10")
-                FROM KAFKA("property.client.id" = "target-switch")
             """
             def showAfterAlter = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
             assertEquals(dstTableName, showAfterAlter[0][6].toString())
             assertEquals(progressBeforeAlter, showAfterAlter[0][15].toString())
-            def alteredJobProperties = parseJson(showAfterAlter[0][11])
-            def alteredCustomProperties = parseJson(showAfterAlter[0][13])
-            assertEquals("10", alteredJobProperties.max_error_number.toString())
-            assertEquals("target-switch", alteredCustomProperties["client.id"].toString())
 
             [
                 "4,eab,2023-07-16,def,2023-07-21:05:48:31,ghi",

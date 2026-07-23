@@ -180,6 +180,28 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
+    public void testValidateRejectsEmptyAlterRoutineLoad() {
+        runBefore();
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1");
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(exception.getMessage().contains("No properties are specified"));
+    }
+
+    @Test
+    public void testValidateLegacyLoadPropertyAlter() {
+        runBefore();
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 COLUMNS(k1)");
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("k1",
+                command.getRoutineLoadDesc().getColumnsInfo().get(0).getColumnName());
+    }
+
+    @Test
     public void testValidateTargetTableWithJobAndDataSourceProperties() throws Exception {
         runBefore();
         Mockito.when(currentTable.getId()).thenReturn(3000L);
@@ -211,6 +233,7 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertTrue(command.getAnalyzedJobProperties().isEmpty());
         Assertions.assertNull(command.getDataSourceProperties());
         Assertions.assertEquals(3000L, command.getTargetTableId());
+        Mockito.verify(routineLoadJob).validateTargetTable(db, currentTable);
     }
 
     @Test

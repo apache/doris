@@ -17,9 +17,11 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.transaction.TxnUtil;
 import org.apache.doris.common.Config;
@@ -29,10 +31,17 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -50,6 +59,9 @@ import com.google.common.collect.Maps;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -58,6 +70,103 @@ import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobTest {
+    @Test
+    public void testValidateTargetTableRejectsMultiTableJob() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "isMultiTable", true);
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> routineLoadJob.validateTargetTable(
+                        Mockito.mock(Database.class), Mockito.mock(OlapTable.class)));
+        Assert.assertTrue(exception.getMessage().contains("single-table job"));
+    }
+
+    @Test
+    public void testValidateTargetTablePlansSuccessfully() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        Database database = Mockito.mock(Database.class);
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+
+        try (MockedConstruction<NereidsStreamLoadPlanner> plannerConstruction =
+                Mockito.mockConstruction(NereidsStreamLoadPlanner.class)) {
+            routineLoadJob.validateTargetTable(database, targetTable);
+
+            NereidsStreamLoadPlanner planner = plannerConstruction.constructed().get(0);
+            InOrder inOrder = Mockito.inOrder(targetTable, planner);
+            inOrder.verify(targetTable).readLock();
+            inOrder.verify(planner).plan(Mockito.any(TUniqueId.class));
+            inOrder.verify(targetTable).readUnlock();
+        }
+    }
+
+    @Test
+    public void testValidateTargetTableUnlocksWhenPlanningFails() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        routineLoadJob.setRoutineLoadDesc(new RoutineLoadDesc(null, null,
+                Lists.newArrayList(new ImportColumnDesc("k1")), null, null, null, null,
+                LoadTask.MergeType.APPEND, null));
+        Database database = Mockito.mock(Database.class);
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+
+        try (MockedConstruction<NereidsStreamLoadPlanner> plannerConstruction = Mockito.mockConstruction(
+                NereidsStreamLoadPlanner.class, (planner, context) -> {
+                    NereidsRoutineLoadTaskInfo taskInfo =
+                            (NereidsRoutineLoadTaskInfo) context.arguments().get(2);
+                    Assert.assertEquals("k1", taskInfo.getColumnExprDescs().descs.get(0).getColumnName());
+                    Mockito.doThrow(new UserException("planning failed"))
+                            .when(planner).plan(Mockito.any(TUniqueId.class));
+                })) {
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> routineLoadJob.validateTargetTable(database, targetTable));
+            Assert.assertTrue(exception.getMessage().contains("planning failed"));
+
+            NereidsStreamLoadPlanner planner = plannerConstruction.constructed().get(0);
+            InOrder inOrder = Mockito.inOrder(targetTable, planner);
+            inOrder.verify(targetTable).readLock();
+            inOrder.verify(planner).plan(Mockito.any(TUniqueId.class));
+            inOrder.verify(targetTable).readUnlock();
+        }
+    }
+
+    @Test
+    public void testModifyPropertiesWithoutTargetTableKeepsExistingTable() throws Exception {
+        List<RoutineLoadJob> routineLoadJobs = Lists.newArrayList(
+                new KafkaRoutineLoadJob(1L, "kafka_job", 1L, 101L,
+                        "127.0.0.1:9020", "topic1", UserIdentity.ADMIN),
+                new KinesisRoutineLoadJob(2L, "kinesis_job", 1L, 101L,
+                        "ap-southeast-1", "stream1", UserIdentity.ADMIN));
+        for (RoutineLoadJob routineLoadJob : routineLoadJobs) {
+            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        }
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "10");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.hasTargetTable()).thenReturn(false);
+        Mockito.when(command.getTargetTableId()).thenReturn(0L);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            for (RoutineLoadJob routineLoadJob : routineLoadJobs) {
+                routineLoadJob.modifyProperties(command);
+                Assert.assertEquals(routineLoadJob.getDataSourceType().name(),
+                        101L, routineLoadJob.getTableId());
+            }
+        }
+
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        Mockito.verify(editLog, Mockito.times(2)).logAlterRoutineLoadJob(logCaptor.capture());
+        for (AlterRoutineLoadJobOperationLog log : logCaptor.getAllValues()) {
+            Assert.assertEquals(0L, log.getTargetTableId());
+        }
+    }
+
     @Test
     public void testFirstErrorMsgInTxnCommitAttachment() {
         String overlongFirstErrorMsg = Strings.repeat("x", Config.first_error_msg_max_length + 1);
