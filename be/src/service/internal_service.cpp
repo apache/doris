@@ -795,12 +795,22 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
         // must write somthing because s3 file writer can not writer empty file
         st = _file_writer_impl->append({"success"});
         if (!st.ok()) {
+            auto abort_status = _file_writer_impl->abort();
+            if (!abort_status.ok()) {
+                st.append(fmt::format("; failed to abort success file: {}",
+                                      abort_status.to_string_no_stack()));
+            }
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
         st = _file_writer_impl->close();
         if (!st.ok()) {
+            auto abort_status = _file_writer_impl->abort();
+            if (!abort_status.ok()) {
+                st.append(fmt::format("; failed to abort success file: {}",
+                                      abort_status.to_string_no_stack()));
+            }
             LOG(WARNING) << "outfile write success filefailed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;

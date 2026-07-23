@@ -73,9 +73,12 @@ class S3URI;
 
 enum class S3ClientMode {
     STANDARD,
-    // Enables SDK-managed S3 Express endpoint and session auth for S3 file readers only. IAM
-    // should restrict s3express:SessionMode to ReadOnly when credential-level enforcement is needed.
+    // Enables SDK-managed S3 Express endpoint and session auth for S3 file readers. IAM should
+    // restrict s3express:SessionMode to ReadOnly when credential-level enforcement is needed.
     EXPRESS_READ,
+    // Enables SDK-managed S3 Express endpoint and session auth for S3 file writers. IAM must
+    // allow ReadWrite CreateSession requests.
+    EXPRESS_WRITE,
 };
 
 struct S3ClientConf {
@@ -112,7 +115,10 @@ struct S3ClientConf {
         hash_code ^= connect_timeout_ms;
         hash_code ^= use_virtual_addressing;
         hash_code ^= static_cast<int>(provider);
-        hash_code ^= crc32_hash(mode == S3ClientMode::EXPRESS_READ ? "express_read" : "standard");
+        hash_code ^= crc32_hash(mode == S3ClientMode::STANDARD
+                                        ? "standard"
+                                        : mode == S3ClientMode::EXPRESS_READ ? "express_read"
+                                                                            : "express_write");
 
         hash_code ^= static_cast<int>(cred_provider_type);
         hash_code ^= crc32_hash(role_arn);

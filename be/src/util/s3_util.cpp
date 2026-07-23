@@ -124,7 +124,9 @@ bool is_s3_directory_bucket(std::string_view bucket) {
 }
 
 bool use_s3_express_client(const S3ClientConf& conf) {
-    return conf.mode == S3ClientMode::EXPRESS_READ && conf.provider == io::ObjStorageType::AWS &&
+    const bool express_mode = conf.mode == S3ClientMode::EXPRESS_READ ||
+                              conf.mode == S3ClientMode::EXPRESS_WRITE;
+    return express_mode && conf.provider == io::ObjStorageType::AWS &&
            is_s3_directory_bucket(conf.bucket);
 }
 
@@ -543,7 +545,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     const bool s3_express = use_s3_express_client(s3_conf);
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
-            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
+            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
+                                                     s3_express));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     // Let the SDK derive the zonal endpoint from the complete directory bucket name. A user
     // endpoint is intentionally ignored for S3 Express.
@@ -585,7 +588,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
 
     // Directory buckets require virtual-hosted endpoints. Standard clients never create Express
-    // sessions; only the explicitly selected file-reader mode enables session authentication.
+    // sessions; only explicitly selected read or write modes enable session authentication.
     Aws::S3::S3ClientConfiguration client_config(
             aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             s3_express || s3_conf.use_virtual_addressing);
@@ -594,7 +597,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             get_aws_credentials_provider(s3_conf),
             Aws::MakeShared<Aws::S3::Endpoint::S3EndpointProvider>("S3Client"), client_config);
 
-    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
+    auto obj_client =
+            std::make_shared<io::S3ObjStorageClient>(std::move(new_client), s3_express);
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
@@ -657,9 +661,11 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     s3_conf->bucket = s3_uri.get_bucket();
     // For azure's compatibility
     s3_conf->client_conf.bucket = s3_uri.get_bucket();
-    s3_conf->client_conf.mode = mode == S3ClientMode::EXPRESS_READ && explicitly_aws_provider &&
+    const bool express_mode =
+            mode == S3ClientMode::EXPRESS_READ || mode == S3ClientMode::EXPRESS_WRITE;
+    s3_conf->client_conf.mode = express_mode && explicitly_aws_provider &&
                                                 is_s3_directory_bucket(s3_conf->client_conf.bucket)
-                                        ? S3ClientMode::EXPRESS_READ
+                                        ? mode
                                         : S3ClientMode::STANDARD;
     s3_conf->prefix = "";
 

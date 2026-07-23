@@ -178,8 +178,8 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         S3URI s3_uri(path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
+        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
+                properties, s3_uri, &s3_conf, S3ClientMode::EXPRESS_WRITE));
         auto client = std::make_shared<io::ObjClientHolder>(std::move(s3_conf.client_conf));
         RETURN_IF_ERROR_RESULT(client->init());
         return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),

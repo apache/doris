@@ -487,6 +487,13 @@ Status VFileResultWriter::close(Status exec_status) {
         }
         st = _close_file_writer(true);
     }
+    if (!st.ok() && _file_writer_impl) {
+        auto abort_status = _file_writer_impl->abort();
+        if (!abort_status.ok()) {
+            st.append(fmt::format("; failed to abort output file: {}",
+                                  abort_status.to_string_no_stack()));
+        }
+    }
     return st;
 }
 
