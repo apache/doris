@@ -33,7 +33,10 @@
 #include "io/fs/s3_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/core/block.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/scanner.h"
@@ -164,20 +167,23 @@ Status TextReader::_validate_line(const Slice& line, bool* success) {
 }
 
 Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
-    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // Hot path of hive text load, see CsvReader::_deserialize_nullable_string. The
+    // column type was verified by the checked assert_cast in
+    // _reserve_nullable_string_columns at the beginning of the batch.
+    auto& null_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    auto& string_column = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
+            null_column.get_nested_column());
     if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
-        null_column.insert_data(nullptr, 0);
+        string_column.insert_default();
+        null_column.get_null_map_data().push_back(1);
         return Status::OK();
     }
-    static DataTypeStringSerDe stringSerDe(TYPE_STRING);
-    auto st = stringSerDe.deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
-                                                              slice, _options);
-    if (!st.ok()) {
-        // fill null if fail
-        null_column.insert_data(nullptr, 0); // 0 is meaningless here
-        return Status::OK();
+    // Same as DataTypeStringSerDe::deserialize_one_cell_from_hive_text (which never
+    // fails), written out here to skip the SerDe layer and its per-cell assert_cast.
+    if (_options.escape_char != 0) {
+        escape_string(slice.data, &slice.size, _options.escape_char);
     }
-    // fill not null if success
+    string_column.insert_data(slice.data, slice.size);
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
