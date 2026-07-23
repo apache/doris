@@ -29,6 +29,9 @@
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "exec/scan/scanner.h"
+// branch-4.1 creates VRuntimeFilterWrapper before the RuntimeFilterExpr rename, so assert the
+// branch-native wrapper type while preserving the late-arrival batching invariant.
+#include "exprs/vruntimefilter_wrapper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "testutil/column_helper.h"
@@ -158,7 +161,7 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
     ASSERT_EQ(scanner->_applied_rf_num, 2);
     ASSERT_EQ(scanner->_late_arrival_rf_conjuncts.size(), 1);
     for (const auto& conjunct : scanner->_late_arrival_rf_conjuncts) {
-        EXPECT_NE(dynamic_cast<const RuntimeFilterExpr*>(conjunct->root().get()), nullptr);
+        EXPECT_NE(dynamic_cast<const VRuntimeFilterWrapper*>(conjunct->root().get()), nullptr);
     }
     ASSERT_EQ(scanner->_conjuncts.size(), 3);
     EXPECT_EQ(scanner->_conjuncts.back()->expr_name(), "high_cost_stateful_predicate");
@@ -168,7 +171,7 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
     ASSERT_TRUE(second_scanner->try_append_late_arrival_runtime_filter().ok());
     ASSERT_EQ(second_scanner->_applied_rf_num, 2);
     ASSERT_EQ(second_scanner->_late_arrival_rf_conjuncts.size(), 1);
-    EXPECT_NE(dynamic_cast<const RuntimeFilterExpr*>(
+    EXPECT_NE(dynamic_cast<const VRuntimeFilterWrapper*>(
                       second_scanner->_late_arrival_rf_conjuncts[0]->root().get()),
               nullptr);
 
