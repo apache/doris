@@ -39,6 +39,7 @@ suite("test_basic_delete_job") {
     qt_unpartition1 """select * from ${unpartitionTable} order by id"""
     sql """delete from ${unpartitionTable} where id < 0"""
     qt_unpartition2 """select * from ${unpartitionTable} order by id"""
+    sql """set delete_without_partition = false"""
     sql """delete from ${unpartitionTable} where id = 1"""
     qt_unpartition3 """select * from ${unpartitionTable} order by id"""
     sql """delete from ${unpartitionTable} where name = "c" """
@@ -70,6 +71,11 @@ suite("test_basic_delete_job") {
     qt_one_range4 """select * from ${oneRangeColumnTable} order by id"""
     sql """delete from ${oneRangeColumnTable} partition(p0) where id < 22"""
     qt_one_range5 """select * from ${oneRangeColumnTable} order by id"""
+    test {
+        sql """delete from ${oneRangeColumnTable} where name = "d" """
+        exception "This is a range or list partitioned table. You should specify partition in delete stmt, or set delete_without_partition to true"
+    }
+    sql """set delete_without_partition = true"""
     sql """delete from ${oneRangeColumnTable} where name = "d" """
     qt_one_range6 """select * from ${oneRangeColumnTable} order by id"""
     sql """delete from ${oneRangeColumnTable} partition(p2) where name = "g" """

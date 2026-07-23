@@ -309,6 +309,12 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
             return Lists.newArrayList(olapTable.getPartitions());
         }
+        if (partitionNames.isEmpty() && !canInferPartition(olapTable, filter.getPredicate())
+                && !ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
+            throw new AnalysisException("This is a range or list partitioned table."
+                    + " You should specify partition in delete stmt,"
+                    + " or set delete_without_partition to true");
+        }
         List<Slot> partitionSlots = Lists.newArrayList();
         for (Column c : olapTable.getPartitionColumns()) {
             Slot partitionSlot = null;
@@ -347,6 +353,31 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 CascadesContext.initContext(new StatementContext(), this, PhysicalProperties.ANY),
                 PartitionTableType.OLAP, sortedPartitionRanges).first;
         return prunedPartitions.stream().map(olapTable::getPartition).collect(Collectors.toList());
+    }
+
+    private boolean canInferPartition(OlapTable olapTable, Expression predicate) {
+        Set<String> partitionColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        partitionColumnNames.addAll(olapTable.getPartitionColumns().stream()
+                .map(Column::getName)
+                .collect(Collectors.toList()));
+        return containsSupportedPartitionPredicate(predicate, partitionColumnNames);
+    }
+
+    private boolean containsSupportedPartitionPredicate(Expression predicate, Set<String> partitionColumnNames) {
+        if (predicate instanceof And) {
+            return predicate.children().stream()
+                    .anyMatch(child -> containsSupportedPartitionPredicate(child, partitionColumnNames));
+        }
+        if (predicate instanceof ComparisonPredicate) {
+            return predicate.child(0) instanceof SlotReference
+                    && partitionColumnNames.contains(((SlotReference) predicate.child(0)).getName());
+        }
+        if (predicate instanceof InPredicate) {
+            return ((InPredicate) predicate).getCompareExpr() instanceof SlotReference
+                    && partitionColumnNames.contains(((SlotReference) ((InPredicate) predicate).getCompareExpr())
+                    .getName());
+        }
+        return false;
     }
 
     private void checkColumn(Set<String> tableColumns, SlotReference slotReference, OlapTable table) {
