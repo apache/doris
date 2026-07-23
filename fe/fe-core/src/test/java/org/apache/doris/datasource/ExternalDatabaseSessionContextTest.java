@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalDatabase;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -87,6 +88,47 @@ public class ExternalDatabaseSessionContextTest {
         }
     }
 
+    @Test
+    public void delegatedSessionModeZeroIsTableExistUsesPointLookup() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(0);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 2L, "db1", "db1");
+
+        withSession("token_a", () -> Assertions.assertTrue(db.isTableExist("table_a")));
+
+        Assertions.assertTrue(catalog.tokensUsedToListTables.isEmpty());
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToCheckTableExist);
+    }
+
+    @Test
+    public void delegatedSessionModeOneIsTableExistResolvesMixedCaseRemoteName() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(1);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 3L, "db1", "db1");
+
+        withSession("token_mixed", () -> Assertions.assertTrue(db.isTableExist("table_a")));
+
+        Assertions.assertEquals(Lists.newArrayList("token_mixed"), catalog.tokensUsedToListTables);
+        Assertions.assertEquals(Lists.newArrayList("token_mixed"), catalog.tokensUsedToCheckTableExist);
+    }
+
+    @Test
+    public void delegatedSessionModeTwoIsTableExistResolvesRemoteNameWithoutSharedCache() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(2);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 4L, "db1", "db1");
+
+        withSession("token_a", () -> Assertions.assertTrue(db.isTableExist("TABLE_A")));
+
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables);
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToCheckTableExist);
+    }
+
+    private static void withSession(String token, Runnable action) {
+        SessionContext context = ctxFor(token);
+        try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
+            sc.when(SessionContext::current).thenReturn(context);
+            action.run();
+        }
+    }
+
     /**
      * A {@code session=user} plugin catalog whose remote database listing is per-token (each token sees only
      * {@code db_<suffix>}) and records the token it listed under. Pre-initialized so {@code getDbNames} skips the
@@ -94,9 +136,15 @@ public class ExternalDatabaseSessionContextTest {
      */
     private static final class SessionAwareCatalog extends PluginDrivenExternalCatalog {
         private final List<String> tokensUsedToListDatabases = new ArrayList<>();
+        private final List<String> tokensUsedToListTables = new ArrayList<>();
+        private final List<String> tokensUsedToCheckTableExist = new ArrayList<>();
 
         SessionAwareCatalog() {
-            super(1L, "test_ctl", null, props(), "", userSessionConnector());
+            this(0);
+        }
+
+        SessionAwareCatalog(int lowerCaseTableNames) {
+            super(1L, "test_ctl", null, props(lowerCaseTableNames), "", userSessionConnector());
             this.initialized = true;
         }
 
@@ -119,6 +167,26 @@ public class ExternalDatabaseSessionContextTest {
             return remoteDatabaseName;
         }
 
+        @Override
+        protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
+            String token = ctx.getDelegatedCredential().get().getToken();
+            tokensUsedToListTables.add(token);
+            if ("token_mixed".equals(token)) {
+                return Lists.newArrayList("Table_A");
+            }
+            return Lists.newArrayList("table_" + token.substring("token_".length()));
+        }
+
+        @Override
+        public boolean tableExist(SessionContext ctx, String dbName, String tableName) {
+            String token = ctx.getDelegatedCredential().get().getToken();
+            tokensUsedToCheckTableExist.add(token);
+            if ("token_mixed".equals(token)) {
+                return "Table_A".equals(tableName);
+            }
+            return ("table_" + token.substring("token_".length())).equals(tableName);
+        }
+
         private static Connector userSessionConnector() {
             Connector connector = Mockito.mock(Connector.class);
             Mockito.when(connector.getCapabilities())
@@ -126,9 +194,10 @@ public class ExternalDatabaseSessionContextTest {
             return connector;
         }
 
-        private static Map<String, String> props() {
+        private static Map<String, String> props(int lowerCaseTableNames) {
             Map<String, String> props = new HashMap<>();
             props.put("type", "iceberg");
+            props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, String.valueOf(lowerCaseTableNames));
             return props;
         }
     }
