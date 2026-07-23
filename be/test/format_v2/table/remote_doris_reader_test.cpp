@@ -54,6 +54,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris::format::remote_doris {
 namespace {
@@ -633,6 +634,42 @@ TEST(RemoteDorisV2ReaderTest, RuntimeCancellationInterruptsBlockedFlightDoGet) {
     EXPECT_FALSE(open_result.get().ok());
 }
 
+TEST(RemoteDorisV2ReaderTest, BlockedDoGetRetainsQueryResourcesUntilWorkerExits) {
+    BlockingFlightServer server(BlockingFlightServer::Mode::DO_GET);
+    const auto server_status = server.start();
+    ASSERT_TRUE(server_status.ok()) << server_status;
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_slots(&pool, &desc_tbl);
+    auto state = std::make_unique<MockRuntimeState>();
+    std::weak_ptr<ResourceContext> resource_ctx = state->get_query_ctx()->resource_ctx();
+    RuntimeProfile profile("remote_doris_v2_doget_resource_context_test");
+    auto reader = create_flight_reader(&profile, remote_doris_range(server), slots,
+                                       std::make_shared<io::IOContext>());
+    ASSERT_TRUE(reader->init(state.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+
+    auto open_result =
+            std::async(std::launch::async, [&] { return reader->open(std::move(request)); });
+    ASSERT_TRUE(server.wait_until_entered(std::chrono::seconds(2)));
+    state->cancel(Status::Cancelled("cancel blocked Flight DoGet"));
+    ASSERT_EQ(open_result.wait_for(std::chrono::milliseconds(750)), std::future_status::ready);
+    EXPECT_FALSE(open_result.get().ok());
+
+    reader.reset();
+    state.reset();
+    // A detached DoGet still owns query-scoped Arrow objects, so it must retain the matching
+    // resource context until those objects are released on the worker.
+    EXPECT_FALSE(resource_ctx.expired());
+    server.release();
+    for (int retries = 0; retries < 100 && !resource_ctx.expired(); ++retries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_TRUE(resource_ctx.expired());
+}
+
 TEST(RemoteDorisV2ReaderTest, ScannerStopInterruptsBlockedFlightNext) {
     BlockingFlightServer server(BlockingFlightServer::Mode::NEXT);
     const auto server_status = server.start();
@@ -659,7 +696,7 @@ TEST(RemoteDorisV2ReaderTest, ScannerStopInterruptsBlockedFlightNext) {
     auto next_result =
             std::async(std::launch::async, [&] { return reader->get_block(&block, &rows, &eof); });
     ASSERT_TRUE(server.wait_until_entered(std::chrono::seconds(2)));
-    io_ctx->request_stop();
+    io_ctx->should_stop = true;
     const bool interrupted =
             next_result.wait_for(std::chrono::milliseconds(750)) == std::future_status::ready;
     if (!interrupted) {
@@ -669,30 +706,6 @@ TEST(RemoteDorisV2ReaderTest, ScannerStopInterruptsBlockedFlightNext) {
     const auto next_status = next_result.get();
     EXPECT_TRUE(!next_status.ok() || (rows == 0 && eof));
     server.release();
-}
-
-TEST(RemoteDorisV2ReaderTest, ProductionCancellationWatcherClosesPromptly) {
-    BlockingFlightServer server(BlockingFlightServer::Mode::NEXT);
-    const auto server_status = server.start();
-    ASSERT_TRUE(server_status.ok()) << server_status;
-    ObjectPool pool;
-    DescriptorTbl* desc_tbl = nullptr;
-    const auto slots = remote_slots(&pool, &desc_tbl);
-    RuntimeState state;
-    RuntimeProfile profile("remote_doris_v2_prompt_close_test");
-    auto reader = create_flight_reader(&profile, remote_doris_range(server), slots,
-                                       std::make_shared<io::IOContext>());
-    ASSERT_TRUE(reader->init(&state).ok());
-    auto request = std::make_shared<FileScanRequest>();
-    FileScanRequestBuilder builder(request.get());
-    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
-    ASSERT_TRUE(reader->open(std::move(request)).ok());
-
-    const auto start = std::chrono::steady_clock::now();
-    ASSERT_TRUE(reader->close().ok());
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-    // Closing a split must notify the stop-aware watcher rather than waiting for a polling sleep.
-    EXPECT_LT(elapsed, std::chrono::milliseconds(100));
 }
 
 TEST(RemoteDorisV2ReaderTest, CancellationStopsBeforeFlightNext) {

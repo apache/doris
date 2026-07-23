@@ -20,7 +20,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <set>
-#include <stop_token>
 #include <string>
 
 namespace doris {
@@ -187,13 +186,6 @@ struct FileCacheStatistics {
 };
 
 struct IOContext {
-    void request_stop() {
-        should_stop = true;
-        _stop_source.request_stop();
-    }
-
-    std::stop_token stop_token() const { return _stop_source.get_token(); }
-
     ReaderType reader_type = ReaderType::UNKNOWN;
     // FIXME(plat1ko): Seems `is_disposable` can be inferred from the `reader_type`?
     bool is_disposable = false;
@@ -221,8 +213,6 @@ struct IOContext {
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
-    // Copies intentionally share this state so a derived page context observes scanner shutdown.
-    std::stop_source _stop_source {};
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
 };
 

@@ -678,4 +678,44 @@ TEST(ParquetSchemaTest, NativeSetMapKeyValueWrapperRemainsSingleListElement) {
     EXPECT_EQ(remove_nullable(column->children[0].data_type)->get_primitive_type(), TYPE_INT);
 }
 
+TEST(ParquetSchemaTest, NativeListPreservesLegacyMapKeyValueElement) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement list;
+    list.__set_name("entries");
+    list.__set_num_children(1);
+    list.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    list.__set_converted_type(tparquet::ConvertedType::LIST);
+    tparquet::SchemaElement element;
+    element.__set_name("element");
+    element.__set_num_children(1);
+    element.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    element.__set_converted_type(tparquet::ConvertedType::MAP_KEY_VALUE);
+    tparquet::SchemaElement map;
+    map.__set_name("map");
+    map.__set_num_children(2);
+    map.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement key;
+    key.__set_name("key");
+    key.__set_type(tparquet::Type::INT32);
+    key.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    tparquet::SchemaElement value;
+    value.__set_name("value");
+    value.__set_type(tparquet::Type::BYTE_ARRAY);
+    value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, list, element, map, key, value}).ok());
+    const auto* column = descriptor.get_column(0);
+    EXPECT_EQ(remove_nullable(column->data_type)->get_primitive_type(), TYPE_ARRAY);
+    ASSERT_EQ(column->children.size(), 1);
+    EXPECT_EQ(remove_nullable(column->children[0].data_type)->get_primitive_type(), TYPE_MAP);
+    ASSERT_EQ(column->children[0].children.size(), 2);
+    EXPECT_EQ(remove_nullable(column->children[0].children[0].data_type)->get_primitive_type(),
+              TYPE_INT);
+    EXPECT_EQ(remove_nullable(column->children[0].children[1].data_type)->get_primitive_type(),
+              TYPE_STRING);
+}
+
 } // namespace doris::format::parquet
