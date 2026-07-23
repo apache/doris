@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -40,6 +41,8 @@ import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -50,6 +53,7 @@ import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -86,6 +90,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
@@ -117,6 +122,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -162,6 +168,8 @@ public class BindSink implements AnalysisRuleFactory {
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
+                RuleType.BINDING_INSERT_PAIMON_TABLE.build(
+                    unboundPaimonTableSink().thenApply(this::bindPaimonTableSink)),
                 RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
                     unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
                 RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
@@ -304,6 +312,11 @@ public class BindSink implements AnalysisRuleFactory {
 
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
                                                          Map<String, NamedExpression> columnToOutput) {
+        return getOutputProjectByCoercion(tableSchema, child, columnToOutput, Collections.emptyMap());
+    }
+
+    private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
+            Map<String, NamedExpression> columnToOutput, Map<String, Type> targetColumnTypes) {
         List<NamedExpression> fullOutputExprs = Utils.fastToImmutableList(columnToOutput.values());
         if (child instanceof LogicalOneRowRelation) {
             // remove default value slot in one row relation
@@ -331,7 +344,8 @@ public class BindSink implements AnalysisRuleFactory {
             }
             expr = expr.toSlot();
             DataType inputType = expr.getDataType();
-            DataType targetType = DataType.fromCatalogType(tableSchema.get(i).getType());
+            Type targetCatalogType = targetColumnTypes.getOrDefault(col.getName(), col.getType());
+            DataType targetType = DataType.fromCatalogType(targetCatalogType);
             Expression castExpr = expr;
             // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
             if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
@@ -859,6 +873,89 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
+    private Plan bindPaimonTableSink(MatchingContext<UnboundPaimonTableSink<Plan>> ctx) {
+        UnboundPaimonTableSink<?> sink = ctx.root;
+        Pair<PaimonExternalDatabase, PaimonExternalTable> pair = bind(ctx.cascadesContext, sink);
+        PaimonExternalDatabase database = pair.first;
+        PaimonExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        Map<String, Expression> staticPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        staticPartitions.putAll(sink.getStaticPartitionKeyValues());
+        Set<String> staticPartitionColNames = staticPartitions.keySet();
+        if (!staticPartitionColNames.isEmpty()) {
+            Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            partitionColumnNames.addAll(table.getPartitionColumnNames(Optional.empty()));
+            for (String columnName : staticPartitionColNames) {
+                if (!partitionColumnNames.contains(columnName)) {
+                    throw new AnalysisException(String.format(
+                            "Column '%s' is not a partition column of Paimon table '%s'",
+                            columnName, table.getName()));
+                }
+                Expression partitionValue = staticPartitions.get(columnName);
+                if (!(partitionValue instanceof Literal)) {
+                    throw new AnalysisException(String.format(
+                            "Partition value for column '%s' must be a literal, but got: %s",
+                            columnName, partitionValue));
+                }
+            }
+        }
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream()
+                    .filter(Column::isVisible)
+                    .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                    .collect(ImmutableList.toImmutableList());
+        } else {
+            Set<String> specifiedColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            for (String columnName : sink.getColNames()) {
+                if (!specifiedColumnNames.add(columnName)) {
+                    throw new AnalysisException(
+                            "Duplicate column '" + columnName + "' in Paimon insert column list");
+                }
+            }
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                if (staticPartitionColNames.contains(cn)) {
+                    throw new AnalysisException(String.format(
+                            "Static partition column '%s' must not appear in the insert column list", cn));
+                }
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format(
+                            "column %s is not found in table %s", cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+
+        if (bindColumns.size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getJdbcColumnToOutput(bindColumns, child);
+        List<Column> writeColumns = new ArrayList<>(bindColumns);
+        if (!staticPartitionColNames.isEmpty()) {
+            for (Column column : table.getBaseSchema(true)) {
+                Expression staticValue = staticPartitions.get(column.getName());
+                if (staticValue != null) {
+                    Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                            staticValue, DataType.fromCatalogType(column.getType()));
+                    columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                    writeColumns.add(column);
+                }
+            }
+        }
+
+        LogicalPaimonTableSink<?> boundSink = new LogicalPaimonTableSink<>(database, table, writeColumns,
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
+        LogicalProject<?> outputProject = getOutputProjectByCoercion(
+                writeColumns, child, columnToOutput, table.getWriteColumnTypes());
+        return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
     private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
         UnboundMaxComputeTableSink<?> sink = ctx.root;
         Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -1066,6 +1163,18 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an iceberg table");
+    }
+
+    private Pair<PaimonExternalDatabase, PaimonExternalTable> bind(CascadesContext cascadesContext,
+            UnboundPaimonTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
+        if (pair.second instanceof PaimonExternalTable) {
+            return Pair.of(((PaimonExternalDatabase) pair.first), (PaimonExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not a paimon table");
     }
 
     private Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> bind(CascadesContext cascadesContext,
