@@ -57,7 +57,14 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
         if (expr.getType().isTimeStampTz()) {
             try {
                 ZoneId dorisZone = DateUtils.getTimeZone();
-                String offset = dorisZone.getRules().getOffset(java.time.Instant.now()).toString();
+                // Compute offset from the target instant (the literal's UTC value),
+                // not Instant.now() which may be in a different DST period.
+                java.time.Instant targetInstant = java.time.LocalDateTime.of(
+                        (int) expr.getYear(), (int) expr.getMonth(), (int) expr.getDay(),
+                        (int) expr.getHour(), (int) expr.getMinute(), (int) expr.getSecond(),
+                        (int) expr.getMicrosecond() * 1000)
+                        .atZone(java.time.ZoneOffset.UTC).toInstant();
+                String offset = dorisZone.getRules().getOffset(targetInstant).toString();
                 DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
                         ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
                 value = dateLiteral.getStringValue() + offset;
