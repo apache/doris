@@ -18,14 +18,18 @@
 package org.apache.doris.connector.fake;
 
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.RewriteCapableTransaction;
+import org.apache.doris.connector.api.handle.WriteBlockAllocatingConnectorTransaction;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies the default (read-only) behavior of the write-SPI surface added to
- * {@link ConnectorTransaction} in W-phase W1. A connector that does not
- * participate in writes leaves all four methods at their defaults.
+ * Verifies the default (read-only) behavior of the write-SPI surface on
+ * {@link ConnectorTransaction}. A connector that does not participate in writes leaves the generic
+ * defaults (addCommitData no-op, getUpdateCnt 0, profileLabel EXTERNAL) and carries NONE of the narrow
+ * source-specific capabilities ({@link WriteBlockAllocatingConnectorTransaction} /
+ * {@link RewriteCapableTransaction}).
  */
 public class ConnectorTransactionDefaultsTest {
 
@@ -56,15 +60,13 @@ public class ConnectorTransactionDefaultsTest {
     }
 
     @Test
-    void supportsWriteBlockAllocationDefaultsFalse() {
-        Assertions.assertFalse(new ReadOnlyTransaction().supportsWriteBlockAllocation());
-    }
-
-    @Test
-    void allocateWriteBlockRangeDefaultThrows() {
+    void readOnlyTransactionCarriesNoSourceSpecificCapability() {
+        // Source-specific capabilities are narrow opt-in interfaces, NOT default methods on the shared
+        // contract, so a read-only connector transaction is neither of them (the engine's instanceof gates
+        // reject it instead of it inheriting a throwing default).
         ConnectorTransaction txn = new ReadOnlyTransaction();
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> txn.allocateWriteBlockRange("session", 10L));
+        Assertions.assertFalse(txn instanceof WriteBlockAllocatingConnectorTransaction);
+        Assertions.assertFalse(txn instanceof RewriteCapableTransaction);
     }
 
     @Test

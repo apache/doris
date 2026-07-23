@@ -22,14 +22,21 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Bucket / distribution specification carried by
- * {@link ConnectorCreateTableRequest}.
+ * TABLE-LEVEL hash/random distribution ({@code DISTRIBUTE BY ...}) carried by
+ * {@link ConnectorCreateTableRequest}; {@code null} when the user wrote no {@code DISTRIBUTE BY}.
  *
- * <p>{@code algorithm} is a connector-known string. Common values:</p>
+ * <p>This is NOT the carrier for iceberg's per-column {@code bucket(num, column)} transform: that is a
+ * partition-spec transform written inside {@code PARTITIONED BY} and resolved by
+ * {@code IcebergSchemaBuilder.buildPartitionSpec}, never routed through this spec. Iceberg has no
+ * whole-table hash/random distribution and rejects {@code DISTRIBUTE BY} outright
+ * ({@code IcebergConnectorMetadata.rejectDistribution}). Today only the hive connector consumes this spec.</p>
+ *
+ * <p>{@code algorithm} is a connector-known string, produced by
+ * {@code CreateTableInfoToConnectorRequestConverter}:</p>
  * <ul>
- *   <li>{@code "hive_hash"} — Hive-compatible 32-bit hash.</li>
- *   <li>{@code "iceberg_bucket"} — Iceberg bucket transform.</li>
- *   <li>{@code "doris_default"} — Doris CRC32 distribution.</li>
+ *   <li>{@code "doris_default"} — hash distribution ({@code DISTRIBUTE BY HASH}).</li>
+ *   <li>{@code "doris_random"} — random distribution ({@code DISTRIBUTE BY RANDOM}); hive rejects it
+ *       (hive external tables support hash bucketing only).</li>
  * </ul>
  */
 public final class ConnectorBucketSpec {

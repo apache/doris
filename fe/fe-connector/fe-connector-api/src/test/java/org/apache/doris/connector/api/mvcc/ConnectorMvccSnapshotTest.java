@@ -71,4 +71,50 @@ public class ConnectorMvccSnapshotTest {
         Assertions.assertEquals("11", snapshot.getProperties().get("scan.snapshot-id"));
         Assertions.assertEquals(2L, snapshot.getSchemaId());
     }
+
+    @Test
+    public void equalsAndHashCodeCoverAllSixFields() {
+        // WHY: ConnectorMvccSnapshot joins its value-object family (ConnectorMvccPartition,
+        // ConnectorTimeTravelSpec, ConnectorTableFreshness, ...) which all define value equality.
+        // Every one of the 6 fields must participate, so two snapshots differing in ANY single
+        // field compare unequal. MUTATION: dropping a field from equals()/hashCode() makes the
+        // matching assertNotEquals below fail (the differing pair would wrongly compare equal).
+        ConnectorMvccSnapshot base = fullSnapshot();
+        ConnectorMvccSnapshot same = fullSnapshot();
+        Assertions.assertEquals(base, same);
+        Assertions.assertEquals(base.hashCode(), same.hashCode());
+
+        Assertions.assertNotEquals(base, fullSnapshotBuilder().snapshotId(999L).build());
+        Assertions.assertNotEquals(base, fullSnapshotBuilder().timestampMillis(999L).build());
+        Assertions.assertNotEquals(base, fullSnapshotBuilder().schemaId(999L).build());
+        Assertions.assertNotEquals(base, fullSnapshotBuilder().lastModifiedFreshness(true).build());
+        Assertions.assertNotEquals(base, fullSnapshotBuilder().description("other").build());
+        Assertions.assertNotEquals(base, fullSnapshotBuilder().property("k2", "v2").build());
+    }
+
+    @Test
+    public void toStringExposesEveryField() {
+        // WHY: toString feeds EXPLAIN/log diagnostics; a field silently omitted hides drift.
+        String s = fullSnapshot().toString();
+        Assertions.assertTrue(s.contains("snapshotId=11"), s);
+        Assertions.assertTrue(s.contains("timestampMillis=1700000000000"), s);
+        Assertions.assertTrue(s.contains("schemaId=2"), s);
+        Assertions.assertTrue(s.contains("lastModifiedFreshness=false"), s);
+        Assertions.assertTrue(s.contains("description='d'"), s);
+        Assertions.assertTrue(s.contains("k=v"), s);
+    }
+
+    private static ConnectorMvccSnapshot.Builder fullSnapshotBuilder() {
+        // lastModifiedFreshness defaults false; each call returns a fresh, fully-populated builder.
+        return ConnectorMvccSnapshot.builder()
+                .snapshotId(11L)
+                .timestampMillis(1700000000000L)
+                .description("d")
+                .schemaId(2L)
+                .property("k", "v");
+    }
+
+    private static ConnectorMvccSnapshot fullSnapshot() {
+        return fullSnapshotBuilder().build();
+    }
 }

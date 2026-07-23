@@ -976,6 +976,48 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Table table = resolveTable(paimonHandle);
         RowType rowType = table.rowType();
         List<DataField> fields = rowType.getFields();
+        return buildColumnHandles(fields);
+    }
+
+    /**
+     * Returns column handles AT {@code snapshot.getSchemaId()} (the pinned schema version, for
+     * time-travel reads under schema evolution). Falls back to the LATEST columns
+     * ({@link #getColumnHandles(ConnectorSession, ConnectorTableHandle)}) when there is no pinned
+     * schema id (null snapshot or {@code schemaId < 0}).
+     *
+     * <p>Keys the handles by the PINNED names via the SAME memoized {@link PaimonCatalogOps#schemaAt}
+     * read the at-snapshot {@link #getTableSchema(ConnectorSession, ConnectorTableHandle,
+     * ConnectorMvccSnapshot)} uses, so the handle names equal the pinned Doris schema the query slots
+     * were bound to. Without this, a time-travel read across a RENAME would key the handles by the
+     * latest names, the renamed column's pinned-name slot would miss the map and be silently dropped,
+     * and the paimon field-id dict would omit that BE scan slot -&gt; BE StructNode out_of_range crash.</p>
+     */
+    @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null || snapshot.getSchemaId() < 0) {
+            return getColumnHandles(session, handle);
+        }
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        long schemaId = snapshot.getSchemaId();
+        Table table = resolveTable(paimonHandle);
+        PaimonCatalogOps.PaimonSchemaSnapshot schema =
+                schemaAtMemo.getOrLoad(paimonHandle, schemaId, () -> catalogOps.schemaAt(table, schemaId));
+        return buildColumnHandles(schema.fields());
+    }
+
+    /**
+     * Whether {@link #getColumnHandles(ConnectorSession, ConnectorTableHandle, ConnectorMvccSnapshot)}
+     * resolves handles at the pinned schema (it does &mdash; via {@code schemaAt}). Enables the generic
+     * node's fail-loud check that no pinned-schema column is silently dropped.
+     */
+    @Override
+    public boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return true;
+    }
+
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(List<DataField> fields) {
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (int i = 0; i < fields.size(); i++) {
             String name = fields.get(i).name();
@@ -1148,7 +1190,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Rendered spec fed to PartitionPathUtils.generatePartitionPath so the partition NAME escapes
             // path-special characters (/ = [ ] * ...) exactly like the Paimon SDK. Without escaping, two
             // distinct specs whose values contain '/' or '=' would concat to the same Hive-style name and
-            // collide (one partition item silently lost). Parity with fe-core #65904.
+            // collide (one partition item silently lost). Parity with fe-core #65904. This same rendered map
+            // is also handed to ConnectorPartitionInfo as the partition VALUE map (below), so the active
+            // partition_values() TVF feeder (PluginDrivenExternalTable.getNameToPartitionValues) reads the
+            // Hive-canonical rendered form (DATE formatted, genuine-null → HIVE_DEFAULT_PARTITION) instead of
+            // paimon's raw spec (DATE=epoch-day, null=__DEFAULT_PARTITION__), which would fail the TVF
+            // (convertStringToDateV2 throws) and mis-render null. Mirrors hive/iceberg, whose value maps
+            // already hold decoded canonical strings.
             LinkedHashMap<String, String> renderedSpec = new LinkedHashMap<>();
             for (String partitionColumnName : partitionKeys) {
                 String value = spec.get(partitionColumnName);
@@ -1181,10 +1229,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             if (!seenPartitionNames.add(partitionName)) {
                 throw new IllegalStateException("Duplicate Paimon partition name: " + partitionName);
             }
-            // partitionValues = RAW spec (un-rendered): downstream indexes by raw remote keys.
+            // partitionValues = renderedSpec (rendered/normalized), keyed by the remote column name:
+            // downstream indexes by raw remote keys but reads the Hive-canonical rendered value (see the
+            // renderedSpec comment above for why the raw spec would break the partition_values() TVF).
             result.add(new ConnectorPartitionInfo(
                     partitionName,
-                    spec,
+                    renderedSpec,
                     Collections.emptyMap(),
                     partition.recordCount(),
                     partition.fileSizeInBytes(),
@@ -1222,6 +1272,39 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableStatistics(rowCount, -1));
         }
         return Optional.empty();   // 0 rows -> UNKNOWN, legacy parity
+    }
+
+    /**
+     * Row count AS OF the pinned snapshot, for a time-travel read. Applies the snapshot to the handle (the
+     * SAME {@link #applySnapshot} the scan path uses) and copies its scan options onto the resolved table,
+     * so the summed split row counts reflect the pinned snapshot / branch / tag &mdash; matching the rows
+     * the scan reads instead of the latest count. Any failure degrades to empty, and the caller then falls
+     * back to the latest cached estimate (estimate-only, never a correctness concern).
+     */
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null) {
+            return getTableStatistics(session, handle);
+        }
+        long rowCount;
+        try {
+            PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, handle, snapshot);
+            Table table = resolveTable(pinned);
+            Map<String, String> scanOptions = pinned.getScanOptions();
+            if (scanOptions != null && !scanOptions.isEmpty()) {
+                table = table.copy(scanOptions);
+            }
+            rowCount = catalogOps.rowCount(table);
+        } catch (Exception e) {
+            LOG.warn("Failed to compute Paimon row count at snapshot {} for {}",
+                    snapshot.getSnapshotId(), handle, e);
+            return Optional.empty();
+        }
+        if (rowCount > 0) {
+            return Optional.of(new ConnectorTableStatistics(rowCount, -1));
+        }
+        return Optional.empty();
     }
 
     /**

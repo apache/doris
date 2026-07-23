@@ -49,8 +49,8 @@ import java.util.Optional;
  * delegation is a later substep. The selection MUST happen at provider-acquisition time, so a wrong route here
  * would hand iceberg splits to the hive scanner (or vice versa).</p>
  *
- * <p>Dormant until hms enters {@code SPI_READY_TYPES}: no production path selects a scan provider for this
- * connector yet, so these assertions are a guard, not a live-path test.</p>
+ * <p>Live since the hms flip: scan-provider selection runs for a flipped hms catalog; these assertions are a
+ * Rule-9 guard on the per-handle divert contract.</p>
  */
 public class HiveConnectorScanProviderDivertTest {
 

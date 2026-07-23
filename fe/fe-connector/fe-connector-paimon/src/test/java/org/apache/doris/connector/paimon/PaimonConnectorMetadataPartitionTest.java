@@ -112,11 +112,48 @@ public class PaimonConnectorMetadataPartitionTest {
         // MUTATION: hardcoding UNKNOWN / swapping the two -> red.
         Assertions.assertEquals(42L, info.getRowCount());
         Assertions.assertEquals(1024L, info.getSizeBytes());
-        // WHY: partitionValues must be the RAW spec (epoch-day int, NOT date-rendered) because
-        // downstream indexes partitions by raw remote keys. MUTATION: storing the rendered name
-        // values (e.g. "2024-01-01") -> red.
-        Assertions.assertEquals(String.valueOf(DT_EPOCH_DAY), info.getPartitionValues().get("dt"));
+        // WHY: partitionValues carries the RENDERED value keyed by the raw remote name (dt -> the formatted
+        // date, NOT the epoch-day int). The active partition_values() TVF feeder reads this map by remote name
+        // and parses DATE via convertStringToDateV2, which throws on the raw epoch-day "19723" and fails the
+        // whole query; the rendered "2024-01-01" is what it expects. MUTATION: passing the raw spec
+        // (epoch-day) -> TVF-facing value diverges from the formatted date -> red.
+        Assertions.assertEquals(DateTimeUtils.formatDate(DT_EPOCH_DAY), info.getPartitionValues().get("dt"));
         Assertions.assertEquals("cn", info.getPartitionValues().get("region"));
+    }
+
+    @Test
+    public void partitionValueMapCarriesRenderedValuesForTvf() {
+        // WHY: partition_values() reads ConnectorPartitionInfo.getPartitionValues() BY REMOTE NAME and feeds
+        // it to a consumer that parses DATE via convertStringToDateV2 and maps HIVE_DEFAULT_PARTITION -> SQL
+        // NULL. So the value MAP (not just orderedValues) must carry the Hive-canonical rendered form: a
+        // formatted date (never the raw epoch-day, which throws and fails the whole TVF), and
+        // HIVE_DEFAULT_PARTITION for a genuine null (never paimon's raw "__DEFAULT_PARTITION__", which the
+        // consumer would render as a literal string instead of SQL NULL). This pins the TVF contract that
+        // passing the raw spec verbatim previously violated.
+        // MUTATION: passing `spec` as the ConnectorPartitionInfo value map -> dt="19723" and null
+        // ="__DEFAULT_PARTITION__" -> red.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", dtRegionRowType(), Arrays.asList("dt", "region"), Collections.emptyList());
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "true"));
+        ops.table = table;
+        Map<String, String> dateSpec = new LinkedHashMap<>();
+        dateSpec.put("dt", String.valueOf(DT_EPOCH_DAY));
+        dateSpec.put("region", "cn");
+        Map<String, String> nullDateSpec = new LinkedHashMap<>();
+        // A genuine-NULL DATE partition: paimon stores its default-name sentinel, handled before the DATE
+        // branch so it never hits Integer.parseInt("__DEFAULT_PARTITION__").
+        nullDateSpec.put("dt", "__DEFAULT_PARTITION__");
+        nullDateSpec.put("region", "cn");
+        ops.partitions = Arrays.asList(partition(dateSpec, 1L, 1L, 1L), partition(nullDateSpec, 1L, 1L, 1L));
+
+        List<ConnectorPartitionInfo> infos = metadataWith(ops)
+                .listPartitions(null, dtRegionHandle(table), Optional.empty());
+
+        Assertions.assertEquals(DateTimeUtils.formatDate(DT_EPOCH_DAY),
+                infos.get(0).getPartitionValues().get("dt"));
+        Assertions.assertEquals(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION,
+                infos.get(1).getPartitionValues().get("dt"));
     }
 
     @Test
@@ -172,7 +209,7 @@ public class PaimonConnectorMetadataPartitionTest {
     }
 
     @Test
-    public void listPartitionValuesUsesRequestedColumnOrderWithRawValues() {
+    public void listPartitionValuesUsesRequestedColumnOrderWithRenderedValues() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(
                 "t1", dtRegionRowType(), Arrays.asList("dt", "region"), Collections.emptyList());
@@ -188,12 +225,13 @@ public class PaimonConnectorMetadataPartitionTest {
                 .listPartitionValues(null, dtRegionHandle(table), Arrays.asList("region", "dt"));
 
         // WHY: the partition_values() TVF contract requires the inner list order to match the
-        // REQUESTED partitionColumns order (region, dt), NOT Paimon's native spec order (dt,
-        // region), and to carry RAW values (the epoch-day int for dt, never the rendered date).
-        // MUTATION: iterating spec.entrySet()/keySet() instead of partitionColumns -> [19723, cn]
-        // instead of [cn, 19723] -> red; rendering dt -> "2024-01-01" instead of raw -> red.
+        // REQUESTED partitionColumns order (region, dt), NOT Paimon's native spec order (dt, region); and
+        // each value is the Hive-canonical RENDERED form (dt -> the formatted date, never the raw epoch-day
+        // int) so the TVF consumer can parse it (convertStringToDateV2 throws on "19723"). MUTATION:
+        // iterating spec.entrySet()/keySet() instead of partitionColumns -> ["2024-01-01", "cn"] instead of
+        // ["cn", "2024-01-01"] -> red; emitting the raw epoch-day "19723" instead of the rendered date -> red.
         Assertions.assertEquals(
-                Collections.singletonList(Arrays.asList("cn", String.valueOf(DT_EPOCH_DAY))),
+                Collections.singletonList(Arrays.asList("cn", DateTimeUtils.formatDate(DT_EPOCH_DAY))),
                 values);
     }
 

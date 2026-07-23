@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.RewriteCapableTransaction;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
@@ -134,6 +135,15 @@ public class ConnectorRewriteDriver {
         } catch (DorisConnectorException e) {
             throw new UserException(e.getMessage(), e);
         }
+        // rewrite_data_files is a rewrite-capable-connector-only procedure; the transaction MUST carry the
+        // narrow RewriteCapableTransaction capability. Fail loud with a type mismatch here rather than
+        // discovering it as a runtime UnsupportedOperationException mid-rewrite (only iceberg qualifies today).
+        if (!(connectorTx instanceof RewriteCapableTransaction)) {
+            txnManager.rollback(txnId);
+            throw new UserException("Connector transaction does not support rewrite_data_files: "
+                    + connectorTx.getClass().getSimpleName());
+        }
+        RewriteCapableTransaction rewriteTx = (RewriteCapableTransaction) connectorTx;
 
         try {
             // STEP 2: run one INSERT-SELECT per group concurrently, all sharing the transaction.
@@ -148,7 +158,7 @@ public class ConnectorRewriteDriver {
             // one union scan is equivalent; the connector's registration accumulates and dedups by path, and the
             // planner emits path-DISJOINT groups (iceberg: planFiles() yields one task per data file, bin-packed
             // into disjoint groups), so the union reconstructs exactly the per-group calls' accumulated file set.
-            connectorTx.registerRewriteSourceFiles(unionSourceFilePaths(groups));
+            rewriteTx.registerRewriteSourceFiles(unionSourceFilePaths(groups));
         } catch (Exception e) {
             txnManager.rollback(txnId);
             if (e instanceof UserException) {
@@ -164,7 +174,7 @@ public class ConnectorRewriteDriver {
         // STEP 5: post-commit statistics. The added-files count is only valid after commit (it is
         // materialized from the BE commit fragments during commit); the other three are summed from the
         // planning groups (the connector exposes them on each ConnectorRewriteGroup).
-        int addedDataFilesCount = connectorTx.getRewriteAddedDataFilesCount();
+        int addedDataFilesCount = rewriteTx.getRewriteAddedDataFilesCount();
         int rewrittenDataFilesCount = groups.stream().mapToInt(ConnectorRewriteGroup::getDataFileCount).sum();
         long rewrittenBytesCount = groups.stream().mapToLong(ConnectorRewriteGroup::getTotalSizeBytes).sum();
         int removedDeleteFilesCount = groups.stream().mapToInt(ConnectorRewriteGroup::getDeleteFileCount).sum();

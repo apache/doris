@@ -44,8 +44,8 @@ import java.util.Map;
  * write delegation is a later substep. The foreign handle is passed through UNMODIFIED (a rewrap would poison the
  * downstream iceberg cast).</p>
  *
- * <p>Dormant until hms enters {@code SPI_READY_TYPES}: no production path selects a write provider for this
- * connector yet, so these assertions are a guard, not a live-path test.</p>
+ * <p>Live since the hms flip: write-provider selection runs for a flipped hms catalog; these assertions are a
+ * Rule-9 guard on the per-handle divert contract.</p>
  */
 public class HiveConnectorWriteProviderDivertTest {
 

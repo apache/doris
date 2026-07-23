@@ -136,6 +136,43 @@ public interface ConnectorTableOps {
                 "getColumnHandles not implemented");
     }
 
+    /**
+     * Returns a name-to-handle map for all columns AT {@code snapshot.getSchemaId()} &mdash; the
+     * columns as of the pinned snapshot, for time-travel reads under schema evolution.
+     *
+     * <p>The default ignores the snapshot and returns the latest columns via
+     * {@link #getColumnHandles(ConnectorSession, ConnectorTableHandle)}. WHY this exists: the generic
+     * scan node builds column handles BEFORE it pins the snapshot, so without a snapshot-aware overload
+     * it can only key handles by the LATEST names. A time-travel query binds its slots to the PINNED
+     * (old) names, so after a RENAME the renamed column's slot misses the latest-keyed map and is
+     * silently dropped &mdash; crashing BE with a field-id dictionary miss on connectors whose native
+     * projection is name/ordinal-driven (paimon). A connector that supports schema-at-snapshot
+     * overrides this to key handles by the pinned names (mirrors the
+     * {@link #getTableSchema(ConnectorSession, ConnectorTableHandle, ConnectorMvccSnapshot)} split) and
+     * declares {@link #supportsColumnHandleSnapshotPin(ConnectorSession)}.</p>
+     */
+    default Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getColumnHandles(session, handle);
+    }
+
+    /**
+     * Whether {@link #getColumnHandles(ConnectorSession, ConnectorTableHandle, ConnectorMvccSnapshot)}
+     * resolves handles AT the pinned snapshot's schema (i.e. keys them by the pinned names).
+     *
+     * <p>Only a connector that returns {@code true} is subject to the generic node's fail-loud check
+     * that every bound column present in the pinned schema has a handle: for such a connector a missing
+     * pinned column is a genuine bug (the connector promised pinned handles but dropped one) and must
+     * fail with a clear error rather than being silently dropped into a BE crash. A connector that
+     * returns {@code false} keeps the legacy latest-keyed handles and recovers from the drop by its own
+     * means (e.g. iceberg rebuilds its field-id dictionary from the full pinned schema), so it is left
+     * on the unchanged silent-skip path.</p>
+     */
+    default boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return false;
+    }
+
     /** Lists all table names within the given database. */
     default List<String> listTableNames(ConnectorSession session,
             String dbName) {

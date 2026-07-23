@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 
 import java.util.Collections;
 import java.util.List;
@@ -33,6 +34,26 @@ public interface ConnectorStatisticsOps {
             ConnectorSession session,
             ConnectorTableHandle handle) {
         return Optional.empty();
+    }
+
+    /**
+     * Returns table statistics AS OF {@code snapshot} &mdash; the row count at the pinned snapshot, for a
+     * time-travel read (FOR VERSION/TIME AS OF, {@code @branch}/{@code @tag}).
+     *
+     * <p>The default ignores the snapshot and returns the latest statistics via
+     * {@link #getTableStatistics(ConnectorSession, ConnectorTableHandle)}. WHY this exists: the table-level
+     * row count feeds the CBO. Without a snapshot dimension the optimizer estimates a time-travel query's
+     * cardinality from the LATEST snapshot while the scan reads the pinned one, skewing join reorder / build
+     * side selection (estimate-only &mdash; results stay correct). A connector that can count at a snapshot
+     * overrides this (mirrors the {@code getTableSchema}/{@code getColumnHandles} snapshot overloads). fe-core
+     * only calls it for a genuine versioned read, so the shared latest-keyed row-count cache is untouched for
+     * plain reads.</p>
+     */
+    default Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getTableStatistics(session, handle);
     }
 
     /**

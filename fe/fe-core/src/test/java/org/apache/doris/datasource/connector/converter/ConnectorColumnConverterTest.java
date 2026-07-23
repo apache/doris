@@ -339,6 +339,26 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void convertStructTypeCarriesFieldNullabilityAndComment() {
+        // WHY: the read direction must mirror toConnectorType — a connector that publishes a nested STRUCT
+        // field's COMMENT and NOT NULL constraint (paimon/iceberg carry them on the ConnectorType) must have
+        // them threaded into the Doris StructField so DESCRIBE / SHOW CREATE TABLE report them. A mutation
+        // reverting convertStructType to the 2-arg StructField(name, type) drops both and flips these asserts.
+        ConnectorType ct = ConnectorType.structOf(
+                Arrays.asList("a", "b"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                Arrays.asList(false, true),
+                Arrays.asList("ca", ""));
+        Type back = ConnectorColumnConverter.convertType(ct);
+        Assertions.assertTrue(back instanceof StructType);
+        StructField a = ((StructType) back).getFields().get(0);
+        StructField b = ((StructType) back).getFields().get(1);
+        Assertions.assertEquals("ca", a.getComment(), "a nested field comment must be threaded back on read");
+        Assertions.assertFalse(a.getContainsNull(), "a NOT NULL nested field must stay NOT NULL on read");
+        Assertions.assertTrue(b.getContainsNull(), "a nullable nested field stays nullable");
+    }
+
+    @Test
     void toConnectorTypeThreadsArrayElementNullability() {
         // Doris ARRAY elements are always nullable (ArrayType.getContainsNull() is hard-coded true), so the
         // threaded value is always true; honoring a NOT NULL element from a non-Doris source happens in the

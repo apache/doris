@@ -257,7 +257,13 @@ public final class ConnectorColumnConverter {
         ArrayList<StructField> fields = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
             String fieldName = i < fieldNames.size() ? fieldNames.get(i) : "col" + i;
-            fields.add(new StructField(fieldName, convertType(children.get(i))));
+            // Thread each nested field's comment and nullability (mirror of toConnectorType, which
+            // carries them onto the ConnectorType) so DESCRIBE / SHOW CREATE TABLE report a nested
+            // STRUCT field's COMMENT and NOT NULL constraint. Connectors that leave these unset
+            // (empty children lists) get null comment / nullable = true, identical to the prior
+            // 2-arg StructField, so this is behavior-preserving for them.
+            fields.add(new StructField(fieldName, convertType(children.get(i)),
+                    ct.getChildComment(i), ct.isChildNullable(i)));
         }
         return new StructType(fields);
     }

@@ -150,7 +150,13 @@ public class CacheAnalyzer {
         public TableIf table;
         public long latestPartitionId;
         public long latestPartitionVersion;
+        // A version/order key: olap partition visible-version time (millis) or an external table's data-version
+        // token (hive/paimon: millis; iceberg: micros). Used as the BE PCache LastVersionTime and to sort/pick
+        // latestTable. NOT a reliable wall clock for external tables, so it is NOT used by the quiet-window gate.
         public long latestPartitionTime;
+        // A genuine wall-clock epoch-millis newest-update time (olap visible-version time / external table's
+        // connector-normalized update millis). Used ONLY by the quiet-window eligibility gate.
+        public long latestPartitionUpdateMillis;
         public long partitionNum;
         public long sumOfPartitionNum;
 
@@ -159,6 +165,7 @@ public class CacheAnalyzer {
             latestPartitionId = 0;
             latestPartitionVersion = 0;
             latestPartitionTime = 0;
+            latestPartitionUpdateMillis = 0;
             partitionNum = 0;
             sumOfPartitionNum = 0;
         }
@@ -249,20 +256,27 @@ public class CacheAnalyzer {
             allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
         }
 
+        // The quiet-window gate must subtract a genuine wall-clock time. latestPartitionTime is only a
+        // version/order key (an external token that is micros for iceberg), so use latestPartitionUpdateMillis
+        // (real epoch millis for every table type) and take the newest across all scanned tables — decoupled
+        // from latestTable, which stays token-sorted for the BE PCache version key.
+        long newestUpdateMillis = 0;
+        for (CacheTable cacheTable : tblTimeList) {
+            newestUpdateMillis = Math.max(newestUpdateMillis, cacheTable.latestPartitionUpdateMillis);
+        }
+
         if (now == 0) {
             now = nowtime();
 
             // the cloud meta service maybe has different time with fe, so we should make sure
-            // now >= latestPartitionTime, and let regression test become stable
-            for (CacheTable cacheTable : tblTimeList) {
-                now = Math.max(now, cacheTable.latestPartitionTime);
-            }
+            // now >= the newest wall-clock update time, and let regression test become stable
+            now = Math.max(now, newestUpdateMillis);
         }
 
         if (enableSqlCache()
-                && (now - latestTable.latestPartitionTime) >= Config.cache_last_version_interval_second * 1000L) {
+                && (now - newestUpdateMillis) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestPartitionTime,
+                LOG.debug("Query cache time :{},{},{}", now, newestUpdateMillis,
                         Config.cache_last_version_interval_second * 1000);
             }
 
@@ -462,6 +476,9 @@ public class CacheAnalyzer {
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
                 cacheTable.latestPartitionVersion = partition.getCachedVisibleVersion();
             }
+            // For olap the version time IS a wall clock, so the gate value tracks the version key.
+            cacheTable.latestPartitionUpdateMillis =
+                    Math.max(cacheTable.latestPartitionUpdateMillis, partition.getVisibleVersionTime());
         }
         return cacheTable;
     }
@@ -485,8 +502,14 @@ public class CacheAnalyzer {
         cacheTable.table = tableIf;
         cacheTable.partitionNum = node.getSelectedPartitionNum();
         // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon: monotonic
-        // snapshot version). Gated to MTMVRelatedTableIf tables by isExternalCacheableScanNode above.
+        // snapshot version). Gated to MTMVRelatedTableIf tables by isExternalCacheableScanNode above. This is
+        // the BE PCache version key; keep it as the raw token (do NOT normalize — iceberg's micros token is the
+        // full-precision staleness key).
         cacheTable.latestPartitionTime = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
+        // The quiet-window gate value: a genuine wall-clock epoch-millis (iceberg normalizes its micros to
+        // millis here; hive/paimon already return millis). Kept separate from the token above so the gate never
+        // subtracts a non-wall-clock value.
+        cacheTable.latestPartitionUpdateMillis = ((MTMVRelatedTableIf) tableIf).getNewestUpdateTimeMillisForCache();
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(

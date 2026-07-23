@@ -49,7 +49,7 @@ import java.util.Map;
  * {@code nameToLastModifiedMillis} as last-modified timestamps. On the connector-supplied range-view path
  * (e.g. iceberg) {@code partitionType} is non-null (RANGE/UNPARTITIONED), {@code nameToLastModifiedMillis}
  * holds the per-partition FRESHNESS values (snapshot ids when {@link #isSnapshotIdFreshness()}), and
- * {@code newestUpdateTimeMillis} carries the table's monotonic dictionary-refresh marker.</p>
+ * {@code newestUpdateMonotonicMarker} carries the table's monotonic dictionary-refresh marker.</p>
  */
 public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
@@ -60,7 +60,8 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
     // Range-view path (connector-supplied); null/false/0 on the legacy path so its behavior is byte-unchanged.
     private final PartitionType partitionType;   // null => legacy LIST/UNPARTITIONED computed from isPartitionInvalid
     private final boolean snapshotIdFreshness;   // true => getPartitionSnapshot wraps a snapshot id, else a timestamp
-    private final long newestUpdateTimeMillis;   // range-view table newest-update-time (dictionary refresh marker)
+    private final long newestUpdateMonotonicMarker;   // range-view table newest-update-time (dictionary refresh marker)
+    private final long newestUpdateWallClockMillis;   // range-view newest-update wall-clock millis (SqlCache gate)
 
     /**
      * @param connectorSnapshot        the scalar snapshot pin (snapshot id used for reads)
@@ -101,7 +102,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
      * @param partitionType            the connector-decided partition type (RANGE / UNPARTITIONED); {@code null}
      *                                 only on the legacy path (then LIST/UNPARTITIONED is computed)
      * @param snapshotIdFreshness      whether {@code nameToFreshnessValue} holds snapshot ids (vs timestamps)
-     * @param newestUpdateTimeMillis   the table's monotonic newest-update-time (dictionary refresh marker)
+     * @param newestUpdateMonotonicMarker   the table's monotonic newest-update-time (dictionary refresh marker)
      */
     public PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot,
             Map<String, PartitionItem> nameToPartitionItem,
@@ -109,7 +110,25 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             SchemaCacheValue pinnedSchema,
             PartitionType partitionType,
             boolean snapshotIdFreshness,
-            long newestUpdateTimeMillis) {
+            long newestUpdateMonotonicMarker) {
+        this(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue, pinnedSchema,
+                partitionType, snapshotIdFreshness, newestUpdateMonotonicMarker, 0L);
+    }
+
+    /**
+     * Range-view constructor that also carries the wall-clock update millis for the SqlCache gate. The
+     * {@code newestUpdateWallClockMillis} is a genuine epoch-millis value (the connector normalizes its unit,
+     * e.g. iceberg micros/1000); it is used ONLY by the cache eligibility quiet-window gate and never for
+     * staleness (that stays the monotonic marker / version token).
+     */
+    public PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot,
+            Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, Long> nameToFreshnessValue,
+            SchemaCacheValue pinnedSchema,
+            PartitionType partitionType,
+            boolean snapshotIdFreshness,
+            long newestUpdateMonotonicMarker,
+            long newestUpdateWallClockMillis) {
         this.connectorSnapshot = connectorSnapshot;
         this.nameToPartitionItem = nameToPartitionItem == null
                 ? Collections.emptyMap()
@@ -120,7 +139,8 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
         this.pinnedSchema = pinnedSchema;
         this.partitionType = partitionType;
         this.snapshotIdFreshness = snapshotIdFreshness;
-        this.newestUpdateTimeMillis = newestUpdateTimeMillis;
+        this.newestUpdateMonotonicMarker = newestUpdateMonotonicMarker;
+        this.newestUpdateWallClockMillis = newestUpdateWallClockMillis;
     }
 
     public ConnectorMvccSnapshot getConnectorSnapshot() {
@@ -167,11 +187,21 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
     }
 
     /**
-     * The table's newest-update-time (epoch millis) on the range-view path — the monotonic marker the
-     * dictionary auto-refresh probe compares. Only meaningful when {@link #getPartitionType()} is non-null.
+     * The table's newest-update monotonic marker on the range-view path — a source-defined-scale,
+     * monotonically non-decreasing change token (NOT epoch millis; e.g. iceberg passes micros through) that
+     * the dictionary auto-refresh probe compares. Only meaningful when {@link #getPartitionType()} is non-null.
      */
-    public long getNewestUpdateTimeMillis() {
-        return newestUpdateTimeMillis;
+    public long getNewestUpdateMonotonicMarker() {
+        return newestUpdateMonotonicMarker;
+    }
+
+    /**
+     * The table's newest-update WALL-CLOCK epoch-millis on the range-view path — used only by the SqlCache
+     * eligibility quiet-window gate, distinct from the monotonic marker used for staleness. {@code 0} outside
+     * the range-view path.
+     */
+    public long getNewestUpdateWallClockMillis() {
+        return newestUpdateWallClockMillis;
     }
 
     /**

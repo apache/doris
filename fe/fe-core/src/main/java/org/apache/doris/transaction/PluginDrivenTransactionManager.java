@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteBlockAllocatingConnectorTransaction;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -65,7 +66,11 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     public long begin(ConnectorTransaction connectorTx) {
         Objects.requireNonNull(connectorTx, "connectorTx");
         long txnId = connectorTx.getTransactionId();
-        PluginDrivenTransaction txn = new PluginDrivenTransaction(txnId, connectorTx);
+        // A write-block-allocating connector (maxcompute) gets the narrow-typed wrapper so the write-block
+        // RPC handler can gate on instanceof; every other connector gets the plain wrapper.
+        PluginDrivenTransaction txn = connectorTx instanceof WriteBlockAllocatingConnectorTransaction
+                ? new WriteBlockAllocatingPluginDrivenTransaction(txnId, connectorTx)
+                : new PluginDrivenTransaction(txnId, connectorTx);
         transactions.put(txnId, txn);
         // Register globally so the BE block-allocation RPC and the commit-data feedback can
         // look the transaction up by id (FrontendServiceImpl.getMaxComputeBlockIdRange ->
@@ -130,9 +135,9 @@ public class PluginDrivenTransactionManager implements TransactionManager {
      * runs after delegation. {@code connectorTx} is null only for the no-arg {@link #begin()}
      * interface-contract path, where this is an inert no-op marker.
      */
-    private static final class PluginDrivenTransaction implements Transaction {
+    private static class PluginDrivenTransaction implements Transaction {
         private final long id;
-        private final ConnectorTransaction connectorTx;
+        protected final ConnectorTransaction connectorTx;
 
         PluginDrivenTransaction(long id, ConnectorTransaction connectorTx) {
             this.id = id;
@@ -172,19 +177,6 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         }
 
         @Override
-        public boolean supportsWriteBlockAllocation() {
-            return connectorTx != null && connectorTx.supportsWriteBlockAllocation();
-        }
-
-        @Override
-        public long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
-            if (connectorTx == null) {
-                throw new UnsupportedOperationException("write block allocation not supported");
-            }
-            return connectorTx.allocateWriteBlockRange(writeSessionId, count);
-        }
-
-        @Override
         public long getUpdateCnt() {
             return connectorTx == null ? 0 : connectorTx.getUpdateCnt();
         }
@@ -195,6 +187,27 @@ public class PluginDrivenTransactionManager implements TransactionManager {
             } catch (Exception e) {
                 LOG.warn("Failed to close ConnectorTransaction {}: {}", id, e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Subclass created only when the wrapped {@code connectorTx} is a
+     * {@link WriteBlockAllocatingConnectorTransaction} (maxcompute). Carrying the write-block capability on a
+     * narrow type — rather than a default-throwing method on {@link Transaction} — lets the write-block RPC
+     * handler ({@code FrontendServiceImpl.getMaxComputeBlockIdRange}) gate on {@code instanceof} instead of a
+     * runtime {@code supportsWriteBlockAllocation()} check.
+     */
+    private static final class WriteBlockAllocatingPluginDrivenTransaction extends PluginDrivenTransaction
+            implements WriteBlockAllocatingTransaction {
+
+        WriteBlockAllocatingPluginDrivenTransaction(long id, ConnectorTransaction connectorTx) {
+            super(id, connectorTx);
+        }
+
+        @Override
+        public long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
+            return ((WriteBlockAllocatingConnectorTransaction) connectorTx)
+                    .allocateWriteBlockRange(writeSessionId, count);
         }
     }
 }

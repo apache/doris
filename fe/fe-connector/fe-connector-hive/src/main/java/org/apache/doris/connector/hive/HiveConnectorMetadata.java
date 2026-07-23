@@ -407,8 +407,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // hive-loader type) and forwards any non-hive handle to whichever sibling OWNS it (3-way ownsHandle
         // dispatch); the foreign handle is NEVER cast here (its concrete type is invisible across the classloader
         // split). Iceberg is checked before hudi, matching the detector's own precedence (a table carrying both
-        // resolves iceberg). Dormant overall until hms enters SPI_READY_TYPES: today getTableHandle is never called
-        // for this connector.
+        // resolves iceberg). Live since the hms flip: getTableHandle is the entry point for every read on a
+        // flipped hms catalog.
         if (tableType == HiveTableType.ICEBERG) {
             return icebergSiblingMetadata(session).getTableHandle(session, dbName, tableName);
         }
@@ -1799,7 +1799,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // embedded iceberg sibling (which implements the real column / branch / tag / partition-field evolution); the
     // foreign handle is NEVER cast. A hive handle reproduces the pre-flip behavior: hive supports none of these
     // through this SPI, so its branch throws the exact SPI-default message it inherited before this override.
-    // Dormant until hms enters SPI_READY_TYPES.
 
     @Override
     public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
@@ -1939,7 +1938,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // Both validators carry a handle and run at analysis time. A foreign (iceberg-on-HMS) handle forwards to the
     // sibling so iceberg's real write-mode / static-partition rejections apply. A hive handle MUST reproduce the
     // permissive SPI default (return silently, NEVER throw) -- a throw here would newly reject legal plain-hive
-    // row-level DML / static-partition INSERTs. Dormant until hms enters SPI_READY_TYPES.
+    // row-level DML / static-partition INSERTs.
 
     @Override
     public void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
@@ -1969,7 +1968,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * PARTITION(names)} exactly as a standalone {@code type=iceberg} catalog does (no heterogeneous-vs-standalone
      * divergence); the forward happens regardless of emptiness (the empty-early-return is hive-only). An empty
      * list returns silently for a hive handle (a plain {@code INSERT ... SELECT} or a static {@code
-     * PARTITION(col='val')} INSERT is legal plain-hive). Dormant until hms enters SPI_READY_TYPES.
+     * PARTITION(col='val')} INSERT is legal plain-hive).
      */
     @Override
     public void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
@@ -1990,7 +1989,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * iceberg one-liner (design D1: {@code planWrite} lives in {@code HiveWritePlanProvider}, the metadata
      * carries only the begin factory). The transaction id is the engine-allocated Doris global id (it is
      * registered in the engine transaction registry and stamped into the sink), so it must come from the
-     * session, not be minted here. Dormant until the P7.4/P7.5 cutover.
+     * session, not be minted here. Live since the hms flip: opened by PluginDrivenInsertExecutor.beginTransaction
+     * for a type=hms INSERT.
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
@@ -2004,7 +2004,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * (a {@code HiveConnectorTransaction} that the hive write plan downcasts). The two write plans downcast to
      * DIFFERENT concrete transaction types, so the selection MUST be symmetric — an always-forward (or
      * always-hive) shortcut breaks the opposite side. The engine passes the resolved write-target handle
-     * (never null). Dormant until hms enters SPI_READY_TYPES.
+     * (never null).
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {

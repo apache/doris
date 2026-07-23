@@ -35,7 +35,7 @@ import java.util.Optional;
 
 /**
  * Tests {@link HiveConnectorMetadata#getColumnStatistics}, the query-planner column-stat fast path ported from
- * legacy {@code HMSExternalTable.getHiveColumnStats} (HMS cutover §4.2a, dormant).
+ * legacy {@code HMSExternalTable.getHiveColumnStats} (HMS cutover §4.2a).
  *
  * <p>WHY: the connector must serve the no-scan HMS column stats as RAW facts (rowCount / ndv / numNulls /
  * avgColLen) and gate exactly as legacy did — a positive {@code numRows} is required as the data-size basis

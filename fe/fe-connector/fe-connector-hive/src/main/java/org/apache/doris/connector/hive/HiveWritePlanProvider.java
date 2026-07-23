@@ -71,9 +71,9 @@ import java.util.UUID;
  * {@link #requiresPartitionHashWrite()} (hash-by-partition, no local sort) matches the legacy
  * {@code PhysicalHiveTableSink}.</p>
  *
- * <p><b>Gate-closed / dormant.</b> Hive is not in {@code SPI_READY_TYPES} until the P7.4/P7.5 cutover, so
- * nothing routes hive writes through this provider yet; {@link #planWrite} requires the executor-bound
- * connector transaction and fails loud if absent.</p>
+ * <p><b>Live since the hms flip.</b> {@code hms} is in {@code SPI_READY_TYPES}, so a type=hms INSERT routes
+ * here via {@code PhysicalPlanTranslator} &rarr; {@code getWritePlanProvider} &rarr; {@link #planWrite};
+ * {@link #planWrite} requires the executor-bound connector transaction and fails loud if absent.</p>
  */
 public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
 

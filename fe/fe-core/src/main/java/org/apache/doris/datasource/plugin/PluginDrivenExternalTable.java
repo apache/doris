@@ -1189,6 +1189,56 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return UNKNOWN_ROW_COUNT;
     }
 
+    @Override
+    public long getRowCount() {
+        // Time-travel row count: the shared cross-statement row-count cache is keyed by table only and
+        // computes at the LATEST snapshot, so a FOR VERSION/TIME AS OF (or @branch/@tag) read would get the
+        // latest cardinality while its scan reads the pinned snapshot -> skewed CBO estimate (estimate-only;
+        // results stay correct). When THIS statement pins a genuine versioned snapshot for this table, compute
+        // the row count directly AT that snapshot, bypassing the latest-keyed shared cache (a historical count
+        // is not worth caching cross-statement). A plain/latest read has no versioned pin and keeps the cached
+        // path unchanged; a call with no statement context (e.g. background stats) also keeps it.
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            Optional<MvccSnapshot> versioned = ctx.getStatementContext().getVersionedSnapshot(this);
+            if (versioned.isPresent() && versioned.get() instanceof PluginDrivenMvccSnapshot) {
+                long rows = fetchRowCountAtSnapshot(
+                        ((PluginDrivenMvccSnapshot) versioned.get()).getConnectorSnapshot());
+                if (rows != UNKNOWN_ROW_COUNT) {
+                    return rows;
+                }
+                // The connector could not count at the snapshot -> fall through to the latest cached estimate.
+            }
+        }
+        return super.getRowCount();
+    }
+
+    /**
+     * Computes the row count AT a pinned snapshot for a time-travel read: mirrors the exact-count branch of
+     * {@link #fetchRowCount()} but threads the snapshot into the 3-arg {@code getTableStatistics}. Runs in the
+     * query thread (not the background cache loader, which has no statement context), so it is deliberately
+     * NOT cached &mdash; the handful of versioned reads per statement is cheap. Returns
+     * {@link #UNKNOWN_ROW_COUNT} when the connector cannot serve an exact count at the snapshot, so the caller
+     * falls back to the latest cached estimate.
+     */
+    private long fetchRowCountAtSnapshot(ConnectorMvccSnapshot snapshot) {
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return UNKNOWN_ROW_COUNT;
+        }
+        Optional<ConnectorTableStatistics> statsOpt =
+                metadata.getTableStatistics(session, handleOpt.get(), snapshot);
+        if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
+            return statsOpt.get().getRowCount();
+        }
+        return UNKNOWN_ROW_COUNT;
+    }
+
     /**
      * Sum of Doris slot sizes over the full schema (or over the non-partition columns when
      * {@code excludePartitionColumns}) — the average uncompressed row width used to turn a connector-reported

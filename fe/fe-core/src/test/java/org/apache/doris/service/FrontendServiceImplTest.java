@@ -63,8 +63,8 @@ import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
-import org.apache.doris.transaction.Transaction;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Sets;
@@ -530,11 +530,10 @@ public class FrontendServiceImplTest {
     public void testGetMaxComputeBlockIdRange() throws Exception {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         long txnId = Env.getCurrentEnv().getNextId();
-        // The block-id RPC consumes the generic Transaction SPI (supportsWriteBlockAllocation /
-        // allocateWriteBlockRange); the live impl is PluginDrivenTransactionManager's connector
-        // transaction. Mock the interface to pin the RPC's allocate-and-return contract.
-        Transaction transaction = Mockito.mock(Transaction.class);
-        Mockito.when(transaction.supportsWriteBlockAllocation()).thenReturn(true);
+        // The block-id RPC gates on the narrow WriteBlockAllocatingTransaction type (instanceof) and then
+        // calls allocateWriteBlockRange; the live impl is PluginDrivenTransactionManager's write-block
+        // wrapper. Mock the narrow interface to pin the RPC's allocate-and-return contract.
+        WriteBlockAllocatingTransaction transaction = Mockito.mock(WriteBlockAllocatingTransaction.class);
         Mockito.when(transaction.allocateWriteBlockRange("session-1", 1L)).thenReturn(0L, 1L);
         Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, transaction);
 

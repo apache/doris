@@ -68,10 +68,11 @@ import java.util.function.Supplier;
  * route by the concrete handle type — a hive handle runs the existing hive logic, a foreign (iceberg) handle is
  * forwarded to the embedded iceberg sibling connector — and NEVER cast the foreign handle.
  *
- * <p>Dormant until hms enters {@code SPI_READY_TYPES}: no production path builds a foreign handle for this
- * metadata yet, so these assertions are a Rule-9 guard that the divert contract (forward every per-handle read +
- * DROP/TRUNCATE, return the sibling's handle UNMODIFIED, fill the iceberg-only silent gaps) is correct BEFORE the
- * flip wires it. The hive-handle byte-parity for these methods is covered by the existing per-method suites.</p>
+ * <p>Live since the hms flip: {@code getTableHandle} builds a foreign (iceberg/hudi) handle for
+ * iceberg-on-HMS / hudi-on-HMS tables, so these assertions are a Rule-9 guard that the divert contract (forward
+ * every per-handle read + DROP/TRUNCATE, return the sibling's handle UNMODIFIED, fill the iceberg-only silent
+ * gaps) stays correct. The hive-handle byte-parity for these methods is covered by the existing per-method
+ * suites.</p>
  */
 public class HiveConnectorMetadataSiblingDelegationTest {
 

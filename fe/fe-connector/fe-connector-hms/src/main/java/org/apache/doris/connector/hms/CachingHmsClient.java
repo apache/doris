@@ -38,8 +38,8 @@ import java.util.function.Function;
  * {@link ThriftHmsClient}) and serves the three scan-hot-path read methods from a bounded, TTL-expiring
  * cache, delegating every other method verbatim.
  *
- * <p><b>Why this exists.</b> Today the hive connector caches nothing — {@code getTable},
- * {@code listPartitionNames} and {@code getPartitions} are fresh Thrift RPCs on every scan. Legacy fe-core
+ * <p><b>Why this exists.</b> Without this decorator the hive connector would cache nothing — {@code getTable},
+ * {@code listPartitionNames} and {@code getPartitions} would be fresh Thrift RPCs on every scan. Legacy fe-core
  * kept these in the engine-side {@code HiveExternalMetaCache}, which stops routing to a hive catalog once
  * it becomes a plugin-driven ({@code SPI_READY}) catalog. This decorator re-homes that caching inside the
  * connector (Trino {@code CachingHiveMetastore} shape), so the connector stays performance-neutral vs
@@ -82,10 +82,10 @@ import java.util.function.Function;
  * cached (the framework treats {@code null} as a miss), and a loader exception ({@link HmsClientException})
  * propagates to the caller and is not cached.</p>
  *
- * <p><b>Dormant.</b> Nothing wraps a client with this decorator yet — {@code HiveConnector} still returns a
- * raw {@code ThriftHmsClient}, and {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog
- * builds a {@code HiveConnector} at all. Wiring the decorator into the client and the freshness probes is a
- * later step; this class is fully unit-testable in isolation now.</p>
+ * <p><b>Live since the hms flip.</b> {@code HiveConnector.createClient} wraps the pooled
+ * {@code ThriftHmsClient} in this decorator (see {@code HiveConnector.wrapWithCache}), so every hmsClient read
+ * in {@code HiveConnectorMetadata} — including the freshness probes — is cache-backed. Fully unit-testable in
+ * isolation.</p>
  */
 public class CachingHmsClient implements HmsClient {
 
