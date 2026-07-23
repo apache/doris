@@ -816,6 +816,43 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testUniqAddKeyColumnRejectedWhenSyncMvExists() throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS test.sc_uniq_sync_mv (\n"
+                + "user_id LARGEINT NOT NULL,\n"
+                + "username VARCHAR(50) NOT NULL,\n"
+                + "city VARCHAR(20),\n"
+                + "age SMALLINT\n"
+                + ")\n"
+                + "UNIQUE KEY(user_id, username)\n"
+                + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true',\n"
+                + "'enable_unique_key_merge_on_write' = 'true');");
+        createMv("create materialized view sync_mv_key_guard as "
+                + "select username as mv_username, user_id as mv_user_id, city as mv_city "
+                + "from test.sc_uniq_sync_mv;");
+
+        expectException("alter table test.sc_uniq_sync_mv add column new_key int key default '0'",
+                "Can not add key column to merge-on-write table when table has sync materialized view[sync_mv_key_guard]");
+
+        createTable("CREATE TABLE IF NOT EXISTS test.sc_uniq_sync_rollup (\n"
+                + "user_id LARGEINT NOT NULL,\n"
+                + "username VARCHAR(50) NOT NULL,\n"
+                + "city VARCHAR(20),\n"
+                + "age SMALLINT\n"
+                + ")\n"
+                + "UNIQUE KEY(user_id, username)\n"
+                + "DISTRIBUTED BY HASH(user_id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true',\n"
+                + "'enable_unique_key_merge_on_write' = 'true');");
+        alterTable("alter table test.sc_uniq_sync_rollup add rollup rollup_key_guard(username, user_id)",
+                connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2());
+
+        expectException("alter table test.sc_uniq_sync_rollup add column new_key int key default '0'",
+                "Can not add key column to merge-on-write table when table has sync materialized view[rollup_key_guard]");
+    }
+
+    @Test
     public void testDupAddOrDropColumn() throws Exception {
 
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
