@@ -16,6 +16,7 @@
 > **设计已定稿** → [`designs/foundation-design-FINAL.md`](./designs/foundation-design-FINAL.md)（11-agent 只读设计调研 + 3 路对抗评审，全程逐符号核对 HEAD）。
 > ⚠ **D4 重大更正**：原选"提炼进 fe-core"，但设计侦察**推翻前提**——per-statement memo 底座**早已存在于 `fe-connector-api`**（`ConnectorStatementScope.computeIfAbsent` / `ConnectorSession.getStatementScope`；iceberg、hudi 均依赖该层、均**不**依赖 fe-core）。故 helper 只是该层**一个小静态方法**（`ConnectorStatementScopes.resolveInStatement`，统一 key 约定）→ **fe-core 零改动、铁律 A 根本不碰**。owner 2026-07-23 **二次确认接受此复读**、并**删掉"往 fe-core 塞"的备选**（三方评审一致：签字了但可避免的 fe-core 改动正是不必要改动混入主干的方式）。
 > **结论：本轮整套底座（A 通用缓存封装 + B 语句作用域 helper + C 门禁）+ hudi/mc/es 消费 = 全程 0 行 fe-core 改动。** iceberg 本轮就改挂（owner 确认，真正"先建底座"）。
+> ⚠ **D2 后续更正（owner 2026-07-24 拍板）**：D2 里"iceberg **5 个手写缓存**上收为通用封装"这一子项**经动码前重侦察改为延后**——语句作用域 helper 的 iceberg 改挂（B 部分）**已完成**（commit `ae8c925074d`），但 **5 个手写缓存的全量收敛延后**：收敛零功能收益、改动面宽（~19 文件/重写 ~37 测试），框架已被 3 连接器分区视图缓存证明可用、hudi/mc/es 不依赖它（Trino 亦"共享原语+各连接器自持缓存"）。本轮只落地**安全 DRY**：`CacheSpec.ofConnectorTtl` 折叠"`ttl≤0` 禁用"契约、6 处三元式改调（见 [`progress.md`](./progress.md) "2026-07-24 (2)"）。收敛出现真实需要再上收。
 
 | ID | 决策 | 报告建议（默认） | 用户拍板（2026-07-23，含设计后二次确认） | 状态 |
 |---|---|---|---|---|

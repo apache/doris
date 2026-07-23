@@ -77,4 +77,17 @@
   - **4 路对抗净室复审**（byte-parity / callers / iron-rules-leak / test-quality）全判 **PARITY_HOLDS**、无一 refutes_parity；据其两条反馈**加固测试**：①测试替身 `getSessionId()` 改为 ≠ `getQueryId()`（否则 queryId→sessionId 误改会跨查询泄漏却无测试能红）②补 iceberg 级 null-session 测试。
   - **Rule 9 变异验证**：把 helper 键 `getQueryId()`→`getSessionId()`，**恰好两个 byte-key 测试变红**（api 1/8、iceberg 1/7）、其余全绿；已逐字节还原（`git diff` 该行回 `getQueryId()`）。
 - **一条 surface 给 owner（非阻塞）**：`ICEBERG_TABLE` 常量放在中立 SPI 层 `fe-connector-api` 上，两名评审标为 minor 层次瑕疵（中立 SPI 里出现连接器名），但同时判定"可接受的命名空间注册表、非有害泄漏"——这是设计 §B 修订#7 owner 已签的**中心化 uniqueness 注册表**（防 R9 跨连接器 namespace 撞车的唯一审计点）；若移到各连接器自持则失去中心审计点。保持设计原样，如 owner 更偏好各连接器自持常量可轻量改。
-- **下一步**：PR-3 iceberg 5 个手写缓存收敛到 `ConnectorMetadataCache`（pre-resolved `CacheSpec` 构造器 + **钉死 legacy entry 名** `iceberg-table` 等 + 连接器侧凭证置空保留 + **`invalidateDb` parity 测试**：Namespace-equals→String-equals 须证 Doris iceberg 命名空间单层等价）；含 PR-1 推迟的 6 处 `ttl≤0→disabled` 映射去重。动每个文件前按 HEAD 重侦察。
+- **下一步**：iceberg 5 缓存收敛（原计划下一步），动码前重侦察 + 向 owner 讲清成本后由 owner 重新定范围。
+
+---
+
+## 2026-07-24 (2) — owner 重定范围：只做安全 ttl 去重，全量收敛延后（行为字节级不变）
+
+- **背景/决策**：原计划下一步是把 iceberg 5 个手写缓存全量收敛到通用 `ConnectorMetadataCache`。动码前重侦察后向 owner 如实讲清成本：该收敛**零功能收益**、改动面宽（~19 文件 / 重写 ~37 测试 / 6 个重载构造函数签名波及 / 收敛后调用点从强类型 `TableIdentifier` 退化成字符串四元组键 / 每缓存独立注释退化成字段注释），且通用框架**已被证明可用**（已在 hive/iceberg/paimon 三连接器分区视图缓存跑着）、有性能收益的 hudi/mc/es **不依赖**它。**参考 Trino**（共享底层原语 + 各连接器自持缓存、不强制统一封装）→ iceberg 这 5 个缓存已是 Trino 式。**owner 拍板：只做安全 DRY、全量收敛延后。**
+- **做了什么**（严格 8 文件、0 行 fe-core、纯 `[refactor]` 行为不变）：
+  1. 新增 `CacheSpec.ofConnectorTtl(ttlSecond, capacity)`：把连接器"`ttl≤0` 禁用"契约折叠进 `CacheSpec` 的禁用哨兵（0）——负 ttl 走禁用而非被 `CacheSpec` 读成 `-1`「不过期(启用)」。逐字节等于原三元式 `ttl>0 ? of(true,ttl,cap) : of(true,DISABLE,cap)`。
+  2. **6 处**复制的三元式改调该工厂：`IcebergTable/LatestSnapshot/Comment/Format/Partition` + `PaimonLatestSnapshot`（PR-1 侦察更正②点名的 6 处）。
+  3. 补 `CacheSpecTest.ofConnectorTtlFoldsNonPositiveToDisabled`（Rule 9）：钉死承重的负-ttl-必禁用——`-1`/`-2` 折叠成禁用哨兵、`isCacheEnabled` 恒 false（否则负值静默变永不过期缓存）。
+- **验证**：`mvn install -pl :fe-connector-cache,:fe-connector-iceberg,:fe-connector-paimon -am -Dmaven.build.cache.enabled=false`（install 非 test，见 build 坑）：**BUILD SUCCESS**。`CacheSpecTest` 15（+1 新）、`ConnectorMetadataCacheTest` 11、6 个受影响缓存的既有测试**原样全绿**（Iceberg Table 7 / Comment 8 / Partition 8 / Format 8 / LatestSnapshot 6 + Paimon LatestSnapshot 6）、iceberg 全模块 1134、paimon 379，**0 失败 / 0 错误**。checkstyle 过。fe-core `git diff` 空。
+- **未做（明确延后）**：5 个 iceberg 缓存类**未收敛**、其类型/键/`*ForTest` 访问器/5 个测试文件**原样保留**；通用缓存的 pre-resolved-名/loadCount 访问器、`invalidateDb` Namespace→String parity 等收敛相关改动**一并延后**（框架已被证明可用、消费者不依赖；出现真实需要再上收）。
+- **下一步**：转入有性能收益的连接器工作——旗舰 **hudi**（新开 `plan-doc/perf-hotpath-hudi/`，镜像 iceberg 布局；前置改 pom 引 `fe-connector-cache` 工具箱）或先做 **mc / es** 两个小 PR。动码前按 HEAD 重侦察。
