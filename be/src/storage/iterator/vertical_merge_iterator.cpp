@@ -17,10 +17,12 @@
 
 #include "storage/iterator/vertical_merge_iterator.h"
 
+#include <bvar/bvar.h>
 #include <fcntl.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdlib.h>
 
+#include <atomic>
 #include <cstddef>
 #include <ostream>
 
@@ -36,9 +38,61 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+std::atomic<int64_t> g_vertical_compaction_active_segment_contexts {0};
+std::atomic<int64_t> g_vertical_compaction_active_segment_contexts_peak {0};
+
+bvar::PassiveStatus<int64_t> g_vertical_compaction_active_segment_contexts_bvar(
+        "vertical_compaction_active_segment_contexts",
+        [](void*) {
+            return g_vertical_compaction_active_segment_contexts.load(std::memory_order_relaxed);
+        },
+        nullptr);
+
+bvar::PassiveStatus<int64_t> g_vertical_compaction_active_segment_contexts_peak_bvar(
+        "vertical_compaction_active_segment_contexts_peak",
+        [](void*) {
+            return g_vertical_compaction_active_segment_contexts_peak.load(
+                    std::memory_order_relaxed);
+        },
+        nullptr);
+
+void update_vertical_compaction_active_segment_contexts_peak(int64_t current) {
+    int64_t peak =
+            g_vertical_compaction_active_segment_contexts_peak.load(std::memory_order_relaxed);
+    while (current > peak &&
+           !g_vertical_compaction_active_segment_contexts_peak.compare_exchange_weak(
+                   peak, current, std::memory_order_relaxed)) {
+    }
+}
+
+} // namespace
+
+int64_t vertical_compaction_active_segment_contexts() {
+    return g_vertical_compaction_active_segment_contexts.load(std::memory_order_relaxed);
+}
+
+int64_t vertical_compaction_active_segment_contexts_peak() {
+    return g_vertical_compaction_active_segment_contexts_peak.load(std::memory_order_relaxed);
+}
+
+Status reset_vertical_compaction_active_segment_contexts_peak() {
+    int64_t current = vertical_compaction_active_segment_contexts();
+    if (current != 0) {
+        return Status::InternalError(
+                "cannot reset vertical compaction active segment context peak while {} contexts "
+                "are active",
+                current);
+    }
+    g_vertical_compaction_active_segment_contexts_peak.store(0, std::memory_order_relaxed);
+    return Status::OK();
+}
 
 // --------------  row source  ---------------//
 RowSource::RowSource(uint16_t source_num, bool agg_flag) {
@@ -275,6 +329,32 @@ Status RowSourcesBuffer::_deserialize() {
 }
 
 // ----------  vertical merge iterator context ----------//
+VerticalMergeIteratorContext::~VerticalMergeIteratorContext() {
+    _iter.reset();
+    _block.reset();
+    _block_list.clear();
+    _mark_inactive();
+}
+
+void VerticalMergeIteratorContext::_mark_active() {
+    DCHECK(!_is_active_context_counted);
+    _is_active_context_counted = true;
+    int64_t current =
+            g_vertical_compaction_active_segment_contexts.fetch_add(1, std::memory_order_relaxed) +
+            1;
+    update_vertical_compaction_active_segment_contexts_peak(current);
+}
+
+void VerticalMergeIteratorContext::_mark_inactive() {
+    if (!_is_active_context_counted) {
+        return;
+    }
+    _is_active_context_counted = false;
+    int64_t previous =
+            g_vertical_compaction_active_segment_contexts.fetch_sub(1, std::memory_order_relaxed);
+    DCHECK_GT(previous, 0);
+}
+
 Status VerticalMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
     if (!block->columns()) {
         const Schema& schema = _iter->schema();
@@ -371,6 +451,8 @@ Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts,
     if (LIKELY(_inited)) {
         return Status::OK();
     }
+    DBUG_EXECUTE_IF("VerticalMergeIteratorContext::init.reset_active_segment_contexts_peak",
+                    { RETURN_IF_ERROR(reset_vertical_compaction_active_segment_contexts_peak()); });
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
     RETURN_IF_ERROR(_load_next_block());
@@ -379,6 +461,7 @@ Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts,
         sample_info->rows += rows();
     }
     if (valid()) {
+        _mark_active();
         RETURN_IF_ERROR(advance());
     }
     _inited = true;
@@ -463,6 +546,9 @@ Status VerticalMergeIteratorContext::_load_next_block() {
                 // the column iterator in the segment iterator will hold the dictionary.
                 // Release the segment iterator to free up the dictionary.
                 _iter.reset();
+                if (_block_list.empty()) {
+                    _mark_inactive();
+                }
                 return Status::OK();
             } else {
                 return st;

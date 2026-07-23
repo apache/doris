@@ -41,6 +41,12 @@
 namespace doris {
 enum KeysType : int;
 
+// Process-wide diagnostics for lazy-initialized segment contexts that still retain reader or
+// decoded Block resources. Reset is intended for isolated tests and fails while current is nonzero.
+int64_t vertical_compaction_active_segment_contexts();
+int64_t vertical_compaction_active_segment_contexts_peak();
+Status reset_vertical_compaction_active_segment_contexts_peak();
+
 // Row source represent row location in multi-segments
 // use a uint16_t to store info
 // the lower 15 bits means segment_id in segment pool, and the higher 1 bits means agg flag.
@@ -165,7 +171,7 @@ public:
     VerticalMergeIteratorContext& operator=(const VerticalMergeIteratorContext&) = delete;
     VerticalMergeIteratorContext& operator=(VerticalMergeIteratorContext&&) = delete;
 
-    ~VerticalMergeIteratorContext() = default;
+    ~VerticalMergeIteratorContext();
     Status block_reset(const std::shared_ptr<Block>& block);
     Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info = nullptr);
     bool compare(const VerticalMergeIteratorContext& rhs) const;
@@ -234,6 +240,8 @@ public:
 private:
     // Load next block into _block
     Status _load_next_block();
+    void _mark_active();
+    void _mark_inactive();
 
     RowwiseIteratorUPtr _iter;
     RowsetId _rowset_id;
@@ -260,6 +268,7 @@ private:
     std::list<std::shared_ptr<Block>> _block_list;
     // use to identify whether it's first block load from RowwiseIterator
     bool _is_first_row = true;
+    bool _is_active_context_counted = false;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
 };
