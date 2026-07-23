@@ -3152,8 +3152,9 @@ public class SessionVariable implements Serializable, Writable {
     // for getting version is memory operation in master node,
     // but it will slightly increase the pressure on the FE master.
     @VariableMgr.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = {
-            "在 follower 节点查询时，是否允许从 master 节点扫描 information_schema.tables 的结果",
-            "Whether to allow scanning information_schema.tables from the master node"
+            "在 follower 节点查询时，是否允许从 master 节点扫描 information_schema.tables"
+                    + " / routine_load_jobs 的结果",
+            "Whether to allow scanning information_schema.tables / routine_load_jobs from the master node"
     })
     public boolean enableSchemaScanFromMasterFe = true;
 

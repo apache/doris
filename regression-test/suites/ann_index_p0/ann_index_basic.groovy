@@ -21,6 +21,16 @@
 suite ("ann_index_basic") {
 		sql "set enable_common_expr_pushdown=true;"
 
+		// After an INSERT the ANN index can become queryable slightly before the freshly written
+		// raw rows are visible to a plain (brute-force) scan. Queries that cannot be evaluated by the
+		// ANN index fall back to a brute-force scan (Asc inner_product / Desc l2 topn, small-predicate
+		// topn) and may then intermittently see an empty table right after the load. Gate on scan
+		// visibility (a real row read, not count(*) metadata) after each INSERT to keep the ordered
+		// queries deterministic.
+		def waitRowsVisible = { String tbl, int expected ->
+			awaitUntil(30) { sql("select id from ${tbl}").size() == expected }
+		}
+
 		// 1) Basic L2 ANN table: dim=3
 		sql "drop table if exists tbl_ann_l2"
 		sql """
@@ -44,6 +54,8 @@ suite ("ann_index_basic") {
 		(2, [0.5, 2.1, 2.9]),
 		(3, [10.0, 10.0, 10.0]);
 		"""
+
+		waitRowsVisible("tbl_ann_l2", 3)
 
 		// Query: l2 distance ascending (closest first)
 		qt_sql_l2_query "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2 order by dist limit 3;"
@@ -71,6 +83,8 @@ suite ("ann_index_basic") {
 		(2, [0.5, 0.6, 0.7, 0.8]),
 		(3, [1.0, 1.0, 1.0, 1.0]);
 		"""
+
+		waitRowsVisible("tbl_ann_ip", 3)
 
 		// Query: inner product descending (higher score first)
 		qt_sql_ip_query "select id from tbl_ann_ip order by inner_product_approximate(embedding, [0.1,0.2,0.3,0.4]) desc limit 3;"
@@ -112,6 +126,8 @@ suite ("ann_index_basic") {
         }
         sql "INSERT INTO tbl_ann_l2_large VALUES ${values.join(',')};"
 
+        waitRowsVisible("tbl_ann_l2_large", 50)
+
         // topn with small predicate (id < 5) -> selects 4/50 = 8% (<30%), should exercise "will not use ann index" path
         qt_sql_l2_small_pred "select id from tbl_ann_l2_large where id < 5 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 5;"
 
@@ -137,6 +153,8 @@ suite ("ann_index_basic") {
         """
 
         sql "INSERT INTO ann_compound VALUES (1, [1.0,2.0,3.0], 'quick brown fox'), (2, [2.0,3.0,4.0], 'lazy dog fox'), (3, [10.0,10.0,10.0], 'unrelated text');"
+
+        waitRowsVisible("ann_compound", 3)
 
         qt_sql_compound "select id from ann_compound where txt match_any 'fox' order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 3;"
 }

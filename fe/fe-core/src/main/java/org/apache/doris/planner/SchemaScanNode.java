@@ -100,8 +100,13 @@ public class SchemaScanNode extends ScanNode {
 
     @Override
     public void finalizeForNereids() throws UserException {
+        // "routine_load_jobs" carries in-memory state (ERROR_LOG_URLS / FIRST_ERROR_MSG and other
+        // transient fields) that is only maintained on the master FE, so a scan served by a follower
+        // returns empty error info. Route it to the master FE, same as "tables", so the result is
+        // consistent with SHOW ROUTINE LOAD (which forwards to the master).
         if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
-                && tableName.equalsIgnoreCase("tables")) {
+                && (tableName.equalsIgnoreCase("tables")
+                        || tableName.equalsIgnoreCase("routine_load_jobs"))) {
             frontendIP = Env.getCurrentEnv().getMasterHost();
             frontendPort = Env.getCurrentEnv().getMasterRpcPort();
         } else {
