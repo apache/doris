@@ -28,6 +28,7 @@ import org.junit.Test;
 
 import java.net.InetAddress;
 
+// Test-only marker for the 2025 year-end FEUT CPU baseline; do not merge.
 public class FrontendOptionsTest {
     @Mocked
     private InetAddresses inetAddresses;
