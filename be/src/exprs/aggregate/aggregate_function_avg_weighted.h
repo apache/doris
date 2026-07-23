@@ -26,6 +26,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "common/compiler_util.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -47,9 +48,7 @@ template <PrimitiveType T>
 struct AggregateFunctionAvgWeightedData {
     using DataType = typename PrimitiveTypeTraits<T>::CppType;
     void add(const DataType& data_val, double weight_val) {
-#ifdef __clang__
-#pragma clang fp reassociate(on)
-#endif
+        ALLOW_FP_REASSOCIATION
         data_sum = data_sum + (double(data_val) * weight_val);
         weight_sum = weight_sum + weight_val;
     }
@@ -65,9 +64,7 @@ struct AggregateFunctionAvgWeightedData {
     }
 
     void merge(const AggregateFunctionAvgWeightedData& rhs) {
-#ifdef __clang__
-#pragma clang fp reassociate(on)
-#endif
+        ALLOW_FP_REASSOCIATION
         data_sum = data_sum + rhs.data_sum;
         weight_sum = weight_sum + rhs.weight_sum;
     }
