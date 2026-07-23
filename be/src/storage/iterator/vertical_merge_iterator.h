@@ -452,7 +452,8 @@ private:
     int64_t _get_size(Block* block) { return block->rows(); }
 
     Status check_all_iter_finished();
-    void release_context_if_source_exhausted(uint16_t order);
+    // Advance the row-source cursor and release its context after the final reference.
+    void consume_row_sources(uint16_t order, size_t count = 1);
 
     // released after build ctx
     std::vector<RowwiseIteratorUPtr> _origin_iters;

@@ -823,7 +823,8 @@ Status VerticalMaskMergeIterator::check_all_iter_finished() {
     return Status::OK();
 }
 
-void VerticalMaskMergeIterator::release_context_if_source_exhausted(uint16_t order) {
+void VerticalMaskMergeIterator::consume_row_sources(uint16_t order, size_t count) {
+    _row_sources_buf->advance(count);
     if (_row_sources_buf->is_source_exhausted(order)) {
         _origin_iter_ctx[order]->release_resources();
     }
@@ -856,8 +857,7 @@ Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
         }
 
         ctx->set_is_first_row(false);
-        _row_sources_buf->advance();
-        release_context_if_source_exhausted(order);
+        consume_row_sources(order);
         return Status::OK();
     }
     RETURN_IF_ERROR(ctx->advance());
@@ -867,8 +867,7 @@ Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
         _filtered_rows++;
     }
 
-    _row_sources_buf->advance();
-    release_context_if_source_exhausted(order);
+    consume_row_sources(order);
     return Status::OK();
 }
 
@@ -891,19 +890,16 @@ Status VerticalMaskMergeIterator::unique_key_next_row(IteratorRowRef* ref) {
             // Except first row, we call advance first and than get cur row
             ctx->set_cur_row_ref(ref);
             ctx->set_is_first_row(false);
-            _row_sources_buf->advance();
-            release_context_if_source_exhausted(order);
+            consume_row_sources(order);
             return Status::OK();
         }
         RETURN_IF_ERROR(ctx->advance());
         if (!row_source.agg_flag()) {
             ctx->set_cur_row_ref(ref);
-            _row_sources_buf->advance();
-            release_context_if_source_exhausted(order);
+            consume_row_sources(order);
             return Status::OK();
         }
-        _row_sources_buf->advance();
-        release_context_if_source_exhausted(order);
+        consume_row_sources(order);
         _filtered_rows++;
         st = _row_sources_buf->has_remaining();
     }
@@ -960,8 +956,7 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
 
         // If current row has agg_flag=true, skip it (single row)
         if (row_source.agg_flag()) {
-            _row_sources_buf->advance();
-            release_context_if_source_exhausted(order);
+            consume_row_sources(order);
             _filtered_rows++;
             continue;
         }
@@ -982,7 +977,7 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
             RETURN_IF_ERROR(ctx->advance_by(run_count - 1));
         }
 
-        _row_sources_buf->advance(run_count);
+        consume_row_sources(order, run_count);
 
         // Try to merge into current batch or create new batch
         if (current_block == block && start_row == batch_start + batch_count) {
@@ -1000,7 +995,6 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
         }
 
         *actual_rows += run_count;
-        release_context_if_source_exhausted(order);
     }
 
     // Save the last batch
