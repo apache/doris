@@ -77,6 +77,9 @@ Status validate_fixed_width_page_size(const tparquet::PageHeader& header, int32_
                                       level_t max_rep_level, level_t max_def_level,
                                       bool schema_is_required = true);
 Status validate_dictionary_page_size(const tparquet::PageHeader& header, int32_t type_length = -1);
+Status validate_compressed_page_size(tparquet::CompressionCodec::type codec,
+                                     const Slice& compressed_data,
+                                     size_t expected_uncompressed_size);
 
 struct ColumnChunkReaderStatistics {
     int64_t decompress_time = 0;

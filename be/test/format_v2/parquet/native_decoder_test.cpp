@@ -570,7 +570,8 @@ Status materialize_level_only_page(bool data_page_v2, tparquet::Type::type physi
 }
 
 Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t>& payload,
-                          tparquet::CompressionCodec::type codec, bool preload_page_cache = false) {
+                          tparquet::CompressionCodec::type codec, bool preload_page_cache = false,
+                          tparquet::Type::type physical_type = tparquet::Type::INT32) {
     std::vector<uint8_t> bytes;
     ThriftSerializer serializer(/*compact=*/true, 128);
     RETURN_IF_ERROR(serializer.serialize(&header, &bytes));
@@ -592,7 +593,7 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
     MemoryBufferedReader reader(std::move(bytes));
 
     tparquet::ColumnChunk chunk;
-    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_type(physical_type);
     chunk.meta_data.__set_codec(codec);
     chunk.meta_data.__set_num_values(1);
     chunk.meta_data.__set_total_compressed_size(chunk_size);
@@ -603,8 +604,12 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
         chunk.meta_data.__set_data_page_offset(0);
     }
     NativeFieldSchema field;
-    field.physical_type = tparquet::Type::INT32;
-    field.data_type = std::make_shared<DataTypeInt32>();
+    field.physical_type = physical_type;
+    if (physical_type == tparquet::Type::BYTE_ARRAY) {
+        field.data_type = std::make_shared<DataTypeString>();
+    } else {
+        field.data_type = std::make_shared<DataTypeInt32>();
+    }
     field.repetition_level = 0;
     field.definition_level = 0;
     ParquetPageReadContext context(preload_page_cache, page_cache_file_key);
@@ -3632,6 +3637,126 @@ TEST(ParquetV2NativeDecoderTest, OptionalV2FixedWidthPageRejectsExtentBeforeAllo
         EXPECT_TRUE(reader.load_page_data().is<ErrorCode::CORRUPTION>());
         EXPECT_LT(reader.retained_decoder_scratch_bytes(), 64UL << 10);
     }
+}
+
+TEST(ParquetV2NativeDecoderTest, RepeatedV2FixedWidthPageRejectsExtentBeforeAllocation) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(tparquet::CompressionCodec::SNAPPY, &codec).ok());
+    const std::array<uint8_t, sizeof(int32_t)> value {};
+    faststring compressed;
+    ASSERT_TRUE(codec->compress(Slice(value.data(), value.size()), &compressed).ok());
+    const std::vector<uint8_t> levels {2, 0, 2, 1};
+
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE_V2;
+    header.__set_compressed_page_size(levels.size() + compressed.size());
+    header.__set_uncompressed_page_size((8 << 20) + levels.size());
+    header.__isset.data_page_header_v2 = true;
+    header.data_page_header_v2.__set_num_values(1);
+    header.data_page_header_v2.__set_num_rows(1);
+    header.data_page_header_v2.__set_num_nulls(0);
+    header.data_page_header_v2.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header_v2.__set_repetition_levels_byte_length(2);
+    header.data_page_header_v2.__set_definition_levels_byte_length(2);
+    header.data_page_header_v2.__set_is_compressed(true);
+    std::vector<uint8_t> payload = levels;
+    payload.insert(payload.end(), compressed.data(), compressed.data() + compressed.size());
+
+    auto bytes = serialize_page(header, payload);
+    MemoryBufferedReader stream(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::SNAPPY);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.repetition_level = 1;
+    field.definition_level = 1;
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<true, false> reader(&stream, &chunk, &field, nullptr, 1, nullptr, context);
+    ASSERT_TRUE(reader.init().ok());
+    EXPECT_TRUE(reader.load_page_data().is<ErrorCode::CORRUPTION>());
+    EXPECT_LT(reader.retained_decoder_scratch_bytes(), 64UL << 10);
+}
+
+TEST(ParquetV2NativeDecoderTest, VariableWidthDataPagePreflightsCompressedExtent) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(tparquet::CompressionCodec::SNAPPY, &codec).ok());
+    const std::vector<uint8_t> value {1, 0, 0, 0, 'x'};
+    faststring compressed;
+    ASSERT_TRUE(codec->compress(Slice(value.data(), value.size()), &compressed).ok());
+
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE;
+    header.__set_compressed_page_size(compressed.size());
+    header.__set_uncompressed_page_size(8 << 20);
+    header.__isset.data_page_header = true;
+    header.data_page_header.__set_num_values(1);
+    header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    const std::vector<uint8_t> payload(compressed.data(), compressed.data() + compressed.size());
+
+    auto bytes = serialize_page(header, payload);
+    MemoryBufferedReader stream(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::BYTE_ARRAY);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::SNAPPY);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::BYTE_ARRAY;
+    field.definition_level = 1;
+    field.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<false, false> reader(&stream, &chunk, &field, nullptr, 1, nullptr, context);
+    ASSERT_TRUE(reader.init().ok());
+    EXPECT_TRUE(reader.load_page_data().is<ErrorCode::CORRUPTION>());
+    EXPECT_LT(reader.retained_decoder_scratch_bytes(), 64UL << 10);
+    EXPECT_TRUE(load_scripted_page(header, payload, tparquet::CompressionCodec::SNAPPY, true,
+                                   tparquet::Type::BYTE_ARRAY)
+                        .is<ErrorCode::CORRUPTION>());
+}
+
+TEST(ParquetV2NativeDecoderTest, VariableWidthDictionaryPreflightsCompressedExtent) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(tparquet::CompressionCodec::SNAPPY, &codec).ok());
+    const std::vector<uint8_t> value {1, 0, 0, 0, 'x'};
+    faststring compressed;
+    ASSERT_TRUE(codec->compress(Slice(value.data(), value.size()), &compressed).ok());
+    const Slice payload(compressed.data(), compressed.size());
+
+    EXPECT_TRUE(
+            validate_compressed_page_size(tparquet::CompressionCodec::SNAPPY, payload, value.size())
+                    .ok());
+    EXPECT_TRUE(validate_compressed_page_size(tparquet::CompressionCodec::SNAPPY, payload, 8 << 20)
+                        .is<ErrorCode::CORRUPTION>());
+
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DICTIONARY_PAGE;
+    header.__set_compressed_page_size(compressed.size());
+    header.__set_uncompressed_page_size(8 << 20);
+    header.__isset.dictionary_page_header = true;
+    header.dictionary_page_header.__set_num_values(1);
+    header.dictionary_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    EXPECT_TRUE(
+            load_scripted_page(
+                    header,
+                    std::vector<uint8_t>(compressed.data(), compressed.data() + compressed.size()),
+                    tparquet::CompressionCodec::SNAPPY, false, tparquet::Type::BYTE_ARRAY)
+                    .is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(
+            load_scripted_page(
+                    header,
+                    std::vector<uint8_t>(compressed.data(), compressed.data() + compressed.size()),
+                    tparquet::CompressionCodec::SNAPPY, true, tparquet::Type::BYTE_ARRAY)
+                    .is<ErrorCode::CORRUPTION>());
 }
 
 TEST(ParquetV2NativeDecoderTest, UncompressedDataPagesRequireEqualPhysicalAndLogicalSizes) {

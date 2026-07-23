@@ -21,6 +21,7 @@
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 #include <parquet/metadata.h>
+#include <snappy.h>
 #include <string.h>
 
 #include <algorithm>
@@ -89,7 +90,7 @@ Status validate_uncompressed_page_sizes(const tparquet::PageHeader& header,
 Status validate_fixed_width_page_size(const tparquet::PageHeader& header, int32_t type_length,
                                       level_t max_rep_level, level_t max_def_level,
                                       bool schema_is_required) {
-    if (type_length <= 0 || max_rep_level != 0) {
+    if (type_length <= 0) {
         return Status::OK();
     }
     const bool is_v2 = header.__isset.data_page_header_v2;
@@ -115,7 +116,7 @@ Status validate_fixed_width_page_size(const tparquet::PageHeader& header, int32_
         level_bytes = static_cast<int64_t>(page.repetition_levels_byte_length) +
                       page.definition_levels_byte_length;
     } else {
-        if (max_def_level != 0 || !schema_is_required) {
+        if (max_rep_level != 0 || max_def_level != 0 || !schema_is_required) {
             return Status::OK();
         }
         num_physical_values = header.data_page_header.num_values;
@@ -158,6 +159,26 @@ Status validate_dictionary_page_size(const tparquet::PageHeader& header, int32_t
                     "Parquet fixed-width dictionary has {} uncompressed bytes, expected {}",
                     header.uncompressed_page_size, expected);
         }
+    }
+    return Status::OK();
+}
+
+Status validate_compressed_page_size(tparquet::CompressionCodec::type codec,
+                                     const Slice& compressed_data,
+                                     size_t expected_uncompressed_size) {
+    if (codec != tparquet::CompressionCodec::SNAPPY) {
+        return Status::OK();
+    }
+    size_t actual_uncompressed_size = 0;
+    if (UNLIKELY(!snappy::GetUncompressedLength(compressed_data.data, compressed_data.size,
+                                                &actual_uncompressed_size))) {
+        return Status::Corruption("Invalid Snappy-compressed Parquet page");
+    }
+    if (UNLIKELY(actual_uncompressed_size != expected_uncompressed_size)) {
+        // Snappy exposes its decoded extent without an output buffer. Check it before trusting the
+        // page header so malformed variable-width pages cannot force a header-sized allocation.
+        return Status::Corruption("Snappy Parquet page expands to {} bytes, expected {}",
+                                  actual_uncompressed_size, expected_uncompressed_size);
     }
     return Status::OK();
 }
@@ -1089,6 +1110,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
                         header->__isset.data_page_header_v2
                                 ? static_cast<size_t>(header->uncompressed_page_size) - levels_size
                                 : static_cast<size_t>(header->uncompressed_page_size);
+                RETURN_IF_ERROR(validate_compressed_page_size(_metadata.codec, payload_slice,
+                                                              uncompressed_payload_size));
                 _reserve_decompress_buf(uncompressed_payload_size);
                 _page_data = Slice(_decompress_buf.get(), uncompressed_payload_size);
                 _page_uses_decompress_buf = true;
@@ -1139,6 +1162,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
 
             if (page_has_compression) {
                 // Decompress payload for immediate decoding
+                RETURN_IF_ERROR(validate_compressed_page_size(
+                        _metadata.codec, compressed_data, static_cast<size_t>(uncompressed_size)));
                 _reserve_decompress_buf(uncompressed_size);
                 _page_data = Slice(_decompress_buf.get(), uncompressed_size);
                 _page_uses_decompress_buf = true;
@@ -1288,7 +1313,14 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
     RETURN_IF_ERROR(validate_uncompressed_page_sizes(
             *header, _metadata.codec, _page_read_ctx.data_page_v2_always_compressed));
     RETURN_IF_ERROR(validate_dictionary_page_size(*header, _get_type_length()));
-    auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
+    DorisUniqueBufferPtr<uint8_t> dict_data;
+    bool dict_buffer_allocated = false;
+    const auto allocate_dict_buffer = [&]() {
+        if (!dict_buffer_allocated) {
+            dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
+            dict_buffer_allocated = true;
+        }
+    };
     bool dict_loaded = false;
 
     // Try to load dictionary page from cache
@@ -1298,6 +1330,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
             const PageCacheHandle& handle = _page_reader->page_cache_handle();
             Slice cached = handle.data();
             size_t header_size = _page_reader->header_bytes().size();
+            if (UNLIKELY(header_size > cached.size)) {
+                return Status::Corruption(
+                        "Cached Parquet dictionary is shorter than its page header");
+            }
             // Dictionary page layout in cache: header | payload (compressed or uncompressed)
             Slice payload_slice(cached.data + header_size, cached.size - header_size);
 
@@ -1310,11 +1346,15 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
                             "Cached Parquet dictionary payload has size {}, expected {}",
                             payload_slice.size, uncompressed_size);
                 }
+                allocate_dict_buffer();
                 memcpy(dict_data.get(), payload_slice.data, payload_slice.size);
                 dict_loaded = true;
             } else {
                 CHECK(_block_compress_codec);
                 // Decompress cached compressed dictionary data
+                RETURN_IF_ERROR(validate_compressed_page_size(
+                        _metadata.codec, payload_slice, static_cast<size_t>(uncompressed_size)));
+                allocate_dict_buffer();
                 Slice dict_slice(dict_data.get(), uncompressed_size);
                 {
                     SCOPED_RAW_TIMER(&_chunk_statistics.decompress_time);
@@ -1342,9 +1382,12 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
         if (_block_compress_codec != nullptr) {
             auto dict_num = header->dictionary_page_header.num_values;
             Slice compressed_data;
-            Slice dict_slice(dict_data.get(), uncompressed_size);
             if (dict_num != 0) {
                 RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
+                RETURN_IF_ERROR(validate_compressed_page_size(
+                        _metadata.codec, compressed_data, static_cast<size_t>(uncompressed_size)));
+                allocate_dict_buffer();
+                Slice dict_slice(dict_data.get(), uncompressed_size);
                 // Dictionary probes stop before data pages, so count their decompression here or
                 // metadata pruning profiles will report no codec work for the scan.
                 {
@@ -1359,6 +1402,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
                             dict_slice.size, uncompressed_size);
                 }
             }
+            allocate_dict_buffer();
+            Slice dict_slice(dict_data.get(), uncompressed_size);
 
             // Decide whether to cache decompressed or compressed dictionary based on threshold
             // If uncompressed_page_size == 0, should_cache_decompressed will return true
@@ -1392,6 +1437,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
         } else {
             Slice dict_slice;
             RETURN_IF_ERROR(_page_reader->get_page_data(dict_slice));
+            if (UNLIKELY(dict_slice.size != static_cast<size_t>(uncompressed_size))) {
+                return Status::Corruption("Parquet dictionary payload has size {}, expected {}",
+                                          dict_slice.size, uncompressed_size);
+            }
+            allocate_dict_buffer();
             // The data is stored by BufferedStreamReader, we should copy it out
             memcpy(dict_data.get(), dict_slice.data, dict_slice.size);
 
@@ -1406,6 +1456,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_decode_dict_page() {
             }
         }
     }
+    allocate_dict_buffer();
 
     // Cache page decoder
     std::unique_ptr<Decoder> page_decoder;

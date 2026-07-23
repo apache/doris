@@ -1677,7 +1677,7 @@ TEST_F(ParquetScanTest, PlainPredicateDirectPathCrossesScratchProbeCadence) {
     EXPECT_EQ(total_rows, ROWS);
     // Direct predicate evaluation must survive multiple 16-batch scratch probes; otherwise this
     // path can retain a previous outlier for the whole row group without ever aging its capacity.
-    EXPECT_EQ(counter_value(profile, "PlainPredicateDirectBatches"), ROWS);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), ROWS);
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyUint32FallsBackBeforeRawPlainDecode) {
