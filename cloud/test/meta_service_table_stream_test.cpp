@@ -67,29 +67,6 @@ protected:
         ASSERT_EQ(code, MetaServiceCode::OK) << message;
     }
 
-    void put_stream_mapping(Transaction* txn, const TableStreamIdentityPB& identity) {
-        IndexIndexPB index;
-        index.set_db_id(identity.base_db_id());
-        index.set_table_id(identity.base_table_id());
-        index.set_object_type(TABLE_STREAM);
-        index.set_stream_db_id(identity.stream_db_id());
-        const std::string value = index.SerializeAsString();
-        txn->put(table_stream_index_key({instance_id_, identity.stream_id()}), value);
-        txn->put(table_stream_inverted_key({instance_id_, identity.base_db_id(),
-                                            identity.base_table_id(), identity.stream_id()}),
-                 "");
-        if (multi_version_status_ == MULTI_VERSION_WRITE_ONLY ||
-            multi_version_status_ == MULTI_VERSION_READ_WRITE) {
-            txn->put(versioned::index_index_key({instance_id_, identity.stream_id()}), value);
-            txn->put(
-                    versioned::index_inverted_key({instance_id_, identity.base_db_id(),
-                                                   identity.base_table_id(), identity.stream_id()}),
-                    "");
-        }
-    }
-
-    void put_stream_mapping(Transaction* txn) { put_stream_mapping(txn, identity_); }
-
     void put_partition_mapping(Transaction* txn, int64_t partition_id) {
         PartitionIndexPB partition;
         partition.set_db_id(identity_.base_db_id());
@@ -122,8 +99,6 @@ protected:
     void put_versioned_partition_state(Transaction* txn, int64_t partition_id,
                                        int64_t visible_version, int64_t visible_tso,
                                        std::optional<int64_t> offset_tso) {
-        versioned_put(txn, versioned::meta_index_key({instance_id_, identity_.stream_id()}),
-                      Versionstamp(40, 0), "");
         put_partition_mapping(txn, partition_id);
         versioned_put(txn, versioned::meta_partition_key({instance_id_, partition_id}),
                       Versionstamp(41, 0), "");
@@ -257,7 +232,6 @@ TEST_F(MetaServiceTableStreamTest, ReadLatestAndUnknownOffsets) {
     set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     put_latest_partition_state(txn.get(), 2002, 9, 140, std::nullopt);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -287,7 +261,6 @@ TEST_F(MetaServiceTableStreamTest, ReadVersionedState) {
     set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_versioned_partition_state(txn.get(), 2001, 18, 230, 200);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -309,16 +282,6 @@ TEST_F(MetaServiceTableStreamTest, ReadVersionedStateFromCloneChainInBatch) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    IndexIndexPB index;
-    index.set_db_id(identity_.base_db_id());
-    index.set_table_id(identity_.base_table_id());
-    index.set_object_type(TABLE_STREAM);
-    index.set_stream_db_id(identity_.stream_db_id());
-    txn->put(versioned::index_index_key({source_instance_id, identity_.stream_id()}),
-             index.SerializeAsString());
-    versioned_put(txn.get(), versioned::meta_index_key({source_instance_id, identity_.stream_id()}),
-                  Versionstamp(50, 0), "");
-
     for (size_t i = 0; i < partition_ids.size(); ++i) {
         int64_t partition_id = partition_ids[i];
         PartitionIndexPB partition;
@@ -371,7 +334,6 @@ TEST_F(MetaServiceTableStreamTest, ReadLargePartitionBatch) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     for (int i = 0; i < kPartitionCount; ++i) {
         int64_t partition_id = 10000 + i;
         partition_ids.push_back(partition_id);
@@ -414,15 +376,6 @@ TEST_F(MetaServiceTableStreamTest, ReadMultipleBindingsInBatch) {
     request.set_cloud_unique_id(cloud_unique_id_);
     for (int i = 0; i < kBindingCount; ++i) {
         int64_t stream_id = identity_.stream_id() + i;
-        IndexIndexPB index;
-        index.set_db_id(identity_.base_db_id());
-        index.set_table_id(identity_.base_table_id());
-        index.set_object_type(TABLE_STREAM);
-        index.set_stream_db_id(identity_.stream_db_id());
-        txn->put(versioned::index_index_key({instance_id_, stream_id}), index.SerializeAsString());
-        versioned_put(txn.get(), versioned::meta_index_key({instance_id_, stream_id}),
-                      Versionstamp(30 + i, 0), "");
-
         TableStreamPartitionSetPB* binding = request.add_bindings();
         binding->mutable_identity()->CopyFrom(identity_);
         binding->mutable_identity()->set_stream_id(stream_id);
@@ -445,7 +398,6 @@ TEST_F(MetaServiceTableStreamTest, ReadWriteOnlyState) {
     set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 28, 330, 300);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -499,7 +451,6 @@ TEST_F(MetaServiceTableStreamTest, RejectEnabledModeAndRecyclingStream) {
 
     set_multi_version_status(MULTI_VERSION_DISABLED);
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     RecycleIndexPB recycle_index;
     recycle_index.set_table_id(identity_.base_table_id());
@@ -517,7 +468,6 @@ TEST_F(MetaServiceTableStreamTest, CommitUpdatesLatestOffsetAndIsIdempotent) {
     set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     put_latest_partition_state(txn.get(), 2002, 9, 140, std::nullopt);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -549,8 +499,6 @@ TEST_F(MetaServiceTableStreamTest, CommitMultipleStreamsAtomically) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
-    put_stream_mapping(txn.get(), second_identity);
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     TableStreamOffsetPB second_offset;
     second_offset.set_partition_id(2001);
@@ -596,7 +544,6 @@ TEST_F(MetaServiceTableStreamTest, CommitLargePartitionBatch) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     for (int i = 0; i < kPartitionCount; ++i) {
         int64_t partition_id = 30000 + i;
         put_latest_partition_state(txn.get(), partition_id, i + 1, 40000 + i, std::nullopt);
@@ -630,7 +577,6 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsStaleAndInvalidOffsets) {
     set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -657,15 +603,6 @@ TEST_F(MetaServiceTableStreamTest, CommitUsesCloneEffectiveOffset) {
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    IndexIndexPB index;
-    index.set_db_id(identity_.base_db_id());
-    index.set_table_id(identity_.base_table_id());
-    index.set_object_type(TABLE_STREAM);
-    index.set_stream_db_id(identity_.stream_db_id());
-    txn->put(versioned::index_index_key({source_instance_id, identity_.stream_id()}),
-             index.SerializeAsString());
-    versioned_put(txn.get(), versioned::meta_index_key({source_instance_id, identity_.stream_id()}),
-                  Versionstamp(40, 0), "");
     PartitionIndexPB partition_index;
     partition_index.set_db_id(identity_.base_db_id());
     partition_index.set_table_id(identity_.base_table_id());
@@ -732,7 +669,6 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsLatestOffsetWithoutVersionedOffs
     set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_versioned_partition_state(txn.get(), 2001, 8, 130, std::nullopt);
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -748,7 +684,6 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsDifferentLatestAndVersionedOffse
     set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_versioned_partition_state(txn.get(), 2001, 8, 130, std::nullopt);
 
     TableStreamOffsetPB latest_offset;
@@ -780,7 +715,6 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedModeAndMissingVisible
     set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     VersionPB version;
     version.set_version(8);
     txn->put(partition_version_key(
@@ -813,7 +747,6 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsUnsupportedTxnModesAndForcesImme
     set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_latest_partition_state(txn.get(), 2001, 8, 130, 100);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -847,9 +780,6 @@ TEST_F(MetaServiceTableStreamTest, DropWritesTypedRecycleIndexInDisabledMode) {
     set_multi_version_status(MULTI_VERSION_DISABLED);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
     IndexRequest request;
     request.set_cloud_unique_id(cloud_unique_id_);
     request.add_index_ids(identity_.stream_id());
@@ -874,22 +804,12 @@ TEST_F(MetaServiceTableStreamTest, DropWritesTypedRecycleIndexInDisabledMode) {
     EXPECT_EQ(recycle_index.db_id(), identity_.base_db_id());
     EXPECT_EQ(recycle_index.table_id(), identity_.base_table_id());
     EXPECT_EQ(recycle_index.stream_db_id(), identity_.stream_db_id());
-    EXPECT_EQ(txn->get(table_stream_index_key({instance_id_, identity_.stream_id()}), &value, true),
-              TxnErrorCode::TXN_OK);
-    EXPECT_EQ(txn->get(versioned::index_index_key({instance_id_, identity_.stream_id()}), &value,
-                       true),
-              TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST_F(MetaServiceTableStreamTest, DropWritesTypedOperationLogInVersionedMode) {
     set_multi_version_status(MULTI_VERSION_READ_WRITE);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
-    versioned_put(txn.get(), versioned::meta_index_key({instance_id_, identity_.stream_id()}),
-                  Versionstamp(40, 0), "");
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
     IndexRequest request;
     request.set_cloud_unique_id(cloud_unique_id_);
     request.add_index_ids(identity_.stream_id());
@@ -921,9 +841,6 @@ TEST_F(MetaServiceTableStreamTest, DropWritesTypedOperationLogInVersionedMode) {
     std::string value;
     EXPECT_EQ(txn->get(recycle_index_key({instance_id_, identity_.stream_id()}), &value, true),
               TxnErrorCode::TXN_KEY_NOT_FOUND);
-    EXPECT_EQ(txn->get(versioned::index_index_key({instance_id_, identity_.stream_id()}), &value,
-                       true),
-              TxnErrorCode::TXN_OK);
 }
 
 } // namespace doris::cloud

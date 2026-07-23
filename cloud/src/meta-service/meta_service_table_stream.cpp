@@ -86,24 +86,6 @@ TableStreamReadResult validate_table_streams(
         }
     }
 
-    std::unordered_map<int64_t, IndexIndexPB> mappings;
-    result = reader.read_effective_stream_mappings(stream_ids, TableStreamReadIntent::SNAPSHOT,
-                                                   &mappings);
-    if (!result.ok()) {
-        return result;
-    }
-    for (const TableStreamPartitionSetPB& binding : bindings) {
-        const int64_t stream_id = binding.identity().stream_id();
-        auto mapping_it = mappings.find(stream_id);
-        if (mapping_it == mappings.end()) {
-            return {MetaServiceCode::INVALID_ARGUMENT,
-                    fmt::format("table stream {} does not exist", stream_id)};
-        }
-        if (!matches_table_stream_identity(mapping_it->second, binding.identity())) {
-            return {MetaServiceCode::INVALID_ARGUMENT,
-                    fmt::format("table stream {} binding does not match", stream_id)};
-        }
-    }
     return {};
 }
 

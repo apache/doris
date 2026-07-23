@@ -197,22 +197,11 @@ public:
             std::unordered_map<int64_t, PartitionIndexPB>* partition_indexes,
             bool snapshot = false);
 
-    // Get current Index Index mappings for the given index ids. Missing mappings are omitted from
-    // the output map.
-    TxnErrorCode get_index_indexes(Transaction* txn, const std::vector<int64_t>& index_ids,
-                                   std::unordered_map<int64_t, IndexIndexPB>* index_indexes,
-                                   bool snapshot = false);
-
     // Get partition ids whose versioned Partition Meta exists at this reader's snapshot version.
     TxnErrorCode get_existing_partitions(Transaction* txn,
                                          const std::vector<int64_t>& partition_ids,
                                          std::unordered_set<int64_t>* existing_partition_ids,
                                          bool snapshot = false);
-
-    // Get index ids whose versioned Index Meta exists at this reader's snapshot version.
-    TxnErrorCode get_existing_indexes(Transaction* txn, const std::vector<int64_t>& index_ids,
-                                      std::unordered_set<int64_t>* existing_index_ids,
-                                      bool snapshot = false);
 
     // Get the rowset meta for the given tablet_id and version range [start_version, end_version].
     //

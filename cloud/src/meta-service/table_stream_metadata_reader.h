@@ -48,8 +48,6 @@ using TableStreamPartitionVersionMap =
         std::unordered_map<int64_t, std::unordered_map<int64_t, VersionPB>>;
 
 bool is_valid_table_stream_identity(const TableStreamIdentityPB& identity);
-bool matches_table_stream_identity(const IndexIndexPB& index,
-                                   const TableStreamIdentityPB& identity);
 
 TableStreamReadResult read_table_stream_multi_version_status(
         Transaction* txn, std::string_view instance_id, TableStreamReadIntent intent,
@@ -63,16 +61,6 @@ public:
 
     bool reads_from_clone_chain() const;
     bool writes_versioned_metadata() const;
-
-    TableStreamReadResult read_current_stream_mappings(
-            const std::vector<int64_t>& stream_ids, TableStreamReadIntent intent,
-            std::unordered_map<int64_t, IndexIndexPB>* mappings) const;
-
-    // Returns the effective visible mappings. READ_WRITE follows the clone chain; the other
-    // supported modes read the current 0x01 Table Stream Mapping.
-    TableStreamReadResult read_effective_stream_mappings(
-            const std::vector<int64_t>& stream_ids, TableStreamReadIntent intent,
-            std::unordered_map<int64_t, IndexIndexPB>* mappings) const;
 
     TableStreamReadResult read_recycling_streams(
             const std::vector<int64_t>& stream_ids, TableStreamReadIntent intent,

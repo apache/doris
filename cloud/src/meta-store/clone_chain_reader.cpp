@@ -795,50 +795,6 @@ TxnErrorCode CloneChainReader::get_partition_indexes(
     return TxnErrorCode::TXN_OK;
 }
 
-TxnErrorCode CloneChainReader::get_index_indexes(
-        Transaction* txn, const std::vector<int64_t>& index_ids,
-        std::unordered_map<int64_t, IndexIndexPB>* index_indexes, bool snapshot) {
-    std::string current_instance_id(instance_id_);
-    Versionstamp current_snapshot_version = snapshot_version_;
-    std::vector<int64_t> remaining_ids = index_ids;
-
-    do {
-        MetaReader reader(current_instance_id, current_snapshot_version);
-        std::unordered_map<int64_t, IndexIndexPB> current_indexes;
-        TxnErrorCode err = reader.get_index_indexes(txn, remaining_ids, &current_indexes, snapshot);
-        if (err != TxnErrorCode::TXN_OK) {
-            return err;
-        }
-
-        for (auto& [index_id, index_index] : current_indexes) {
-            index_indexes->emplace(index_id, std::move(index_index));
-        }
-
-        std::vector<int64_t> new_remaining_ids;
-        new_remaining_ids.reserve(remaining_ids.size() - current_indexes.size());
-        for (int64_t index_id : remaining_ids) {
-            if (!current_indexes.contains(index_id)) {
-                new_remaining_ids.push_back(index_id);
-            }
-        }
-        remaining_ids = std::move(new_remaining_ids);
-        if (remaining_ids.empty()) {
-            break;
-        }
-
-        std::string previous_instance_id;
-        Versionstamp previous_snapshot_version;
-        if (!get_source_snapshot_info(current_instance_id, &previous_instance_id,
-                                      &previous_snapshot_version)) {
-            break;
-        }
-        current_instance_id = std::move(previous_instance_id);
-        current_snapshot_version = previous_snapshot_version;
-    } while (true);
-
-    return TxnErrorCode::TXN_OK;
-}
-
 TxnErrorCode CloneChainReader::get_existing_partitions(
         Transaction* txn, const std::vector<int64_t>& partition_ids,
         std::unordered_set<int64_t>* existing_partition_ids, bool snapshot) {
@@ -862,50 +818,6 @@ TxnErrorCode CloneChainReader::get_existing_partitions(
         for (int64_t partition_id : remaining_ids) {
             if (!current_existing_ids.contains(partition_id)) {
                 new_remaining_ids.push_back(partition_id);
-            }
-        }
-        remaining_ids = std::move(new_remaining_ids);
-        if (remaining_ids.empty()) {
-            break;
-        }
-
-        std::string previous_instance_id;
-        Versionstamp previous_snapshot_version;
-        if (!get_source_snapshot_info(current_instance_id, &previous_instance_id,
-                                      &previous_snapshot_version)) {
-            break;
-        }
-        current_instance_id = std::move(previous_instance_id);
-        current_snapshot_version = previous_snapshot_version;
-    } while (true);
-
-    return TxnErrorCode::TXN_OK;
-}
-
-TxnErrorCode CloneChainReader::get_existing_indexes(Transaction* txn,
-                                                    const std::vector<int64_t>& index_ids,
-                                                    std::unordered_set<int64_t>* existing_index_ids,
-                                                    bool snapshot) {
-    std::string current_instance_id(instance_id_);
-    Versionstamp current_snapshot_version = snapshot_version_;
-    std::vector<int64_t> remaining_ids = index_ids;
-
-    do {
-        MetaReader reader(current_instance_id, current_snapshot_version);
-        std::unordered_set<int64_t> current_existing_ids;
-        TxnErrorCode err =
-                reader.get_existing_indexes(txn, remaining_ids, &current_existing_ids, snapshot);
-        if (err != TxnErrorCode::TXN_OK) {
-            return err;
-        }
-        min_read_versionstamp_ = std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
-        existing_index_ids->insert(current_existing_ids.begin(), current_existing_ids.end());
-
-        std::vector<int64_t> new_remaining_ids;
-        new_remaining_ids.reserve(remaining_ids.size() - current_existing_ids.size());
-        for (int64_t index_id : remaining_ids) {
-            if (!current_existing_ids.contains(index_id)) {
-                new_remaining_ids.push_back(index_id);
             }
         }
         remaining_ids = std::move(new_remaining_ids);

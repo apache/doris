@@ -140,8 +140,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         for (int start = 0; start < initialOffsets.size(); start += batchSize) {
             int end = Math.min(start + batchSize, initialOffsets.size());
-            commitTableStreamPartitions(baseDbId, olapBaseTable.getId(), olapStream.getId(),
-                    initialOffsets.subList(start, end));
+            commitTableStreamPartitions(baseDbId, olapBaseTable.getId(), streamDb.getId(),
+                    olapStream.getId(), initialOffsets.subList(start, end));
         }
         commitTableStream(baseDbId, olapBaseTable.getId(), streamDb.getId(), olapStream.getId());
     }
@@ -171,13 +171,14 @@ public class CloudInternalCatalog extends InternalCatalog {
                 () -> MetaServiceProxy.getInstance().prepareIndex(request), Cloud.IndexResponse::getStatus);
     }
 
-    private void commitTableStreamPartitions(long baseDbId, long baseTableId, long streamId,
-            List<Cloud.TableStreamOffsetPB> offsets) throws DdlException {
+    private void commitTableStreamPartitions(long baseDbId, long baseTableId, long streamDbId,
+            long streamId, List<Cloud.TableStreamOffsetPB> offsets) throws DdlException {
         Cloud.PartitionRequest request = Cloud.PartitionRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setDbId(baseDbId)
                 .setTableId(baseTableId)
+                .setStreamDbId(streamDbId)
                 .addIndexIds(streamId)
                 .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
                 .addAllPartitionIds(offsets.stream()
@@ -1052,6 +1053,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         partitionRequestBuilder.setTableId(tableId);
         partitionRequestBuilder.addAllPartitionIds(partitionIds);
         partitionRequestBuilder.addAllIndexIds(indexIds);
+        partitionRequestBuilder.addAllTableStreams(
+                Env.getCurrentEnv().getTableStreamManager()
+                        .getCloudTableStreamsForBaseTable(dbId, tableId));
         partitionRequestBuilder.setNeedUpdateTableVersion(needUpdateTableVersion);
         if (dbId > 0) {
             partitionRequestBuilder.setDbId(dbId);

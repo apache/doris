@@ -38,26 +38,6 @@ constexpr int64_t kStreamDbId = 1003;
 constexpr int64_t kStreamId = 1004;
 constexpr int64_t kPartitionId = 1005;
 
-void put_stream_mapping(Transaction* txn) {
-    IndexIndexPB index;
-    index.set_db_id(kBaseDbId);
-    index.set_table_id(kBaseTableId);
-    index.set_object_type(IndexObjectTypePB::TABLE_STREAM);
-    index.set_stream_db_id(kStreamDbId);
-    txn->put(table_stream_index_key({std::string(kInstanceId), kStreamId}),
-             index.SerializeAsString());
-    txn->put(table_stream_inverted_key(
-                     {std::string(kInstanceId), kBaseDbId, kBaseTableId, kStreamId}),
-             "");
-    txn->put(versioned::index_index_key({std::string(kInstanceId), kStreamId}),
-             index.SerializeAsString());
-    txn->put(versioned::index_inverted_key(
-                     {std::string(kInstanceId), kBaseDbId, kBaseTableId, kStreamId}),
-             "");
-    versioned_put(txn, versioned::meta_index_key({std::string(kInstanceId), kStreamId}),
-                  Versionstamp(10, 0), "");
-}
-
 void put_offset(Transaction* txn, int64_t partition_id) {
     TableStreamOffsetPB offset;
     offset.set_partition_id(partition_id);
@@ -99,7 +79,7 @@ InstanceRecycler make_recycler(const std::shared_ptr<TxnKv>& txn_kv) {
                             std::make_shared<TxnLazyCommitter>(txn_kv));
 }
 
-TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsetsAndMappings) {
+TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsets) {
     const bool old_force_immediate_recycle = config::force_immediate_recycle;
     config::force_immediate_recycle = true;
     DORIS_CLOUD_DEFER {
@@ -110,7 +90,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsetsAndMappings) {
     ASSERT_EQ(txn_kv->init(), 0);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_offset(txn.get(), kPartitionId);
     put_offset(txn.get(), kPartitionId + 1);
 
@@ -134,16 +113,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsetsAndMappings) {
 
     EXPECT_FALSE(
             key_exists(txn_kv.get(), recycle_index_key({std::string(kInstanceId), kStreamId})));
-    EXPECT_FALSE(key_exists(txn_kv.get(),
-                            table_stream_index_key({std::string(kInstanceId), kStreamId})));
-    EXPECT_FALSE(
-            key_exists(txn_kv.get(), table_stream_inverted_key({std::string(kInstanceId), kBaseDbId,
-                                                                kBaseTableId, kStreamId})));
-    EXPECT_FALSE(key_exists(txn_kv.get(),
-                            versioned::index_index_key({std::string(kInstanceId), kStreamId})));
-    EXPECT_FALSE(key_exists(
-            txn_kv.get(), versioned::index_inverted_key(
-                                  {std::string(kInstanceId), kBaseDbId, kBaseTableId, kStreamId})));
     EXPECT_EQ(range_size(txn_kv.get(),
                          table_stream_offset_key_prefix(std::string(kInstanceId), kBaseDbId,
                                                         kBaseTableId, kStreamDbId, kStreamId)),
@@ -203,7 +172,6 @@ TEST(TableStreamRecyclerTest, RecyclePartitionDeletesOnlyThatPartitionOffsets) {
     ASSERT_EQ(txn_kv->init(), 0);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get());
     put_offset(txn.get(), kPartitionId);
     put_offset(txn.get(), kPartitionId + 1);
 
@@ -214,6 +182,11 @@ TEST(TableStreamRecyclerTest, RecyclePartitionDeletesOnlyThatPartitionOffsets) {
     recycle_partition.set_creation_time(0);
     recycle_partition.set_expiration(0);
     recycle_partition.set_state(RecyclePartitionPB::DROPPED);
+    TableStreamIdentityPB* identity = recycle_partition.add_table_streams();
+    identity->set_base_db_id(kBaseDbId);
+    identity->set_base_table_id(kBaseTableId);
+    identity->set_stream_db_id(kStreamDbId);
+    identity->set_stream_id(kStreamId);
     txn->put(recycle_partition_key({std::string(kInstanceId), kPartitionId}),
              recycle_partition.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -237,13 +210,9 @@ TEST(TableStreamRecyclerTest, RecyclePartitionDeletesOnlyThatPartitionOffsets) {
                                                {std::string(kInstanceId), kBaseDbId, kBaseTableId,
                                                 kStreamDbId, kStreamId, kPartitionId + 1})),
               0);
-    EXPECT_TRUE(key_exists(txn_kv.get(),
-                           versioned::index_index_key({std::string(kInstanceId), kStreamId})));
-    EXPECT_TRUE(key_exists(txn_kv.get(),
-                           table_stream_index_key({std::string(kInstanceId), kStreamId})));
 }
 
-TEST(TableStreamRecyclerTest, RecyclePartitionUsesInheritedStreamMapping) {
+TEST(TableStreamRecyclerTest, RecyclePartitionUsesPersistedStreamIdentity) {
     const bool old_force_immediate_recycle = config::force_immediate_recycle;
     config::force_immediate_recycle = true;
     DORIS_CLOUD_DEFER {
@@ -265,20 +234,6 @@ TEST(TableStreamRecyclerTest, RecyclePartitionUsesInheritedStreamMapping) {
     child_instance.set_source_instance_id(std::string(source_instance_id));
     child_instance.set_source_snapshot_id(Versionstamp(20, 0).to_string());
     txn->put(instance_key({std::string(kInstanceId)}), child_instance.SerializeAsString());
-
-    IndexIndexPB index;
-    index.set_db_id(kBaseDbId);
-    index.set_table_id(kBaseTableId);
-    index.set_object_type(IndexObjectTypePB::TABLE_STREAM);
-    index.set_stream_db_id(kStreamDbId);
-    txn->put(versioned::index_index_key({std::string(source_instance_id), kStreamId}),
-             index.SerializeAsString());
-    txn->put(versioned::index_inverted_key(
-                     {std::string(source_instance_id), kBaseDbId, kBaseTableId, kStreamId}),
-             "");
-    versioned_put(txn.get(),
-                  versioned::meta_index_key({std::string(source_instance_id), kStreamId}),
-                  Versionstamp(10, 0), "");
 
     put_offset(txn.get(), kPartitionId);
     TableStreamOffsetPB source_offset;
@@ -302,6 +257,11 @@ TEST(TableStreamRecyclerTest, RecyclePartitionUsesInheritedStreamMapping) {
     recycle_partition.set_creation_time(0);
     recycle_partition.set_expiration(0);
     recycle_partition.set_state(RecyclePartitionPB::DROPPED);
+    TableStreamIdentityPB* identity = recycle_partition.add_table_streams();
+    identity->set_base_db_id(kBaseDbId);
+    identity->set_base_table_id(kBaseTableId);
+    identity->set_stream_db_id(kStreamDbId);
+    identity->set_stream_id(kStreamId);
     txn->put(recycle_partition_key({std::string(kInstanceId), kPartitionId}),
              recycle_partition.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);

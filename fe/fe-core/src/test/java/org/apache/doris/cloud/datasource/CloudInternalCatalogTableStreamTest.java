@@ -101,6 +101,7 @@ public class CloudInternalCatalogTableStreamTest {
                 Assertions.assertEquals(List.of(2, 2, 1), batchSizes);
                 partitionCaptor.getAllValues().forEach(request -> {
                     Assertions.assertEquals(Cloud.IndexObjectTypePB.TABLE_STREAM, request.getObjectType());
+                    Assertions.assertEquals(30, request.getStreamDbId());
                     Assertions.assertEquals(request.getPartitionIdsList(), request.getTableStreamOffsetsList()
                             .stream().map(Cloud.TableStreamOffsetPB::getPartitionId).collect(Collectors.toList()));
                 });

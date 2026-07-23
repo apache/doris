@@ -627,6 +627,7 @@ message RecyclePartitionPB {
     optional int64 expiration = 4; // expiration timestamp
     optional State state = 5;
     optional int64 db_id = 6; // For version recycling
+    repeated TableStreamIdentityPB table_streams = 7;
 }
 
 message RecycleRowsetPB {
@@ -704,8 +705,6 @@ message PartitionIndexPB {
 message IndexIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional IndexObjectTypePB object_type = 3 [default = MATERIALIZED_INDEX];
-    optional int64 stream_db_id = 4;
 }
 
 message TabletMetaInfoPB { // For update tablet meta
@@ -840,6 +839,7 @@ message DropPartitionLogPB {
     optional bool update_table_version = 6;
 
     map<string, int64> index_partition_to_data_size = 7;
+    repeated TableStreamIdentityPB table_streams = 8;
 }
 
 message CommitIndexLogPB {
@@ -1483,6 +1483,8 @@ message PartitionRequest {
     repeated int64 partition_versions = 9;
     optional IndexObjectTypePB object_type = 10 [default = MATERIALIZED_INDEX];
     repeated TableStreamOffsetPB table_stream_offsets = 11;
+    optional int64 stream_db_id = 12;
+    repeated TableStreamIdentityPB table_streams = 13;
 }
 
 message PartitionResponse {

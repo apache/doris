@@ -40,25 +40,6 @@ protected:
         return instance;
     }
 
-    void put_stream_mapping(Transaction* txn, std::string_view instance_id, int64_t base_db_id,
-                            int64_t base_table_id, int64_t stream_db_id, int64_t stream_id,
-                            bool put_inverse = true) {
-        IndexIndexPB index;
-        index.set_db_id(base_db_id);
-        index.set_table_id(base_table_id);
-        index.set_object_type(TABLE_STREAM);
-        index.set_stream_db_id(stream_db_id);
-        txn->put(table_stream_index_key({instance_id, stream_id}), index.SerializeAsString());
-        txn->put(versioned::index_index_key({instance_id, stream_id}), index.SerializeAsString());
-        if (put_inverse) {
-            txn->put(table_stream_inverted_key({instance_id, base_db_id, base_table_id, stream_id}),
-                     "");
-            txn->put(versioned::index_inverted_key(
-                             {instance_id, base_db_id, base_table_id, stream_id}),
-                     "");
-        }
-    }
-
     TableStreamOffsetPB offset(int64_t partition_id, int64_t tso) {
         TableStreamOffsetPB value;
         value.set_partition_id(partition_id);
@@ -84,11 +65,10 @@ protected:
     std::shared_ptr<MemTxnKv> txn_kv_;
 };
 
-TEST_F(TableStreamCheckerTest, ConsistentMappingsAndOffsets) {
+TEST_F(TableStreamCheckerTest, ConsistentOffsets) {
     const std::string instance_id = "checker-consistent";
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get(), instance_id, 1, 2, 3, 4);
     auto value = offset(5, 100);
     put_offsets(txn.get(), instance_id, 1, 2, 3, 4, 5, value, value);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -98,36 +78,10 @@ TEST_F(TableStreamCheckerTest, ConsistentMappingsAndOffsets) {
     EXPECT_EQ(checker.do_table_stream_check(), 0);
 }
 
-TEST_F(TableStreamCheckerTest, DetectsMissingInverseMapping) {
-    const std::string instance_id = "checker-missing-inverse";
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get(), instance_id, 1, 2, 3, 4, false);
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
-    InstanceChecker checker(txn_kv_, instance_id);
-    ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
-    EXPECT_EQ(checker.do_table_stream_check(), 1);
-}
-
-TEST_F(TableStreamCheckerTest, DetectsOrphanOffset) {
-    const std::string instance_id = "checker-orphan-offset";
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
-    auto value = offset(5, 100);
-    put_offsets(txn.get(), instance_id, 1, 2, 3, 4, 5, value, value);
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
-    InstanceChecker checker(txn_kv_, instance_id);
-    ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
-    EXPECT_EQ(checker.do_table_stream_check(), 1);
-}
-
 TEST_F(TableStreamCheckerTest, DetectsLatestVersionedMismatch) {
     const std::string instance_id = "checker-offset-mismatch";
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get(), instance_id, 1, 2, 3, 4);
     put_offsets(txn.get(), instance_id, 1, 2, 3, 4, 5, offset(5, 100), offset(5, 99));
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -136,29 +90,10 @@ TEST_F(TableStreamCheckerTest, DetectsLatestVersionedMismatch) {
     EXPECT_EQ(checker.do_table_stream_check(), 1);
 }
 
-TEST_F(TableStreamCheckerTest, IgnoresPhysicalIndexInverseMapping) {
-    const std::string instance_id = "checker-physical-index";
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
-    IndexIndexPB index;
-    index.set_db_id(1);
-    index.set_table_id(2);
-    index.set_object_type(MATERIALIZED_INDEX);
-    txn->put(versioned::index_index_key({instance_id, 4}), index.SerializeAsString());
-    txn->put(versioned::index_inverted_key({instance_id, 1, 2, 4}), "");
-    txn->put(versioned::index_inverted_key({instance_id, 1, 2, 5}), "");
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
-    InstanceChecker checker(txn_kv_, instance_id);
-    ASSERT_EQ(checker.init(write_only_instance(instance_id)), 0);
-    EXPECT_EQ(checker.do_table_stream_check(), 0);
-}
-
 TEST_F(TableStreamCheckerTest, DetectsMalformedOffsetValue) {
     const std::string instance_id = "checker-malformed-offset";
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_stream_mapping(txn.get(), instance_id, 1, 2, 3, 4);
     TableStreamOffsetPB value;
     value.set_partition_id(5);
     value.set_state(TABLE_STREAM_OFFSET_CONSUMED);
@@ -191,14 +126,8 @@ TEST_F(TableStreamCheckerTest, CollectsPendingTableStreamDrop) {
     ASSERT_EQ(pending_drops.size(), 1);
     ASSERT_TRUE(pending_drops.contains(4));
 
-    IndexIndexPB index;
-    index.set_db_id(1);
-    index.set_table_id(2);
-    index.set_object_type(TABLE_STREAM);
-    index.set_stream_db_id(3);
-    EXPECT_TRUE(pending_drops.at(4).matches(index));
-    index.set_stream_db_id(5);
-    EXPECT_FALSE(pending_drops.at(4).matches(index));
+    EXPECT_TRUE(pending_drops.at(4).matches(1, 2, 3));
+    EXPECT_FALSE(pending_drops.at(4).matches(1, 2, 5));
 }
 
 TEST_F(TableStreamCheckerTest, DoesNotCollectPhysicalIndexDrop) {

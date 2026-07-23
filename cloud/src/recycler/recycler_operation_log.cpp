@@ -209,6 +209,7 @@ int OperationLogRecycler::recycle_drop_partition_log(const DropPartitionLogPB& d
         recycle_partition_pb.set_creation_time(::time(nullptr));
         recycle_partition_pb.set_expiration(drop_partition_log.expired_at_s());
         recycle_partition_pb.set_state(RecyclePartitionPB::DROPPED);
+        recycle_partition_pb.mutable_table_streams()->CopyFrom(drop_partition_log.table_streams());
         std::string recycle_partition_value;
         if (!recycle_partition_pb.SerializeToString(&recycle_partition_value)) {
             LOG_WARNING("failed to serialize RecyclePartitionPB").tag("partition_id", partition_id);

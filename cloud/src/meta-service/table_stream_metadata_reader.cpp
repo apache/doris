@@ -60,14 +60,6 @@ bool is_valid_table_stream_identity(const TableStreamIdentityPB& identity) {
            identity.stream_db_id() > 0 && identity.has_stream_id() && identity.stream_id() > 0;
 }
 
-bool matches_table_stream_identity(const IndexIndexPB& index,
-                                   const TableStreamIdentityPB& identity) {
-    return index.object_type() == IndexObjectTypePB::TABLE_STREAM && index.has_db_id() &&
-           index.db_id() == identity.base_db_id() && index.has_table_id() &&
-           index.table_id() == identity.base_table_id() && index.has_stream_db_id() &&
-           index.stream_db_id() == identity.stream_db_id();
-}
-
 TableStreamReadResult read_table_stream_multi_version_status(
         Transaction* txn, std::string_view instance_id, TableStreamReadIntent intent,
         MultiVersionStatus* multi_version_status) {
@@ -111,63 +103,6 @@ bool TableStreamMetadataReader::writes_versioned_metadata() const {
 
 bool TableStreamMetadataReader::snapshot(TableStreamReadIntent intent) const {
     return intent == TableStreamReadIntent::SNAPSHOT;
-}
-
-TableStreamReadResult TableStreamMetadataReader::read_current_stream_mappings(
-        const std::vector<int64_t>& stream_ids, TableStreamReadIntent intent,
-        std::unordered_map<int64_t, IndexIndexPB>* mappings) const {
-    std::vector<std::string> keys;
-    keys.reserve(stream_ids.size());
-    for (int64_t stream_id : stream_ids) {
-        keys.push_back(table_stream_index_key({instance_id_, stream_id}));
-    }
-
-    std::vector<std::optional<std::string>> values;
-    TxnErrorCode err =
-            txn_->batch_get(&values, keys, Transaction::BatchGetOptions(snapshot(intent)));
-    if (err != TxnErrorCode::TXN_OK) {
-        return read_error(err, "current Table Stream mappings");
-    }
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!values[i].has_value()) {
-            continue;
-        }
-        IndexIndexPB mapping;
-        if (!mapping.ParseFromString(*values[i])) {
-            return {MetaServiceCode::PROTOBUF_PARSE_ERR,
-                    fmt::format("malformed Table Stream mapping for stream {}", stream_ids[i])};
-        }
-        mappings->emplace(stream_ids[i], std::move(mapping));
-    }
-    return {};
-}
-
-TableStreamReadResult TableStreamMetadataReader::read_effective_stream_mappings(
-        const std::vector<int64_t>& stream_ids, TableStreamReadIntent intent,
-        std::unordered_map<int64_t, IndexIndexPB>* mappings) const {
-    if (!reads_from_clone_chain()) {
-        return read_current_stream_mappings(stream_ids, intent, mappings);
-    }
-
-    DCHECK(clone_chain_reader_ != nullptr);
-    TxnErrorCode err =
-            clone_chain_reader_->get_index_indexes(txn_, stream_ids, mappings, snapshot(intent));
-    if (err != TxnErrorCode::TXN_OK) {
-        return read_error(err, "effective Table Stream mappings");
-    }
-
-    std::unordered_set<int64_t> visible_stream_ids;
-    err = clone_chain_reader_->get_existing_indexes(txn_, stream_ids, &visible_stream_ids,
-                                                    snapshot(intent));
-    if (err != TxnErrorCode::TXN_OK) {
-        return read_error(err, "Table Stream visibility");
-    }
-    for (int64_t stream_id : stream_ids) {
-        if (!visible_stream_ids.contains(stream_id)) {
-            mappings->erase(stream_id);
-        }
-    }
-    return {};
 }
 
 TableStreamReadResult TableStreamMetadataReader::read_recycling_streams(

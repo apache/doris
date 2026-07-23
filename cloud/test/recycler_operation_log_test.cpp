@@ -306,6 +306,8 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
     uint64_t table_id = 2;
     uint64_t index_id = 3;
     uint64_t partition_id = 4;
+    uint64_t stream_db_id = 5;
+    uint64_t stream_id = 6;
     int64_t expiration = ::time(nullptr) + 3600; // 1 hour from now
 
     {
@@ -334,6 +336,11 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         drop_partition->add_index_ids(index_id);
         drop_partition->add_partition_ids(partition_id);
         drop_partition->set_expired_at_s(expiration);
+        TableStreamIdentityPB* stream = drop_partition->add_table_streams();
+        stream->set_base_db_id(db_id);
+        stream->set_base_table_id(table_id);
+        stream->set_stream_db_id(stream_db_id);
+        stream->set_stream_id(stream_id);
         drop_partition->set_update_table_version(
                 true); // Update table version to ensure the table version is removed
 
@@ -364,6 +371,11 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         ASSERT_EQ(recycle_partition_pb.index_id(0), index_id);
         ASSERT_EQ(recycle_partition_pb.state(), RecyclePartitionPB::DROPPED);
         ASSERT_EQ(recycle_partition_pb.expiration(), expiration);
+        ASSERT_EQ(recycle_partition_pb.table_streams_size(), 1);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).base_db_id(), db_id);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).base_table_id(), table_id);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).stream_db_id(), stream_db_id);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).stream_id(), stream_id);
     }
 
     // The table version key should be removed because update_table_version is true

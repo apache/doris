@@ -151,23 +151,6 @@ public:
             return false;
         }
 
-        std::unordered_map<int64_t, IndexIndexPB> stream_mappings;
-        if (!apply_read_result(metadata_reader_.read_effective_stream_mappings(
-                    stream_ids, TableStreamReadIntent::CONFLICT, &stream_mappings))) {
-            return false;
-        }
-        auto mapping_it = stream_mappings.find(identity.stream_id());
-        if (mapping_it == stream_mappings.end()) {
-            code_ = MetaServiceCode::INVALID_ARGUMENT;
-            msg_ = fmt::format("failed to read table stream {} mapping, err={}",
-                               identity.stream_id(), TxnErrorCode::TXN_KEY_NOT_FOUND);
-            return false;
-        }
-        if (!matches_table_stream_identity(mapping_it->second, identity)) {
-            code_ = MetaServiceCode::INVALID_ARGUMENT;
-            msg_ = fmt::format("table stream {} binding does not match", identity.stream_id());
-            return false;
-        }
         return true;
     }
 

@@ -134,6 +134,35 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         return result;
     }
 
+    public List<Cloud.TableStreamIdentityPB> getCloudTableStreamsForBaseTable(
+            long baseDbId, long baseTableId) {
+        List<Cloud.TableStreamIdentityPB> identities = new ArrayList<>();
+        for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
+            Optional<Database> streamDb = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (!streamDb.isPresent()) {
+                continue;
+            }
+            for (Long streamId : entry.getValue()) {
+                Optional<Table> table = streamDb.get().getTable(streamId);
+                if (!table.isPresent() || !(table.get() instanceof OlapTableStream)) {
+                    continue;
+                }
+                OlapTableStream stream = (OlapTableStream) table.get();
+                if (stream.getBaseTableInfo().getDbId() == baseDbId
+                        && stream.getBaseTableInfo().getTableId() == baseTableId) {
+                    identities.add(Cloud.TableStreamIdentityPB.newBuilder()
+                            .setBaseDbId(baseDbId)
+                            .setBaseTableId(baseTableId)
+                            .setStreamDbId(entry.getKey())
+                            .setStreamId(streamId)
+                            .build());
+                }
+            }
+        }
+        identities.sort((left, right) -> Long.compare(left.getStreamId(), right.getStreamId()));
+        return identities;
+    }
+
     public void cleanupStalePartitionOffsets() {
         List<Long> staleDbIds = new ArrayList<>();
         List<Pair<Long, Long>> staleStreamIds = new ArrayList<>();

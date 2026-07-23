@@ -525,8 +525,6 @@ InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::strin
 }
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
-    table_stream_read_from_clone_chain_ =
-            instance.multi_version_status() == MULTI_VERSION_READ_WRITE;
     table_stream_versioned_write_ = instance.multi_version_status() == MULTI_VERSION_WRITE_ONLY ||
                                     instance.multi_version_status() == MULTI_VERSION_READ_WRITE;
 
@@ -2335,73 +2333,12 @@ int InstanceChecker::scan_and_handle_kv(
     return ret;
 }
 
-// The checks share cached binding lookups and the Latest/Versioned head maps, so keeping the
-// mapping and offset passes together makes their cross-key invariants explicit.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+// The check validates Offset values and the Latest/Versioned projection invariant. FE Catalog is
+// the authority for Stream existence and binding, so no MS-side Stream Mapping is checked here.
 int InstanceChecker::do_table_stream_check() {
-    enum class BindingState { FOUND, RECYCLING, NOT_FOUND, ERROR };
-    struct BindingLookupResult {
-        BindingState state {BindingState::ERROR};
-        IndexIndexPB index;
-    };
     struct VersionedOffset {
         Versionstamp versionstamp;
         TableStreamOffsetPB offset;
-    };
-
-    std::unordered_map<int64_t, BindingLookupResult> binding_cache;
-    auto get_binding = [&](int64_t stream_id) -> BindingLookupResult& {
-        auto [it, inserted] = binding_cache.try_emplace(stream_id);
-        if (!inserted) {
-            return it->second;
-        }
-
-        BindingLookupResult& result = it->second;
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to create transaction while checking Table Stream binding")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream_id", stream_id)
-                    .tag("error_code", err);
-            return result;
-        }
-
-        std::string recycle_value;
-        err = txn->get(recycle_index_key({instance_id_, stream_id}), &recycle_value, true);
-        if (err == TxnErrorCode::TXN_OK) {
-            result.state = BindingState::RECYCLING;
-            return result;
-        }
-        if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            LOG_WARNING("failed to read RecycleIndexPB while checking Table Stream binding")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream_id", stream_id)
-                    .tag("error_code", err);
-            return result;
-        }
-
-        if (table_stream_read_from_clone_chain_) {
-            CloneChainReader reader(instance_id_, txn_kv_.get(), resource_mgr_.get());
-            err = reader.get_index_index(txn.get(), stream_id, &result.index, true);
-        } else {
-            std::string value;
-            err = txn->get(table_stream_index_key({instance_id_, stream_id}), &value, true);
-            if (err == TxnErrorCode::TXN_OK && !result.index.ParseFromString(value)) {
-                err = TxnErrorCode::TXN_INVALID_DATA;
-            }
-        }
-        if (err == TxnErrorCode::TXN_OK) {
-            result.state = BindingState::FOUND;
-        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            result.state = BindingState::NOT_FOUND;
-        } else {
-            LOG_WARNING("failed to read IndexIndexPB while checking Table Stream binding")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream_id", stream_id)
-                    .tag("error_code", err);
-        }
-        return result;
     };
 
     auto decode_components =
@@ -2414,203 +2351,27 @@ int InstanceChecker::do_table_stream_check() {
                 return decode_key(&key, components) == 0 && components->size() == expected_size;
             };
 
+    std::unordered_map<int64_t, int> recycling_streams;
+    auto is_recycling = [&](int64_t stream_id) {
+        auto cached = recycling_streams.find(stream_id);
+        if (cached != recycling_streams.end()) {
+            return cached->second;
+        }
+        const int existence =
+                key_exist(txn_kv_.get(), recycle_index_key({instance_id_, stream_id}));
+        const int result = existence < 0 ? -1 : existence == 0;
+        recycling_streams.emplace(stream_id, result);
+        return result;
+    };
+
     int check_ret = 0;
-    std::string begin = table_stream_index_key({instance_id_, 0});
-    const std::string current_index_end = table_stream_index_key({instance_id_, INT64_MAX});
-    int ret = scan_and_handle_kv(
-            begin, current_index_end, [&](std::string_view key, std::string_view value) {
-                IndexIndexPB index;
-                if (!index.ParseFromArray(value.data(), value.size())) {
-                    LOG_WARNING("failed to parse current Table Stream IndexIndexPB")
-                            .tag("key", hex(key));
-                    return -1;
-                }
-
-                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
-                if (!decode_components(key, 4, &components)) {
-                    LOG_WARNING("failed to decode current Table Stream mapping")
-                            .tag("key", hex(key));
-                    return -1;
-                }
-                int64_t stream_id = std::get<int64_t>(std::get<0>(components[3]));
-                if (index.object_type() != TABLE_STREAM || !index.has_db_id() ||
-                    !index.has_table_id() || !index.has_stream_db_id()) {
-                    LOG_WARNING("invalid current Table Stream mapping")
-                            .tag("instance_id", instance_id_)
-                            .tag("stream_id", stream_id);
-                    return 1;
-                }
-                int exists = key_exist(txn_kv_.get(),
-                                       table_stream_inverted_key({instance_id_, index.db_id(),
-                                                                  index.table_id(), stream_id}));
-                if (exists < 0) {
-                    return -1;
-                }
-                if (exists > 0) {
-                    LOG_WARNING("current Table Stream mapping has no inverse mapping")
-                            .tag("instance_id", instance_id_)
-                            .tag("stream_id", stream_id)
-                            .tag("base_db_id", index.db_id())
-                            .tag("base_table_id", index.table_id());
-                    return 1;
-                }
-                return 0;
-            });
-    if (ret < 0) {
-        return ret;
-    }
-    check_ret = std::max(check_ret, ret);
-
-    begin = table_stream_inverted_key({instance_id_, 0, 0, 0});
-    const std::string current_inverted_end =
-            table_stream_inverted_key({instance_id_, INT64_MAX, 0, 0});
-    ret = scan_and_handle_kv(
-            begin, current_inverted_end, [&](std::string_view key, std::string_view) {
-                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
-                if (!decode_components(key, 6, &components)) {
-                    LOG_WARNING("failed to decode current Table Stream inverse mapping")
-                            .tag("key", hex(key));
-                    return -1;
-                }
-                int64_t db_id = std::get<int64_t>(std::get<0>(components[3]));
-                int64_t table_id = std::get<int64_t>(std::get<0>(components[4]));
-                int64_t stream_id = std::get<int64_t>(std::get<0>(components[5]));
-
-                std::unique_ptr<Transaction> txn;
-                TxnErrorCode err = txn_kv_->create_txn(&txn);
-                if (err != TxnErrorCode::TXN_OK) {
-                    return -1;
-                }
-                std::string value;
-                err = txn->get(table_stream_index_key({instance_id_, stream_id}), &value, true);
-                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                    LOG_WARNING("current Table Stream inverse mapping has no forward mapping")
-                            .tag("instance_id", instance_id_)
-                            .tag("stream_id", stream_id);
-                    return 1;
-                }
-                if (err != TxnErrorCode::TXN_OK) {
-                    return -1;
-                }
-                IndexIndexPB index;
-                if (!index.ParseFromString(value)) {
-                    return -1;
-                }
-                if (index.object_type() != TABLE_STREAM || index.db_id() != db_id ||
-                    index.table_id() != table_id) {
-                    LOG_WARNING("current Table Stream mappings have different bindings")
-                            .tag("instance_id", instance_id_)
-                            .tag("stream_id", stream_id)
-                            .tag("forward_db_id", index.db_id())
-                            .tag("forward_table_id", index.table_id())
-                            .tag("inverse_db_id", db_id)
-                            .tag("inverse_table_id", table_id);
-                    return 1;
-                }
-                return 0;
-            });
-    if (ret < 0) {
-        return ret;
-    }
-    check_ret = std::max(check_ret, ret);
-
-    begin = versioned::index_index_key({instance_id_, 0});
-    const std::string index_end = versioned::index_index_key({instance_id_, INT64_MAX});
-    ret = scan_and_handle_kv(begin, index_end, [&](std::string_view key, std::string_view value) {
-        IndexIndexPB index;
-        if (!index.ParseFromArray(value.data(), value.size())) {
-            LOG_WARNING("failed to parse IndexIndexPB while checking mapping symmetry")
-                    .tag("key", hex(key));
-            return -1;
-        }
-        if (index.object_type() != TABLE_STREAM) {
-            return 0;
-        }
-
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
-        if (!decode_components(key, 4, &components)) {
-            LOG_WARNING("failed to decode TABLE_STREAM IndexIndex key").tag("key", hex(key));
-            return -1;
-        }
-        int64_t stream_id = std::get<int64_t>(std::get<0>(components[3]));
-        int exists = key_exist(txn_kv_.get(),
-                               versioned::index_inverted_key(
-                                       {instance_id_, index.db_id(), index.table_id(), stream_id}));
-        if (exists < 0) {
-            return -1;
-        }
-        if (exists > 0) {
-            LOG_WARNING("TABLE_STREAM Index Mapping has no inverse mapping")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream_id", stream_id)
-                    .tag("base_db_id", index.db_id())
-                    .tag("base_table_id", index.table_id());
-            return 1;
-        }
-        return 0;
-    });
-    if (ret < 0) {
-        return ret;
-    }
-    check_ret = std::max(check_ret, ret);
-
-    begin = versioned::index_inverted_key({instance_id_, 0, 0, 0});
-    const std::string inverted_end = versioned::index_inverted_key({instance_id_, INT64_MAX, 0, 0});
-    ret = scan_and_handle_kv(begin, inverted_end, [&](std::string_view key, std::string_view) {
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
-        if (!decode_components(key, 6, &components)) {
-            LOG_WARNING("failed to decode IndexInverted key").tag("key", hex(key));
-            return -1;
-        }
-        int64_t db_id = std::get<int64_t>(std::get<0>(components[3]));
-        int64_t table_id = std::get<int64_t>(std::get<0>(components[4]));
-        int64_t index_id = std::get<int64_t>(std::get<0>(components[5]));
-
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
-        std::string value;
-        err = txn->get(versioned::index_index_key({instance_id_, index_id}), &value, true);
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // The inverse value is empty, so its object type cannot be determined without the
-            // forward mapping. Leave missing physical-index mappings to the existing checker.
-            return 0;
-        }
-        if (err != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
-        IndexIndexPB index;
-        if (!index.ParseFromString(value)) {
-            return -1;
-        }
-        if (index.object_type() != TABLE_STREAM) {
-            return 0;
-        }
-        if (index.db_id() != db_id || index.table_id() != table_id) {
-            LOG_WARNING("Index forward and inverse mappings have different bindings")
-                    .tag("instance_id", instance_id_)
-                    .tag("index_id", index_id)
-                    .tag("forward_db_id", index.db_id())
-                    .tag("forward_table_id", index.table_id())
-                    .tag("inverse_db_id", db_id)
-                    .tag("inverse_table_id", table_id);
-            return 1;
-        }
-        return 0;
-    });
-    if (ret < 0) {
-        return ret;
-    }
-    check_ret = std::max(check_ret, ret);
-
     std::unordered_map<std::string, TableStreamOffsetPB> latest_offsets;
     auto validate_offset = [&](int64_t base_db_id, int64_t base_table_id, int64_t stream_db_id,
                                int64_t stream_id, int64_t partition_id,
                                const TableStreamOffsetPB& offset) {
-        if (!offset.has_partition_id() || !offset.has_state() || !offset.has_offset_tso() ||
-            offset.partition_id() != partition_id ||
+        if (base_db_id <= 0 || base_table_id <= 0 || stream_db_id <= 0 || stream_id <= 0 ||
+            partition_id <= 0 || !offset.has_partition_id() || !offset.has_state() ||
+            !offset.has_offset_tso() || offset.partition_id() != partition_id ||
             (offset.state() != TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING &&
              offset.state() != TABLE_STREAM_OFFSET_CONSUMED)) {
             LOG_WARNING("Table Stream Offset value does not match its key")
@@ -2622,58 +2383,46 @@ int InstanceChecker::do_table_stream_check() {
             return 1;
         }
 
-        BindingLookupResult& binding = get_binding(stream_id);
-        if (binding.state == BindingState::RECYCLING) {
-            return 2;
-        }
-        if (binding.state == BindingState::ERROR) {
+        const int recycling = is_recycling(stream_id);
+        if (recycling < 0) {
             return -1;
         }
-        if (binding.state == BindingState::NOT_FOUND ||
-            binding.index.object_type() != TABLE_STREAM || binding.index.db_id() != base_db_id ||
-            binding.index.table_id() != base_table_id ||
-            binding.index.stream_db_id() != stream_db_id) {
-            LOG_WARNING("orphan or mismatched Table Stream Offset")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream_id", stream_id)
-                    .tag("base_db_id", base_db_id)
-                    .tag("base_table_id", base_table_id)
-                    .tag("stream_db_id", stream_db_id)
-                    .tag("partition_id", partition_id);
-            return 1;
+        if (recycling > 0) {
+            return 2;
         }
         return 0;
     };
 
-    begin = table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
+    std::string begin = table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
     const std::string latest_end = table_stream_offset_key({instance_id_, INT64_MAX, 0, 0, 0, 0});
-    ret = scan_and_handle_kv(begin, latest_end, [&](std::string_view key, std::string_view value) {
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
-        if (!decode_components(key, 8, &components)) {
-            LOG_WARNING("failed to decode Latest Stream Offset key").tag("key", hex(key));
-            return -1;
-        }
-        TableStreamOffsetPB offset;
-        if (!offset.ParseFromArray(value.data(), value.size())) {
-            LOG_WARNING("failed to parse Latest Stream Offset").tag("key", hex(key));
-            return -1;
-        }
-        int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
-        int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
-        int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
-        int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
-        int64_t partition_id = std::get<int64_t>(std::get<0>(components[7]));
-        int validation = validate_offset(base_db_id, base_table_id, stream_db_id, stream_id,
-                                         partition_id, offset);
-        if (validation == 2) {
-            return 0;
-        }
-        if (validation != 0) {
-            return validation;
-        }
-        latest_offsets.emplace(std::string(key), std::move(offset));
-        return 0;
-    });
+    int ret = scan_and_handle_kv(
+            begin, latest_end, [&](std::string_view key, std::string_view value) {
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
+                if (!decode_components(key, 8, &components)) {
+                    LOG_WARNING("failed to decode Latest Stream Offset key").tag("key", hex(key));
+                    return -1;
+                }
+                TableStreamOffsetPB offset;
+                if (!offset.ParseFromArray(value.data(), value.size())) {
+                    LOG_WARNING("failed to parse Latest Stream Offset").tag("key", hex(key));
+                    return -1;
+                }
+                int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
+                int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
+                int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
+                int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
+                int64_t partition_id = std::get<int64_t>(std::get<0>(components[7]));
+                int validation = validate_offset(base_db_id, base_table_id, stream_db_id, stream_id,
+                                                 partition_id, offset);
+                if (validation == 2) {
+                    return 0;
+                }
+                if (validation != 0) {
+                    return validation;
+                }
+                latest_offsets.emplace(std::string(key), std::move(offset));
+                return 0;
+            });
     if (ret < 0) {
         return ret;
     }

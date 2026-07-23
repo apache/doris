@@ -1006,44 +1006,6 @@ TxnErrorCode MetaReader::get_partition_indexes(
     return TxnErrorCode::TXN_OK;
 }
 
-TxnErrorCode MetaReader::get_index_indexes(Transaction* txn, const std::vector<int64_t>& index_ids,
-                                           std::unordered_map<int64_t, IndexIndexPB>* index_indexes,
-                                           bool snapshot) {
-    if (index_ids.empty()) {
-        return TxnErrorCode::TXN_OK;
-    }
-
-    std::vector<std::string> keys;
-    keys.reserve(index_ids.size());
-    for (int64_t index_id : index_ids) {
-        keys.push_back(versioned::index_index_key({instance_id_, index_id}));
-    }
-
-    std::vector<std::optional<std::string>> values;
-    Transaction::BatchGetOptions options(snapshot);
-    TxnErrorCode err = txn->batch_get(&values, keys, options);
-    if (err != TxnErrorCode::TXN_OK) {
-        return err;
-    }
-
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!values[i].has_value()) {
-            continue;
-        }
-        int64_t index_id = index_ids[i];
-        IndexIndexPB index_index;
-        if (!index_index.ParseFromString(*values[i])) {
-            LOG_ERROR("Failed to parse IndexIndexPB")
-                    .tag("instance_id", instance_id_)
-                    .tag("index_id", index_id)
-                    .tag("key", hex(keys[i]));
-            return TxnErrorCode::TXN_INVALID_DATA;
-        }
-        index_indexes->emplace(index_id, std::move(index_index));
-    }
-    return TxnErrorCode::TXN_OK;
-}
-
 TxnErrorCode MetaReader::get_existing_partitions(
         Transaction* txn, const std::vector<int64_t>& partition_ids,
         std::unordered_set<int64_t>* existing_partition_ids, bool snapshot) {
@@ -1068,36 +1030,6 @@ TxnErrorCode MetaReader::get_existing_partitions(
             continue;
         }
         existing_partition_ids->insert(partition_ids[i]);
-        min_read_versionstamp_ = std::min(min_read_versionstamp_, values[i]->second);
-    }
-    return TxnErrorCode::TXN_OK;
-}
-
-TxnErrorCode MetaReader::get_existing_indexes(Transaction* txn,
-                                              const std::vector<int64_t>& index_ids,
-                                              std::unordered_set<int64_t>* existing_index_ids,
-                                              bool snapshot) {
-    if (index_ids.empty()) {
-        return TxnErrorCode::TXN_OK;
-    }
-
-    std::vector<std::string> keys;
-    keys.reserve(index_ids.size());
-    for (int64_t index_id : index_ids) {
-        keys.push_back(versioned::meta_index_key({instance_id_, index_id}));
-    }
-
-    std::vector<std::optional<std::pair<std::string, Versionstamp>>> values;
-    TxnErrorCode err = versioned_batch_get(txn, keys, snapshot_version_, &values, snapshot);
-    if (err != TxnErrorCode::TXN_OK) {
-        return err;
-    }
-
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!values[i].has_value()) {
-            continue;
-        }
-        existing_index_ids->insert(index_ids[i]);
         min_read_versionstamp_ = std::min(min_read_versionstamp_, values[i]->second);
     }
     return TxnErrorCode::TXN_OK;

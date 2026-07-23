@@ -52,10 +52,10 @@ struct PendingTableStreamDrop {
     int64_t base_table_id;
     int64_t stream_db_id;
 
-    bool matches(const IndexIndexPB& index) const {
-        return index.object_type() == TABLE_STREAM && index.has_stream_db_id() &&
-               index.db_id() == base_db_id && index.table_id() == base_table_id &&
-               index.stream_db_id() == stream_db_id;
+    bool matches(int64_t offset_base_db_id, int64_t offset_base_table_id,
+                 int64_t offset_stream_db_id) const {
+        return base_db_id == offset_base_db_id && base_table_id == offset_base_table_id &&
+               stream_db_id == offset_stream_db_id;
     }
 };
 
@@ -279,7 +279,6 @@ private:
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
     std::shared_ptr<ResourceManager> resource_mgr_;
-    bool table_stream_read_from_clone_chain_ {false};
     bool table_stream_versioned_write_ {false};
 };
 

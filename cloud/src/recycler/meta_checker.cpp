@@ -36,7 +36,6 @@
 #include "common/util.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
-#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/versioned_value.h"
@@ -980,13 +979,13 @@ bool MetaChecker::do_table_stream_meta_check() {
     }
     mysql_free_result(result);
 
-    auto matches = [](const TableStreamInfo& stream, const IndexIndexPB& index) {
-        if (index.object_type() != TABLE_STREAM || !index.has_stream_db_id() ||
-            index.stream_db_id() != stream.stream_db_id) {
+    auto matches = [](const TableStreamInfo& stream, int64_t base_db_id, int64_t base_table_id,
+                      int64_t stream_db_id) {
+        if (stream.stream_db_id != stream_db_id) {
             return false;
         }
         if (stream.base_db_id >= 0 && stream.base_table_id >= 0) {
-            return index.db_id() == stream.base_db_id && index.table_id() == stream.base_table_id;
+            return stream.base_db_id == base_db_id && stream.base_table_id == base_table_id;
         }
         return stream.stale;
     };
@@ -1000,110 +999,81 @@ bool MetaChecker::do_table_stream_meta_check() {
         return false;
     }
 
-    std::unique_ptr<Transaction> txn;
-    err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to create transaction while checking FE Table Stream metadata")
-                .tag("instance_id", instance_id_)
-                .tag("error_code", err);
-        return false;
-    }
-    CloneChainReader reader(instance_id_, txn_kv_.get(), resource_mgr_.get());
-    const bool is_versioned_read = resource_mgr_->is_version_read_enabled(instance_id_);
-    for (const auto& [stream_id, stream] : fe_streams) {
-        IndexIndexPB index;
-        if (is_versioned_read) {
-            err = reader.get_index_index(txn.get(), stream_id, &index, true);
-        } else {
-            std::string value;
-            err = txn->get(table_stream_index_key({instance_id_, stream_id}), &value, true);
-            if (err == TxnErrorCode::TXN_OK && !index.ParseFromString(value)) {
-                err = TxnErrorCode::TXN_INVALID_DATA;
+    auto decode_components =
+            [](std::string_view key,
+               std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* components) {
+                if (key.empty()) {
+                    return false;
+                }
+                key.remove_prefix(1);
+                return decode_key(&key, components) == 0 && components->size() == 8;
+            };
+
+    std::string begin = table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
+    const std::string end = table_stream_offset_key({instance_id_, INT64_MAX, 0, 0, 0, 0});
+    bool scan_result = scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view) {
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
+        if (!decode_components(key, &components)) {
+            LOG_WARNING("failed to decode Latest Stream Offset key")
+                    .tag("instance_id", instance_id_)
+                    .tag("key", hex(key));
+            check_result = false;
+            return -1;
+        }
+        const int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
+        const int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
+        const int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
+        const int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
+
+        std::string recycle_value;
+        std::unique_ptr<Transaction> recycle_txn;
+        TxnErrorCode recycle_err = txn_kv_->create_txn(&recycle_txn);
+        if (recycle_err != TxnErrorCode::TXN_OK) {
+            check_result = false;
+            return -1;
+        }
+        recycle_err = recycle_txn->get(recycle_index_key({instance_id_, stream_id}), &recycle_value,
+                                       true);
+        if (recycle_err == TxnErrorCode::TXN_OK) {
+            RecycleIndexPB recycle_index;
+            if (!recycle_index.ParseFromString(recycle_value) ||
+                recycle_index.object_type() != TABLE_STREAM ||
+                recycle_index.db_id() != base_db_id || recycle_index.table_id() != base_table_id ||
+                recycle_index.stream_db_id() != stream_db_id) {
+                LOG_WARNING("Latest Stream Offset does not match RecycleIndexPB")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id);
+                check_result = false;
+            }
+            return 0;
+        }
+        if (recycle_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            check_result = false;
+            return -1;
+        }
+
+        auto stream_it = fe_streams.find(stream_id);
+        if (stream_it != fe_streams.end()) {
+            if (matches(stream_it->second, base_db_id, base_table_id, stream_db_id)) {
+                return 0;
             }
         }
-        if (err != TxnErrorCode::TXN_OK || !matches(stream, index)) {
-            LOG_WARNING("FE Table Stream does not match its effective MS typed Index binding")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream", stream.debug_string())
-                    .tag("index", index.ShortDebugString())
-                    .tag("error_code", err);
-            check_result = false;
+
+        auto pending_drop = pending_drops.find(stream_id);
+        if (pending_drop != pending_drops.end() &&
+            pending_drop->second.matches(base_db_id, base_table_id, stream_db_id)) {
+            return 0;
         }
-    }
 
-    std::string begin = is_versioned_read ? versioned::index_index_key({instance_id_, 0})
-                                          : table_stream_index_key({instance_id_, 0});
-    const std::string end = is_versioned_read
-                                    ? versioned::index_index_key({instance_id_, INT64_MAX})
-                                    : table_stream_index_key({instance_id_, INT64_MAX});
-    bool scan_result =
-            scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view value) {
-                IndexIndexPB index;
-                if (!index.ParseFromArray(value.data(), value.size())) {
-                    LOG_WARNING("failed to parse IndexIndexPB while checking FE Catalog")
-                            .tag("instance_id", instance_id_)
-                            .tag("key", hex(key));
-                    check_result = false;
-                    return -1;
-                }
-                if (index.object_type() != TABLE_STREAM) {
-                    return 0;
-                }
-
-                std::string_view logical_key = key;
-                logical_key.remove_prefix(1);
-                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
-                if (decode_key(&logical_key, &components) != 0 || components.size() != 4) {
-                    LOG_WARNING("failed to decode Table Stream Index Mapping key")
-                            .tag("instance_id", instance_id_)
-                            .tag("key", hex(key));
-                    check_result = false;
-                    return -1;
-                }
-                const int64_t stream_id = std::get<int64_t>(std::get<0>(components[3]));
-
-                std::string recycle_value;
-                std::unique_ptr<Transaction> recycle_txn;
-                TxnErrorCode recycle_err = txn_kv_->create_txn(&recycle_txn);
-                if (recycle_err != TxnErrorCode::TXN_OK) {
-                    check_result = false;
-                    return -1;
-                }
-                recycle_err = recycle_txn->get(recycle_index_key({instance_id_, stream_id}),
-                                               &recycle_value, true);
-                if (recycle_err == TxnErrorCode::TXN_OK) {
-                    return 0;
-                }
-                if (recycle_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                    check_result = false;
-                    return -1;
-                }
-
-                auto stream_it = fe_streams.find(stream_id);
-                if (stream_it != fe_streams.end()) {
-                    if (matches(stream_it->second, index)) {
-                        return 0;
-                    }
-                    LOG_WARNING("local MS typed Index binding has no matching FE Table Stream")
-                            .tag("instance_id", instance_id_)
-                            .tag("stream_id", stream_id)
-                            .tag("index", index.ShortDebugString());
-                    check_result = false;
-                    return 0;
-                }
-
-                auto pending_drop = pending_drops.find(stream_id);
-                if (pending_drop != pending_drops.end() && pending_drop->second.matches(index)) {
-                    return 0;
-                }
-
-                LOG_WARNING("local MS typed Index binding has no matching FE Table Stream")
-                        .tag("instance_id", instance_id_)
-                        .tag("stream_id", stream_id)
-                        .tag("index", index.ShortDebugString());
-                check_result = false;
-                return 0;
-            });
+        LOG_WARNING("Latest Stream Offset has no matching FE Table Stream")
+                .tag("instance_id", instance_id_)
+                .tag("stream_id", stream_id)
+                .tag("base_db_id", base_db_id)
+                .tag("base_table_id", base_table_id)
+                .tag("stream_db_id", stream_db_id);
+        check_result = false;
+        return 0;
+    });
     return scan_result && check_result;
 }
 

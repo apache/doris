@@ -244,27 +244,6 @@ txn_id=126419752960)",
         R"({"rowset_id":"0","tablet_id":"10010","txn_id":"10086","start_version":"2","end_version":"2","rowset_id_v2":"rowset_id_1"})",
     },
     Input {
-        "TableStreamIndexKey",
-        "instance_id=gavin-instance&stream_id=40000",
-        {hex(table_stream_index_key({"gavin-instance", 40000}))},
-        []() -> std::vector<std::string> {
-            IndexIndexPB pb;
-            pb.set_db_id(10000);
-            pb.set_table_id(20000);
-            pb.set_object_type(TABLE_STREAM);
-            pb.set_stream_db_id(30000);
-            return {pb.SerializeAsString()};
-        },
-        R"({"db_id":"10000","table_id":"20000","object_type":"TABLE_STREAM","stream_db_id":"30000"})",
-    },
-    Input {
-        "TableStreamInvertedKey",
-        "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_id=40000",
-        {hex(table_stream_inverted_key({"gavin-instance", 10000, 20000, 40000}))},
-        []() -> std::vector<std::string> { return {""}; },
-        R"({})",
-    },
-    Input {
         "TableStreamOffsetKey",
         "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&stream_id=40000&partition_id=50000",
         {hex(table_stream_offset_key({"gavin-instance", 10000, 20000, 30000, 40000, 50000}))},
@@ -1156,56 +1135,6 @@ TEST(HttpTableStreamOffsetTest, get_and_set_latest_and_versioned_offsets) {
     ASSERT_EQ(http_res.status_code, 200) << http_res.body;
     EXPECT_NE(http_res.body.find(proto_to_json(versioned_offset)), std::string::npos);
     EXPECT_NE(http_res.body.find("versionstamp=00000000000000010001"), std::string::npos);
-}
-
-TEST(HttpTableStreamMappingTest, set_and_get_empty_inverted_mapping) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    brpc::Controller controller;
-    brpc::URI uri;
-    ASSERT_EQ(uri.SetHttpURL(
-                      "localhost:5000/MetaService/http?key_type=TableStreamInvertedKey&instance_"
-                      "id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_id=40000"),
-              0);
-    controller.http_request().uri() = uri;
-    HttpResponse response = process_http_set_value(txn_kv.get(), &controller);
-    ASSERT_EQ(response.status_code, 200) << response.body;
-
-    response = process_http_get_value(txn_kv.get(), uri);
-    ASSERT_EQ(response.status_code, 200) << response.body;
-    EXPECT_EQ(response.body, "{}");
-}
-
-TEST(HttpGetValueTest, empty_versioned_values_are_readable) {
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    txn->put(versioned::index_inverted_key({"gavin-instance", 10000, 20000, 10086}), "");
-    Versionstamp versionstamp(1, 1);
-    versioned_put(txn.get(), versioned::meta_index_key({"gavin-instance", 10086}), versionstamp,
-                  "");
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
-    brpc::URI inverted_uri;
-    ASSERT_EQ(inverted_uri.SetHttpURL(
-                      "localhost:5000/MetaService/http?key_type=VersionedIndexInvertedKey&"
-                      "instance_id=gavin-instance&db_id=10000&table_id=20000&index_id=10086"),
-              0);
-    auto http_res = process_http_get_value(txn_kv.get(), inverted_uri);
-    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
-    EXPECT_EQ(http_res.body, "{}");
-
-    brpc::URI meta_uri;
-    ASSERT_EQ(meta_uri.SetHttpURL(
-                      "localhost:5000/MetaService/http?key_type=VersionedMetaIndexKey&instance_id="
-                      "gavin-instance&index_id=10086"),
-              0);
-    http_res = process_http_get_value(txn_kv.get(), meta_uri);
-    ASSERT_EQ(http_res.status_code, 200) << http_res.body;
-    EXPECT_EQ(http_res.body, "{}\\nversionstamp=00000000000000010001");
 }
 
 TEST(HttpEncodeKeyTest, parse_versionstamp_from_uri_test) {
