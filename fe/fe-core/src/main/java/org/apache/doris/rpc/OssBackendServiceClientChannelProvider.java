@@ -30,20 +30,16 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
     @Override
     public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor) {
         String targetHost = (resolvedIp != null && !resolvedIp.isEmpty()) ? resolvedIp : address.getHostname();
-        NettyChannelBuilder channelBuilder = NettyChannelBuilder.forAddress(targetHost, address.getPort())
+        return NettyChannelBuilder.forAddress(targetHost, address.getPort())
+                .executor(executor)
                 .keepAliveTime(Config.grpc_keep_alive_second, TimeUnit.SECONDS)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
                 .enableRetry()
                 .maxRetryAttempts(10)
-                .usePlaintext();
-        if (Config.grpc_backend_client_use_direct_executor) {
-            channelBuilder.directExecutor();
-        } else {
-            channelBuilder.executor(executor);
-        }
-        return channelBuilder.build();
+                .usePlaintext()
+                .build();
     }
 
     @Override
