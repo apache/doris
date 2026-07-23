@@ -501,7 +501,8 @@ public interface IcebergCatalogOps {
                     throw new DorisConnectorException("Modify column type from non-complex to complex is not"
                             + " supported: " + column.getName());
                 }
-                IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType);
+                IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType,
+                        column.getSourceType());
                 if (!Objects.equals(current.doc(), targetComment)) {
                     updateSchema.updateColumnDoc(column.getName(), targetComment);
                 }

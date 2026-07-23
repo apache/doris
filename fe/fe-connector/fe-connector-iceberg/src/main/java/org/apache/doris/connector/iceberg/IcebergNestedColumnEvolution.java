@@ -154,7 +154,8 @@ public final class IcebergNestedColumnEvolution {
                 throw new DorisConnectorException(
                         "Cannot change nullable column " + columnPath + " to not null");
             }
-            IcebergComplexTypeDiff.apply(updateSchema, columnPath, currentCol.type(), newType);
+            IcebergComplexTypeDiff.apply(updateSchema, columnPath, currentCol.type(), newType,
+                    column.getSourceType());
             if (!Objects.equals(currentCol.doc(), targetComment)) {
                 updateSchema.updateColumnDoc(columnPath, targetComment);
             }

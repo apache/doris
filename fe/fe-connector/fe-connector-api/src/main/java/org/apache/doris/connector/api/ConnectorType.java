@@ -40,7 +40,10 @@ import java.util.Objects;
  * {@link #hashCode()}</b>: type identity stays the structural shape (name/precision/scale/children/field
  * names), matching the legacy Doris {@code Type} comparison that drives schema-change detection (nullability
  * and comment are compared separately, field-by-field, by the consumer) and keeping every existing
- * equality-based caller/test unaffected.</p>
+ * equality-based caller/test unaffected. A parallel {@link #isChildCommentSpecified(int)} flag (default
+ * {@code true} when unset) records whether each STRUCT field's COMMENT was explicitly written — the one bit
+ * the comment string cannot carry (an omitted COMMENT and {@code COMMENT ''} both store an empty string) —
+ * so a connector's nested complex {@code MODIFY COLUMN} diff can preserve vs clear a field's current doc.</p>
  *
  * <p><b>Per-child field id</b> ({@link #getChildFieldId(int)}, set via {@link #withChildrenFieldIds(List)}):
  * the stable id of each child field, parallel to {@link #getChildren()}. Also <em>additive</em> and excluded
@@ -69,6 +72,16 @@ public final class ConnectorType {
     // nested access path from field names to ids (SlotTypeReplacer) and the BE field-id scan path can match
     // nested leaves by id; ConnectorColumnConverter applies these onto the Doris child column tree's uniqueId.
     private final List<Integer> childrenFieldIds;
+    // Per-child "was the comment explicitly specified?" flag, parallel to children (STRUCT fields). Empty (or
+    // shorter than children) means "unset" -> the missing entries default to true (the carried comment is
+    // authoritative), preserving legacy behavior for callers that never populate it. NOT part of equals().
+    // This is the one bit {@link #childrenComments} cannot encode: a Doris STRUCT field stores an omitted
+    // COMMENT as a non-null empty string, so "COMMENT omitted" and "COMMENT ''" collapse to the same comment
+    // value and are distinguishable ONLY by this flag. A connector's nested complex {@code MODIFY COLUMN} diff
+    // reads it to keep the field's CURRENT doc when the COMMENT was omitted vs clear it when it was "" (#65329
+    // omit-preserves-metadata). Unused by CREATE / ADD (a new field has no prior doc), so those paths are
+    // unaffected.
+    private final List<Boolean> childrenCommentSpecified;
 
     public ConnectorType(String typeName) {
         this(typeName, -1, -1, Collections.emptyList(),
@@ -103,6 +116,14 @@ public final class ConnectorType {
             List<ConnectorType> children, List<String> fieldNames,
             List<Boolean> childrenNullable, List<String> childrenComments,
             List<Integer> childrenFieldIds) {
+        this(typeName, precision, scale, children, fieldNames, childrenNullable, childrenComments,
+                childrenFieldIds, Collections.emptyList());
+    }
+
+    public ConnectorType(String typeName, int precision, int scale,
+            List<ConnectorType> children, List<String> fieldNames,
+            List<Boolean> childrenNullable, List<String> childrenComments,
+            List<Integer> childrenFieldIds, List<Boolean> childrenCommentSpecified) {
         this.typeName = Objects.requireNonNull(typeName, "typeName");
         this.precision = precision;
         this.scale = scale;
@@ -121,6 +142,9 @@ public final class ConnectorType {
         this.childrenFieldIds = childrenFieldIds == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(childrenFieldIds);
+        this.childrenCommentSpecified = childrenCommentSpecified == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(childrenCommentSpecified);
     }
 
     /** Factory: simple type with no parameters. */
@@ -178,6 +202,19 @@ public final class ConnectorType {
     }
 
     /**
+     * Factory: STRUCT type with named fields plus per-field nullability, comments, and comment-specified flags
+     * (parallel lists). The {@code fieldCommentSpecified} flag lets a connector's nested complex {@code MODIFY
+     * COLUMN} diff distinguish an omitted COMMENT (preserve the current doc) from {@code COMMENT ''} (clear it),
+     * which {@code fieldComments} alone cannot encode. Additive / excluded from {@link #equals(Object)}.
+     */
+    public static ConnectorType structOf(List<String> names,
+            List<ConnectorType> fieldTypes, List<Boolean> fieldNullable, List<String> fieldComments,
+            List<Boolean> fieldCommentSpecified) {
+        return new ConnectorType("STRUCT", -1, -1, fieldTypes, names, fieldNullable, fieldComments,
+                Collections.emptyList(), fieldCommentSpecified);
+    }
+
+    /**
      * Returns a copy of this type carrying the given per-child field ids (parallel to {@link #getChildren()}:
      * STRUCT fields in order / ARRAY element / MAP key+value). Additive and excluded from equality — used by
      * connectors that track a stable per-field id (iceberg) so {@code ConnectorColumnConverter} can stamp the
@@ -186,7 +223,7 @@ public final class ConnectorType {
      */
     public ConnectorType withChildrenFieldIds(List<Integer> fieldIds) {
         return new ConnectorType(typeName, precision, scale, children, fieldNames,
-                childrenNullable, childrenComments, fieldIds);
+                childrenNullable, childrenComments, fieldIds, childrenCommentSpecified);
     }
 
     public String getTypeName() {
@@ -222,6 +259,21 @@ public final class ConnectorType {
     /** The full per-child field-id list (may be empty / shorter than children when unset). */
     public List<Integer> getChildrenFieldIds() {
         return childrenFieldIds;
+    }
+
+    /** The full per-child comment-specified list (may be empty / shorter than children when unset). */
+    public List<Boolean> getChildrenCommentSpecified() {
+        return childrenCommentSpecified;
+    }
+
+    /**
+     * Whether the comment of the child at {@code index} was explicitly specified. Defaults to {@code true}
+     * (the carried comment is authoritative) when not carried for that index (legacy factories / CREATE /
+     * ADD), preserving prior behavior. A connector's nested complex MODIFY diff reads this to keep the field's
+     * current doc when the COMMENT was omitted ({@code false}) instead of clearing it.
+     */
+    public boolean isChildCommentSpecified(int index) {
+        return index >= childrenCommentSpecified.size() || childrenCommentSpecified.get(index);
     }
 
     /**

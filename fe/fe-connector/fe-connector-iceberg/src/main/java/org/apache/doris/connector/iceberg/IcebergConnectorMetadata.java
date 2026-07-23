@@ -1212,8 +1212,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // CURRENT type — legacy validated in Doris type space, where the narrow target still exists.
             throw upgradeNestedModifyError(iceHandle, column, buildError);
         }
+        // Carry the neutral source type so a complex-type diff can read each STRUCT field's commentSpecified.
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
-                column.getComment(), null, column.isNullable());
+                column.getComment(), null, column.isNullable(), column.getType());
         boolean commentSpecified = column.isCommentSpecified();
         try {
             context.executeAuthenticated(() -> {
@@ -1394,8 +1395,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (DorisConnectorException buildError) {
             throw upgradeNestedModifyError(iceHandle, column, buildError);
         }
+        // Carry the neutral source type so the nested complex-type diff can read each STRUCT field's
+        // commentSpecified (an omitted COMMENT on a sub-field must keep its current doc, not clear it).
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
-                column.getComment(), null, column.isNullable());
+                column.getComment(), null, column.isNullable(), column.getType());
         boolean nullableSpecified = column.isNullableSpecified();
         boolean commentSpecified = column.isCommentSpecified();
         try {

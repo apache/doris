@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorType;
+
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
 
@@ -42,13 +44,24 @@ public final class IcebergColumnChange {
     // The parsed iceberg default literal, or null when no DEFAULT clause / not applicable (MODIFY).
     private final Literal<?> defaultValue;
     private final boolean nullable;
+    // The neutral type this iceberg {@code type} was built from, carried ONLY for a complex-type MODIFY so the
+    // field-by-field diff ({@link IcebergComplexTypeDiff}) can read each STRUCT field's commentSpecified flag
+    // (absent from the iceberg type, which stores only a doc string). Null for ADD and scalar MODIFY, which do
+    // not diff.
+    private final ConnectorType sourceType;
 
     public IcebergColumnChange(String name, Type type, String comment, Literal<?> defaultValue, boolean nullable) {
+        this(name, type, comment, defaultValue, nullable, null);
+    }
+
+    public IcebergColumnChange(String name, Type type, String comment, Literal<?> defaultValue, boolean nullable,
+            ConnectorType sourceType) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
         this.defaultValue = defaultValue;
         this.nullable = nullable;
+        this.sourceType = sourceType;
     }
 
     public String getName() {
@@ -69,6 +82,11 @@ public final class IcebergColumnChange {
 
     public boolean isNullable() {
         return nullable;
+    }
+
+    /** The neutral source type (for a complex MODIFY diff), or null for ADD / scalar MODIFY. */
+    public ConnectorType getSourceType() {
+        return sourceType;
     }
 
     @Override
