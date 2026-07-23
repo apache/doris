@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -58,5 +59,26 @@ public class NereidsRoutineLoadTaskInfoTest {
     public void testIsFillMissingColumnsDefault() {
         NereidsRoutineLoadTaskInfo taskInfo = buildTaskInfo(new HashMap<>());
         Assertions.assertFalse(taskInfo.isFillMissingColumns());
+    }
+
+    @Test
+    public void testFillMissingColumnsPropagatedToDataDescriptionAnalysisMap() {
+        Map<String, String> jobProperties = new HashMap<>();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "true");
+        NereidsRoutineLoadTaskInfo taskInfo = buildTaskInfo(jobProperties);
+
+        NereidsDataDescription desc = new NereidsDataDescription("tbl", taskInfo);
+        Map<String, String> analysisMap = Deencapsulation.getField(desc, "analysisMap");
+        Assertions.assertEquals("true",
+                analysisMap.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+    }
+
+    @Test
+    public void testFillMissingColumnsDefaultFalseInDataDescriptionAnalysisMap() {
+        NereidsRoutineLoadTaskInfo taskInfo = buildTaskInfo(new HashMap<>());
+        NereidsDataDescription desc = new NereidsDataDescription("tbl", taskInfo);
+        Map<String, String> analysisMap = Deencapsulation.getField(desc, "analysisMap");
+        Assertions.assertEquals("false",
+                analysisMap.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
     }
 }

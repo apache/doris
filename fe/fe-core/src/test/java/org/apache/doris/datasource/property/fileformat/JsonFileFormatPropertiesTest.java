@@ -190,6 +190,36 @@ public class JsonFileFormatPropertiesTest {
     }
 
     @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsMixedCaseFalse() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "FaLsE");
+
+        jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(false, jsonFileFormatProperties.isFillMissingColumns());
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsEmptyStringRejected() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "");
+
+        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+                () -> jsonFileFormatProperties.analyzeFileFormatProperties(properties, true));
+        Assert.assertTrue(e.getMessage().contains(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesFillMissingColumnsNumericRejected() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "1");
+
+        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+                () -> jsonFileFormatProperties.analyzeFileFormatProperties(properties, true));
+        Assert.assertTrue(e.getMessage().contains(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+        Assert.assertTrue(e.getMessage().contains("1"));
+    }
+
+    @Test
     public void testAnalyzeFileFormatPropertiesAllProperties() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
         properties.put(JsonFileFormatProperties.PROP_JSON_ROOT, "data.records");

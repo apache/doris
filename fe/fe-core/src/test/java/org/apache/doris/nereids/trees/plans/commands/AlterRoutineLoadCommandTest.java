@@ -174,4 +174,44 @@ public class AlterRoutineLoadCommandTest {
                 () -> command.validate(connectContext));
         Assertions.assertTrue(e.getMessage().contains(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
     }
+
+    @Test
+    public void testValidateFillMissingColumnsUppercaseTrue() {
+        runBefore();
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "TRUE");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        // AlterRoutineLoad relies on JsonFileFormatProperties parsing, which accepts case-insensitive
+        // "true"/"false" but stores the raw user input in the analyzed map.
+        Assertions.assertEquals("TRUE",
+                command.getAnalyzedJobProperties().get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+    }
+
+    @Test
+    public void testValidateFillMissingColumnsMixedCaseFalse() {
+        runBefore();
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "False");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("False",
+                command.getAnalyzedJobProperties().get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS));
+    }
+
+    @Test
+    public void testValidateFillMissingColumnsEmptyStringRejected() {
+        runBefore();
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, "");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> command.validate(connectContext));
+    }
 }
