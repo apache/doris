@@ -69,6 +69,16 @@ public class StreamingJdbcUrlNormalizerTest {
     }
 
     @Test
+    public void testNormalizeOceanBaseJdbcUrlUsesMysqlRules() {
+        String jdbcUrl = StreamingJdbcUrlNormalizer.normalize(
+                DataSourceType.OCEANBASE, "jdbc:mysql://127.0.0.1:2883/test");
+
+        Assert.assertEquals("jdbc:mysql://127.0.0.1:2883/test?yearIsDateType=false"
+                        + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8",
+                jdbcUrl);
+    }
+
+    @Test
     public void testNormalizePostgresJdbcUrlDoesNotChange() {
         String jdbcUrl = "jdbc:postgresql://127.0.0.1:5432/test";
 
