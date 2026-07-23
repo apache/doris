@@ -62,6 +62,8 @@ Status Cast::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContex
         return Status::InternalError("Could not find function {} ", _expr_name);
     }
     VExpr::register_function_context(state, context);
+    context->fn_context(_fn_context_index)
+            ->set_enable_lossless_decimal_cast(_lossless_decimal_cast);
     _prepare_finished = true;
     return Status::OK();
 }

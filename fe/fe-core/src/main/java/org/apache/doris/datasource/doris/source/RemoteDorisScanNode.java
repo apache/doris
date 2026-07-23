@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -233,7 +234,7 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
             sql.append(")");
         }
 
-        if (limit != -1) {
+        if (limit != -1 && ExprToConnectorExpressionConverter.canPushDownLimit(conjuncts)) {
             sql.append(" LIMIT ").append(limit);
         }
 
@@ -241,6 +242,7 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     }
 
     private void createFilters() {
+        filters.clear();
         if (conjuncts.isEmpty()) {
             return;
         }
@@ -257,6 +259,9 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         for (Expr expr : conjunctsList) {
+            if (ExprToConnectorExpressionConverter.containsLosslessDecimalCast(expr)) {
+                continue;
+            }
             String filter = conjunctExprToString(expr, desc.getTable());
             filters.add(filter);
         }

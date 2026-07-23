@@ -1137,7 +1137,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(t2.d_char as DECIMALV3(38, 6)) = 1.000000))
+--------filter((cast(t2.d_char as DECIMALV3(38, 12)) = 1.000000000003))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type124 --
@@ -1149,7 +1149,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(t2.d_varchar as DECIMALV3(38, 6)) = 1.000000))
+--------filter((cast(t2.d_varchar as DECIMALV3(38, 12)) = 1.000000000003))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type125 --
@@ -1161,7 +1161,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(t2.d_string as DECIMALV3(38, 6)) = 1.000000))
+--------filter((cast(t2.d_string as DECIMALV3(38, 12)) = 1.000000000003))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type128 --
@@ -1257,7 +1257,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(t2.d_char as DECIMALV3(38, 6)) = 12232.239827))
+--------filter((cast(t2.d_char as DECIMALV3(38, 16)) = 12232.2398272342335234))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type140 --
@@ -1269,7 +1269,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(t2.d_varchar as DECIMALV3(38, 6)) = 12232.239827))
+--------filter((cast(t2.d_varchar as DECIMALV3(38, 16)) = 12232.2398272342335234))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type141 --
@@ -1281,7 +1281,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((cast(t2.d_string as DECIMALV3(38, 6)) = 12232.239827))
+--------filter((cast(t2.d_string as DECIMALV3(38, 16)) = 12232.2398272342335234))
 ----------PhysicalOlapScan[test_types(t2)]
 
 -- !const_value_and_join_column_type144 --

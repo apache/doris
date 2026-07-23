@@ -106,6 +106,10 @@ public final class ExprToConnectorExpressionConverter {
         } else if (expr instanceof LiteralExpr) {
             return convertLiteral((LiteralExpr) expr);
         } else if (expr instanceof CastExpr) {
+            if (((CastExpr) expr).isLosslessDecimalCast()) {
+                throw new UnsupportedOperationException(
+                        "Lossless decimal comparison casts cannot be pushed to connectors");
+            }
             return convert(expr.getChild(0));
         } else if (expr instanceof ArithmeticExpr) {
             return convertArithmeticExpr((ArithmeticExpr) expr);
@@ -144,6 +148,17 @@ public final class ExprToConnectorExpressionConverter {
             converted.add(convert(expr));
         }
         return new ConnectorAnd(converted);
+    }
+
+    public static boolean containsLosslessDecimalCast(Expr expr) {
+        List<CastExpr> castExprs = new ArrayList<>();
+        expr.collect(CastExpr.class, castExprs);
+        return castExprs.stream().anyMatch(CastExpr::isLosslessDecimalCast);
+    }
+
+    public static boolean canPushDownLimit(List<Expr> conjuncts) {
+        return conjuncts.stream().noneMatch(
+                ExprToConnectorExpressionConverter::containsLosslessDecimalCast);
     }
 
     /**

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.ExprToConnectorExpressionConverter;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -595,6 +596,19 @@ public class ExprToSqlTest {
         CastExpr expr = new CastExpr(Type.BIGINT, new IntLiteral(1L), false);
         String sql = expr.accept(ExprToExternalSqlVisitor.INSTANCE, new ToSqlParams(false, true, null, null));
         Assertions.assertEquals("1", sql);
+    }
+
+    @Test
+    public void testLosslessDecimalCastIsNotPushedDown() {
+        CastExpr expr = new CastExpr(ScalarType.createDecimalV3Type(38, 0),
+                new StringLiteral("100.4"), true, true);
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                        new ToSqlParams(false, true, null, null)));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> ExprToConnectorExpressionConverter.convert(expr));
+        Assertions.assertFalse(ExprToConnectorExpressionConverter.canPushDownLimit(
+                Collections.singletonList(expr)));
     }
 
     @Test

@@ -69,6 +69,10 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
     public static Expression simplifyCast(Cast cast) {
         Expression child = cast.child();
 
+        if (cast.isLosslessDecimalCast()) {
+            return cast;
+        }
+
         // remove redundant cast
         // CAST(value as type), value is type
         if (cast.getDataType().equals(child.getDataType())) {

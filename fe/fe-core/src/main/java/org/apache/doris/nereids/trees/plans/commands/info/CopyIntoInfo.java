@@ -341,9 +341,10 @@ public class CopyIntoInfo {
 
         @Override
         public Expr visitCast(Cast cast, PlanTranslatorContext context) {
-            // left child of cast is target type, right child of cast is expression
-            return new CastExpr(cast.getDataType().toCatalogDataType(),
-                    cast.child().accept(this, context), cast.nullable());
+            CastExpr legacyCast = new CastExpr(cast.getDataType().toCatalogDataType(),
+                    cast.child().accept(this, context), cast.nullable(), cast.isLosslessDecimalCast());
+            legacyCast.setImplicit(!cast.isExplicitType());
+            return legacyCast;
         }
     }
 

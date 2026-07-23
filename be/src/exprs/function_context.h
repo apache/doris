@@ -84,12 +84,18 @@ public:
 
     bool enable_strict_mode() const { return _enable_strict_mode; }
 
+    bool enable_lossless_decimal_cast() const { return _enable_lossless_decimal_cast; }
+
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
         return _check_overflow_for_decimal = check_overflow_for_decimal;
     }
 
     bool set_enable_strict_mode(bool enable_strict_mode) {
         return _enable_strict_mode = enable_strict_mode;
+    }
+
+    bool set_enable_lossless_decimal_cast(bool enable_lossless_decimal_cast) {
+        return _enable_lossless_decimal_cast = enable_lossless_decimal_cast;
     }
 
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
@@ -198,6 +204,7 @@ private:
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
     bool _enable_strict_mode = false;
+    bool _enable_lossless_decimal_cast = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;

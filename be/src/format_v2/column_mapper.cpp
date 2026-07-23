@@ -558,7 +558,8 @@ static Status clone_table_expr_node(const VExpr& expr, VExprSPtr* cloned_expr) {
                 split_literal->original_type(), split_literal->original_field());
     } else if (const auto* vcast_expr = dynamic_cast<const VCastExpr*>(&expr);
                vcast_expr != nullptr && vcast_expr->node_type() == TExprNodeType::CAST_EXPR) {
-        *cloned_expr = Cast::create_shared(vcast_expr->data_type());
+        *cloned_expr = Cast::create_shared(vcast_expr->data_type(),
+                                           vcast_expr->is_lossless_decimal_cast());
     }
     return Status::OK();
 }
