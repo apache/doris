@@ -73,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -298,7 +299,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 throw new AnalysisException(
                         "PREAGGOPEN hint is not supported on @incr (change-read) scans.");
             }
-            return checkAndAddChangeScanFilter(scan, changeScanType);
+            return checkAndAddChangeScanFilter(scan, changeScanType, false);
         }
         // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
         // predicate (dup) or a base/binlog union (mow).
@@ -602,7 +603,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         binlogScan = binlogScan.withTableScanParams(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
-        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA);
+        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
         right = projectFromOriginSlots(right, visibleOutput);
 
         // both children are bound; BindExpression aligns by position and fills the union output.
@@ -1018,7 +1019,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * Add append only filter on olap scan with changes if need.
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
-                                                          StreamScanType scanType) {
+                                                          StreamScanType scanType, boolean beforeImageOnly) {
         LogicalPlan plan = scan;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
@@ -1031,6 +1032,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             Preconditions.checkArgument(opSlot != null, "opSlot is null");
             return new LogicalFilter<>(ImmutableSet.of(new EqualTo(opSlot,
                     new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), plan);
+        } else if (beforeImageOnly) {
+            return new LogicalFilter<>(ImmutableSet.of(new InPredicate(opSlot, ImmutableList.of(
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_DELETE),
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), plan);
         }
         return plan;
     }
