@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
@@ -386,6 +387,69 @@ public class IcebergNestedColumnEvolutionTest {
         Assertions.assertEquals(Type.TypeID.LONG, child.field("value").type().typeId());
         // Not widened to nullable (nullableSpecified=false), still required.
         Assertions.assertTrue(child.field("value").isRequired());
+    }
+
+    // info STRUCT{ payload STRUCT{ name STRING "name doc", count INT "count doc" } (opt) } (opt)
+    private Schema commentStructSchema() {
+        return new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "name", Types.StringType.get(), "name doc"),
+                        Types.NestedField.optional(4, "count", Types.IntegerType.get(), "count doc"))))));
+    }
+
+    // A complex MODIFY carries the neutral source type (as production does via ConnectorColumnConverter) so the
+    // diff can read each STRUCT field's commentSpecified: names[i]/types[i]/comments[i]/specified[i] are parallel.
+    private static IcebergColumnChange structModify(String leafName, List<String> names,
+            List<ConnectorType> types, List<String> comments, List<Boolean> specified) {
+        List<Boolean> nullables = names.stream().map(n -> true).collect(Collectors.toList());
+        ConnectorType conn = ConnectorType.structOf(names, types, nullables, comments, specified);
+        // Build the iceberg new type from the SAME neutral type, exactly like IcebergConnectorMetadata.
+        return new IcebergColumnChange(leafName, IcebergSchemaBuilder.buildColumnType(conn), null, null, true, conn);
+    }
+
+    @Test
+    public void testModifyNestedStructSubfieldCommentOmitPreservesExplicitClears() {
+        // Regression for the #65329 SPI-port gap (build 1004182): a complex MODIFY on a nested STRUCT that
+        // OMITS a sub-field's COMMENT while changing its type must KEEP that sub-field's current doc, while an
+        // explicit COMMENT '' on a sibling clears it. Mirrors
+        // test_iceberg_nested_schema_evolution_spark_doris_interop line 102 (payload.count) + line 100 (name).
+        createTable("m_doc", commentStructSchema());
+        // name:STRING COMMENT '' (specified, clear) ; count:BIGINT (omitted, preserve) — count's type also changes.
+        ops.modifyNestedColumn("db1", "m_doc", path("info", "payload"),
+                structModify("payload",
+                        Arrays.asList("name", "count"),
+                        Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT")),
+                        Arrays.asList("", ""),
+                        Arrays.asList(true, false)),
+                false, false, null);
+        Types.StructType payload = reload("m_doc").findField("info").type().asStructType()
+                .field("payload").type().asStructType();
+        // count: type promoted to LONG, doc PRESERVED because its COMMENT was omitted.
+        Assertions.assertEquals(Type.TypeID.LONG, payload.field("count").type().typeId());
+        Assertions.assertEquals("count doc", payload.field("count").doc());
+        // name: doc CLEARED because COMMENT '' was explicitly specified.
+        Assertions.assertTrue(payload.field("name").doc() == null || payload.field("name").doc().isEmpty(),
+                "expected cleared name doc but was '" + payload.field("name").doc() + "'");
+    }
+
+    @Test
+    public void testModifyNestedStructSiblingCommentOmitPreservedNoTypeChange() {
+        // Sibling-clobber gap: in a complex MODIFY every sub-field must be re-listed; a sibling whose type is
+        // UNCHANGED but whose COMMENT is omitted must keep its doc (must not be wiped to '').
+        createTable("m_sib", commentStructSchema());
+        // Both sub-fields omit COMMENT; only count's type changes (INT->BIGINT), name's type is unchanged.
+        ops.modifyNestedColumn("db1", "m_sib", path("info", "payload"),
+                structModify("payload",
+                        Arrays.asList("name", "count"),
+                        Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT")),
+                        Arrays.asList("", ""),
+                        Arrays.asList(false, false)),
+                false, false, null);
+        Types.StructType payload = reload("m_sib").findField("info").type().asStructType()
+                .field("payload").type().asStructType();
+        Assertions.assertEquals("name doc", payload.field("name").doc());
+        Assertions.assertEquals(Type.TypeID.LONG, payload.field("count").type().typeId());
+        Assertions.assertEquals("count doc", payload.field("count").doc());
     }
 
     // ======================================================================================================
