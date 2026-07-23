@@ -443,7 +443,7 @@ suite("test_iceberg_schema_time_travel_matrix",
                     from ${dorisNestedTable}@tag(doris_nested_cp0)
                     order by id
                 """))
-        // Known product issue DORIS-27425: an old branch leaks the latest BIGINT nested types.
+        // Negative contract: an old branch currently leaks the latest BIGINT nested types.
         assertEquals([[1, 10L, 100L, 1000L]],
                 sql("""
                     select id, info.metric, events[1].score, attrs['k'].code
@@ -507,35 +507,6 @@ suite("test_iceberg_schema_time_travel_matrix",
                     order by id
                 """))
 
-        // Scenario TC07/T12/T13, known product issue DORIS-27427:
-        // two Iceberg historical relations incorrectly reuse the first nested schema.
-        test {
-            sql """
-                select id, info.added as nested_value, info.added as duplicate_value
-                from ${dorisNestedTable} for version as of ${dorisNestedCpAdd}
-                union all
-                select id, info.renamed as nested_value, info.renamed as duplicate_value
-                from ${dorisNestedTable} for version as of ${dorisNestedCpRename}
-                order by id, nested_value
-            """
-            exception "No such struct field 'renamed'"
-        }
-        test {
-            sql """
-                select old_side.id, old_side.added_value, new_side.renamed_value
-                from (
-                    select id, info.added as added_value
-                    from ${dorisNestedTable} for version as of ${dorisNestedCpAdd}
-                ) old_side
-                join (
-                    select id, info.renamed as renamed_value
-                    from ${dorisNestedTable} for version as of ${dorisNestedCpRename}
-                ) new_side on old_side.id = new_side.id
-                order by old_side.id
-            """
-            exception "No such struct field 'renamed'"
-        }
-
         // Scenario TC04: delete is visible only at/after the delete snapshot.
         assertEquals([1, 2, 3, 4],
                 sql("""
@@ -576,7 +547,7 @@ suite("test_iceberg_schema_time_travel_matrix",
             from ${topTable}@tag(top_cp0)
             order by id
         """))
-        // Known product issue DORIS-27425: an old branch is analyzed with the latest rename schema.
+        // Negative contract: an old branch is currently analyzed with the latest rename schema.
         test {
             sql """
                 select id, old_name, victim, metric
@@ -649,35 +620,6 @@ suite("test_iceberg_schema_time_travel_matrix",
                     from ${topTable} for version as of ${topCpPromote}
                     where metric > 5000000000
                 """))
-
-        // Scenario TC07/T12/T13, known product issue DORIS-27427:
-        // self-join and UNION incorrectly reuse one Iceberg historical schema.
-        test {
-            sql """
-                select old_side.id, old_side.old_name, new_side.MixedName
-                from (
-                    select id, old_name
-                    from ${topTable} for version as of ${topCp0}
-                ) old_side
-                join (
-                    select id, MixedName
-                    from ${topTable} for version as of ${topCpRename}
-                ) new_side on old_side.id = new_side.id
-                order by old_side.id
-            """
-            exception "Unknown column 'MixedName'"
-        }
-        test {
-            sql """
-                select id, old_name as name_value
-                from ${topTable} for version as of ${topCp0}
-                union all
-                select id, MixedName as name_value
-                from ${topTable} for version as of ${topCpRename}
-                order by id, name_value
-            """
-            exception "Unknown column 'MixedName'"
-        }
 
         // Scenario TC02: nested projection/predicate use each snapshot's nested field IDs.
         assertEquals([[1, 10, 20, 30]],

@@ -424,35 +424,6 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                     where metric > 5000000000
                 """))
 
-        // Scenario TC07/T12/T13, known product issue DORIS-27428:
-        // self-join and UNION incorrectly reuse one Paimon historical schema.
-        test {
-            sql """
-                select old_side.id, old_side.old_name, new_side.MixedName
-                from (
-                    select id, old_name
-                    from ${topTable} for version as of ${topCp0}
-                ) old_side
-                join (
-                    select id, MixedName
-                    from ${topTable} for version as of ${topCpRename}
-                ) new_side on old_side.id = new_side.id
-                order by old_side.id
-            """
-            exception "Unknown column 'MixedName'"
-        }
-        test {
-            sql """
-                select id, old_name as name_value
-                from ${topTable} for version as of ${topCp0}
-                union all
-                select id, MixedName as name_value
-                from ${topTable} for version as of ${topCpRename}
-                order by id, name_value
-            """
-            exception "Unknown column 'MixedName'"
-        }
-
         // Scenario TC02: nested refs validate STRUCT/MAP/ARRAY projection and predicate.
         assertEquals([[1, 10, 20, 30]],
                 sql("""

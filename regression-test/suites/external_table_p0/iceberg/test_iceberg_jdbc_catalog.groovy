@@ -97,9 +97,16 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
         executeCommand("/usr/bin/curl --max-time 600 ${mysql_driver_download_url} --output ${local_mysql_driver_path}", true)
     }
     for (def ip in host_ips) {
-        executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${jdbc_drivers_dir}\"", false)
-        scpFiles("root", ip, local_driver_path, jdbc_drivers_dir, false)
-        scpFiles("root", ip, local_mysql_driver_path, jdbc_drivers_dir, false)
+        if (ip == externalEnvIp || ip == "127.0.0.1" || ip == "localhost") {
+            // A local test node must not require root SSH merely to install a JDBC driver.
+            executeCommand("mkdir -p ${jdbc_drivers_dir}", true)
+            executeCommand("cp -f ${local_driver_path} ${jdbc_drivers_dir}/${driver_name}", true)
+            executeCommand("cp -f ${local_mysql_driver_path} ${jdbc_drivers_dir}/${mysql_driver_name}", true)
+        } else {
+            executeCommand("ssh -o BatchMode=yes -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${jdbc_drivers_dir}\"", false)
+            scpFiles("root", ip, local_driver_path, jdbc_drivers_dir, false)
+            scpFiles("root", ip, local_mysql_driver_path, jdbc_drivers_dir, false)
+        }
     }
     
     try {
@@ -214,6 +221,33 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
         def desc = sql """DESCRIBE test_datatypes"""
         assertTrue(desc.toString().contains("c_int"))
         assertTrue(desc.toString().contains("c_string"))
+
+        // Scenario TC09-JDBC: schema evolution and historical binding work through JDBC catalog.
+        String jdbcOldSnapshot = sql("""
+            select snapshot_id
+            from test_datatypes\$snapshots
+            order by committed_at desc
+            limit 1
+        """)[0][0].toString()
+        sql """alter table test_datatypes create tag jdbc_before_rename"""
+        sql """alter table test_datatypes rename column c_string jdbc_renamed_string"""
+        assertEquals([["hello"], ["world"], ["test"]], sql("""
+            select c_string
+            from test_datatypes for version as of ${jdbcOldSnapshot}
+            order by c_int
+        """))
+        assertEquals([["hello"], ["world"], ["test"]], sql("""
+            select c_string
+            from test_datatypes@tag(jdbc_before_rename)
+            order by c_int
+        """))
+        assertEquals([["hello"], ["world"], ["test"]], sql("""
+            select jdbc_renamed_string from test_datatypes order by c_int
+        """))
+        test {
+            sql """select c_string from test_datatypes"""
+            exception "Unknown column 'c_string'"
+        }
 
         // Test: INSERT OVERWRITE
         sql """
