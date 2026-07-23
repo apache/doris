@@ -42,6 +42,7 @@
 #include "storage/olap_define.h"
 #include "testutil/mock/mock_query_task_controller.h"
 #include "util/defer_op.h"
+#include "util/mem_info.h"
 
 namespace doris {
 
@@ -150,6 +151,29 @@ private:
 TEST_F(WorkloadGroupManagerTest, get_or_create_workload_group) {
     auto wg = _wg_manager->get_or_create_workload_group({});
     ASSERT_EQ(wg->id(), 0);
+}
+
+TEST_F(WorkloadGroupManagerTest, refresh_memory_usage_updates_memory_limits) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    const int64_t initial_mem_limit = 1024L * 1024 * 1024;
+    MemInfo::set_mem_limit_for_test(initial_mem_limit);
+
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = initial_mem_limit / 2,
+                               .min_memory_percent = 25,
+                               .max_memory_percent = 50};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+
+    EXPECT_EQ(wg->memory_limit(), initial_mem_limit / 2);
+    EXPECT_EQ(wg->min_memory_limit(), initial_mem_limit / 4);
+
+    const int64_t updated_mem_limit = initial_mem_limit * 2;
+    MemInfo::set_mem_limit_for_test(updated_mem_limit);
+    wg->refresh_memory_usage();
+
+    EXPECT_EQ(wg->memory_limit(), updated_mem_limit / 2);
+    EXPECT_EQ(wg->min_memory_limit(), updated_mem_limit / 4);
 }
 
 TEST_F(WorkloadGroupManagerTest, handle_paused_queries_ignores_empty_workload_group) {
@@ -316,8 +340,13 @@ TEST_F(WorkloadGroupManagerTest, wg_reserve_failed_before_query_limit_and_high_w
 // query limit > workload group limit
 // query's limit will be set to workload group limit
 TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
-    WorkloadGroupInfo wg_info {
-            .id = 1, .memory_limit = 1024L * 1024, .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 100);
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = 1024L * 1024,
+                               .max_memory_percent = 1,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     auto query_context = _generate_on_query(wg);
 
@@ -358,6 +387,9 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
 // TWgSlotMemoryPolicy::FIXED
 TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 100);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 100,
                                .memory_low_watermark = 80,
@@ -395,6 +427,9 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
 
 // TWgSlotMemoryPolicy::DYNAMIC
 TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 100);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 100,
                                .min_memory_percent = 10,
@@ -520,6 +555,9 @@ TEST_F(WorkloadGroupManagerTest, query_released) {
 }
 
 TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 1000);
     WorkloadGroupInfo wg1_info {.id = 1,
                                 .memory_limit = 1024L * 1024 * 1000,
                                 .min_memory_percent = 10,
@@ -793,6 +831,9 @@ TEST_F(WorkloadGroupManagerTest, cancelled_query_does_not_block_query_mem_exceed
 }
 
 TEST_F(WorkloadGroupManagerTest, recently_cancelled_query_delays_process_mem_exceeded) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 1000);
     WorkloadGroupInfo wg1_info {.id = 1,
                                 .memory_limit = 1024L * 1024 * 1000,
                                 .min_memory_percent = 10,
@@ -844,6 +885,9 @@ TEST_F(WorkloadGroupManagerTest, recently_cancelled_query_delays_process_mem_exc
 // For NONE policy, the old code never called set_mem_limit during refresh (user_set > user_set
 // is always false), so a limit lowered by handle_paused_queries would never recover.
 TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
@@ -875,6 +919,9 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy
 // query_weighted_mem_limit = wg_high_water_mark which is typically > user_set_mem_limit.
 // The old code's condition (user_set > query_weighted) would be false, preventing restoration.
 TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_dynamic_policy) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .memory_low_watermark = 80,
@@ -905,6 +952,9 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_dynamic_pol
 // Test Fix 3: For FIXED policy, limit should be correctly set to slot-weighted value.
 // This already worked before the fix, but verify it still works.
 TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_fixed_policy) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .memory_low_watermark = 80,
@@ -934,6 +984,9 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_fixed_polic
 // Test: When WG concurrency decreases (queries finish), remaining queries should get
 // higher per-query limits in FIXED policy.
 TEST_F(WorkloadGroupManagerTest, limit_increases_when_concurrency_decreases) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 200,
                                .memory_low_watermark = 80,
