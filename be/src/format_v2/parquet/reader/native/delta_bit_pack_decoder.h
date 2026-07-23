@@ -790,7 +790,7 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
         }
         // Parquet defines this recurrence with wrapping integer arithmetic. The SIMD kernel keeps
         // the same unsigned-overflow invariant while resolving the prefix dependency in batches.
-        parquet_simd::delta_decode(buffer + i, values_decode, _min_delta, &_last_value);
+        simd::delta_decode(buffer + i, values_decode, _min_delta, &_last_value);
         _values_remaining_current_mini_block -= values_decode;
         i += values_decode;
     }

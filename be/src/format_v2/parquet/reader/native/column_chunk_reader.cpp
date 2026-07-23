@@ -606,10 +606,9 @@ void expand_nullable_pod_values(ColumnType& column, size_t old_size, size_t comp
     data.resize(old_size + selected_nulls.size());
     if constexpr (sizeof(typename ColumnType::value_type) == 4 ||
                   sizeof(typename ColumnType::value_type) == 8) {
-        parquet_simd::expand_nullable_values(reinterpret_cast<uint8_t*>(data.data() + old_size),
-                                             compact_values, selected_nulls.data(),
-                                             selected_nulls.size(),
-                                             sizeof(typename ColumnType::value_type));
+        simd::expand_nullable_values(reinterpret_cast<uint8_t*>(data.data() + old_size),
+                                     compact_values, selected_nulls.data(), selected_nulls.size(),
+                                     sizeof(typename ColumnType::value_type));
         return;
     }
     size_t source = compact_values;

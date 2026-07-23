@@ -28,7 +28,7 @@
 
 #include "util/simd/parquet_kernels.h"
 
-namespace doris::parquet_simd {
+namespace doris::simd {
 namespace {
 
 TEST(ParquetSimdKernelsTest, ByteStreamSplitRestoresFourAndEightByteValues) {
@@ -187,4 +187,4 @@ TEST(ParquetSimdKernelsTest, RawPredicatesPreserveExistingMaskAndDorisNanOrderin
 }
 
 } // namespace
-} // namespace doris::parquet_simd
+} // namespace doris::simd

@@ -46,9 +46,9 @@ bool try_gather_vector(IColumn& destination, const IColumn& dictionary, const ui
         const auto& dictionary_data = dictionary_vector->get_data();
         const size_t old_size = destination_data.size();
         destination_data.resize(old_size + num_values);
-        parquet_simd::dictionary_gather(
-                reinterpret_cast<const uint8_t*>(dictionary_data.data()), indices, num_values,
-                sizeof(ValueType), reinterpret_cast<uint8_t*>(destination_data.data() + old_size));
+        simd::dictionary_gather(reinterpret_cast<const uint8_t*>(dictionary_data.data()), indices,
+                                num_values, sizeof(ValueType),
+                                reinterpret_cast<uint8_t*>(destination_data.data() + old_size));
         return true;
     }
 }

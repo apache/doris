@@ -83,8 +83,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
 
     switch (scenario.kernel) {
     case Kernel::BYTE_STREAM_SPLIT:
-        parquet_simd::byte_stream_split_decode(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
-                                               reinterpret_cast<uint8_t*>(output.data()));
+        simd::byte_stream_split_decode(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
+                                       reinterpret_cast<uint8_t*>(output.data()));
         if (output != input) {
             state.SkipWithError("byte-stream-split kernel produced incorrect values");
             return;
@@ -103,7 +103,7 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
                 expected_last = value;
             }
             T last = 7;
-            parquet_simd::delta_decode(output.data(), output.size(), static_cast<T>(-3), &last);
+            simd::delta_decode(output.data(), output.size(), static_cast<T>(-3), &last);
             if (output != expected || last != expected_last) {
                 state.SkipWithError("delta prefix-sum kernel produced incorrect values");
                 return;
@@ -115,9 +115,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
         break;
     }
     case Kernel::DICTIONARY_GATHER:
-        parquet_simd::dictionary_gather(reinterpret_cast<const uint8_t*>(dictionary.data()),
-                                        ids.data(), ids.size(), width,
-                                        reinterpret_cast<uint8_t*>(output.data()));
+        simd::dictionary_gather(reinterpret_cast<const uint8_t*>(dictionary.data()), ids.data(),
+                                ids.size(), width, reinterpret_cast<uint8_t*>(output.data()));
         for (size_t row = 0; row < output.size(); ++row) {
             if (output[row] != dictionary[ids[row]]) {
                 state.SkipWithError("dictionary gather kernel produced incorrect values");
@@ -127,8 +126,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
         break;
     case Kernel::NULLABLE_EXPAND:
         std::copy(compact.begin(), compact.end(), output.begin());
-        parquet_simd::expand_nullable_values(reinterpret_cast<uint8_t*>(output.data()),
-                                             compact.size(), nulls.data(), nulls.size(), width);
+        simd::expand_nullable_values(reinterpret_cast<uint8_t*>(output.data()), compact.size(),
+                                     nulls.data(), nulls.size(), width);
         for (size_t row = 0; row < output.size(); ++row) {
             const T expected = nulls[row] == 0 ? input[row] : T {};
             if (output[row] != expected) {
@@ -138,8 +137,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
         }
         break;
     case Kernel::RAW_PREDICATE:
-        parquet_simd::raw_compare(reinterpret_cast<const uint8_t*>(input.data()), input.size(),
-                                  literal, parquet_simd::RawComparisonOp::LT, matches.data());
+        simd::raw_compare(reinterpret_cast<const uint8_t*>(input.data()), input.size(), literal,
+                          simd::RawComparisonOp::LT, matches.data());
         for (size_t row = 0; row < matches.size(); ++row) {
             if (matches[row] != static_cast<uint8_t>(input[row] < literal)) {
                 state.SkipWithError("raw predicate kernel produced incorrect values");
@@ -162,30 +161,28 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
 
         switch (scenario.kernel) {
         case Kernel::BYTE_STREAM_SPLIT:
-            parquet_simd::byte_stream_split_decode(encoded.data(), width, 0, KERNEL_ROWS,
-                                                   KERNEL_ROWS,
-                                                   reinterpret_cast<uint8_t*>(output.data()));
+            simd::byte_stream_split_decode(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
+                                           reinterpret_cast<uint8_t*>(output.data()));
             break;
         case Kernel::DELTA_PREFIX_SUM: {
             if constexpr (std::is_integral_v<T>) {
                 T last = 7;
-                parquet_simd::delta_decode(output.data(), output.size(), static_cast<T>(-3), &last);
+                simd::delta_decode(output.data(), output.size(), static_cast<T>(-3), &last);
                 benchmark::DoNotOptimize(last);
             }
             break;
         }
         case Kernel::DICTIONARY_GATHER:
-            parquet_simd::dictionary_gather(reinterpret_cast<const uint8_t*>(dictionary.data()),
-                                            ids.data(), ids.size(), width,
-                                            reinterpret_cast<uint8_t*>(output.data()));
+            simd::dictionary_gather(reinterpret_cast<const uint8_t*>(dictionary.data()), ids.data(),
+                                    ids.size(), width, reinterpret_cast<uint8_t*>(output.data()));
             break;
         case Kernel::NULLABLE_EXPAND:
-            parquet_simd::expand_nullable_values(reinterpret_cast<uint8_t*>(output.data()),
-                                                 compact.size(), nulls.data(), nulls.size(), width);
+            simd::expand_nullable_values(reinterpret_cast<uint8_t*>(output.data()), compact.size(),
+                                         nulls.data(), nulls.size(), width);
             break;
         case Kernel::RAW_PREDICATE:
-            parquet_simd::raw_compare(reinterpret_cast<const uint8_t*>(input.data()), input.size(),
-                                      literal, parquet_simd::RawComparisonOp::LT, matches.data());
+            simd::raw_compare(reinterpret_cast<const uint8_t*>(input.data()), input.size(), literal,
+                              simd::RawComparisonOp::LT, matches.data());
             break;
         }
         benchmark::ClobberMemory();

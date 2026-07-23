@@ -102,28 +102,84 @@ inline std::shared_ptr<::parquet::ColumnDescriptor> descriptor(::parquet::Type::
 }
 
 template <typename T>
+T fixed_value(size_t row) {
+    if constexpr (std::is_floating_point_v<T>) {
+        return static_cast<T>((row % 1009) * 0.25 - 100.0);
+    }
+    return static_cast<T>((row * 17) % 1000003);
+}
+
+template <typename T>
 std::vector<T> fixed_values(size_t rows) {
     std::vector<T> values(rows);
     for (size_t row = 0; row < rows; ++row) {
-        if constexpr (std::is_floating_point_v<T>) {
-            values[row] = static_cast<T>((row % 1009) * 0.25 - 100.0);
-        } else {
-            values[row] = static_cast<T>((row * 17) % 1000003);
-        }
+        values[row] = fixed_value<T>(row);
     }
     return values;
+}
+
+inline std::string binary_value(size_t row, size_t width = FIXED_BINARY_WIDTH) {
+    std::string value(width, 'a');
+    const uint64_t id = row % 1009;
+    memcpy(value.data(), &id, std::min(width, sizeof(id)));
+    return value;
 }
 
 inline std::vector<std::string> binary_values(size_t rows, size_t width = FIXED_BINARY_WIDTH) {
     std::vector<std::string> values;
     values.reserve(rows);
     for (size_t row = 0; row < rows; ++row) {
-        std::string value(width, 'a');
-        const uint64_t id = row % 1009;
-        memcpy(value.data(), &id, std::min(width, sizeof(id)));
-        values.push_back(std::move(value));
+        values.push_back(binary_value(row, width));
     }
     return values;
+}
+
+struct DecoderDigest {
+    size_t consumed = 0;
+    uint64_t checksum = 1469598103934665603ULL;
+};
+
+inline void add_digest_value(DecoderDigest* digest, const uint8_t* bytes, size_t size) {
+    constexpr uint64_t FNV_PRIME = 1099511628211ULL;
+    digest->checksum ^= size;
+    digest->checksum *= FNV_PRIME;
+    for (size_t byte = 0; byte < size; ++byte) {
+        digest->checksum ^= bytes[byte];
+        digest->checksum *= FNV_PRIME;
+    }
+    ++digest->consumed;
+}
+
+inline void add_generated_value(DecoderDigest* digest, ValueType value_type, size_t row) {
+    switch (value_type) {
+    case ValueType::INT32: {
+        const auto value = fixed_value<int32_t>(row);
+        add_digest_value(digest, reinterpret_cast<const uint8_t*>(&value), sizeof(value));
+        return;
+    }
+    case ValueType::INT64: {
+        const auto value = fixed_value<int64_t>(row);
+        add_digest_value(digest, reinterpret_cast<const uint8_t*>(&value), sizeof(value));
+        return;
+    }
+    case ValueType::FLOAT: {
+        const auto value = fixed_value<float>(row);
+        add_digest_value(digest, reinterpret_cast<const uint8_t*>(&value), sizeof(value));
+        return;
+    }
+    case ValueType::DOUBLE: {
+        const auto value = fixed_value<double>(row);
+        add_digest_value(digest, reinterpret_cast<const uint8_t*>(&value), sizeof(value));
+        return;
+    }
+    case ValueType::BYTE_ARRAY:
+    case ValueType::FIXED_LEN_BYTE_ARRAY: {
+        const auto value = binary_value(row);
+        add_digest_value(digest, reinterpret_cast<const uint8_t*>(value.data()), value.size());
+        return;
+    }
+    }
+    throw std::logic_error("unknown Parquet benchmark value type");
 }
 
 inline std::vector<uint8_t> encode_plain_binary(const std::vector<std::string>& values) {
@@ -376,6 +432,67 @@ private:
     const size_t _value_width;
 };
 
+class FixedVerificationSink final : public ParquetFixedValueConsumer {
+public:
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            add_digest_value(&digest, values + row * value_width, value_width);
+        }
+        return Status::OK();
+    }
+
+    DecoderDigest digest;
+};
+
+class BinaryVerificationSink final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            add_digest_value(&digest, reinterpret_cast<const uint8_t*>(values[row].data),
+                             values[row].size);
+        }
+        return Status::OK();
+    }
+
+    Status consume_plain_byte_array(
+            const char* encoded_data, const uint32_t* payload_offsets,
+            const uint32_t* value_offsets, size_t num_values,
+            const std::vector<ParquetSelectionRange>& value_spans) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            add_digest_value(&digest,
+                             reinterpret_cast<const uint8_t*>(encoded_data + payload_offsets[row]),
+                             value_offsets[row + 1] - value_offsets[row]);
+        }
+        return Status::OK();
+    }
+
+    DecoderDigest digest;
+};
+
+class DictionaryVerificationSink final : public ParquetDictionaryValueConsumer {
+public:
+    explicit DictionaryVerificationSink(ValueType value_type) : _value_type(value_type) {}
+
+    Status consume_indices(const uint32_t* indices, size_t num_values) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            add_generated_value(&digest, _value_type, indices[row]);
+        }
+        return Status::OK();
+    }
+
+    Status consume_repeated(uint32_t index, size_t num_values) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            add_generated_value(&digest, _value_type, index);
+        }
+        return Status::OK();
+    }
+
+    DecoderDigest digest;
+
+private:
+    const ValueType _value_type;
+};
+
 inline ParquetSelection native_selection(const SelectionPlan& plan) {
     ParquetSelection selection {
             .total_values = plan.total_rows, .selected_values = plan.selected_rows, .ranges = {}};
@@ -384,6 +501,50 @@ inline ParquetSelection native_selection(const SelectionPlan& plan) {
         selection.ranges.push_back({.first = range.first, .count = range.count});
     }
     return selection;
+}
+
+inline DecoderDigest expected_decoder_digest(const DecoderScenario& scenario,
+                                             const SelectionPlan& plan) {
+    DecoderDigest digest;
+    visit_selected_rows(plan, [&](size_t row) {
+        const size_t value_row =
+                scenario.encoding == Encoding::DICTIONARY ? row % DICTIONARY_ENTRIES : row;
+        add_generated_value(&digest, scenario.value_type, value_row);
+    });
+    return digest;
+}
+
+inline Status verify_decoder_output(format::parquet::native::Decoder* decoder, Slice* encoded,
+                                    const DecoderScenario& scenario, bool binary,
+                                    const ParquetSelection& selection,
+                                    const SelectionPlan& plan) {
+    RETURN_IF_ERROR(decoder->set_data(encoded));
+    DecoderDigest actual;
+    if (scenario.encoding == Encoding::DICTIONARY) {
+        DictionaryVerificationSink sink(scenario.value_type);
+        RETURN_IF_ERROR(decoder->decode_selected_dictionary_values(selection, sink));
+        actual = sink.digest;
+    } else if (binary) {
+        BinaryVerificationSink sink;
+        RETURN_IF_ERROR(decoder->decode_selected_binary_values(selection, sink));
+        actual = sink.digest;
+    } else {
+        FixedVerificationSink sink;
+        RETURN_IF_ERROR(decoder->decode_selected_fixed_values(selection, sink));
+        actual = sink.digest;
+    }
+
+    const auto expected = expected_decoder_digest(scenario, plan);
+    // Validate sparse/boundary selections before timing; counters alone can hide wrong selected
+    // rows while still producing a plausible benchmark result.
+    if (actual.consumed != plan.selected_rows || actual.consumed != expected.consumed ||
+        actual.checksum != expected.checksum) {
+        return Status::InternalError(
+                "Parquet decoder benchmark oracle mismatch: consumed {} expected {}, checksum {} "
+                "expected {}",
+                actual.consumed, plan.selected_rows, actual.checksum, expected.checksum);
+    }
+    return Status::OK();
 }
 
 inline void run_decoder(benchmark::State& state, DecoderScenario scenario, int selectivity,
@@ -415,6 +576,12 @@ inline void run_decoder(benchmark::State& state, DecoderScenario scenario, int s
     }
 
     Slice encoded(page.data.data(), page.data.size());
+    status = verify_decoder_output(decoder.get(), &encoded, scenario, page.binary, selection, plan);
+    if (!status.ok()) {
+        state.SkipWithError(status.to_string().c_str());
+        return;
+    }
+
     FixedSink fixed_sink;
     BinarySink binary_sink;
     DictionarySink dictionary_sink(dictionary_for_sink.data(), page.value_width);

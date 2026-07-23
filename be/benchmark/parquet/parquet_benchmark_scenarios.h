@@ -254,6 +254,15 @@ inline SelectionPlan make_selection_plan(size_t total_rows, int selectivity_perc
     return plan;
 }
 
+template <typename Visitor>
+inline void visit_selected_rows(const SelectionPlan& plan, Visitor visitor) {
+    for (const auto& range : plan.ranges) {
+        for (size_t offset = 0; offset < range.count; ++offset) {
+            visitor(range.first + offset);
+        }
+    }
+}
+
 inline std::string to_string(Encoding value) {
     switch (value) {
     case Encoding::PLAIN:

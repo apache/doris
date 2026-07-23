@@ -20,7 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace doris::parquet_simd {
+namespace doris::simd {
 
 enum class RawComparisonOp : uint8_t { EQ, NE, LT, LE, GT, GE };
 
@@ -45,4 +45,4 @@ void raw_compare(const uint8_t* values, size_t count, float literal, RawComparis
 void raw_compare(const uint8_t* values, size_t count, double literal, RawComparisonOp op,
                  uint8_t* matches);
 
-} // namespace doris::parquet_simd
+} // namespace doris::simd

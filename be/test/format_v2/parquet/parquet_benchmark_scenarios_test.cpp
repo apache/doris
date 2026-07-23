@@ -31,6 +31,7 @@ namespace {
 
 TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFamilies) {
     const auto scenarios = decoder_scenarios();
+    EXPECT_EQ(scenarios.size() * 6 * 2, size_t {228});
     const std::set<std::pair<Encoding, ValueType>> actual = [&] {
         std::set<std::pair<Encoding, ValueType>> values;
         for (const auto& scenario : scenarios) {
@@ -65,6 +66,7 @@ TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFami
 
 TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryShape) {
     const auto scenarios = kernel_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {80});
     const std::map<Kernel, std::vector<ValueType>> expected_types {
             {Kernel::BYTE_STREAM_SPLIT, {ValueType::FLOAT, ValueType::DOUBLE}},
             {Kernel::DELTA_PREFIX_SUM, {ValueType::INT32, ValueType::INT64}},
@@ -109,6 +111,7 @@ TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryS
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {
     const auto scenarios = reader_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {151});
     for (const int null_percent : {0, 1, 10, 50, 90}) {
         for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
             for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
@@ -209,6 +212,19 @@ TEST(ParquetBenchmarkScenariosTest, SelectionPlanDistinguishesClusteredAndSparse
 
     EXPECT_EQ(make_selection_plan(1000, 0, Pattern::ALTERNATING).ranges.size(), 0);
     EXPECT_EQ(make_selection_plan(1000, 100, Pattern::ALTERNATING).ranges.size(), 1);
+}
+
+TEST(ParquetBenchmarkScenariosTest, SelectedRowVisitorPreservesRangeOrderAndBoundaries) {
+    const SelectionPlan plan {
+            .total_rows = 12,
+            .selected_rows = 5,
+            .ranges = {{.first = 0, .count = 2},
+                       {.first = 5, .count = 1},
+                       {.first = 9, .count = 2}},
+    };
+    std::vector<size_t> rows;
+    visit_selected_rows(plan, [&](size_t row) { rows.push_back(row); });
+    EXPECT_EQ(rows, (std::vector<size_t> {0, 1, 5, 9, 10}));
 }
 
 } // namespace

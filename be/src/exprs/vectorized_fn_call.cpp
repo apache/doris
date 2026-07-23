@@ -86,7 +86,7 @@ const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
 
 namespace {
 
-using parquet_simd::RawComparisonOp;
+using simd::RawComparisonOp;
 
 std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name, bool reverse) {
     RawComparisonOp op;
@@ -128,7 +128,7 @@ template <typename T, PrimitiveType PT>
 void execute_raw_comparison(const uint8_t* values, size_t num_values, const Field& literal,
                             RawComparisonOp op, uint8_t* matches) {
     const T rhs = literal.get<PT>();
-    parquet_simd::raw_compare(values, num_values, rhs, op, matches);
+    simd::raw_compare(values, num_values, rhs, op, matches);
 }
 
 } // namespace

@@ -18,6 +18,7 @@
 #include "util/simd/parquet_kernels.h"
 
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <type_traits>
@@ -27,16 +28,16 @@
 #define DORIS_PARQUET_X86_SIMD
 #endif
 
-namespace doris::parquet_simd {
+namespace doris::simd {
 namespace {
 
-bool has_avx2() {
 #ifdef DORIS_PARQUET_X86_SIMD
+// Keep x86-only dispatch helpers out of scalar-only builds so warning-clean ARM builds do not
+// depend on compiler-specific unused-function behavior.
+bool has_avx2() {
     return __builtin_cpu_supports("avx2");
-#else
-    return false;
-#endif
 }
+#endif
 
 void byte_stream_split_decode_scalar(const uint8_t* src, size_t width, size_t offset,
                                      size_t num_values, size_t stride, uint8_t* dest) {
@@ -45,6 +46,43 @@ void byte_stream_split_decode_scalar(const uint8_t* src, size_t width, size_t of
             dest[row * width + byte] = src[byte * stride + offset + row];
         }
     }
+}
+
+template <typename T>
+bool scalar_compare(T lhs, T rhs, RawComparisonOp op) {
+    const auto equal = [](T left, T right) {
+        if constexpr (std::is_floating_point_v<T>) {
+            return (std::isnan(left) && std::isnan(right)) || left == right;
+        }
+        return left == right;
+    };
+    const auto greater = [](T left, T right) {
+        if constexpr (std::is_floating_point_v<T>) {
+            // Match Doris Compare: NaN is equal to NaN and greater than every finite value.
+            if (std::isnan(right)) {
+                return false;
+            }
+            if (std::isnan(left)) {
+                return true;
+            }
+        }
+        return left > right;
+    };
+    switch (op) {
+    case RawComparisonOp::EQ:
+        return equal(lhs, rhs);
+    case RawComparisonOp::NE:
+        return !equal(lhs, rhs);
+    case RawComparisonOp::LT:
+        return greater(rhs, lhs);
+    case RawComparisonOp::LE:
+        return !greater(lhs, rhs);
+    case RawComparisonOp::GT:
+        return greater(lhs, rhs);
+    case RawComparisonOp::GE:
+        return !greater(rhs, lhs);
+    }
+    __builtin_unreachable();
 }
 
 #ifdef DORIS_PARQUET_X86_SIMD
@@ -263,48 +301,61 @@ __attribute__((target("avx2"))) void expand_nullable_avx2(uint8_t* bytes, size_t
     }
 }
 
+__attribute__((target("avx2"))) __m256i vector_all(__m256i) {
+    return _mm256_set1_epi32(-1);
+}
+
+__attribute__((target("avx2"))) __m256 vector_all(__m256) {
+    return _mm256_castsi256_ps(_mm256_set1_epi32(-1));
+}
+
+__attribute__((target("avx2"))) __m256d vector_all(__m256d) {
+    return _mm256_castsi256_pd(_mm256_set1_epi32(-1));
+}
+
+__attribute__((target("avx2"))) __m256i vector_or(__m256i lhs, __m256i rhs) {
+    return _mm256_or_si256(lhs, rhs);
+}
+
+__attribute__((target("avx2"))) __m256 vector_or(__m256 lhs, __m256 rhs) {
+    return _mm256_or_ps(lhs, rhs);
+}
+
+__attribute__((target("avx2"))) __m256d vector_or(__m256d lhs, __m256d rhs) {
+    return _mm256_or_pd(lhs, rhs);
+}
+
+__attribute__((target("avx2"))) __m256i vector_xor(__m256i lhs, __m256i rhs) {
+    return _mm256_xor_si256(lhs, rhs);
+}
+
+__attribute__((target("avx2"))) __m256 vector_xor(__m256 lhs, __m256 rhs) {
+    return _mm256_xor_ps(lhs, rhs);
+}
+
+__attribute__((target("avx2"))) __m256d vector_xor(__m256d lhs, __m256d rhs) {
+    return _mm256_xor_pd(lhs, rhs);
+}
+
 template <typename Vec>
-Vec combine_comparison(Vec equal, Vec greater, Vec less, RawComparisonOp op) {
-    const Vec all = [] {
-        if constexpr (std::is_same_v<Vec, __m256i>) {
-            return _mm256_set1_epi32(-1);
-        } else if constexpr (std::is_same_v<Vec, __m256>) {
-            return _mm256_castsi256_ps(_mm256_set1_epi32(-1));
-        } else {
-            return _mm256_castsi256_pd(_mm256_set1_epi32(-1));
-        }
-    }();
-    const auto bit_or = [](Vec lhs, Vec rhs) {
-        if constexpr (std::is_same_v<Vec, __m256i>) {
-            return _mm256_or_si256(lhs, rhs);
-        } else if constexpr (std::is_same_v<Vec, __m256>) {
-            return _mm256_or_ps(lhs, rhs);
-        } else {
-            return _mm256_or_pd(lhs, rhs);
-        }
-    };
-    const auto bit_xor = [](Vec lhs, Vec rhs) {
-        if constexpr (std::is_same_v<Vec, __m256i>) {
-            return _mm256_xor_si256(lhs, rhs);
-        } else if constexpr (std::is_same_v<Vec, __m256>) {
-            return _mm256_xor_ps(lhs, rhs);
-        } else {
-            return _mm256_xor_pd(lhs, rhs);
-        }
-    };
+__attribute__((target("avx2"))) Vec combine_comparison(Vec equal, Vec greater, Vec less,
+                                                       RawComparisonOp op) {
+    // Target features do not propagate from AVX2 callers into separately instantiated helpers.
+    // Keep the complete vector operation inside its own target scope for baseline x86 builds.
+    const Vec all = vector_all(equal);
     switch (op) {
     case RawComparisonOp::EQ:
         return equal;
     case RawComparisonOp::NE:
-        return bit_xor(equal, all);
+        return vector_xor(equal, all);
     case RawComparisonOp::LT:
         return less;
     case RawComparisonOp::LE:
-        return bit_or(less, equal);
+        return vector_or(less, equal);
     case RawComparisonOp::GT:
         return greater;
     case RawComparisonOp::GE:
-        return bit_or(greater, equal);
+        return vector_or(greater, equal);
     }
     __builtin_unreachable();
 }
@@ -395,43 +446,6 @@ __attribute__((target("avx2"))) void raw_compare_int64_avx2(const uint8_t* bytes
         }
         matches[row] &= static_cast<uint8_t>(keep);
     }
-}
-
-template <typename T>
-bool scalar_compare(T lhs, T rhs, RawComparisonOp op) {
-    const auto equal = [](T left, T right) {
-        if constexpr (std::is_floating_point_v<T>) {
-            return (std::isnan(left) && std::isnan(right)) || left == right;
-        }
-        return left == right;
-    };
-    const auto greater = [](T left, T right) {
-        if constexpr (std::is_floating_point_v<T>) {
-            // Match Doris Compare: NaN is equal to NaN and greater than every finite value.
-            if (std::isnan(right)) {
-                return false;
-            }
-            if (std::isnan(left)) {
-                return true;
-            }
-        }
-        return left > right;
-    };
-    switch (op) {
-    case RawComparisonOp::EQ:
-        return equal(lhs, rhs);
-    case RawComparisonOp::NE:
-        return !equal(lhs, rhs);
-    case RawComparisonOp::LT:
-        return greater(rhs, lhs);
-    case RawComparisonOp::LE:
-        return !greater(lhs, rhs);
-    case RawComparisonOp::GT:
-        return greater(lhs, rhs);
-    case RawComparisonOp::GE:
-        return !greater(rhs, lhs);
-    }
-    __builtin_unreachable();
 }
 
 __attribute__((target("avx2"))) void raw_compare_float_avx2(const uint8_t* bytes, size_t count,
@@ -634,4 +648,4 @@ void raw_compare(const uint8_t* values, size_t count, double literal, RawCompari
     raw_compare_scalar(values, count, literal, op, matches);
 }
 
-} // namespace doris::parquet_simd
+} // namespace doris::simd

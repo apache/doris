@@ -32,9 +32,9 @@ Status ByteStreamSplitDecoder::decode_fixed_values(size_t num_values,
     }
     const int64_t stride = static_cast<int64_t>(_data->size / _type_length);
     _decoded_values.resize(byte_size);
-    parquet_simd::byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data),
-                                           _type_length, _offset / _type_length, num_values, stride,
-                                           _decoded_values.data());
+    simd::byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data), _type_length,
+                                   _offset / _type_length, num_values, stride,
+                                   _decoded_values.data());
     _offset += byte_size;
     return consumer.consume(_decoded_values.data(), num_values, static_cast<size_t>(_type_length));
 }
@@ -58,10 +58,9 @@ Status ByteStreamSplitDecoder::decode_selected_fixed_values(const ParquetSelecti
     size_t output = 0;
     const size_t first_row = _offset / value_width;
     for (const auto& range : selection.ranges) {
-        parquet_simd::byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data),
-                                               _type_length, first_row + range.first, range.count,
-                                               stride,
-                                               _decoded_values.data() + output * value_width);
+        simd::byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data), _type_length,
+                                       first_row + range.first, range.count, stride,
+                                       _decoded_values.data() + output * value_width);
         output += range.count;
     }
     DORIS_CHECK_EQ(output, selection.selected_values);
