@@ -41,20 +41,20 @@ public class IvmRewriteContext {
 
     private final Mode mode;
     private final MTMV mtmv;
-    private final boolean includeUpToDateStreams;
+    private final boolean includeExhaustedStreams;
     private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
     private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
 
-    public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeUpToDateStreams) {
-        this(mode, mtmv, includeUpToDateStreams, Collections.emptyMap(), Optional.empty());
+    public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeExhaustedStreams) {
+        this(mode, mtmv, includeExhaustedStreams, Collections.emptyMap(), Optional.empty());
     }
 
-    private IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeUpToDateStreams,
+    private IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeExhaustedStreams,
             Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
             Optional<StreamReadMode> fullRefreshNonPctReadMode) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
         this.mtmv = mode == Mode.NORMALIZE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
-        this.includeUpToDateStreams = includeUpToDateStreams;
+        this.includeExhaustedStreams = includeExhaustedStreams;
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = new HashMap<>();
         Objects.requireNonNull(fullRefreshResetPartitionIds, "fullRefreshResetPartitionIds can not be null")
                 .forEach((baseTableInfo, partitionIds) -> resetPartitionIds.put(baseTableInfo,
@@ -72,8 +72,8 @@ public class IvmRewriteContext {
         return new IvmRewriteContext(Mode.NORMALIZE, Objects.requireNonNull(mtmv, "mtmv can not be null"), false);
     }
 
-    public static IvmRewriteContext incremental(MTMV mtmv, boolean includeUpToDateStreams) {
-        return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, includeUpToDateStreams);
+    public static IvmRewriteContext incremental(MTMV mtmv, boolean includeExhaustedStreams) {
+        return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, includeExhaustedStreams);
     }
 
     public static IvmRewriteContext full(MTMV mtmv) {
@@ -95,8 +95,8 @@ public class IvmRewriteContext {
         return mtmv;
     }
 
-    public boolean isIncludeUpToDateStreams() {
-        return includeUpToDateStreams;
+    public boolean isIncludeExhaustedStreams() {
+        return includeExhaustedStreams;
     }
 
     public boolean hasFullRefreshStreamScans() {

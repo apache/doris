@@ -37,14 +37,14 @@ import java.util.Optional;
  */
 class IvmDeltaRewriteState {
     private final Map<OlapTable, OlapTableStream> streams;
-    private final boolean includeUpToDateStreams;
+    private final boolean includeExhaustedStreams;
     private final long refreshVersion;
     private int nextDeltaScanIndex;
 
     IvmDeltaRewriteState(Map<OlapTable, OlapTableStream> streams,
-            boolean includeUpToDateStreams, long refreshVersion) {
+            boolean includeExhaustedStreams, long refreshVersion) {
         this.streams = new HashMap<>(streams);
-        this.includeUpToDateStreams = includeUpToDateStreams;
+        this.includeExhaustedStreams = includeExhaustedStreams;
         if (refreshVersion < 0 || refreshVersion > (Long.MAX_VALUE >>> 11)) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                     "IVM refresh version exceeds the sequence encoding range: " + refreshVersion);
@@ -62,7 +62,7 @@ class IvmDeltaRewriteState {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                     "IVM: missing delta scan context for " + scan.getTable().getName());
         }
-        if (!includeUpToDateStreams && !hasPendingData(stream, scan)) {
+        if (!includeExhaustedStreams && !hasPendingData(stream, scan)) {
             return Optional.empty();
         }
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
