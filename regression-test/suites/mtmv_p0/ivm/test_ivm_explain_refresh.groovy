@@ -93,28 +93,33 @@ suite("test_ivm_explain_refresh") {
     sql """INSERT INTO test_ivm_explain_refresh_t1 VALUES (1, 10), (2, 20);"""
     sql """INSERT INTO test_ivm_explain_refresh_t2 VALUES (1, 100), (3, 300);"""
 
-    explainIvmPlanWithoutStreamId("left_delta_shape_plan", """
-        EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
+    sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
+    waitingMTMVTaskFinishedByMvName("test_ivm_explain_refresh_mv")
+
+    sql "INSERT INTO test_ivm_explain_refresh_t1 VALUES (1, 11), (4, 40);"
+
+    explainIvmPlanWithoutStreamId("all_streams_shape_plan", """
+        EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS
     """)
 
-    explainIvmPlanWithoutStreamId("right_delta_shape_plan", """
+    explainIvmPlanWithoutStreamId("pending_stream_shape_plan", """
         EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """)
 
     explain {
-        sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
+        sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS"
         contains "PLAN FRAGMENT 0"
         contains "__DORIS_IVM_ROW_ID_COL__"
         contains "OLAP TABLE SINK"
     }
 
     explain {
-        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
+        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS"
         contains "LogicalOlapTableSink"
     }
 
     explain {
-        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
+        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS"
         contains "LogicalJoin"
         contains "LEFT_OUTER_JOIN"
         contains "test_ivm_explain_refresh_t1"
@@ -122,12 +127,12 @@ suite("test_ivm_explain_refresh") {
     }
 
     explain {
-        sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
+        sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS"
         contains "LogicalOlapTableSink"
     }
 
     explain {
-        sql "PHYSICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
+        sql "PHYSICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS"
         contains "PhysicalOlapTableSink"
     }
 

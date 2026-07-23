@@ -56,7 +56,7 @@ public class IvmDeltaRewriter {
             IvmRewriteContext rewriteContext, ConnectContext connectContext) {
         IvmRefreshContext refreshContext = new IvmRefreshContext(
                 rewriteContext.getMtmv(), connectContext, rewriteResult,
-                rewriteContext.isIncludeUpToDateStreams());
+                rewriteContext.isIncludeExhaustedStreams());
         Pair<Plan, List<LogicalProject<?>>> prefixChain = helper.detachAdaptProjectChain(sinkChild);
         Plan rootPlan = prefixChain.first;
         long refreshVersion = refreshContext.getMtmv().getNextRefreshVersion();
@@ -126,7 +126,7 @@ public class IvmDeltaRewriter {
             OlapTableStream stream = IvmUtil.getIvmStream(ctx.getMtmv(), (OlapTable) scan.getTable());
             streams.put((OlapTable) scan.getTable(), stream);
         });
-        return new IvmDeltaRewriteState(streams, ctx.isIncludeUpToDateStreams(), refreshVersion);
+        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), refreshVersion);
     }
 
     boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
