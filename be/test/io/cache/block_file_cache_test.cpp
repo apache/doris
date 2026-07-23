@@ -3279,6 +3279,73 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+TEST_F(BlockFileCacheTest, create_file_caches_preserves_config_order) {
+    reset_file_cache_factory_for_test();
+    std::string cache_path2 = caches_dir / "cache2" / "";
+    std::string cache_path3 = caches_dir / "cache3" / "";
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    if (fs::exists(cache_path2)) {
+        fs::remove_all(cache_path2);
+    }
+    if (fs::exists(cache_path3)) {
+        fs::remove_all(cache_path3);
+    }
+    Defer cleanup {[&] {
+        reset_file_cache_factory_for_test();
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+        if (fs::exists(cache_path2)) {
+            fs::remove_all(cache_path2);
+        }
+        if (fs::exists(cache_path3)) {
+            fs::remove_all(cache_path3);
+        }
+    }};
+
+    std::vector<CachePath> cache_paths;
+    cache_paths.emplace_back(cache_base_path, 90, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+    cache_paths.emplace_back(cache_path2, 120, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+    cache_paths.emplace_back(cache_base_path, 90, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+    cache_paths.emplace_back(cache_path3, 150, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_caches(cache_paths, [](const std::string&,
+                                                             const Status&) { return false; })
+                        .ok());
+
+    const auto& caches = FileCacheFactory::instance()->get_caches();
+    ASSERT_EQ(caches.size(), 3);
+    EXPECT_EQ(caches[0]->get_base_path(), cache_base_path);
+    EXPECT_EQ(caches[1]->get_base_path(), cache_path2);
+    EXPECT_EQ(caches[2]->get_base_path(), cache_path3);
+    EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_base_path)->get_base_path(),
+              cache_base_path);
+    EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_path2)->get_base_path(), cache_path2);
+    EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_path3)->get_base_path(), cache_path3);
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 360);
+
+    for (const auto& cache : caches) {
+        wait_until_cache_ready(*cache);
+    }
+
+    for (int i = 0; i < 64; ++i) {
+        auto key = io::BlockFileCache::hash("factory_order_key_" + std::to_string(i));
+        const auto expected_path = caches[KeyHash()(key) % caches.size()]->get_base_path();
+        EXPECT_EQ(FileCacheFactory::instance()->get_by_path(key)->get_base_path(), expected_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, test_factory_2) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
