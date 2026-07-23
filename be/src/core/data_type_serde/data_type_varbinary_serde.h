@@ -76,10 +76,7 @@ public:
                                  const cctz::time_zone& ctz) const override;
 
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                  int64_t end, const cctz::time_zone& ctz) const override {
-        return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                             "read_column_from_arrow with type " + column.get_name());
-    }
+                                  int64_t end, const cctz::time_zone& ctz) const override;
 
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
