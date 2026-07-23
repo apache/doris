@@ -226,7 +226,6 @@ public class TenantLevelColocateTableIndex implements Writable {
     }
 
     private void removeMasterTable(long tableId) {
-        Set<Long> groupIds = new HashSet<>();
         writeLock();
         try {
             Map<Tag, Long> groups = new HashMap<>(table2MasterGroup.row(tableId));
@@ -235,48 +234,37 @@ public class TenantLevelColocateTableIndex implements Writable {
                 Long groupId = table2MasterGroup.remove(tableId, tag);
                 Preconditions.checkNotNull(groupId);
                 masterGroup2Tables.remove(groupId, tableId);
-                groupIds.add(groupId);
+                if (!slaveGroup2Tables.containsKey(groupId)) {
+                    removeUnusedMasterGroup(groupId);
+                }
             }
         } finally {
             writeUnlock();
         }
-        filterSlaveReferredGroup(groupIds);
-        removeMasterGroup(groupIds);
     }
 
     public void removeMasterTable(long tableId, Tag tag) {
-        Set<Long> groupIds = new HashSet<>();
         writeLock();
         try {
             Long groupId = table2MasterGroup.remove(tableId, tag);
             Preconditions.checkNotNull(groupId);
             masterGroup2Tables.remove(groupId, tableId);
-            groupIds.add(groupId);
-        } finally {
-            writeUnlock();
-        }
-        filterSlaveReferredGroup(groupIds);
-        removeMasterGroup(groupIds);
-    }
-
-    private void removeMasterGroup(Set<Long> groupIds) {
-        if (groupIds.isEmpty()) {
-            return;
-        }
-        writeLock();
-        try {
-            for (Long groupId : groupIds) {
-                if (!masterGroup2Tables.containsKey(groupId)) {
-                    // all tables of this group are removed, remove the group
-                    TenantLevelColocateGroupSchema groupSchema = group2Schema.remove(groupId);
-                    group2BackendsPerBucketSeq.remove(groupId);
-                    masterGroup2ErrMsgs.remove(groupId);
-                    unstableMasterGroups.remove(groupId);
-                    groupName2Id.remove(groupSchema.getName(), groupSchema.getTag());
-                }
+            if (!slaveGroup2Tables.containsKey(groupId)) {
+                removeUnusedMasterGroup(groupId);
             }
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void removeUnusedMasterGroup(long groupId) {
+        if (!masterGroup2Tables.containsKey(groupId)) {
+            // all tables of this group are removed, remove the group
+            TenantLevelColocateGroupSchema groupSchema = group2Schema.remove(groupId);
+            group2BackendsPerBucketSeq.remove(groupId);
+            masterGroup2ErrMsgs.remove(groupId);
+            unstableMasterGroups.remove(groupId);
+            groupName2Id.remove(groupSchema.getName(), groupSchema.getTag());
         }
     }
 
@@ -596,10 +584,10 @@ public class TenantLevelColocateTableIndex implements Writable {
         }
     }
 
-    public void checkDistributionAndReplica(Long tableId, DistributionInfo distributionInfo,
-            ReplicaAllocation replicaAlloc) throws DdlException {
-        checkMasterDistributionAndReplica(tableId, distributionInfo, replicaAlloc);
-        checkSlaveDistributionAndReplica(tableId, distributionInfo, replicaAlloc);
+    public void checkPartitionDistributionAndReplica(Long tableId, int defaultBucketNum,
+            DistributionInfo partitionDistributionInfo, ReplicaAllocation replicaAlloc) throws DdlException {
+        checkMasterDistributionAndReplica(tableId, partitionDistributionInfo, replicaAlloc);
+        checkSlaveDistributionAndReplica(tableId, defaultBucketNum, partitionDistributionInfo, replicaAlloc);
     }
 
     private void checkMasterDistributionAndReplica(Long tableId, DistributionInfo distributionInfo,
@@ -872,7 +860,6 @@ public class TenantLevelColocateTableIndex implements Writable {
     }
 
     public void removeSlaveTable(long tableId, Tag tag) {
-        Set<Long> groupIds = new HashSet<>();
         writeLock();
         try {
             Long groupId = table2SlaveGroup.remove(tableId, tag);
@@ -882,12 +869,11 @@ public class TenantLevelColocateTableIndex implements Writable {
                 // all tables of this group are removed, remove the group
                 slaveGroup2ErrMsgs.remove(groupId);
                 unstableSlaveGroups.remove(groupId);
-                groupIds.add(groupId);
+                removeUnusedMasterGroup(groupId);
             }
         } finally {
             writeUnlock();
         }
-        removeMasterGroup(groupIds);
     }
 
     public void markSlaveGroupUnstable(long groupId, String reason, boolean needEditLog) {
@@ -980,13 +966,13 @@ public class TenantLevelColocateTableIndex implements Writable {
         return result;
     }
 
-    private void checkSlaveDistributionAndReplica(Long tableId, DistributionInfo distributionInfo,
-            ReplicaAllocation replicaAlloc) throws DdlException {
+    private void checkSlaveDistributionAndReplica(Long tableId, int defaultBucketNum,
+            DistributionInfo distributionInfo, ReplicaAllocation replicaAlloc) throws DdlException {
         Map<Tag, TenantLevelColocateGroupSchema> map = getSlaveGroupByTable(tableId);
         for (Entry<Tag, TenantLevelColocateGroupSchema> entry : map.entrySet()) {
             TenantLevelColocateGroupSchema groupSchema = entry.getValue();
             Preconditions.checkNotNull(groupSchema);
-            groupSchema.checkSlaveDistribution(distributionInfo);
+            groupSchema.checkSlaveDistribution(defaultBucketNum, distributionInfo);
             groupSchema.checkReplicaAllocation(replicaAlloc);
         }
     }
@@ -1052,7 +1038,6 @@ public class TenantLevelColocateTableIndex implements Writable {
     }
 
     private void removeSlaveTable(long tableId) {
-        Set<Long> groupIds = new HashSet<>();
         writeLock();
         try {
             Map<Tag, Long> groups = new HashMap<>(table2SlaveGroup.row(tableId));
@@ -1065,13 +1050,12 @@ public class TenantLevelColocateTableIndex implements Writable {
                     // all tables of this group are removed, remove the group
                     slaveGroup2ErrMsgs.remove(groupId);
                     unstableSlaveGroups.remove(groupId);
-                    groupIds.add(groupId);
+                    removeUnusedMasterGroup(groupId);
                 }
             }
         } finally {
             writeUnlock();
         }
-        removeMasterGroup(groupIds);
     }
 
     private void checkSlaveReplica(Long tableId, ReplicaAllocation replicaAlloc) throws DdlException {
@@ -1096,15 +1080,6 @@ public class TenantLevelColocateTableIndex implements Writable {
             readUnlock();
         }
         return result;
-    }
-
-    private void filterSlaveReferredGroup(Set<Long> groupIds) {
-        readLock();
-        try {
-            groupIds.removeIf(slaveGroup2Tables::containsKey);
-        } finally {
-            readUnlock();
-        }
     }
 
     public void replayMarkSlaveGroupUnstable(TenantLevelColocateStableInfo info) {

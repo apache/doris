@@ -195,7 +195,10 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                     int colocateBucketNum = fragment.getColocateData().get().values().iterator().next().size();
                     Map<Integer, Long> bucketIndexToBytes = new LinkedHashMap<>();
                     for (Map.Entry<Integer, Long> kv : olapScanNode.bucketSeq2Bytes.entrySet()) {
-                        bucketIndexToBytes.put(kv.getKey() % colocateBucketNum, kv.getValue());
+                        int colocateBucketIndex = kv.getKey() % colocateBucketNum;
+                        long bytes = bucketIndexToBytes.getOrDefault(colocateBucketIndex, 0L);
+                        bytes += kv.getValue();
+                        bucketIndexToBytes.put(colocateBucketIndex, bytes);
                     }
                     return bucketIndexToBytes;
                 }

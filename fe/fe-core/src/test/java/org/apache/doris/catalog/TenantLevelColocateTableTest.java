@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -242,5 +243,80 @@ public class TenantLevelColocateTableTest {
         alterTable("alter table testDb.t2 set('colocate_slave' = '')");
         Assert.assertFalse(index.isColocateTable(t2));
         Assert.assertNull(index.getGroupSchema(groupId));
+    }
+
+    @Test
+    public void testAddPartition() throws Exception {
+        createTable("create table testDb.t1 (\n"
+                + " `k1` int NULL COMMENT '',\n"
+                + " `k2` varchar(10) NULL COMMENT ''\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "COMMENT 'OLAP'\n"
+                + "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + " 'replication_num' = '2',\n"
+                + " 'colocate_group' = 'tag.location.default:g1'\n"
+                + ");");
+
+        createTable("create table testDb.t2 (\n"
+                + " `k1` int NULL COMMENT '',\n"
+                + " `k2` varchar(10) NULL COMMENT '',\n"
+                + "  dt datetime NULL COMMENT ''\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "partition by range(dt) (\n"
+                + "    PARTITION p202301 VALUES [('2023-01-01 00:00:00'), ('2023-02-01 00:00:00'))\n"
+                + ")"
+                + "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + " 'replication_num' = '2',\n"
+                + " 'colocate_slave' = 'tag.location.default:g1'\n"
+                + ");");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+        long t1 = db.getTableOrMetaException("t1").getId();
+        TenantLevelColocateTableIndex index = Env.getCurrentTenantLevelColocateIndex();
+        Long groupId = index.getMasterGroupByTable(t1, Tag.DEFAULT_BACKEND_TAG);
+        Assert.assertEquals(5, index.getBackendsPerBucketSeqByGroup(groupId).size());
+
+        alterTable("alter table testDb.t2"
+                + " add PARTITION p202302 VALUES [('2023-02-01 00:00:00'), ('2023-03-01 00:00:00'))"
+                + " DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 5");
+
+        expectedEx.expect(UserException.class);
+        expectedEx.expectMessage("Colocate slave tables must have multiple of bucket num: 5");
+
+        alterTable("alter table testDb.t2"
+                + " add partition p202303 VALUES [('2023-03-01 00:00:00'), ('2023-04-01 00:00:00'))"
+                + " DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 10");
+    }
+
+    @Test
+    public void testCreateEmptyTable() throws Exception {
+        createTable("create table testDb.t1 (\n"
+                + " `k1` int NULL COMMENT '',\n"
+                + " `k2` varchar(10) NULL COMMENT '',\n"
+                + "  dt datetime NULL COMMENT ''\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "partition by range(dt) (\n"
+                + ")"
+                + "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 5\n"
+                + "PROPERTIES (\n"
+                + " 'replication_num' = '2',\n"
+                + " 'colocate_group' = 'tag.location.default:test_empty_table'\n"
+                + ");");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("testDb");
+        long t1 = db.getTableOrMetaException("t1").getId();
+        TenantLevelColocateTableIndex index = Env.getCurrentTenantLevelColocateIndex();
+        Long groupId = index.getMasterGroupByTable(t1, Tag.DEFAULT_BACKEND_TAG);
+        Assert.assertTrue(index.getBackendsPerBucketSeqByGroup(groupId).isEmpty());
+
+        alterTable("alter table testDb.t1"
+                + " add partition p202303 VALUES [('2023-03-01 00:00:00'), ('2023-04-01 00:00:00'))"
+                + " DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 5");
+        Assert.assertEquals(5, index.getBackendsPerBucketSeqByGroup(groupId).size());
     }
 }

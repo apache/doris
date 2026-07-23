@@ -1696,8 +1696,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 groupSchema.checkReplicaAllocation(singlePartitionDesc.getReplicaAlloc());
             } else if (Env.getCurrentTenantLevelColocateIndex().isColocateTable(olapTable.getId())) {
                 Env.getCurrentTenantLevelColocateIndex()
-                        .checkDistributionAndReplica(olapTable.getId(), distributionInfo,
-                                singlePartitionDesc.getReplicaAlloc());
+                        .checkPartitionDistributionAndReplica(olapTable.getId(), defaultDistributionInfo.getBucketNum(),
+                                distributionInfo, singlePartitionDesc.getReplicaAlloc());
             }
 
             indexIdToMeta = olapTable.getCopiedIndexIdToMeta();

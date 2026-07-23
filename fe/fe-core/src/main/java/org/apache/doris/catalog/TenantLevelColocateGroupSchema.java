@@ -102,7 +102,7 @@ public class TenantLevelColocateGroupSchema implements Writable {
     }
 
     public void checkSlaveColocateSchema(OlapTable tbl, Map<String, String> properties) throws DdlException {
-        checkSlaveDistribution(tbl.getDefaultDistributionInfo());
+        checkSlaveDistribution(tbl.getDefaultDistributionInfo().getBucketNum(), tbl.getDefaultDistributionInfo());
         checkReplicaAllocation(tbl.getPartitionInfo());
         checkReplicaAllocation(tbl.getDefaultReplicaAllocation());
         checkDynamicPartition(properties, tbl.getDefaultDistributionInfo());
@@ -122,11 +122,12 @@ public class TenantLevelColocateGroupSchema implements Writable {
         checkDistributionTypes(info);
     }
 
-    public void checkSlaveDistribution(DistributionInfo distributionInfo) throws DdlException {
+    public void checkSlaveDistribution(int defaultBucketNum, DistributionInfo distributionInfo) throws DdlException {
         if (distributionInfo instanceof HashDistributionInfo) {
             HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
             // buckets num
-            if (info.getBucketNum() < bucketsNum || info.getBucketNum() % bucketsNum != 0) {
+            if (info.getBucketNum() < bucketsNum || info.getBucketNum() % bucketsNum != 0
+                    || info.getBucketNum() != defaultBucketNum) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_SLAVE_TABLE_MUST_HAS_SAME_BUCKET_NUM, bucketsNum);
             }
             checkDistributionTypes(info);
