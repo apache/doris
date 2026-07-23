@@ -125,6 +125,9 @@ struct TReportRequest {
     15: optional list<AgentService.TIndexPolicy> index_policy
     // Running query/loading tasks
     16: optional i64 running_tasks
+    17: optional i32 cpu_used_permille
+    18: optional i64 mem_used_bytes
+    19: optional i64 mem_limit_bytes
 }
 
 struct TMasterResult {

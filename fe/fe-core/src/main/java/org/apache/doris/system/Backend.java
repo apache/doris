@@ -109,6 +109,10 @@ public class Backend implements Writable {
 
     private Long runningTasks = 0L;
 
+    private volatile int cpuUsedPermille = 0;
+    private volatile long memUsedBytes = 0;
+    private volatile long memLimitBytes = 0;
+
     private String heartbeatErrMsg = "";
 
     // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
@@ -993,6 +997,28 @@ public class Backend implements Writable {
 
     public void setRunningTasks(Long runningTasks) {
         this.runningTasks = runningTasks;
+    }
+
+    public int getCpuUsedPermille() {
+        return cpuUsedPermille;
+    }
+
+    public long getMemUsedBytes() {
+        return memUsedBytes;
+    }
+
+    public long getMemLimitBytes() {
+        return memLimitBytes;
+    }
+
+    public double getMemUsedPct() {
+        return memLimitBytes == 0 ? 0.0 : (double) memUsedBytes / memLimitBytes;
+    }
+
+    public void updateResourceUsage(int cpuUsedPermille, long memUsedBytes, long memLimitBytes) {
+        this.cpuUsedPermille = cpuUsedPermille;
+        this.memUsedBytes = memUsedBytes;
+        this.memLimitBytes = memLimitBytes;
     }
 
     /**

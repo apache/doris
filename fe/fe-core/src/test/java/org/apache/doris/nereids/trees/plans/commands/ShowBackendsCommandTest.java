@@ -127,10 +127,12 @@ public class ShowBackendsCommandTest {
         Assertions.assertEquals("Status", columnList.get(22).getName());
         Assertions.assertEquals("HeartbeatFailureCounter", columnList.get(23).getName());
         Assertions.assertEquals("CpuCores", columnList.get(24).getName());
-        Assertions.assertEquals("Memory", columnList.get(25).getName());
-        Assertions.assertEquals("LiveSince", columnList.get(26).getName());
-        Assertions.assertEquals("RunningTasks", columnList.get(27).getName());
-        Assertions.assertEquals("NodeRole", columnList.get(28).getName());
+        Assertions.assertEquals("CpuUsedPct", columnList.get(25).getName());
+        Assertions.assertEquals("MemUsedPct", columnList.get(26).getName());
+        Assertions.assertEquals("Memory", columnList.get(27).getName());
+        Assertions.assertEquals("LiveSince", columnList.get(28).getName());
+        Assertions.assertEquals("RunningTasks", columnList.get(29).getName());
+        Assertions.assertEquals("NodeRole", columnList.get(30).getName());
     }
 
     @Test

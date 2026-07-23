@@ -562,6 +562,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatFailureCounter()));
             // cpu cores
             trow.addToColumnValue(new TCell().setIntVal(backend.getCputCores()));
+            // cpu used pct
+            trow.addToColumnValue(new TCell().setDoubleVal(backend.getCpuUsedPermille() / 10.0));
+            // mem used pct
+            trow.addToColumnValue(new TCell().setDoubleVal(backend.getMemUsedPct() * 100));
+
             // memory
             trow.addToColumnValue(new TCell()
                     .setStringVal(RuntimeProfile.printCounter(backend.getBeMemory(), TUnit.BYTES)));

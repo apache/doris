@@ -131,6 +131,7 @@ public class ReportHandler extends Daemon {
         DISK,
         TABLET,
         INDEX_POLICY,
+        RESOURCE_USAGE,
     }
 
     public ReportHandler() {
@@ -201,6 +202,10 @@ public class ReportHandler extends Daemon {
             reportType = ReportType.INDEX_POLICY;
         }
 
+        if (request.isSetCpuUsedPermille() || request.isSetMemUsedBytes() || request.isSetMemLimitBytes()) {
+            reportType = ReportType.RESOURCE_USAGE;
+        }
+
         if (tablets == null) {
             numTablets = request.isSetNumTablets() ? request.getNumTablets() : 0;
         } else {
@@ -226,7 +231,10 @@ public class ReportHandler extends Daemon {
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
                 request.getPipelineExecutorSize(), numTablets, request.getIndexPolicy(),
-                request.isSetRunningTasks() ? request.getRunningTasks() : -1);
+                request.isSetRunningTasks() ? request.getRunningTasks() : -1,
+                request.isSetCpuUsedPermille() ? request.getCpuUsedPermille() : 0,
+                request.isSetMemUsedBytes() ? request.getMemUsedBytes() : 0,
+                request.isSetMemLimitBytes() ? request.getMemLimitBytes() : 0);
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -319,12 +327,16 @@ public class ReportHandler extends Daemon {
         private long runningTasks;
         private long numTablets;
         private List<TIndexPolicy> indexPolicys;
+        private int cpuUsedPermille;
+        private long memUsedBytes;
+        private long memLimitBytes;
 
         public ReportTask(long beId, ReportType reportType, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys, long runningTasks) {
+                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys, long runningTasks,
+                int cpuUsedPermille, long memUsedBytes, long memLimitBytes) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -339,6 +351,9 @@ public class ReportHandler extends Daemon {
             this.numTablets = numTablets;
             this.indexPolicys = indexPolicys;
             this.runningTasks = runningTasks;
+            this.cpuUsedPermille = cpuUsedPermille;
+            this.memUsedBytes = memUsedBytes;
+            this.memLimitBytes = memLimitBytes;
         }
 
         @Override
@@ -355,6 +370,9 @@ public class ReportHandler extends Daemon {
             }
             if (indexPolicys != null) {
                 storageIndexPolicyReport(beId, indexPolicys);
+            }
+            if (reportType == ReportType.RESOURCE_USAGE) {
+                ReportHandler.resourceUsageReport(beId, cpuUsedPermille, memUsedBytes, memLimitBytes);
             }
 
             if (tablets != null) {
@@ -800,6 +818,20 @@ public class ReportHandler extends Daemon {
             Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
         }
         LOG.info("finished to handle cpu report from backend {}, cost: {} ms",
+                backendId, (System.currentTimeMillis() - start));
+    }
+
+    private static void resourceUsageReport(long backendId, int cpuUsedPermille, long memUsedBytes,
+            long memLimitBytes) {
+        LOG.info("begin to handle resource usage report from backend {}", backendId);
+        long start = System.currentTimeMillis();
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (backend == null) {
+            LOG.warn("backend doesn't exist. id: " + backendId);
+            return;
+        }
+        backend.updateResourceUsage(cpuUsedPermille, memUsedBytes, memLimitBytes);
+        LOG.info("finished to handle resource usage report from backend {}, cost: {} ms",
                 backendId, (System.currentTimeMillis() - start));
     }
 

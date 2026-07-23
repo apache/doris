@@ -154,6 +154,10 @@ public class BackendsProcDir implements ProcDirInterface {
 
             // cpu cores
             backendInfo.add(String.valueOf(backend.getCputCores()));
+            // cpu used pct
+            backendInfo.add(String.format("%.2f", backend.getCpuUsedPermille() / 10.0) + " %");
+            // mem used pct
+            backendInfo.add(String.format("%.2f", backend.getMemUsedPct() * 100) + " %");
 
             // memory
             backendInfo.add(RuntimeProfile.printCounter(backend.getBeMemory(), TUnit.BYTES));
