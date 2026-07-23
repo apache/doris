@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -33,16 +35,26 @@ import java.util.Map;
  */
 public class RenameColumnOp extends AlterTableOp {
     private String colName;
+    private ColumnPath columnPath;
     private String newColName;
 
     public RenameColumnOp(String colName, String newColName) {
+        this(ColumnPath.of(colName), newColName);
+    }
+
+    public RenameColumnOp(ColumnPath columnPath, String newColName) {
         super(AlterOpType.RENAME);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.newColName = newColName;
     }
 
     public String getColName() {
         return colName;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getNewColName() {
@@ -59,11 +71,15 @@ public class RenameColumnOp extends AlterTableOp {
             throw new AnalysisException("New column name is not set");
         }
 
-        if (colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+        if (!columnPath.isNested() && colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
             throw new AnalysisException("Do not support rename hidden column");
         }
 
-        FeNameFormat.checkColumnName(newColName);
+        if (columnPath.isNested()) {
+            FeNameFormat.checkColumnNameBypassSystemColumnPrefix(newColName);
+        } else {
+            FeNameFormat.checkColumnName(newColName);
+        }
     }
 
     @Override
@@ -83,7 +99,7 @@ public class RenameColumnOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        return "RENAME COLUMN " + colName + " " + newColName;
+        return "RENAME COLUMN " + columnPath.toSql() + " " + SqlUtils.getIdentSql(newColName);
     }
 
     @Override
