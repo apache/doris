@@ -21,7 +21,6 @@ suite("test_topn_lazy_materialize_sparse_variant", "p0") {
     sql "set default_variant_sparse_hash_shard_count = 2"
     sql "set use_v3_storage_format = true"
     sql "set enable_file_cache = true"
-    sql "set enable_segment_limit_pushdown = false"
     sql "set topn_lazy_materialization_threshold = 1024"
 
     sql "DROP TABLE IF EXISTS test_topn_lazy_materialize_sparse_variant"
