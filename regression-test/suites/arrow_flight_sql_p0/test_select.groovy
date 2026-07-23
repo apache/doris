@@ -62,7 +62,10 @@ suite("test_select", "arrow_flight_sql") {
         SELECT 4, CAST(CONCAT('{"large":"', REPEAT('x', ${largeJsonValueSize}), '"}') AS JSONB)
         """
 
-    // This row exceeds MAX_ARROW_UTF8 and exercises JSONB -> LargeString serialization.
+    // A ~2.1MB JSONB value. This is far below the 2GB (INT32_MAX) Arrow utf8/binary offset limit,
+    // so it round-trips through the normal utf8 path in a single Arrow batch -- it does NOT
+    // exercise the large-string / batch-split path. The >2GB split path is covered by BE unit
+    // tests (data_type_serde_arrow_test.cpp) via a lowered arrow_flight_result_max_utf8_bytes.
     def largeJsonbResult = arrow_flight_sql """
         select payload, length(cast(payload as string)) from ${tableName} where id = 4
         """

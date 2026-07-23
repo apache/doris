@@ -39,8 +39,6 @@ class Schema;
 
 namespace doris {
 
-constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
-
 class RowDescriptor;
 
 Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
