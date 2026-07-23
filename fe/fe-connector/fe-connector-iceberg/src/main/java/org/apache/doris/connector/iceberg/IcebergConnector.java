@@ -850,7 +850,8 @@ public class IcebergConnector implements Connector {
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
-                ConnectorCapability.SUPPORTS_SORT_ORDER);
+                ConnectorCapability.SUPPORTS_SORT_ORDER,
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
         // SUPPORTS_USER_SESSION: only a REST catalog configured iceberg.rest.session=user projects the querying
         // user's delegated credential onto a per-request Iceberg REST SessionCatalog (#63068 re-migration). This
         // gates FE credential injection + shared-cache bypass; every other flavor/config authenticates with a

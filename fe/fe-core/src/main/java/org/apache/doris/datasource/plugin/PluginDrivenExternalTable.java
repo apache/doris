@@ -265,6 +265,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether THIS table supports {@code ALTER TABLE} column schema-change DDL (including dotted
+     * nested paths and {@code MODIFY COLUMN ... COMMENT}). The nereids {@code AlterTableCommand} column-op
+     * validation consults this (in place of the legacy exact-class {@code IcebergExternalTable} gate) to admit
+     * the Iceberg-style clause set and to allow nested {@code ColumnPath} targets. Resolved per-table via
+     * {@link #hasScanCapability} so an iceberg-on-HMS table inherits it through the reflected per-table
+     * capability set, mirroring {@link #supportsNestedColumnPrune}.
+     */
+    public boolean supportsNestedColumnSchemaChange() {
+        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
+    }
+
+    /**
      * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
      * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
      * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.

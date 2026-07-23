@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -891,6 +892,54 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throw new DdlException(e.getMessage(), e);
         }
         afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * {@code ColumnPath} column-DDL overrides. #65329 rewired {@code Alter.java} to dispatch every external
+     * column op through the {@code ColumnPath} overloads; the base {@link ExternalCatalog} throws for them, so
+     * without these overrides even top-level iceberg column DDL would fall through to "not supported for
+     * catalog". Each override handles the top-level (non-nested) case by delegating to the matching flat
+     * override above (which routes to {@code ConnectorTableOps}); nested paths are dispatched to the
+     * path-addressed connector ops. See also the neutral {@code ConnectorColumnPath} plumbing in
+     * fe-connector-api.
+     */
+    @Override
+    public void addColumn(TableIf dorisTable, ColumnPath columnPath, Column column, ColumnPosition position)
+            throws UserException {
+        if (columnPath.isNested()) {
+            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        }
+        addColumn(dorisTable, column, position);
+    }
+
+    @Override
+    public void dropColumn(TableIf dorisTable, ColumnPath columnPath) throws UserException {
+        if (columnPath.isNested()) {
+            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        }
+        dropColumn(dorisTable, columnPath.getTopLevelName());
+    }
+
+    @Override
+    public void renameColumn(TableIf dorisTable, ColumnPath columnPath, String newName) throws UserException {
+        if (columnPath.isNested()) {
+            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        }
+        renameColumn(dorisTable, columnPath.getTopLevelName(), newName);
+    }
+
+    @Override
+    public void modifyColumn(TableIf dorisTable, ColumnPath columnPath, Column column, ColumnPosition position)
+            throws UserException {
+        if (columnPath.isNested()) {
+            throw new DdlException("Nested column schema change is not yet supported for catalog: " + getName());
+        }
+        modifyColumn(dorisTable, column, position);
+    }
+
+    @Override
+    public void modifyColumnComment(TableIf dorisTable, ColumnPath columnPath, String comment) throws UserException {
+        throw new DdlException("Modify column comment is not yet supported for catalog: " + getName());
     }
 
     /**
