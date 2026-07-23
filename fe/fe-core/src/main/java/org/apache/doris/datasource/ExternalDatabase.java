@@ -471,18 +471,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public boolean isTableExist(String tableName) {
         SessionContext sessionContext = SessionContext.current();
-        if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
-            Optional<Pair<String, String>> matched = findTableNamePairWithoutCache(sessionContext, tableName);
-            return matched.isPresent() && extCatalog.tableExist(sessionContext, remoteName, matched.get().key());
-        }
         String remoteTblName = tableName;
-        if (this.isTableNamesCaseInsensitive()) {
+        if (extCatalog.shouldBypassTableNameCache(sessionContext) && requiresRemoteTableNameResolution()) {
+            Optional<Pair<String, String>> matched = findTableNamePairWithoutCache(sessionContext, tableName);
+            remoteTblName = matched.map(Pair::key).orElse(null);
+        } else if (this.isTableNamesCaseInsensitive()) {
             // Route mode-2 lookups through the shared helper so hot-snapshot misses respect the mutable config.
             remoteTblName = resolveTableNameFromSnapshot(tableName, false,
                     namesValue -> namesValue.remoteNameForCaseInsensitiveLookup(tableName));
-            if (remoteTblName == null) {
-                return false;
-            }
+        }
+        if (remoteTblName == null) {
+            return false;
         }
         return extCatalog.tableExist(sessionContext, remoteName, remoteTblName);
     }
@@ -804,6 +803,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private boolean isTableNamesCaseInsensitive() {
         return extCatalog.getLowerCaseTableNames() == 2;
+    }
+
+    private boolean requiresRemoteTableNameResolution() {
+        return isStoredTableNamesLowerCase()
+                || isTableNamesCaseInsensitive()
+                || Boolean.parseBoolean(extCatalog.getLowerCaseMetaNames())
+                || !Strings.isNullOrEmpty(extCatalog.getMetaNamesMapping());
     }
 
     String canonicalLocalTableNameFromRemote(String remoteTableName) {

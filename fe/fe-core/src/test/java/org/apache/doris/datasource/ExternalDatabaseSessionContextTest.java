@@ -101,27 +101,55 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
         SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
         IcebergExternalDatabase db = new IcebergExternalDatabase(catalog, 4L, "db1", "db1");
 
-        // isTableExist() must honor token-scoped visibility even though it may enumerate names and probe existence.
+        // Mode 0 requires no name conversion, so isTableExist() should use a point lookup without listing tables.
         catalog.clearTableTokenTrace();
         withDelegatedToken("token_a", () -> Assertions.assertTrue(db.isTableExist("table_a")));
-        assertOnlyTableTokens(catalog, "token_a");
+        assertOnlyTableExistTokens(catalog, "token_a");
         Assertions.assertNull(db.getCachedTableNamesForTest());
         Assertions.assertNull(db.getCachedTableForTest("table_a"));
         Assertions.assertNull(db.getCachedTableForTest("table_b"));
 
         catalog.clearTableTokenTrace();
         withDelegatedToken("token_b", () -> Assertions.assertFalse(db.isTableExist("table_a")));
-        assertOnlyTableTokens(catalog, "token_b");
+        assertOnlyTableExistTokens(catalog, "token_b");
         Assertions.assertNull(db.getCachedTableNamesForTest());
         Assertions.assertNull(db.getCachedTableForTest("table_a"));
         Assertions.assertNull(db.getCachedTableForTest("table_b"));
 
         catalog.clearTableTokenTrace();
         withDelegatedToken("token_b", () -> Assertions.assertTrue(db.isTableExist("table_b")));
-        assertOnlyTableTokens(catalog, "token_b");
+        assertOnlyTableExistTokens(catalog, "token_b");
         Assertions.assertNull(db.getCachedTableNamesForTest());
         Assertions.assertNull(db.getCachedTableForTest("table_a"));
         Assertions.assertNull(db.getCachedTableForTest("table_b"));
+    }
+
+    @Test
+    public void testDelegatedSessionIsTableExistResolvesModeTwoNameWithoutSharedCache() {
+        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog(
+                Collections.singletonMap("lower_case_table_names", "2"));
+        IcebergExternalDatabase db = new IcebergExternalDatabase(catalog, 5L, "db1", "db1");
+
+        catalog.clearTableTokenTrace();
+        withDelegatedToken("token_a", () -> Assertions.assertTrue(db.isTableExist("TABLE_A")));
+        assertOnlyTableTokens(catalog, "token_a");
+        Assertions.assertEquals(Collections.singletonList("token_a"), catalog.tokensUsedToCheckTableExist);
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("table_a"));
+    }
+
+    @Test
+    public void testDelegatedSessionIsTableExistResolvesModeOneRemoteNameWithoutSharedCache() {
+        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog(
+                Collections.singletonMap("lower_case_table_names", "1"));
+        IcebergExternalDatabase db = new IcebergExternalDatabase(catalog, 6L, "db1", "db1");
+
+        catalog.clearTableTokenTrace();
+        withDelegatedToken("token_mixed", () -> Assertions.assertTrue(db.isTableExist("table_a")));
+        assertOnlyTableTokens(catalog, "token_mixed");
+        Assertions.assertEquals(Collections.singletonList("token_mixed"), catalog.tokensUsedToCheckTableExist);
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("table_a"));
     }
 
     @Test
@@ -188,8 +216,14 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
         Assertions.assertTrue(catalog.tokensUsedToListTables.stream().allMatch(expectedToken::equals));
     }
 
+    private static void assertOnlyTableExistTokens(SessionAwareIcebergCatalog catalog, String expectedToken) {
+        Assertions.assertTrue(catalog.tokensUsedToListTables.isEmpty());
+        Assertions.assertEquals(Collections.singletonList(expectedToken), catalog.tokensUsedToCheckTableExist);
+    }
+
     private static class SessionAwareIcebergCatalog extends IcebergRestExternalCatalog {
         private final List<String> tokensUsedToListTables = Lists.newArrayList();
+        private final List<String> tokensUsedToCheckTableExist = Lists.newArrayList();
         private final List<String> tokensUsedToListDatabases = Lists.newArrayList();
 
         private SessionAwareIcebergCatalog() {
@@ -255,12 +289,26 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
             if ("token_b".equals(token)) {
                 return Lists.newArrayList("table_b");
             }
+            if ("token_mixed".equals(token)) {
+                return Lists.newArrayList("Table_A");
+            }
             return Lists.newArrayList("bootstrap_table");
         }
 
         @Override
         public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-            return listTableNamesFromRemote(ctx, dbName).contains(tblName);
+            String token = token(ctx);
+            tokensUsedToCheckTableExist.add(token);
+            if ("token_a".equals(token)) {
+                return "table_a".equals(tblName);
+            }
+            if ("token_b".equals(token)) {
+                return "table_b".equals(tblName);
+            }
+            if ("token_mixed".equals(token)) {
+                return "Table_A".equals(tblName);
+            }
+            return "bootstrap_table".equals(tblName);
         }
 
         @Override
@@ -270,6 +318,7 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
 
         private void clearTableTokenTrace() {
             tokensUsedToListTables.clear();
+            tokensUsedToCheckTableExist.clear();
         }
 
         private List<String> getSharedDatabaseNames() {
