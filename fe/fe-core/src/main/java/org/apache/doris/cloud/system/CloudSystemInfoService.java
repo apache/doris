@@ -18,10 +18,13 @@
 package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ColocateGroupSchema;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudColocatePlacement;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
@@ -51,6 +54,7 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -67,6 +71,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,10 +99,147 @@ public class CloudSystemInfoService extends SystemInfoService {
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
 
-    // clusterId -> ComputeGroup
-    protected Map<String, ComputeGroup> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
+    // clusterId -> CloudComputeGroupMeta
+    protected Map<String, CloudComputeGroupMeta> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
+
+    private final Map<ColocatePlacementKey, ColocatePlacementCache> colocatePlacementCache =
+            new ConcurrentHashMap<>();
 
     private InstanceInfoPB.Status instanceStatus;
+
+    public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds, long idx) {
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1);
+    }
+
+    @VisibleForTesting
+    public long getCloudColocateHrwBeIdForTest(GroupId groupId, String clusterId, List<Long> availableBeIds,
+            long idx, int bucketNumForTest) {
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, bucketNumForTest);
+    }
+
+    private long getCloudColocateHrwBeIdInternal(GroupId groupId, String clusterId, List<Long> availableBeIds,
+            long idx, int bucketNumForTest) {
+        long[] candidateBeIds = availableBeIds.stream().mapToLong(Long::longValue).toArray();
+        ColocatePlacementKey key = new ColocatePlacementKey(groupId, clusterId);
+        long fingerprint = fingerprintBackendIds(candidateBeIds);
+        ColocatePlacementCache cache = colocatePlacementCache.get(key);
+        if (cache != null && cache.same(fingerprint)) {
+            checkCloudColocateBucketIdx(groupId, clusterId, idx, cache.bucketNum);
+            return cache.beIdByBucket[(int) idx];
+        }
+
+        // Resolve bucketNum BEFORE compute(): getColocateBucketsNum acquires the colocate-index
+        // read lock, while removeTable() evicts this cache holding the colocate-index write lock.
+        // Acquiring the colocate lock inside the ConcurrentHashMap compute() bin lock would invert
+        // that order and risk an ABBA deadlock, so the locked fetch must stay outside compute().
+        int bucketNum = bucketNumForTest > 0 ? bucketNumForTest : getColocateBucketsNum(groupId);
+        cache = colocatePlacementCache.compute(key, (ignored, oldCache) -> {
+            if (oldCache != null && oldCache.same(fingerprint, bucketNum)) {
+                return oldCache;
+            }
+            return ColocatePlacementCache.build(fingerprint, candidateBeIds, groupId.grpId, bucketNum);
+        });
+        checkCloudColocateBucketIdx(groupId, clusterId, idx, cache.bucketNum);
+        return cache.beIdByBucket[(int) idx];
+    }
+
+    private static long fingerprintBackendIds(long[] beIds) {
+        long sum = 0;
+        for (long beId : beIds) {
+            sum += mix64(beId);
+        }
+        return mix64(sum) ^ mix64(beIds.length);
+    }
+
+    private static long mix64(long value) {
+        value ^= value >>> 33;
+        value *= 0xff51afd7ed558ccdL;
+        value ^= value >>> 33;
+        value *= 0xc4ceb9fe1a85ec53L;
+        value ^= value >>> 33;
+        return value;
+    }
+
+    private static int getColocateBucketsNum(GroupId groupId) {
+        ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(groupId);
+        Preconditions.checkState(groupSchema != null, "missing colocate group schema for group %s", groupId);
+        return groupSchema.getBucketsNum();
+    }
+
+    public int getCloudColocateBucketsNum(GroupId groupId) {
+        return getColocateBucketsNum(groupId);
+    }
+
+    public static void checkCloudColocateBucketIdx(GroupId groupId, String clusterId, long idx, int bucketNum) {
+        if (idx < 0 || idx >= bucketNum) {
+            throw new IllegalStateException(String.format(
+                    "colocate bucket idx %s is outside bucket num %s for group %s, cluster %s",
+                    idx, bucketNum, groupId, clusterId));
+        }
+    }
+
+    @Override
+    public void invalidateCloudColocatePlacement(GroupId groupId) {
+        colocatePlacementCache.keySet().removeIf(key -> key.groupId.equals(groupId));
+    }
+
+    public void invalidateCloudColocatePlacement(String clusterId) {
+        colocatePlacementCache.keySet().removeIf(key -> key.clusterId.equals(clusterId));
+    }
+
+    private static class ColocatePlacementKey {
+        private final GroupId groupId;
+        private final String clusterId;
+
+        private ColocatePlacementKey(GroupId groupId, String clusterId) {
+            this.groupId = groupId;
+            this.clusterId = clusterId;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof ColocatePlacementKey)) {
+                return false;
+            }
+            ColocatePlacementKey other = (ColocatePlacementKey) obj;
+            return groupId.equals(other.groupId) && clusterId.equals(other.clusterId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(groupId, clusterId);
+        }
+    }
+
+    private static class ColocatePlacementCache {
+        private final long fingerprint;
+        private final int bucketNum;
+        private final long[] beIdByBucket;
+
+        private ColocatePlacementCache(long fingerprint, int bucketNum, long[] beIdByBucket) {
+            this.fingerprint = fingerprint;
+            this.bucketNum = bucketNum;
+            this.beIdByBucket = beIdByBucket;
+        }
+
+        private static ColocatePlacementCache build(long fingerprint, long[] candidateBeIds, long grpId,
+                int bucketNum) {
+            long[] beIdByBucket = new long[bucketNum];
+            for (int i = 0; i < bucketNum; i++) {
+                beIdByBucket[i] = CloudColocatePlacement.pickBackendId(grpId, i, candidateBeIds);
+            }
+            return new ColocatePlacementCache(fingerprint, bucketNum, beIdByBucket);
+        }
+
+        private boolean same(long otherFingerprint) {
+            return fingerprint == otherFingerprint;
+        }
+
+        private boolean same(long otherFingerprint, int otherBucketNum) {
+            return fingerprint == otherFingerprint && bucketNum == otherBucketNum;
+        }
+
+    }
 
     public void addVirtualClusterInfoToMapsNoLock(String clusterId, String clusterName) {
         LOG.info("add virtual cluster info to maps, clusterId={}, clusterName={}", clusterId, clusterName);
@@ -118,7 +260,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         clusterNameToId.remove(oldClusterName);
     }
 
-    public ComputeGroup getComputeGroupByName(String computeGroupName) {
+    public CloudComputeGroupMeta getComputeGroupByName(String computeGroupName) {
         // rlock guards the compound name->id->group lookup: writers (add/remove/rename)
         // update both maps under wlock, and the read must observe a consistent snapshot
         // so callers like getPhysicalCluster don't transiently see a virtual group name
@@ -213,7 +355,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         return getCloudClusterIdByName(cluster);
     }
 
-    public ComputeGroup getComputeGroupById(String computeGroupId) {
+    public CloudComputeGroupMeta getComputeGroupById(String computeGroupId) {
         try {
             rlock.lock();
             return computeGroupIdToComputeGroup.get(computeGroupId);
@@ -222,7 +364,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public void addComputeGroup(String computeGroupId, ComputeGroup computeGroup) {
+    public void addComputeGroup(String computeGroupId, CloudComputeGroupMeta computeGroup) {
         LOG.debug("add id {} computeGroupIdToComputeGroup : {} ", computeGroupId, computeGroupIdToComputeGroup);
         try {
             wlock.lock();
@@ -234,8 +376,8 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean isStandByComputeGroup(String clusterName) {
-        List<ComputeGroup> virtualGroups = getComputeGroups(true);
-        for (ComputeGroup vcg : virtualGroups) {
+        List<CloudComputeGroupMeta> virtualGroups = getComputeGroups(true);
+        for (CloudComputeGroupMeta vcg : virtualGroups) {
             if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
                 return true;
             }
@@ -243,7 +385,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         return false;
     }
 
-    public List<ComputeGroup> getComputeGroups(boolean virtual) {
+    public List<CloudComputeGroupMeta> getComputeGroups(boolean virtual) {
         LOG.debug("get virtual {} computeGroupIdToComputeGroup : {} ", virtual, computeGroupIdToComputeGroup);
         try {
             rlock.lock();
@@ -262,7 +404,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     public String ownedByVirtualComputeGroup(String computeGroupName) {
         try {
             rlock.lock();
-            for (ComputeGroup vcg : getComputeGroups(true)) {
+            for (CloudComputeGroupMeta vcg : getComputeGroups(true)) {
                 if (computeGroupName.equals(vcg.getPolicy().getActiveComputeGroup())) {
                     return vcg.getName();
                 }
@@ -284,13 +426,14 @@ public class CloudSystemInfoService extends SystemInfoService {
             wlock.lock();
             computeGroupIdToComputeGroup.remove(computeGroupId);
             removeVirtualClusterInfoFromMapsNoLock(computeGroupId, computeGroupName);
+            invalidateCloudColocatePlacement(computeGroupId);
         } finally {
             wlock.unlock();
         }
     }
 
     public void renameVirtualComputeGroup(String computeGroupId, String oldComputeGroupName,
-                                          ComputeGroup newComputeGroup) {
+                                          CloudComputeGroupMeta newComputeGroup) {
         try {
             wlock.lock();
             computeGroupIdToComputeGroup.put(computeGroupId, newComputeGroup);
@@ -444,7 +587,8 @@ public class CloudSystemInfoService extends SystemInfoService {
 
             clusterNameToId.put(clusterName, clusterId);
             // add to computeGroupIdToComputeGroup
-            ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+            CloudComputeGroupMeta cg = new CloudComputeGroupMeta(
+                    clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
             addComputeGroup(clusterId, cg);
 
             List<Backend> be = clusterIdToBackend.get(clusterId);
@@ -542,7 +686,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public static void updateFileCacheJobIds(ComputeGroup cg, List<String> jobIds) {
+    public static void updateFileCacheJobIds(CloudComputeGroupMeta cg, List<String> jobIds) {
         Cloud.ClusterPolicy policy = Cloud.ClusterPolicy.newBuilder()
                 .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
                 .addAllCacheWarmupJobids(jobIds).build();
@@ -584,7 +728,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
     */
 
-    private void switchActiveStandby(ComputeGroup cg, String active, String standby) {
+    private void switchActiveStandby(CloudComputeGroupMeta cg, String active, String standby) {
         Cloud.ClusterPolicy policy = cg.getPolicy().toPb().toBuilder()
                 .clearStandbyClusterNames()
                 .addStandbyClusterNames(active)
@@ -917,7 +1061,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public String getPhysicalCluster(String clusterName) {
-        ComputeGroup cg = getComputeGroupByName(clusterName);
+        CloudComputeGroupMeta cg = getComputeGroupByName(clusterName);
         if (cg == null) {
             return clusterName;
         }
@@ -926,11 +1070,11 @@ public class CloudSystemInfoService extends SystemInfoService {
             return clusterName;
         }
 
-        ComputeGroup.Policy policy = cg.getPolicy();
+        CloudComputeGroupMeta.Policy policy = cg.getPolicy();
         // todo check policy
         String acgName = policy.getActiveComputeGroup();
         if (acgName != null) {
-            ComputeGroup acg = getComputeGroupByName(acgName);
+            CloudComputeGroupMeta acg = getComputeGroupByName(acgName);
             if (acg != null) {
                 if (isComputeGroupAvailable(acgName, policy.getUnhealthyNodeThresholdPercent())) {
                     acg.setUnavailableSince(-1);
@@ -946,11 +1090,11 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String scgName = policy.getStandbyComputeGroup();
         if (scgName != null) {
-            ComputeGroup scg = getComputeGroupByName(scgName);
+            CloudComputeGroupMeta scg = getComputeGroupByName(scgName);
             if (scg != null) {
                 if (isComputeGroupAvailable(scgName, policy.getUnhealthyNodeThresholdPercent())) {
                     scg.setUnavailableSince(-1);
-                    ComputeGroup acg = getComputeGroupByName(acgName);
+                    CloudComputeGroupMeta acg = getComputeGroupByName(acgName);
                     if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
                             > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
                         switchActiveStandby(cg, acgName, scgName);
@@ -1110,6 +1254,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             clusterNameToId.remove(clusterName, clusterId);
             clusterIdToBackend.remove(clusterId);
+            invalidateCloudColocatePlacement(clusterId);
         } finally {
             wlock.unlock();
         }
@@ -1234,7 +1379,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                             clusterId, computeGroupIdToComputeGroup);
                     continue;
                 }
-                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                CloudComputeGroupMeta computeGroup = computeGroupIdToComputeGroup.get(clusterId);
                 if (!needVirtual && computeGroup.isVirtual()) {
                     continue;
                 }
@@ -1277,7 +1422,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             for (Map.Entry<String, String> nameAndId : clusterNameToId.entrySet()) {
                 String clusterId = nameAndId.getValue();
-                ComputeGroup computeGroup = computeGroupIdToComputeGroup.get(clusterId);
+                CloudComputeGroupMeta computeGroup = computeGroupIdToComputeGroup.get(clusterId);
                 if (computeGroup == null) {
                     LOG.warn("cant find clusterId {} in computeGroupIdToComputeGroup {}",
                             clusterId, computeGroupIdToComputeGroup);

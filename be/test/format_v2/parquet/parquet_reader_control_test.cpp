@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -21,166 +19,30 @@
 #include <cstring>
 #include <iterator>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "common/consts.h"
 #include "core/assert_cast.h"
-#include "core/column/column_array.h"
-#include "core/column/column_map.h"
-#include "core/column/column_nullable.h"
+#include "core/block/block.h"
 #include "core/column/column_string.h"
-#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_struct.h"
-#include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_column_schema.h"
-#include "format_v2/parquet/parquet_statistics.h"
+#include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
-#include "format_v2/parquet/reader/list_column_reader.h"
-#include "format_v2/parquet/reader/map_column_reader.h"
-#include "format_v2/parquet/reader/nested_column_materializer.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
-#include "format_v2/parquet/reader/scalar_column_reader.h"
-#include "format_v2/parquet/reader/struct_column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 #include "storage/utils.h"
 
 namespace doris::format::parquet {
 namespace {
 
-ParquetColumnSchema int64_schema(std::string name = "mock") {
+ParquetColumnSchema int64_schema() {
     ParquetColumnSchema schema;
     schema.local_id = 0;
-    schema.name = std::move(name);
+    schema.name = "mock";
     schema.type = std::make_shared<DataTypeInt64>();
-    return schema;
-}
-
-ParquetColumnSchema nested_int64_schema(std::string name, int16_t nullable_definition_level,
-                                        int16_t definition_level, int16_t repetition_level = 0,
-                                        int16_t repeated_ancestor_definition_level = 0) {
-    ParquetColumnSchema schema = int64_schema(std::move(name));
-    schema.type = make_nullable(std::make_shared<DataTypeInt64>());
-    schema.nullable_definition_level = nullable_definition_level;
-    schema.definition_level = definition_level;
-    schema.repetition_level = repetition_level;
-    schema.repeated_repetition_level = repetition_level;
-    schema.repeated_ancestor_definition_level = repeated_ancestor_definition_level;
-    return schema;
-}
-
-ParquetColumnSchema nested_struct_schema() {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "struct";
-    schema.kind = ParquetColumnSchemaKind::STRUCT;
-    schema.nullable_definition_level = 1;
-    schema.definition_level = 2;
-    schema.type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {make_nullable(std::make_shared<DataTypeInt64>()),
-                       make_nullable(std::make_shared<DataTypeInt64>())},
-            Strings {"a", "b"}));
-    return schema;
-}
-
-ParquetColumnSchema nested_list_schema(std::string name, DataTypePtr element_type,
-                                       int16_t nullable_definition_level, int16_t definition_level,
-                                       int16_t repetition_level,
-                                       int16_t repeated_ancestor_definition_level) {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = std::move(name);
-    schema.kind = ParquetColumnSchemaKind::LIST;
-    schema.nullable_definition_level = nullable_definition_level;
-    schema.definition_level = definition_level;
-    schema.repetition_level = repetition_level;
-    schema.repeated_repetition_level = repetition_level;
-    schema.repeated_ancestor_definition_level = repeated_ancestor_definition_level;
-    schema.type = make_nullable(std::make_shared<DataTypeArray>(std::move(element_type)));
-    return schema;
-}
-
-ParquetColumnSchema nested_map_schema(
-        DataTypePtr value_type = make_nullable(std::make_shared<DataTypeInt64>())) {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "map";
-    schema.kind = ParquetColumnSchemaKind::MAP;
-    schema.nullable_definition_level = 1;
-    schema.definition_level = 2;
-    schema.repetition_level = 1;
-    schema.repeated_ancestor_definition_level = 2;
-    schema.type = make_nullable(std::make_shared<DataTypeMap>(
-            make_nullable(std::make_shared<DataTypeInt64>()), std::move(value_type)));
-    return schema;
-}
-
-ParquetColumnSchema bare_repeated_int64_list_schema() {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "repeated";
-    schema.kind = ParquetColumnSchemaKind::LIST;
-    schema.definition_level = 1;
-    schema.repetition_level = 1;
-    schema.repeated_repetition_level = 1;
-    schema.repeated_ancestor_definition_level = 1;
-    schema.type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt64>());
-    return schema;
-}
-
-std::unique_ptr<ParquetColumnSchema> primitive_child(int local_id, std::string name,
-                                                     DataTypePtr type) {
-    auto child = std::make_unique<ParquetColumnSchema>();
-    child->local_id = local_id;
-    child->name = std::move(name);
-    child->kind = ParquetColumnSchemaKind::PRIMITIVE;
-    child->leaf_column_id = local_id;
-    child->type = std::move(type);
-    child->type_descriptor.physical_type = ::parquet::Type::INT32;
-    child->type_descriptor.doris_type = child->type;
-    return child;
-}
-
-ParquetColumnSchema struct_schema_for_projection() {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "s";
-    schema.kind = ParquetColumnSchemaKind::STRUCT;
-    schema.children.push_back(primitive_child(0, "a", std::make_shared<DataTypeInt32>()));
-    schema.children.push_back(primitive_child(1, "b", std::make_shared<DataTypeInt32>()));
-    DataTypes types = {make_nullable(schema.children[0]->type),
-                       make_nullable(schema.children[1]->type)};
-    Strings names = {"a", "b"};
-    schema.type = std::make_shared<DataTypeStruct>(types, names);
-    return schema;
-}
-
-ParquetColumnSchema list_schema_for_projection() {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "xs";
-    schema.kind = ParquetColumnSchemaKind::LIST;
-    schema.children.push_back(primitive_child(0, "element", std::make_shared<DataTypeInt32>()));
-    schema.type = std::make_shared<DataTypeArray>(schema.children[0]->type);
-    return schema;
-}
-
-ParquetColumnSchema map_schema_for_projection() {
-    ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "m";
-    schema.kind = ParquetColumnSchemaKind::MAP;
-    schema.children.push_back(primitive_child(0, "key", std::make_shared<DataTypeString>()));
-    schema.children.push_back(primitive_child(1, "value", std::make_shared<DataTypeInt32>()));
-    schema.type = std::make_shared<DataTypeMap>(make_nullable(schema.children[0]->type),
-                                                make_nullable(schema.children[1]->type));
     return schema;
 }
 
@@ -189,12 +51,11 @@ public:
     CursorColumnReader() : ParquetColumnReader(int64_schema(), std::make_shared<DataTypeInt64>()) {}
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override {
-        if (column.get() == nullptr || rows_read == nullptr) {
-            return Status::InvalidArgument("invalid mock read arguments");
-        }
-        auto* values = assert_cast<ColumnInt64*>(column.get());
+        DORIS_CHECK(column);
+        DORIS_CHECK(rows_read != nullptr);
+        auto& values = assert_cast<ColumnInt64&>(*column);
         for (int64_t row = 0; row < rows; ++row) {
-            values->insert_value(_cursor + row);
+            values.insert_value(_cursor + row);
         }
         _read_lengths.push_back(rows);
         _cursor += rows;
@@ -203,170 +64,33 @@ public:
     }
 
     Status skip(int64_t rows) override {
+        DORIS_CHECK(rows >= 0);
         _skip_lengths.push_back(rows);
         _cursor += rows;
         return Status::OK();
     }
 
+    void flush_profile() override { ++_profile_flushes; }
+    bool crossed_page_since_last_batch() override {
+        ++_page_crossing_checks;
+        return _crossed_page;
+    }
+
+    void set_crossed_page(bool crossed_page) { _crossed_page = crossed_page; }
+
     int64_t cursor() const { return _cursor; }
     const std::vector<int64_t>& skip_lengths() const { return _skip_lengths; }
     const std::vector<int64_t>& read_lengths() const { return _read_lengths; }
+    int profile_flushes() const { return _profile_flushes; }
+    int page_crossing_checks() const { return _page_crossing_checks; }
 
 private:
     int64_t _cursor = 0;
     std::vector<int64_t> _skip_lengths;
     std::vector<int64_t> _read_lengths;
-};
-
-class NestedBuildReader final : public ParquetColumnReader {
-public:
-    explicit NestedBuildReader(int64_t values_to_build)
-            : ParquetColumnReader(int64_schema("nested"), std::make_shared<DataTypeInt64>()),
-              _values_to_build(values_to_build) {}
-
-    Status read(int64_t, MutableColumnPtr&, int64_t*) override {
-        return Status::NotSupported("unused");
-    }
-
-    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
-                               int64_t* values_read) override {
-        if (column.get() == nullptr || values_read == nullptr) {
-            return Status::InvalidArgument("invalid mock nested build arguments");
-        }
-        _last_length_upper_bound = length_upper_bound;
-        auto* values = assert_cast<ColumnInt64*>(column.get());
-        for (int64_t value = 0; value < _values_to_build; ++value) {
-            values->insert_value(value);
-        }
-        *values_read = _values_to_build;
-        return Status::OK();
-    }
-
-    int64_t last_length_upper_bound() const { return _last_length_upper_bound; }
-
-private:
-    int64_t _values_to_build = 0;
-    int64_t _last_length_upper_bound = 0;
-};
-
-class ScriptedNestedReader final : public ParquetColumnReader {
-public:
-    ScriptedNestedReader(ParquetColumnSchema schema, DataTypePtr type,
-                         std::vector<int16_t> def_levels, std::vector<int16_t> rep_levels,
-                         bool has_repeated_child = false, bool build_nulls = false)
-            : ParquetColumnReader(schema, std::move(type)),
-              _def_levels(std::move(def_levels)),
-              _rep_levels(std::move(rep_levels)),
-              _has_repeated_child(has_repeated_child),
-              _build_nulls(build_nulls) {}
-
-    Status read(int64_t, MutableColumnPtr&, int64_t*) override {
-        return Status::NotSupported("unused");
-    }
-
-    Status load_nested_batch(int64_t rows) override {
-        _load_lengths.push_back(rows);
-        return Status::OK();
-    }
-
-    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
-                               int64_t* values_read) override {
-        _build_lengths.push_back(length_upper_bound);
-        if (column.get() == nullptr || values_read == nullptr) {
-            return Status::InvalidArgument("invalid scripted nested build arguments");
-        }
-        for (int64_t row = 0; row < length_upper_bound; ++row) {
-            insert_value(column, _next_value++, _build_nulls);
-        }
-        *values_read = length_upper_bound;
-        return Status::OK();
-    }
-
-    const std::vector<int16_t>& nested_definition_levels() const override { return _def_levels; }
-    const std::vector<int16_t>& nested_repetition_levels() const override { return _rep_levels; }
-    int64_t nested_levels_written() const override {
-        return static_cast<int64_t>(_def_levels.size());
-    }
-    bool is_or_has_repeated_child() const override { return _has_repeated_child; }
-
-    const std::vector<int64_t>& build_lengths() const { return _build_lengths; }
-
-private:
-    static void insert_value(MutableColumnPtr& column, int64_t value, bool is_null) {
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
-            nullable_column != nullptr) {
-            if (is_null) {
-                nullable_column->insert_default();
-                return;
-            }
-            assert_cast<ColumnInt64&>(nullable_column->get_nested_column()).insert_value(value);
-            nullable_column->get_null_map_data().push_back(0);
-            return;
-        }
-        assert_cast<ColumnInt64&>(*column).insert_value(value);
-    }
-
-    std::vector<int16_t> _def_levels;
-    std::vector<int16_t> _rep_levels;
-    bool _has_repeated_child = false;
-    bool _build_nulls = false;
-    int64_t _next_value = 0;
-    std::vector<int64_t> _load_lengths;
-    std::vector<int64_t> _build_lengths;
-};
-
-} // namespace
-
-struct ScalarColumnReaderTestAccess {
-    static void set_nested_batch(ScalarColumnReader* reader,
-                                 std::unique_ptr<ParquetNestedScalarBatch> batch) {
-        reader->_nested_batch = std::move(batch);
-    }
-
-    static int64_t page_filtered_rows_to_skip(const ScalarColumnReader& reader, int64_t rows) {
-        return reader.page_filtered_rows_to_skip(rows);
-    }
-
-    static void set_row_group_rows_read(ScalarColumnReader* reader, int64_t rows) {
-        reader->_row_group_rows_read = rows;
-    }
-};
-
-namespace {
-
-std::unique_ptr<ScalarColumnReader> make_scripted_scalar_reader(
-        ParquetColumnSchema schema, std::unique_ptr<ParquetNestedScalarBatch> batch) {
-    auto reader = std::make_unique<ScalarColumnReader>(schema, nullptr);
-    ScalarColumnReaderTestAccess::set_nested_batch(reader.get(), std::move(batch));
-    return reader;
-}
-
-std::unique_ptr<ParquetNestedScalarBatch> scalar_batch(std::vector<int16_t> def_levels,
-                                                       std::vector<int16_t> rep_levels,
-                                                       std::vector<int64_t> value_indices,
-                                                       std::vector<int64_t> values) {
-    auto batch = std::make_unique<ParquetNestedScalarBatch>();
-    batch->levels_written = static_cast<int64_t>(def_levels.size());
-    batch->def_levels = std::move(def_levels);
-    batch->rep_levels = std::move(rep_levels);
-    batch->value_indices = std::move(value_indices);
-    auto column = ColumnInt64::create();
-    for (const auto value : values) {
-        column->insert_value(value);
-    }
-    batch->values_column = std::move(column);
-    return batch;
-}
-
-class DefaultOnlyReader final : public ParquetColumnReader {
-public:
-    DefaultOnlyReader()
-            : ParquetColumnReader(int64_schema("default_only"), std::make_shared<DataTypeInt64>()) {
-    }
-
-    Status read(int64_t, MutableColumnPtr&, int64_t*) override {
-        return Status::NotSupported("unused");
-    }
+    int _profile_flushes = 0;
+    bool _crossed_page = false;
+    int _page_crossing_checks = 0;
 };
 
 GlobalRowLoacationV2 decode_rowid(const ColumnString& column, size_t row) {
@@ -402,6 +126,21 @@ TEST(SelectionVectorTest, ExternalBufferSelectionToRanges) {
     EXPECT_TRUE(selection.verify(std::size(indices), 8).ok());
 }
 
+TEST(SelectionVectorTest, OutputRangesReuseCapacity) {
+    SelectionVector::Index indices[] = {1, 2, 5};
+    SelectionVector selection(indices, std::size(indices));
+    std::vector<RowRange> ranges;
+    ranges.reserve(8);
+    const auto retained_capacity = ranges.capacity();
+
+    selection_to_ranges(selection, std::size(indices), &ranges);
+    ASSERT_EQ(ranges.size(), 2);
+    EXPECT_EQ(ranges.capacity(), retained_capacity);
+    selection_to_ranges(selection, 1, &ranges);
+    ASSERT_EQ(ranges.size(), 1);
+    EXPECT_EQ(ranges.capacity(), retained_capacity);
+}
+
 TEST(SelectionVectorTest, VerifyRejectsInvalidSelection) {
     SelectionVector selection(2);
     EXPECT_FALSE(selection.verify(3, 3).ok());
@@ -414,6 +153,28 @@ TEST(SelectionVectorTest, VerifyRejectsInvalidSelection) {
     selection.set_index(0, 0);
     selection.set_index(1, 3);
     EXPECT_FALSE(selection.verify(2, 3).ok());
+}
+
+TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
+    SelectionVector selection(4);
+    selection.set_index(0, 1);
+    selection.set_index(1, 3);
+    const uint8_t* first_filter = nullptr;
+    ASSERT_TRUE(selection.materialize_filter(2, 4, &first_filter).ok());
+    ASSERT_NE(first_filter, nullptr);
+    EXPECT_EQ(std::vector<uint8_t>(first_filter, first_filter + 4),
+              std::vector<uint8_t>({0, 1, 0, 1}));
+
+    const uint8_t* reused_filter = nullptr;
+    ASSERT_TRUE(selection.materialize_filter(2, 4, &reused_filter).ok());
+    EXPECT_EQ(reused_filter, first_filter);
+
+    selection.set_index(1, 2);
+    const uint8_t* updated_filter = nullptr;
+    ASSERT_TRUE(selection.materialize_filter(2, 4, &updated_filter).ok());
+    EXPECT_EQ(updated_filter, first_filter);
+    EXPECT_EQ(std::vector<uint8_t>(updated_filter, updated_filter + 4),
+              std::vector<uint8_t>({0, 1, 1, 0}));
 }
 
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
@@ -441,467 +202,67 @@ TEST(ParquetColumnReaderControlTest, BaseSelectZeroRowsConsumesBatch) {
     SelectionVector selection;
     auto column = std::make_shared<DataTypeInt64>()->create_column();
     ASSERT_TRUE(reader.select(selection, 0, 4, column).ok());
-    EXPECT_EQ(column->size(), 0);
+    EXPECT_TRUE(column->empty());
     EXPECT_EQ(reader.cursor(), 4);
     EXPECT_TRUE(reader.read_lengths().empty());
     EXPECT_EQ(reader.skip_lengths(), std::vector<int64_t>({4}));
 }
 
-TEST(ParquetColumnReaderControlTest, BaseNestedDefaultsAndSkipNested) {
-    DefaultOnlyReader base_reader;
-    EXPECT_FALSE(base_reader.skip(1).ok());
-    EXPECT_FALSE(base_reader.load_nested_batch(1).ok());
+TEST(ParquetColumnReaderControlTest, SchedulerFlushesReaderProfilesAtBatchBoundary) {
+    ParquetScanScheduler scheduler;
+    auto reader = std::make_unique<CursorColumnReader>();
+    auto* reader_ptr = reader.get();
+    scheduler._current_predicate_columns.emplace(0, std::move(reader));
 
-    auto column = std::make_shared<DataTypeInt64>()->create_column();
-    int64_t values_read = 0;
-    EXPECT_FALSE(base_reader.build_nested_column(1, column, &values_read).ok());
-
-    NestedBuildReader ok_reader(3);
-    ASSERT_TRUE(ok_reader.skip_nested_column(3).ok());
-    EXPECT_EQ(ok_reader.last_length_upper_bound(), 3);
-
-    NestedBuildReader short_reader(2);
-    EXPECT_FALSE(short_reader.skip_nested_column(3).ok());
+    scheduler.flush_current_reader_profiles();
+    EXPECT_EQ(reader_ptr->profile_flushes(), 1);
 }
 
-TEST(ParquetColumnReaderControlTest, NestedMaterializerHelpersAppendOffsetsAndParentNulls) {
-    ColumnArray::Offsets64 offsets;
-    append_offsets(offsets, {3, 0, 2});
-    ASSERT_EQ(offsets.size(), 3);
-    EXPECT_EQ(offsets[0], 3);
-    EXPECT_EQ(offsets[1], 3);
-    EXPECT_EQ(offsets[2], 5);
-    append_offsets(offsets, {1, 4});
-    ASSERT_EQ(offsets.size(), 5);
-    EXPECT_EQ(offsets[3], 6);
-    EXPECT_EQ(offsets[4], 10);
+TEST(ParquetColumnReaderControlTest, SchedulerOrsPageCrossingOncePerBatch) {
+    ParquetScanScheduler scheduler;
+    auto predicate_reader = std::make_unique<CursorColumnReader>();
+    auto* predicate_ptr = predicate_reader.get();
+    predicate_ptr->set_crossed_page(true);
+    scheduler._current_predicate_columns.emplace(0, std::move(predicate_reader));
 
-    const NullMap parent_nulls = {0, 1, 0};
-    append_parent_nulls(nullptr, parent_nulls);
-    NullMap dst = {1};
-    append_parent_nulls(&dst, parent_nulls);
-    EXPECT_EQ(dst, NullMap({1, 0, 1, 0}));
+    auto lazy_reader = std::make_unique<CursorColumnReader>();
+    auto* lazy_ptr = lazy_reader.get();
+    lazy_ptr->set_crossed_page(true);
+    scheduler._current_non_predicate_columns.emplace(1, std::move(lazy_reader));
+
+    // Both readers are sampled even after the OR becomes true so their next batch starts cleanly.
+    EXPECT_TRUE(scheduler.finish_current_reader_batch_profiles());
+    EXPECT_EQ(predicate_ptr->page_crossing_checks(), 1);
+    EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
 }
 
-TEST(ParquetColumnReaderControlTest, PageFilteredRowsToSkipUsesOnlyFullSkippedRanges) {
-    ParquetPageSkipPlan page_skip_plan;
-    page_skip_plan.skipped_ranges = {RowRange {0, 3}, RowRange {5, 2}, RowRange {10, 4}};
+TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {
+    ParquetScanScheduler scheduler;
+    scheduler._batch_size = 1;
+    auto lazy_reader = std::make_unique<CursorColumnReader>();
+    auto* lazy_ptr = lazy_reader.get();
+    scheduler._current_non_predicate_columns.emplace(format::LocalColumnId(0),
+                                                     std::move(lazy_reader));
+    scheduler._pending_predicate_batch_rows = 2;
+    scheduler._pending_predicate_selection = {0, 1};
 
-    auto schema = nested_int64_schema("page_filtered", 0, 0);
-    ScalarColumnReader reader(schema, nullptr, &page_skip_plan);
-    EXPECT_EQ(ScalarColumnReaderTestAccess::page_filtered_rows_to_skip(reader, 3), 3);
-    EXPECT_EQ(ScalarColumnReaderTestAccess::page_filtered_rows_to_skip(reader, 5), 3);
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    Block block;
+    auto type = std::make_shared<DataTypeInt64>();
+    block.insert({type->create_column(), type, "mock"});
+    size_t rows = 0;
 
-    ScalarColumnReaderTestAccess::set_row_group_rows_read(&reader, 5);
-    EXPECT_EQ(ScalarColumnReaderTestAccess::page_filtered_rows_to_skip(reader, 2), 2);
-    EXPECT_EQ(ScalarColumnReaderTestAccess::page_filtered_rows_to_skip(reader, 5), 2);
-}
+    ASSERT_TRUE(scheduler.materialize_pending_predicate_batch(request, &block, &rows).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_EQ(lazy_ptr->page_crossing_checks(), 0);
+    lazy_ptr->set_crossed_page(true);
 
-TEST(ParquetColumnReaderControlTest, StructSkipsNullParentForRepeatedChildAndBatchesPresentRows) {
-    auto repeated_child = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("repeated_shape", 1, 2, 1),
-            make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {2, 2, 2, 2},
-            std::vector<int16_t> {0, 0, 0, 0}, true);
-    auto* repeated_child_ptr = repeated_child.get();
-    auto scalar_child = make_scripted_scalar_reader(
-            nested_int64_schema("scalar_child", 1, 2),
-            scalar_batch({2, 0, 2, 2}, {0, 0, 0, 0}, {0, -1, 1, 2}, {10, 20, 30}));
-    auto* scalar_child_ptr = scalar_child.get();
-
-    std::vector<std::unique_ptr<ParquetColumnReader>> children;
-    children.push_back(std::move(repeated_child));
-    children.push_back(std::move(scalar_child));
-    StructColumnReader reader(nested_struct_schema(),
-                              make_nullable(std::make_shared<DataTypeStruct>(
-                                      DataTypes {make_nullable(std::make_shared<DataTypeInt64>()),
-                                                 make_nullable(std::make_shared<DataTypeInt64>())},
-                                      Strings {"a", "b"})),
-                              std::move(children), {0, 1});
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(4, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 4);
-
-    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-    ASSERT_EQ(nullable_column.size(), 4);
-    EXPECT_FALSE(nullable_column.is_null_at(0));
-    EXPECT_TRUE(nullable_column.is_null_at(1));
-    EXPECT_FALSE(nullable_column.is_null_at(2));
-    EXPECT_FALSE(nullable_column.is_null_at(3));
-    EXPECT_EQ(repeated_child_ptr->build_lengths(), std::vector<int64_t>({1, 2}));
-    EXPECT_EQ(scalar_child_ptr->nested_build_level_cursor(), 4);
-}
-
-TEST(ParquetColumnReaderControlTest, StructFallsBackToFirstChildWhenAllChildrenAreRepeated) {
-    auto first_child = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("first", 1, 2, 1), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2, 0}, std::vector<int16_t> {0, 0}, true);
-    auto second_child = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("second", 1, 2, 1),
-            make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {2, 2},
-            std::vector<int16_t> {0, 0}, true);
-
-    std::vector<std::unique_ptr<ParquetColumnReader>> children;
-    children.push_back(std::move(first_child));
-    children.push_back(std::move(second_child));
-    StructColumnReader reader(nested_struct_schema(), nested_struct_schema().type,
-                              std::move(children), {0, 1});
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(2, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-    ASSERT_EQ(rows_read, 2);
-    EXPECT_FALSE(nullable_column.is_null_at(0));
-    EXPECT_TRUE(nullable_column.is_null_at(1));
-}
-
-TEST(ParquetColumnReaderControlTest, StructNullParentAdvancesComplexChildShapeOnly) {
-    auto shape_child = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("shape", 1, 2), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2, 2, 0, 0, 2, 2}, std::vector<int16_t> {0, 0, 0, 0, 0, 0});
-
-    ParquetColumnSchema map_schema = nested_map_schema();
-    map_schema.nullable_definition_level = 2;
-    map_schema.definition_level = 3;
-    map_schema.repeated_ancestor_definition_level = 0;
-    auto key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 3, 3, 1, 0),
-            make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {3, 3, 0, 0, 3, 3}, std::vector<int16_t> {0, 0, 0, 0, 0, 0});
-    auto value_reader =
-            make_scripted_scalar_reader(nested_int64_schema("value", 4, 4, 1, 0),
-                                        scalar_batch({4, 4, 0, 0, 4, 4}, {0, 0, 0, 0, 0, 0},
-                                                     {0, 1, -1, -1, 2, 3}, {10, 20, 30, 40}));
-    auto map_reader = std::make_unique<MapColumnReader>(
-            map_schema, map_schema.type, std::move(key_reader), std::move(value_reader));
-
-    std::vector<std::unique_ptr<ParquetColumnReader>> children;
-    children.push_back(std::move(shape_child));
-    children.push_back(std::move(map_reader));
-    auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(DataTypes {map_schema.type},
-                                                                      Strings {"partitionValues"}));
-    StructColumnReader reader(nested_struct_schema(), struct_type, std::move(children), {-1, 0});
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(6, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 6);
-
-    const auto& nullable_struct = assert_cast<const ColumnNullable&>(*column);
-    ASSERT_EQ(nullable_struct.size(), 6);
-    EXPECT_FALSE(nullable_struct.is_null_at(0));
-    EXPECT_FALSE(nullable_struct.is_null_at(1));
-    EXPECT_TRUE(nullable_struct.is_null_at(2));
-    EXPECT_TRUE(nullable_struct.is_null_at(3));
-    EXPECT_FALSE(nullable_struct.is_null_at(4));
-    EXPECT_FALSE(nullable_struct.is_null_at(5));
-
-    const auto& struct_column =
-            assert_cast<const ColumnStruct&>(nullable_struct.get_nested_column());
-    const auto& map_nullable = assert_cast<const ColumnNullable&>(struct_column.get_column(0));
-    ASSERT_EQ(map_nullable.size(), 6);
-    EXPECT_FALSE(map_nullable.is_null_at(0));
-    EXPECT_FALSE(map_nullable.is_null_at(1));
-    EXPECT_TRUE(map_nullable.is_null_at(2));
-    EXPECT_TRUE(map_nullable.is_null_at(3));
-    EXPECT_FALSE(map_nullable.is_null_at(4));
-    EXPECT_FALSE(map_nullable.is_null_at(5));
-    const auto& map_column = assert_cast<const ColumnMap&>(map_nullable.get_nested_column());
-    ASSERT_EQ(map_column.get_offsets().size(), 6);
-    EXPECT_EQ(map_column.get_offsets()[0], 1);
-    EXPECT_EQ(map_column.get_offsets()[1], 2);
-    EXPECT_EQ(map_column.get_offsets()[2], 2);
-    EXPECT_EQ(map_column.get_offsets()[3], 2);
-    EXPECT_EQ(map_column.get_offsets()[4], 3);
-    EXPECT_EQ(map_column.get_offsets()[5], 4);
-}
-
-TEST(ParquetColumnReaderControlTest, StructNullParentAdvancesNestedStructDescendants) {
-    auto shape_child = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("shape", 1, 2), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2, 0, 2}, std::vector<int16_t> {0, 0, 0});
-
-    auto id_batch = scalar_batch({4, 3, 4}, {0, 0, 0}, {0, -1, 1}, {10, 20});
-    id_batch->value_slot_definition_level = 3;
-    auto id_reader =
-            make_scripted_scalar_reader(nested_int64_schema("id", 3, 4), std::move(id_batch));
-
-    ParquetColumnSchema inner_schema;
-    inner_schema.local_id = 0;
-    inner_schema.name = "stats_parsed";
-    inner_schema.kind = ParquetColumnSchemaKind::STRUCT;
-    inner_schema.nullable_definition_level = 2;
-    inner_schema.definition_level = 3;
-    inner_schema.type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {make_nullable(std::make_shared<DataTypeInt64>())}, Strings {"id"}));
-
-    std::vector<std::unique_ptr<ParquetColumnReader>> inner_children;
-    inner_children.push_back(std::move(id_reader));
-    auto inner_reader = std::make_unique<StructColumnReader>(
-            inner_schema, inner_schema.type, std::move(inner_children), std::vector<int> {0});
-
-    std::vector<std::unique_ptr<ParquetColumnReader>> outer_children;
-    outer_children.push_back(std::move(shape_child));
-    outer_children.push_back(std::move(inner_reader));
-    auto outer_type = make_nullable(std::make_shared<DataTypeStruct>(DataTypes {inner_schema.type},
-                                                                     Strings {"stats_parsed"}));
-    StructColumnReader reader(nested_struct_schema(), outer_type, std::move(outer_children),
-                              {-1, 0});
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(3, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 3);
-
-    const auto& outer_nullable = assert_cast<const ColumnNullable&>(*column);
-    ASSERT_EQ(outer_nullable.size(), 3);
-    EXPECT_FALSE(outer_nullable.is_null_at(0));
-    EXPECT_TRUE(outer_nullable.is_null_at(1));
-    EXPECT_FALSE(outer_nullable.is_null_at(2));
-
-    const auto& outer_struct = assert_cast<const ColumnStruct&>(outer_nullable.get_nested_column());
-    const auto& inner_nullable = assert_cast<const ColumnNullable&>(outer_struct.get_column(0));
-    ASSERT_EQ(inner_nullable.size(), 3);
-    EXPECT_FALSE(inner_nullable.is_null_at(0));
-    EXPECT_TRUE(inner_nullable.is_null_at(1));
-    EXPECT_FALSE(inner_nullable.is_null_at(2));
-
-    const auto& inner_struct = assert_cast<const ColumnStruct&>(inner_nullable.get_nested_column());
-    const auto& id_nullable = assert_cast<const ColumnNullable&>(inner_struct.get_column(0));
-    const auto& id_values = assert_cast<const ColumnInt64&>(id_nullable.get_nested_column());
-    EXPECT_EQ(id_values.get_element(0), 10);
-    EXPECT_EQ(id_values.get_element(2), 20);
-}
-
-TEST(ParquetColumnReaderControlTest, ListKeepsEmptyBareRepeatedPrimitiveRows) {
-    auto element_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("element", 0, 1, 1, 1), std::make_shared<DataTypeInt64>(),
-            std::vector<int16_t> {0, 1, 1, 0}, std::vector<int16_t> {0, 0, 1, 0});
-    auto* element_reader_ptr = element_reader.get();
-    ListColumnReader reader(bare_repeated_int64_list_schema(),
-                            bare_repeated_int64_list_schema().type, std::move(element_reader));
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(3, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 3);
-
-    const auto& array_column = assert_cast<const ColumnArray&>(*column);
-    ASSERT_EQ(array_column.get_offsets().size(), 3);
-    EXPECT_EQ(array_column.get_offsets()[0], 0);
-    EXPECT_EQ(array_column.get_offsets()[1], 2);
-    EXPECT_EQ(array_column.get_offsets()[2], 2);
-    EXPECT_EQ(element_reader_ptr->build_lengths(), std::vector<int64_t>({2}));
-}
-
-TEST(ParquetColumnReaderControlTest, NestedListSkipsAncestorEmptyRowsButKeepsNullElements) {
-    auto element_reader =
-            std::make_unique<ScriptedNestedReader>(nested_int64_schema("element", 5, 5, 2, 4),
-                                                   make_nullable(std::make_shared<DataTypeInt64>()),
-                                                   std::vector<int16_t> {1, 5, 5, 5, 2, 5, 2, 0},
-                                                   std::vector<int16_t> {0, 0, 2, 1, 0, 1, 1, 0});
-    auto* element_reader_ptr = element_reader.get();
-
-    const auto inner_type = make_nullable(
-            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
-    auto inner_reader = std::make_unique<ListColumnReader>(
-            nested_list_schema("inner", make_nullable(std::make_shared<DataTypeInt64>()), 3, 4, 2,
-                               2),
-            inner_type, std::move(element_reader));
-    auto outer_type = make_nullable(std::make_shared<DataTypeArray>(inner_type));
-    ListColumnReader reader(nested_list_schema("outer", inner_type, 1, 2, 1, 2), outer_type,
-                            std::move(inner_reader));
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(4, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 4);
-
-    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-    ASSERT_EQ(nullable_column.size(), 4);
-    EXPECT_FALSE(nullable_column.is_null_at(0));
-    EXPECT_FALSE(nullable_column.is_null_at(1));
-    EXPECT_FALSE(nullable_column.is_null_at(2));
-    EXPECT_TRUE(nullable_column.is_null_at(3));
-
-    const auto& outer_array = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
-    const auto& outer_offsets = outer_array.get_offsets();
-    ASSERT_EQ(outer_offsets.size(), 4);
-    EXPECT_EQ(outer_offsets[0], 0);
-    EXPECT_EQ(outer_offsets[1], 2);
-    EXPECT_EQ(outer_offsets[2], 5);
-    EXPECT_EQ(outer_offsets[3], 5);
-
-    const auto& inner_nullable = assert_cast<const ColumnNullable&>(outer_array.get_data());
-    ASSERT_EQ(inner_nullable.size(), 5);
-    EXPECT_FALSE(inner_nullable.is_null_at(0));
-    EXPECT_FALSE(inner_nullable.is_null_at(1));
-    EXPECT_TRUE(inner_nullable.is_null_at(2));
-    EXPECT_FALSE(inner_nullable.is_null_at(3));
-    EXPECT_TRUE(inner_nullable.is_null_at(4));
-
-    const auto& inner_array = assert_cast<const ColumnArray&>(inner_nullable.get_nested_column());
-    const auto& inner_offsets = inner_array.get_offsets();
-    ASSERT_EQ(inner_offsets.size(), 5);
-    EXPECT_EQ(inner_offsets[0], 2);
-    EXPECT_EQ(inner_offsets[1], 3);
-    EXPECT_EQ(inner_offsets[2], 3);
-    EXPECT_EQ(inner_offsets[3], 4);
-    EXPECT_EQ(inner_offsets[4], 4);
-    EXPECT_EQ(element_reader_ptr->build_lengths(), std::vector<int64_t>({4}));
-}
-
-TEST(ParquetColumnReaderControlTest, MapKeepsEmptyMapRows) {
-    auto key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 1, 2, 1, 2),
-            make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {1},
-            std::vector<int16_t> {0});
-    auto value_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("value", 2, 3, 1, 2),
-            make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {1},
-            std::vector<int16_t> {0});
-    auto* value_reader_ptr = value_reader.get();
-    MapColumnReader reader(nested_map_schema(), nested_map_schema().type, std::move(key_reader),
-                           std::move(value_reader));
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(1, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 1);
-
-    const auto& nullable_map = assert_cast<const ColumnNullable&>(*column);
-    EXPECT_FALSE(nullable_map.is_null_at(0));
-    const auto& map_column = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
-    ASSERT_EQ(map_column.get_offsets().size(), 1);
-    EXPECT_EQ(map_column.get_offsets()[0], 0);
-    EXPECT_EQ(value_reader_ptr->build_lengths(), std::vector<int64_t>({0}));
-}
-
-TEST(ParquetColumnReaderControlTest, ListMapSkipsAncestorEmptyRowsBeforeScalarValues) {
-    auto key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 4, 4, 2, 4),
-            make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {1, 4},
-            std::vector<int16_t> {0, 0});
-    auto value_reader = make_scripted_scalar_reader(nested_int64_schema("value", 5, 5, 2, 4),
-                                                    scalar_batch({1, 5}, {0, 0}, {-1, 0}, {100}));
-
-    const auto map_type = make_nullable(
-            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeInt64>()),
-                                          make_nullable(std::make_shared<DataTypeInt64>())));
-    auto map_reader = std::make_unique<MapColumnReader>(
-            nested_map_schema(make_nullable(std::make_shared<DataTypeInt64>())), map_type,
-            std::move(key_reader), std::move(value_reader));
-    auto outer_type = make_nullable(std::make_shared<DataTypeArray>(map_type));
-    ListColumnReader reader(nested_list_schema("outer", map_type, 1, 2, 1, 2), outer_type,
-                            std::move(map_reader));
-
-    auto column = reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = reader.build_nested_column(2, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    ASSERT_EQ(rows_read, 2);
-
-    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-    ASSERT_EQ(nullable_column.size(), 2);
-    EXPECT_FALSE(nullable_column.is_null_at(0));
-    EXPECT_FALSE(nullable_column.is_null_at(1));
-
-    const auto& outer_array = assert_cast<const ColumnArray&>(nullable_column.get_nested_column());
-    const auto& outer_offsets = outer_array.get_offsets();
-    ASSERT_EQ(outer_offsets.size(), 2);
-    EXPECT_EQ(outer_offsets[0], 0);
-    EXPECT_EQ(outer_offsets[1], 1);
-
-    const auto& map_nullable = assert_cast<const ColumnNullable&>(outer_array.get_data());
-    ASSERT_EQ(map_nullable.size(), 1);
-    EXPECT_FALSE(map_nullable.is_null_at(0));
-    const auto& map_column = assert_cast<const ColumnMap&>(map_nullable.get_nested_column());
-    ASSERT_EQ(map_column.get_offsets().size(), 1);
-    EXPECT_EQ(map_column.get_offsets()[0], 1);
-
-    const auto& values = assert_cast<const ColumnNullable&>(map_column.get_values());
-    const auto& value_data = assert_cast<const ColumnInt64&>(values.get_nested_column());
-    ASSERT_EQ(values.size(), 1);
-    EXPECT_FALSE(values.is_null_at(0));
-    EXPECT_EQ(value_data.get_element(0), 100);
-}
-
-TEST(ParquetColumnReaderControlTest, MapRejectsNullKeysAndMisalignedScalarValueRepLevels) {
-    auto key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 1, 2, 1), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2}, std::vector<int16_t> {0}, false, true);
-    auto value_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("value", 1, 2, 1), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2}, std::vector<int16_t> {0});
-    MapColumnReader null_key_reader(nested_map_schema(), nested_map_schema().type,
-                                    std::move(key_reader), std::move(value_reader));
-    auto column = null_key_reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = null_key_reader.build_nested_column(1, column, &rows_read);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("contains null key"), std::string::npos);
-
-    auto aligned_key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 1, 2, 1), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2, 2}, std::vector<int16_t> {0, 1});
-    auto misaligned_value_reader =
-            make_scripted_scalar_reader(nested_int64_schema("value", 2, 3, 1),
-                                        scalar_batch({3, 3}, {0, 0}, {0, 1}, {100, 200}));
-    MapColumnReader misaligned_reader(nested_map_schema(), nested_map_schema().type,
-                                      std::move(aligned_key_reader),
-                                      std::move(misaligned_value_reader));
-    column = misaligned_reader.type()->create_column();
-    status = misaligned_reader.build_nested_column(1, column, &rows_read);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("value repetition level is not aligned"), std::string::npos);
-}
-
-TEST(ParquetColumnReaderControlTest, MapBuildsScalarAndComplexValuePaths) {
-    auto key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 1, 2, 1), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2, 2}, std::vector<int16_t> {0, 1});
-    auto scalar_value_reader =
-            make_scripted_scalar_reader(nested_int64_schema("value", 2, 3, 1),
-                                        scalar_batch({3, 3}, {0, 1}, {0, 1}, {100, 200}));
-    MapColumnReader scalar_reader(nested_map_schema(), nested_map_schema().type,
-                                  std::move(key_reader), std::move(scalar_value_reader));
-    auto column = scalar_reader.type()->create_column();
-    int64_t rows_read = 0;
-    auto status = scalar_reader.build_nested_column(1, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    const auto& nullable_map = assert_cast<const ColumnNullable&>(*column);
-    const auto& map_column = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
-    ASSERT_EQ(map_column.get_offsets().size(), 1);
-    EXPECT_EQ(map_column.get_offsets()[0], 2);
-    const auto& values = assert_cast<const ColumnNullable&>(map_column.get_values());
-    const auto& value_data = assert_cast<const ColumnInt64&>(values.get_nested_column());
-    ASSERT_EQ(values.size(), 2);
-    EXPECT_EQ(value_data.get_element(0), 100);
-    EXPECT_EQ(value_data.get_element(1), 200);
-
-    auto complex_key_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("key", 1, 2, 1), make_nullable(std::make_shared<DataTypeInt64>()),
-            std::vector<int16_t> {2, 2}, std::vector<int16_t> {0, 1});
-    auto complex_value_reader = std::make_unique<ScriptedNestedReader>(
-            nested_int64_schema("complex_value", 2, 3, 1),
-            make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {3, 3},
-            std::vector<int16_t> {0, 1});
-    auto* complex_value_reader_ptr = complex_value_reader.get();
-    MapColumnReader complex_reader(nested_map_schema(), nested_map_schema().type,
-                                   std::move(complex_key_reader), std::move(complex_value_reader));
-    column = complex_reader.type()->create_column();
-    status = complex_reader.build_nested_column(1, column, &rows_read);
-    ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(complex_value_reader_ptr->build_lengths(), std::vector<int64_t>({2}));
+    block.get_by_position(0).column = type->create_column();
+    ASSERT_TRUE(scheduler.materialize_pending_predicate_batch(request, &block, &rows).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_TRUE(scheduler._pending_predicate_selection.empty());
+    EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
 }
 
 TEST(ParquetVirtualColumnReaderTest, RowPositionReadSkipAndInvalidArgs) {
@@ -968,67 +329,6 @@ TEST(ParquetVirtualColumnReaderTest, GlobalRowIdReadSkipSelectAndInvalidArgs) {
     EXPECT_FALSE(reader.read(1, null_column, &rows_read).ok());
     EXPECT_FALSE(reader.read(-1, column, &rows_read).ok());
     EXPECT_FALSE(reader.read(1, column, nullptr).ok());
-}
-
-TEST(ParquetColumnReaderFactoryTest, RejectsInvalidLeafIdBeforeCreatingRecordReader) {
-    ParquetColumnSchema schema = int64_schema("bad_leaf");
-    schema.kind = ParquetColumnSchemaKind::PRIMITIVE;
-    schema.leaf_column_id = 3;
-    schema.type_descriptor.physical_type = ::parquet::Type::INT64;
-    schema.type_descriptor.doris_type = schema.type;
-
-    ParquetColumnReaderFactory factory(nullptr, 1);
-    std::unique_ptr<ParquetColumnReader> reader;
-    const auto status = factory.create(schema, &reader);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Invalid parquet leaf column id"), std::string::npos);
-}
-
-TEST(ParquetColumnReaderFactoryTest, RejectsStructInvalidAndEmptyProjection) {
-    auto schema = struct_schema_for_projection();
-    ParquetColumnReaderFactory factory(nullptr, 0);
-    std::unique_ptr<ParquetColumnReader> reader;
-
-    auto invalid_projection = format::LocalColumnIndex::partial_local(0);
-    invalid_projection.children.push_back(format::LocalColumnIndex::local(9));
-    auto status = factory.create(schema, &invalid_projection, &reader);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("invalid child"), std::string::npos);
-
-    auto empty_projection = format::LocalColumnIndex::partial_local(0);
-    status = factory.create(schema, &empty_projection, &reader);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("contains no children"), std::string::npos);
-}
-
-TEST(ParquetColumnReaderFactoryTest, RejectsListProjectionWithoutElement) {
-    auto schema = list_schema_for_projection();
-    ParquetColumnReaderFactory factory(nullptr, 0);
-    std::unique_ptr<ParquetColumnReader> reader;
-
-    auto projection = format::LocalColumnIndex::partial_local(0);
-    const auto status = factory.create(schema, &projection, &reader);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("contains no element"), std::string::npos);
-}
-
-TEST(ParquetColumnReaderFactoryTest, RejectsMapInvalidAndKeyOnlyProjection) {
-    auto schema = map_schema_for_projection();
-    ParquetColumnReaderFactory factory(nullptr, 0);
-    std::unique_ptr<ParquetColumnReader> reader;
-
-    auto invalid_projection = format::LocalColumnIndex::partial_local(0);
-    invalid_projection.children.push_back(format::LocalColumnIndex::local(1));
-    invalid_projection.children.push_back(format::LocalColumnIndex::local(9));
-    auto status = factory.create(schema, &invalid_projection, &reader);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("invalid child"), std::string::npos);
-
-    auto key_only_projection = format::LocalColumnIndex::partial_local(0);
-    key_only_projection.children.push_back(format::LocalColumnIndex::local(0));
-    status = factory.create(schema, &key_only_projection, &reader);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("contains no value"), std::string::npos);
 }
 
 } // namespace doris::format::parquet

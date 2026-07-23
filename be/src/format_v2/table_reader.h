@@ -54,6 +54,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/cast.h"
@@ -98,15 +99,33 @@ struct ProjectedColumnBuildContext {
 };
 
 struct ReadProfile {
+    RuntimeProfile::Counter* total_timer = nullptr;
+    RuntimeProfile::Counter* init_timer = nullptr;
     RuntimeProfile::Counter* num_delete_files = nullptr;
     RuntimeProfile::Counter* num_delete_rows = nullptr;
     RuntimeProfile::Counter* parse_delete_file_time = nullptr;
+    RuntimeProfile::Counter* decoded_dv_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* decoded_dv_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_peer_read_count = nullptr;
     RuntimeProfile::Counter* exec_timer = nullptr;
     RuntimeProfile::Counter* prepare_split_timer = nullptr;
     RuntimeProfile::Counter* finalize_timer = nullptr;
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
+    RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
+    RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
+    RuntimeProfile::Counter* close_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_total_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_init_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_schema_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_mapper_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_open_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_get_block_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_aggregate_timer = nullptr;
+    RuntimeProfile::Counter* file_reader_close_timer = nullptr;
 };
 
 struct TableReadOptions {
@@ -127,14 +146,36 @@ struct TableReadOptions {
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
-    // Digest of stable pushed-down predicates. A zero digest disables condition cache.
+    // Table/global indices of explicit COUNT arguments. nullopt means an old FE did not send the
+    // semantic argument field, while an explicit empty vector means COUNT(*)/COUNT(1). Keeping
+    // those states separate prevents a rolling-upgrade plan from being reinterpreted by a new BE.
+    const std::optional<std::vector<GlobalIndex>> push_down_count_columns = std::nullopt;
+    // Initial digest of predicates available during scanner open. Scanner-driven splits override it
+    // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
+    // A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
 };
 
 struct SplitReadOptions {
     // Split-level information for reader initialization, which may include file path, partition values, delete file info, etc. The content is table format specific and opaque to table reader base class; it's the responsibility of the concrete table reader implementation to parse necessary information for reader initialization and filter pushdown.
     std::map<std::string, Field> partition_values;
-    ShardedKVCache* cache;
+    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters may
+    // arrive after TableReader::init(), so scanner-driven splits replace the initial snapshot.
+    // nullopt preserves the initial snapshot for standalone TableReader callers.
+    std::optional<VExprContextSPtrs> conjuncts = std::nullopt;
+    // Independent clones used for partition pruning because evaluation prepares and opens them
+    // against a synthetic partition block before the file reader opens its row-level conjuncts.
+    VExprContextSPtrs partition_prune_conjuncts;
+    // Table-level COUNT may emit one metadata-derived batch and resume on a later scheduler turn.
+    // It is safe only after every runtime filter assigned to the scanner has arrived; otherwise a
+    // filter could arrive after synthetic rows have already been returned and those rows cannot be
+    // retracted. Standalone TableReader callers have no scanner runtime-filter lifecycle.
+    bool all_runtime_filters_applied = true;
+    // Digest for the exact scanner conjunct snapshot attached to this split. FileScannerV2 rebuilds
+    // it after collecting late-arrival RFs, so different RF payloads cannot share a cache entry. A
+    // zero value explicitly disables condition cache for this split.
+    std::optional<uint64_t> condition_cache_digest;
+    ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
     std::optional<GlobalRowIdContext> global_rowid_context;
@@ -156,22 +197,62 @@ public:
     // FileScannerV2 adjusts this before each get_block() using an adaptive bytes-per-row estimate.
     // Store it here as well as forwarding to the current reader so newly opened split readers start
     // with the latest predicted batch size.
-    void set_batch_size(size_t batch_size) {
+    virtual void set_batch_size(size_t batch_size) {
         _batch_size = std::max<size_t>(1, batch_size);
         if (_data_reader.reader != nullptr) {
             _data_reader.reader->set_batch_size(_batch_size);
         }
     }
 
+#ifdef BE_TEST
+    size_t TEST_batch_size() const { return _batch_size; }
+    bool TEST_current_data_file_is_immutable() const {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        DORIS_CHECK(_current_file_description.has_value());
+        DORIS_CHECK(_current_task->data_file->is_immutable ==
+                    _current_file_description->is_immutable);
+        return _current_task->data_file->is_immutable;
+    }
+#endif
+
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
 
+    virtual bool current_split_pruned() const { return _current_split_pruned; }
+    virtual bool current_split_uses_metadata_count() const {
+        return _current_split_uses_metadata_count;
+    }
+
+    // Discard the active split after the caller decides an error is ignorable, for example a
+    // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
+    // with no concrete reader or split-local state left from the failed split.
+    virtual Status abort_split() {
+        // Ignored open failures still spend time closing partially initialized readers. Include
+        // that recovery path in the common lifecycle profile so NOT_FOUND cannot become invisible.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
+        if (_data_reader.reader != nullptr) {
+            RETURN_IF_ERROR(close_current_reader());
+        } else {
+            _current_task.reset();
+            _current_file_description.reset();
+        }
+        _delete_rows = nullptr;
+        _remaining_table_level_count = -1;
+        _remaining_file_level_count = -1;
+        _current_split_uses_metadata_count = false;
+        _current_split_pruned = false;
+        return Status::OK();
+    }
+
     // Public entry point for reading a table-schema block. The base class opens the current reader,
     // advances across EOF, and closes exhausted readers. Subclasses provide protected hooks for
     // table-format-specific behavior.
     virtual Status get_block(Block* block, bool* eos) {
+        SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.exec_timer);
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
@@ -187,6 +268,10 @@ public:
             if (!_data_reader.reader) {
                 if (_is_table_level_count_active()) {
                     RETURN_IF_ERROR(_read_table_level_count(block, eos));
+                    return Status::OK();
+                }
+                if (_is_file_level_count_active()) {
+                    RETURN_IF_ERROR(_read_file_level_count(block, eos));
                     return Status::OK();
                 }
                 RETURN_IF_ERROR(create_next_reader(eos));
@@ -221,11 +306,16 @@ public:
             _data_reader.block_template.clear_column_data(
                     cast_set<int64_t>(_data_reader.file_block_layout.size()));
             size_t current_rows = 0;
-            RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
-                                                           &current_rows, &current_eof));
+            {
+                SCOPED_TIMER(_profile.file_reader_total_timer);
+                SCOPED_TIMER(_profile.file_reader_get_block_timer);
+                RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
+                                                               &current_rows, &current_eof));
+            }
+            const bool stopped_during_read = _io_ctx != nullptr && _io_ctx->should_stop;
             if (current_rows == 0) {
                 if (current_eof) {
-                    _current_reader_reached_eof = true;
+                    _current_reader_reached_eof = !stopped_during_read;
                     RETURN_IF_ERROR(close_current_reader());
                 }
                 continue;
@@ -242,7 +332,7 @@ public:
                     _check_table_block_columns("after finalize_chunk", block, current_rows));
 #endif
             if (current_eof) {
-                _current_reader_reached_eof = true;
+                _current_reader_reached_eof = !stopped_during_read;
                 RETURN_IF_ERROR(close_current_reader());
             }
             return Status::OK();
@@ -252,12 +342,16 @@ public:
     // Close the table reader and the currently active file reader. Subclasses that hold additional
     // table-format resources should override this and call TableReader::close() first.
     virtual Status close() {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
         if (_data_reader.reader) {
             RETURN_IF_ERROR(close_current_reader());
         }
         _current_task.reset();
         _current_file_description.reset();
         _remaining_table_level_count = -1;
+        _remaining_file_level_count = -1;
+        _current_split_uses_metadata_count = false;
         return Status::OK();
     }
 
@@ -275,6 +369,22 @@ public:
     }
 
 protected:
+    // TableReader keeps the active file description both in the scan task and separately for
+    // creating the physical reader. Table-format readers must update both copies when their
+    // snapshot protocol guarantees that a file path is never overwritten with different bytes.
+    // This guarantee lets readers safely build cache keys without mtime; it must not be used for
+    // ordinary Hive/TVF files whose paths may be overwritten in place.
+    void mark_current_data_file_immutable() {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        DORIS_CHECK(_current_file_description.has_value());
+        _current_task->data_file->is_immutable = true;
+        _current_file_description->is_immutable = true;
+    }
+
+    std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
+                                                                           DataTypePtr type) const;
+
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
                                                DeleteFileDesc* desc, bool* has_delete_file) {
@@ -287,6 +397,7 @@ protected:
     Status create_next_reader(bool* eos);
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
+    virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
@@ -297,14 +408,23 @@ protected:
         SCOPED_TIMER(_profile.open_reader_timer);
         // 1. Get file schema and create column mapping.
         std::vector<ColumnDefinition> file_schema;
-        RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_schema_timer);
+            RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
+        }
         // For Paimon/Hudi, FE can provide field ids through `history_schema_info`. Annotate the
         // file schema before column mapping when the table format maps columns by field id.
         RETURN_IF_ERROR(annotate_file_schema(&file_schema));
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = mapping_mode();
+        configure_mapper_options(&_mapper_options);
 
-        _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_mapper_timer);
+            _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+        }
         DORIS_CHECK(_data_reader.column_mapper != nullptr);
         RETURN_IF_ERROR(_data_reader.column_mapper->create_mapping(_projected_columns,
                                                                    _partition_values, file_schema));
@@ -324,6 +444,20 @@ protected:
         if (constant_filter_pruned_split) {
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
+        }
+        // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
+        // so the scan node still has an output tuple. Record only the current non-predicate file
+        // columns before table-format hooks add row-position or equality-delete dependencies. This
+        // marker is independent of aggregate eligibility: with position deletes, for example,
+        // metadata COUNT must fall back to reading rows, but an arbitrary unsupported TIME_MILLIS
+        // placeholder still must not be validated or decoded merely to carry the surviving count.
+        if (_push_down_agg_type == TPushAggOp::type::COUNT &&
+            _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+            file_request->count_star_placeholder_columns.reserve(
+                    file_request->non_predicate_columns.size());
+            for (const auto& column : file_request->non_predicate_columns) {
+                file_request->count_star_placeholder_columns.push_back(column.column_id());
+            }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
@@ -376,12 +510,20 @@ protected:
             VLOG_DEBUG << "TableReader debug: " << debug_string();
         }
         RETURN_IF_ERROR(_open_mapping_exprs());
-        RETURN_IF_ERROR(_data_reader.reader->open(file_request));
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_open_timer);
+            RETURN_IF_ERROR(_data_reader.reader->open(file_request));
+        }
         RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
         return Status::OK();
     }
 
     Status _build_table_filters_from_conjuncts();
+    Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
+                                               bool* can_filter_all);
+    static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
+    Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
@@ -389,14 +531,22 @@ protected:
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
+        DORIS_CHECK_LE(_constant_pruning_safe_filter_count, _table_filters.size());
         *can_filter_all = false;
-        for (const auto& table_filter : _table_filters) {
-            if (table_filter.conjunct == nullptr ||
-                // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by
-                // the row-level filter path through execute_filter(). Constant split pruning uses
-                // VExprContext::execute() on a one-row synthetic block, so runtime filters must not
-                // be pre-executed here even when their referenced slot maps to a constant value.
-                table_filter.conjunct->root()->is_rf_wrapper() ||
+        // The bound was derived from the original `_conjuncts` order, which includes slotless
+        // expressions omitted from `_table_filters`. Iterating only this prefix therefore cannot
+        // skip an unsafe row-level predicate and pre-execute a later constant predicate.
+        for (size_t i = 0; i < _constant_pruning_safe_filter_count; ++i) {
+            const auto& table_filter = _table_filters[i];
+            if (table_filter.conjunct == nullptr) {
+                continue;
+            }
+            DORIS_CHECK(_is_safe_to_pre_execute(table_filter.conjunct));
+            // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by the
+            // row-level filter path through execute_filter(). Constant split pruning uses
+            // VExprContext::execute() on a one-row synthetic block, so runtime filters must not be
+            // pre-executed here even when their referenced slot maps to a constant value.
+            if (table_filter.conjunct->root()->is_rf_wrapper() ||
                 !_table_filter_has_only_constant_entries(table_filter)) {
                 continue;
             }
@@ -487,37 +637,62 @@ protected:
 
     bool _is_table_level_count_active() const { return _remaining_table_level_count >= 0; }
 
+    bool _is_file_level_count_active() const { return _remaining_file_level_count >= 0; }
+
     Status _materialize_count_rows(size_t rows, Block* block) const {
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(block->columns() > 0 || rows == 0);
         for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
             auto column = block->get_by_position(column_idx).type->create_column();
-            column->resize(rows);
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+                // Metadata COUNT emits synthetic input rows for the unchanged upper aggregate.
+                // They must be non-NULL for COUNT(nullable_col), and constructing them explicitly
+                // also keeps every nullable null map boolean-valid in debug/ASAN block checks.
+                nullable->get_nested_column().insert_many_defaults(rows);
+                nullable->get_null_map_data().resize_fill(rows, 0);
+            } else {
+                column->insert_many_defaults(rows);
+            }
             block->replace_by_position(column_idx, std::move(column));
         }
         return Status::OK();
     }
 
-    Status _read_table_level_count(Block* block, bool* eos) {
+    Status _materialize_next_count_batch(int64_t* remaining_rows, Block* block) const {
+        DORIS_CHECK(remaining_rows != nullptr);
+        DORIS_CHECK(*remaining_rows > 0);
+        const int64_t batch_size = _runtime_state == nullptr
+                                           ? *remaining_rows
+                                           : static_cast<int64_t>(_runtime_state->batch_size());
+        const auto rows = std::min(*remaining_rows, batch_size);
+        RETURN_IF_ERROR(_materialize_count_rows(cast_set<size_t>(rows), block));
+        *remaining_rows -= rows;
+        return Status::OK();
+    }
+
+    Status _read_count_batch(int64_t* remaining_rows, Block* block, bool* eos) {
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(eos != nullptr);
         DORIS_CHECK(_push_down_agg_type == TPushAggOp::type::COUNT);
-        DORIS_CHECK(_remaining_table_level_count >= 0);
-        if (_remaining_table_level_count == 0) {
-            _remaining_table_level_count = -1;
+        DORIS_CHECK(remaining_rows != nullptr);
+        DORIS_CHECK(*remaining_rows >= 0);
+        if (*remaining_rows == 0) {
+            *remaining_rows = -1;
             _current_task.reset();
             *eos = true;
             return Status::OK();
         }
-
-        const int64_t batch_size = _runtime_state == nullptr
-                                           ? _remaining_table_level_count
-                                           : static_cast<int64_t>(_runtime_state->batch_size());
-        const auto rows = std::min(_remaining_table_level_count, batch_size);
-        RETURN_IF_ERROR(_materialize_count_rows(cast_set<size_t>(rows), block));
-        _remaining_table_level_count -= rows;
+        RETURN_IF_ERROR(_materialize_next_count_batch(remaining_rows, block));
         *eos = false;
         return Status::OK();
+    }
+
+    Status _read_table_level_count(Block* block, bool* eos) {
+        return _read_count_batch(&_remaining_table_level_count, block, eos);
+    }
+
+    Status _read_file_level_count(Block* block, bool* eos) {
+        return _read_count_batch(&_remaining_file_level_count, block, eos);
     }
 
     void _append_file_scan_column(FileScanRequest* request, LocalColumnId column_id,
@@ -542,20 +717,28 @@ protected:
     // Append DeletePredicate to file scan request if there are deletes. The predicate will be evaluated in file reader level and filter out deleted rows before returning data to table reader.
     Status _append_delete_predicate(FileScanRequest* request) {
         DORIS_CHECK(request != nullptr);
-        if (_delete_rows == nullptr || _delete_rows->empty()) {
+        if ((_delete_rows == nullptr || _delete_rows->empty()) &&
+            (_deletion_vector == nullptr || _deletion_vector->isEmpty())) {
             return Status::OK();
         }
         const auto row_position_column_id = LocalColumnId(ROW_POSITION_COLUMN_ID);
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
-        auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
         const auto block_position = request->local_positions.at(row_position_column_id);
-        delete_predicate->add_child(VSlotRef::create_shared(
-                cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
-                std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
-
-        request->delete_conjuncts.push_back(
-                VExprContext::create_shared(std::move(delete_predicate)));
+        auto append_predicate = [&](auto& deleted_rows) {
+            auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+            delete_predicate->add_child(VSlotRef::create_shared(
+                    cast_set<int>(block_position.value()), cast_set<int>(block_position.value()),
+                    -1, std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
+            request->delete_conjuncts.push_back(
+                    VExprContext::create_shared(std::move(delete_predicate)));
+        };
+        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+            append_predicate(*_delete_rows);
+        }
+        if (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) {
+            append_predicate(*_deletion_vector);
+        }
         return Status::OK();
     }
 
@@ -563,13 +746,18 @@ protected:
     // close(), so it should remain idempotent.
     virtual Status close_current_reader() {
         _finalize_reader_condition_cache();
-        RETURN_IF_ERROR(_data_reader.reader->close());
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_close_timer);
+            RETURN_IF_ERROR(_data_reader.reader->close());
+        }
         _data_reader.reader.reset();
         if (_data_reader.column_mapper != nullptr) {
             _data_reader.column_mapper->clear();
             _data_reader.column_mapper.reset();
         }
         _table_filters.clear();
+        _constant_pruning_safe_filter_count = 0;
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -589,10 +777,11 @@ protected:
     Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
         size_t idx = 0;
-        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+        const auto& mappings = _data_reader.column_mapper->mappings();
+        for (const auto& mapping : mappings) {
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
-                                                        &column));
+                                                        &column, idx + 1 == mappings.size()));
             block->replace_by_position(idx, IColumn::mutate(std::move(column)));
             idx++;
         }
@@ -843,13 +1032,30 @@ protected:
         FileAggregateRequest file_request;
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
-        const auto status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
+        Status status;
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_aggregate_timer);
+            status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
+        }
         if (status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
             return Status::OK();
         }
         RETURN_IF_ERROR(status);
-        RETURN_IF_ERROR(
-                _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
+        if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+            DORIS_CHECK(file_result.count >= 0);
+            // The upper aggregate consumes synthetic input rows, but emitting the whole metadata
+            // count in one block bypasses the runtime batch contract and can allocate by file size.
+            // Keep the remaining cardinality as split state and expose at most one batch per call.
+            _remaining_file_level_count = file_result.count;
+            _current_split_uses_metadata_count = true;
+            if (_remaining_file_level_count > 0) {
+                RETURN_IF_ERROR(_materialize_next_count_batch(&_remaining_file_level_count, block));
+            }
+        } else {
+            RETURN_IF_ERROR(
+                    _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
+        }
         *pushed_down = true;
         RETURN_IF_ERROR(close_current_reader());
         return Status::OK();
@@ -860,17 +1066,56 @@ protected:
         if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
             return false;
         }
+        // Aggregate pushdown returns reduced synthetic rows and may close the physical reader
+        // before the next scheduler turn. If a runtime filter is still pending, those rows could
+        // escape before the filter arrives and cannot later be reconstructed from real file rows.
+        // This is the same irreversibility constraint as table-level metadata COUNT, and applies
+        // to COUNT and MIN/MAX for Parquet/ORC as well as COUNT for text readers.
+        if (!_all_runtime_filters_applied_for_split) {
+            return false;
+        }
+        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
+        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
+        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
+        if (!_conjuncts.empty()) {
+            return false;
+        }
         // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
-        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+        if ((_delete_rows != nullptr && !_delete_rows->empty()) ||
+            (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
             return false;
         }
         if (!_table_filters.empty()) {
             return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
-            return true;
+            // Old FEs do not serialize push_down_count_slot_ids. During the supported BE-first
+            // rolling upgrade, nullopt therefore means "COUNT semantics are unknown", not
+            // COUNT(*). Fall back to reading rows until the FE explicitly sends either an empty
+            // list for COUNT(*) or one slot for COUNT(col).
+            if (!_push_down_count_columns.has_value()) {
+                return false;
+            }
+            // COUNT(*) needs no column metadata. COUNT(col) currently supports one direct file
+            // column; multiple COUNT arguments fall back to the normal scan so every upper
+            // aggregate receives the original rows.
+            if (_push_down_count_columns->empty()) {
+                return true;
+            }
+            if (_push_down_count_columns->size() != 1) {
+                return false;
+            }
+            const auto& mapping = _push_down_count_mapping();
+            // Metadata COUNT skips TableReader's normal materialization path. Only a trivial
+            // mapping is safe: for example, a nullable Parquet INT mapped to a NOT NULL table
+            // BIGINT normally needs both an INT->BIGINT cast and nullability validation. Counting
+            // footer values directly would bypass both operations and could hide invalid data.
+            return mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
+                   mapping.table_type != nullptr && mapping.is_trivial &&
+                   mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
+                   mapping.default_expr == nullptr;
         }
         // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
@@ -892,6 +1137,17 @@ protected:
     static ColumnPtr _detach_column(ColumnPtr column) {
         DORIS_CHECK(column.get() != nullptr);
         return IColumn::mutate(std::move(column));
+    }
+
+    static ColumnPtr _take_and_detach_block_column(Block* block, int position) {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(position >= 0 && position < static_cast<int>(block->columns()));
+        auto& source = block->get_by_position(position);
+        ColumnPtr column = source.column;
+        // The final mapping no longer needs the file block. Release its COW owner before mutate(),
+        // otherwise nested MAP/STRING columns are deep-copied and a multi-GB payload can OOM.
+        block->replace_by_position(position, source.type->create_column());
+        return _detach_column(std::move(column));
     }
 
     static Status _align_column_nullability(ColumnPtr* column, const DataTypePtr& table_type) {
@@ -1037,7 +1293,8 @@ protected:
     }
 
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
-                                       const size_t rows, ColumnPtr* column) {
+                                       const size_t rows, ColumnPtr* column,
+                                       bool take_projection_result = false) {
         if (!mapping.is_trivial && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
             DCHECK(mapping.projection != nullptr);
@@ -1050,7 +1307,9 @@ protected:
                         mapping.table_column_name, mapping.global_index.value(),
                         *mapping.file_local_id, rows, st.to_string(), mapping.debug_string());
             }
-            ColumnPtr result_column = current_block->get_by_position(res_id).column;
+            ColumnPtr result_column = take_projection_result
+                                              ? _take_and_detach_block_column(current_block, res_id)
+                                              : current_block->get_by_position(res_id).column;
             RETURN_IF_ERROR(
                     _materialize_complex_mapping_column(mapping, result_column, rows, column));
             return Status::OK();
@@ -1069,8 +1328,12 @@ protected:
                         mapping.table_column_name, mapping.global_index.value(), file_local_id,
                         rows, st.to_string(), mapping.debug_string());
             }
-            ColumnPtr result_column = current_block->get_by_position(res_id).column;
-            *column = _detach_column(std::move(result_column));
+            if (take_projection_result) {
+                *column = _take_and_detach_block_column(current_block, res_id);
+            } else {
+                ColumnPtr result_column = current_block->get_by_position(res_id).column;
+                *column = _detach_column(std::move(result_column));
+            }
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
@@ -1210,7 +1473,10 @@ protected:
             DORIS_CHECK(child_mapping != nullptr);
             if (!child_mapping->file_local_id.has_value()) {
                 child_columns.push_back(
-                        child_mapping->table_type->create_column_const_with_default_value(rows)
+                        (child_mapping->initial_default_column
+                                 ? child_mapping->initial_default_column->clone_resized(rows)
+                                 : child_mapping->table_type
+                                           ->create_column_const_with_default_value(rows))
                                 ->convert_to_full_column_if_const());
                 continue;
             }
@@ -1353,24 +1619,19 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
-            // complex COUNT(col), materializing the full MAP/LIST/STRUCT value only to test the
-            // top-level NULL bit can be extremely expensive. When the scan projects exactly one
-            // directly-mapped complex column, pass that file column to the reader so formats such
-            // as Parquet can count the column shape from metadata/levels without decoding payload
-            // values like MAP value strings. Other COUNT cases stay on the existing row-count path
-            // to avoid changing count(*) semantics.
-            if (_data_reader.column_mapper->mappings().size() == 1) {
-                const auto& mapping = _data_reader.column_mapper->mappings()[0];
-                if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
-                    is_complex_type(remove_nullable(mapping.file_type)->get_primitive_type()) &&
-                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
-                    mapping.default_expr == nullptr) {
-                    FileAggregateRequest::Column column;
-                    column.projection =
-                            LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
-                    request->columns.push_back(std::move(column));
-                }
+            DORIS_CHECK(_push_down_count_columns.has_value());
+            // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the
+            // mapping count: `SELECT COUNT(*) FROM t` may still project one nullable column because
+            // the planner keeps a placeholder slot. In a 10,000-row file where that arbitrary slot
+            // has 9,015 non-null values, passing the slot would ask Parquet/ORC metadata for
+            // COUNT(slot)=9,015 instead of the required row count 10,000.
+            if (!_push_down_count_columns->empty()) {
+                const auto& mapping = _push_down_count_mapping();
+                DORIS_CHECK(mapping.file_local_id.has_value());
+                FileAggregateRequest::Column column;
+                column.projection =
+                        LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
+                request->columns.push_back(std::move(column));
             }
             return Status::OK();
         }
@@ -1387,16 +1648,22 @@ protected:
         return Status::OK();
     }
 
+    const ColumnMapping& _push_down_count_mapping() const {
+        DORIS_CHECK(_push_down_count_columns.has_value());
+        DORIS_CHECK(_push_down_count_columns->size() == 1);
+        const auto mapping_it =
+                std::ranges::find(_data_reader.column_mapper->mappings(),
+                                  _push_down_count_columns->front(), &ColumnMapping::global_index);
+        // FileScannerV2 translates FE SlotIds through the same projected-column list used to build
+        // the mapper, so a missing mapping is an FE/BE contract violation rather than a fallback.
+        DORIS_CHECK(mapping_it != _data_reader.column_mapper->mappings().end());
+        return *mapping_it;
+    }
+
     Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
                                                 const FileAggregateResult& file_result,
                                                 Block* block) {
-        if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown is not a final count value. It emits `count` default rows so the
-            // upper COUNT(*) aggregate can count them and produce the final result, including
-            // zero rows when count is 0.
-            DORIS_CHECK(file_result.count >= 0);
-            return _materialize_count_rows(cast_set<size_t>(file_result.count), block);
-        }
+        DORIS_CHECK(agg_type == TPushAggOp::type::MINMAX);
         // MIN/MAX pushdown emits two rows, min first and max second, for each projected column.
         // The upper MIN/MAX aggregate consumes those two rows to produce the final aggregate value.
         DORIS_CHECK(file_result.columns.size() == _data_reader.column_mapper->mappings().size());
@@ -1436,9 +1703,10 @@ protected:
         for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
              ++column_idx) {
             ColumnPtr table_column;
-            RETURN_IF_ERROR(
-                    _materialize_mapping_column(_data_reader.column_mapper->mappings()[column_idx],
-                                                &file_block, 2, &table_column));
+            RETURN_IF_ERROR(_materialize_mapping_column(
+                    _data_reader.column_mapper->mappings()[column_idx], &file_block, 2,
+                    &table_column,
+                    column_idx + 1 == _data_reader.column_mapper->mappings().size()));
             block->replace_by_position(column_idx, std::move(table_column));
         }
         return Status::OK();
@@ -1475,10 +1743,15 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
+    // Number of localized filters before the first unsafe conjunct in the original row-level
+    // order. This differs from scanning `_table_filters` for safety because slotless predicates are
+    // intentionally absent from that vector but must still act as ordering barriers.
+    size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
+    DeletionVector* _deletion_vector = nullptr;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
@@ -1486,16 +1759,31 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
     size_t _batch_size = 0;
+    uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
+    // True only when prepare_split() received a digest for the exact conjunct snapshot used by
+    // this split. Standalone callers that only supplied TableReadOptions::condition_cache_digest
+    // keep the conservative runtime-filter guard.
+    bool _condition_cache_digest_covers_current_split = false;
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
+    int64_t _remaining_file_level_count = -1;
+    // True only after the active split selects a table-level row-count shortcut or successfully
+    // materializes COUNT rows from file metadata. FileScannerV2 uses this result, rather than the
+    // raw aggregate opcode, to keep adaptive batching enabled for normal row-scan fallbacks.
+    bool _current_split_uses_metadata_count = false;
+    // Snapshot supplied by FileScannerV2 for the active split. It gates every shortcut that emits
+    // irreversible aggregate rows, not only the table-level row-count shortcut in prepare_split().
+    bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
+    bool _current_split_pruned = false;
     TableColumnMapperOptions _mapper_options;
 
 private:
@@ -1511,7 +1799,10 @@ private:
 
     static bool _can_push_down_minmax_for_mapping(const ColumnMapping& mapping) {
         if (mapping.child_mappings.empty()) {
-            return true;
+            // Direct mappings use a slot-ref projection to materialize the file column. The
+            // projection does not transform ordering; casts and other conversions are already
+            // represented by a non-trivial mapping and must fall back to row scanning.
+            return mapping.is_trivial;
         }
         const auto primitive_type = remove_nullable(mapping.file_type)->get_primitive_type();
         if (primitive_type != TYPE_STRUCT) {
@@ -1575,7 +1866,7 @@ private:
         return Status::OK();
     }
 
-    // Parse row-position deletes from table format specific parameters, and fill in _delete_rows.
+    // Parse a DV into its compressed bitmap. Position delete files continue to use _delete_rows.
     Status _parse_delete_predicates(const SplitReadOptions& options);
 };
 

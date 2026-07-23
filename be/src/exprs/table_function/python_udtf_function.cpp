@@ -38,6 +38,7 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_env.h"
@@ -141,8 +142,8 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
         RETURN_IF_ERROR(make_zero_column_arrow_batch(input_schema, input_rows, &input_batch));
     } else {
         RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema,
-                                               arrow::default_memory_pool(), &input_batch,
-                                               _timezone_obj));
+                                               ExecEnv::GetInstance()->arrow_memory_pool(),
+                                               &input_batch, _timezone_obj));
     }
 
     // Step 3: Call Python UDTF to evaluate all rows at once (similar to Java UDTF's JNI call)

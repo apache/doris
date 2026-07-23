@@ -77,19 +77,19 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-// Lazily resolves the positions of the binlog meta columns (op / lsn / tso) inside the
+// Lazily resolves the positions of the binlog meta columns (tso / lsn / op) inside the
 // merged source block, and builds _before_column_idx mapping each non-meta column to its
 // __BEFORE__ mirror. The resolved positions are reused across blocks; if the column
 // layout changes (detected via _binlog_op_pos sanity check), they are re-resolved.
 Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     if (_binlog_column_pos_inited) {
         if (_binlog_op_pos >= 0 && _binlog_op_pos < src_block.columns() &&
-            src_block.get_by_position(_binlog_op_pos).name == kRowBinlogOpColName) {
+            src_block.get_by_position(_binlog_op_pos).name == BINLOG_OP_COL) {
             return Status::OK();
         }
-        _binlog_op_pos = -1;
+        _binlog_tso_pos = -1;
         _binlog_lsn_pos = -1;
-        _binlog_timestamp_pos = -1;
+        _binlog_op_pos = -1;
         _binlog_column_pos_inited = false;
     }
 
@@ -97,12 +97,12 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     _before_column_idx.resize(col_num);
     for (uint32_t i = 0; i < col_num; ++i) {
         const auto& name = src_block.get_by_position(i).name;
-        if (name == kRowBinlogOpColName) {
-            _binlog_op_pos = static_cast<int>(i);
-        } else if (name == kRowBinlogLsnColName) {
+        if (name == BINLOG_TSO_COL) {
+            _binlog_tso_pos = static_cast<int>(i);
+        } else if (name == BINLOG_LSN_COL) {
             _binlog_lsn_pos = static_cast<int>(i);
-        } else if (name == kRowBinlogTimestampColName) {
-            _binlog_timestamp_pos = static_cast<int>(i);
+        } else if (name == BINLOG_OP_COL) {
+            _binlog_op_pos = static_cast<int>(i);
         } else {
             std::string before_name = binlog::build_before_column_name(name);
             int tmp_idx = src_block.get_position_by_name(before_name);
@@ -150,13 +150,13 @@ Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
 }
 
 bool BlockReader::_is_binlog_meta_column(int idx) const {
-    return idx == _binlog_op_pos || idx == _binlog_lsn_pos || idx == _binlog_timestamp_pos;
+    return idx == _binlog_tso_pos || idx == _binlog_lsn_pos || idx == _binlog_op_pos;
 }
 
 // Resolves which source-block column to read from for a given binlog row position.
 // When use_before is true and idx is a regular data column, return the index of its
 // __BEFORE__ mirror (built in _before_column_idx); otherwise return idx itself.
-// Binlog meta columns (op / lsn / tso) have no BEFORE mirror, so they always pass through.
+// Binlog meta columns (tso / lsn / op) have no BEFORE mirror, so they always pass through.
 int BlockReader::_resolve_source_column_index(int idx, bool use_before) const {
     if (!use_before || _is_binlog_meta_column(idx)) {
         return idx;
@@ -265,6 +265,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
                                                      binlog::STREAM_CHANGE_INSERT));
                 } else {
+                    // insert should use most recent value
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
                 }
@@ -277,9 +278,14 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
                                                      binlog::STREAM_CHANGE_DELETE));
-                } else {
+                } else if (idx == _binlog_lsn_pos || idx == _binlog_tso_pos) {
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
                                                                 group_size - 1);
+                } else {
+                    // delete should use first op value
+                    int source_idx = _resolve_source_column_index(idx, true);
+                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[source_idx],
+                                                                0);
                 }
             }
             output_row_count++;
@@ -290,9 +296,6 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                 if (idx == _binlog_op_pos) {
                     RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
                                                      binlog::STREAM_CHANGE_UPDATE_BEFORE));
-                } else if (idx == _binlog_lsn_pos) {
-                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
-                                                                group_size - 1);
                 } else {
                     int source_idx = _resolve_source_column_index(idx, true);
                     target_columns[target_col_idx]->insert_from(*_stored_data_columns[source_idx],
@@ -381,7 +384,7 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
             output_row_count++;
         } else if (op == ROW_BINLOG_DELETE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               binlog::STREAM_CHANGE_DELETE, false));
+                                               binlog::STREAM_CHANGE_DELETE, true));
             output_row_count++;
         }
 

@@ -54,6 +54,17 @@ public:
     IntCounter* query_scan_bytes_from_remote = nullptr;
     IntCounter* query_scan_rows = nullptr;
 
+    // Query cache incremental merge (see runtime/query_cache/query_cache.h):
+    // how many instance decisions reused a stale entry incrementally, how many
+    // could have but fell back to a full recompute, and how many entries were
+    // handed to the cache to be written back (the cache may still turn one
+    // down: its LRU-K admission only keeps a key that comes back while the
+    // shard is full). Per-query breakdown lives in the profile
+    // (HitCacheStale / IncrementalFallbackReason / InsertCache).
+    IntCounter* query_cache_stale_hit_total = nullptr;
+    IntCounter* query_cache_incremental_fallback_total = nullptr;
+    IntCounter* query_cache_write_back_total = nullptr;
+
     IntCounter* push_requests_success_total = nullptr;
     IntCounter* push_requests_fail_total = nullptr;
     IntCounter* push_request_duration_us = nullptr;
@@ -258,6 +269,8 @@ public:
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
     IntCounter* num_io_bytes_read_from_peer = nullptr;
+    IntCounter* inverted_index_bytes_read_from_remote = nullptr;
+    IntCounter* segment_footer_index_bytes_read_from_remote = nullptr;
 
     IntCounter* udf_close_bthread_count = nullptr;
 

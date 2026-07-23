@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -56,6 +57,7 @@ class ColumnIterator;
 namespace doris {
 
 class ScoreRuntime;
+class LambdaExecutionContext;
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class IndexExecContext {
@@ -242,7 +244,7 @@ class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
-    VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
+    VExprContext(VExprSPtr expr);
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
@@ -265,6 +267,8 @@ public:
     }
 
     std::shared_ptr<IndexExecContext> get_index_context() const { return _index_context; }
+
+    LambdaExecutionContext& lambda_execution_context();
 
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
@@ -350,36 +354,9 @@ public:
 
     void clone_fn_contexts(VExprContext* other);
 
-    VExprContext& operator=(const VExprContext& other) {
-        if (this == &other) {
-            return *this;
-        }
+    VExprContext& operator=(const VExprContext& other) = delete;
 
-        _root = other._root;
-        _is_clone = other._is_clone;
-        _prepared = other._prepared;
-        _opened = other._opened;
-
-        for (const auto& fn : other._fn_contexts) {
-            _fn_contexts.emplace_back(fn->clone());
-        }
-
-        _last_result_column_id = other._last_result_column_id;
-        _depth_num = other._depth_num;
-        return *this;
-    }
-
-    VExprContext& operator=(VExprContext&& other) {
-        _root = other._root;
-        other._root = nullptr;
-        _is_clone = other._is_clone;
-        _prepared = other._prepared;
-        _opened = other._opened;
-        _fn_contexts = std::move(other._fn_contexts);
-        _last_result_column_id = other._last_result_column_id;
-        _depth_num = other._depth_num;
-        return *this;
-    }
+    VExprContext& operator=(VExprContext&& other) = delete;
 
     [[nodiscard]] static size_t get_memory_usage(const VExprContextSPtrs& contexts) {
         size_t usage = 0;
@@ -436,6 +413,8 @@ private:
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
     bool _suitable_for_ann_index = true;
+
+    std::unique_ptr<LambdaExecutionContext> _lambda_execution_context;
 
     std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
             std::make_unique<RuntimeFilterSelectivity>();

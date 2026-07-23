@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <functional>
+#include <utility>
+
 #include "format_v2/table_reader.h"
 
 namespace doris {
@@ -63,13 +66,30 @@ public:
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    bool current_split_pruned() const override;
+    bool current_split_uses_metadata_count() const override;
+    Status abort_split() override;
     Status close() override;
+    void set_batch_size(size_t batch_size) override;
 
 #ifdef BE_TEST
     static bool TEST_is_jni_split(const TFileRangeDesc& range) { return _is_jni_split(range); }
     static Status TEST_to_file_format(const TFileRangeDesc& range,
                                       format::FileFormat* file_format) {
         return _to_file_format(range, file_format);
+    }
+    void TEST_install_batch_size_children() {
+        _native_reader = std::make_unique<format::TableReader>();
+        _jni_reader = std::make_unique<format::TableReader>();
+    }
+    std::pair<size_t, size_t> TEST_child_batch_sizes() const {
+        return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size()};
+    }
+    void TEST_set_child_reader_factories(
+            std::function<std::unique_ptr<format::TableReader>()> native_factory,
+            std::function<std::unique_ptr<format::TableReader>()> jni_factory) {
+        _test_native_reader_factory = std::move(native_factory);
+        _test_jni_reader_factory = std::move(jni_factory);
     }
 #endif
 
@@ -83,6 +103,10 @@ private:
     std::unique_ptr<format::TableReader> _native_reader; // handle parquet/orc native splits
     std::unique_ptr<format::TableReader> _jni_reader;    // handle serialized JNI splits
     format::TableReader* _current_split_reader = nullptr;
+#ifdef BE_TEST
+    std::function<std::unique_ptr<format::TableReader>()> _test_native_reader_factory;
+    std::function<std::unique_ptr<format::TableReader>()> _test_jni_reader_factory;
+#endif
 };
 
 } // namespace doris::format::paimon

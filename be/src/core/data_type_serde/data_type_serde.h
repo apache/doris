@@ -42,6 +42,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
+class Type;
 struct ColumnVectorBatch;
 } // namespace orc
 
@@ -92,6 +93,9 @@ struct CastParameters;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+class ParquetDecodeSource;
+struct ParquetDecodeContext;
+struct ParquetMaterializationState;
 
 /// Info that represents a scalar or array field in a decomposed view.
 /// It allows to recreate field with different number
@@ -110,6 +114,16 @@ struct FieldInfo {
     // decimal info
     int scale = 0;
     int precision = 0;
+};
+
+struct OrcDecodedColumnView {
+    const orc::Type* file_type = nullptr;
+    const orc::Type* selected_type = nullptr;
+    const orc::ColumnVectorBatch* batch = nullptr;
+    size_t rows = 0;
+    const std::vector<size_t>* selected_rows = nullptr;
+    const cctz::time_zone* timezone = nullptr;
+    bool enable_mapping_timestamp_tz = false;
 };
 
 // Deserialize means read from different file format or memory format,
@@ -194,6 +208,9 @@ public:
         bool is_bool_value_num = true;
 
         const cctz::time_zone* timezone = nullptr;
+
+        // Only used when writing row-store JSONB bytes.
+        bool enable_row_store_compact_jsonb = false;
 
         /**
          * Controls how the `scale` parameter is passed to decimal parsing in from_olap_string().
@@ -491,6 +508,18 @@ public:
     // the Doris-type-specific materialization into IColumn.
     virtual Status read_column_from_decoded_values(IColumn& column,
                                                    const DecodedColumnView& view) const;
+
+    // Read encoded Parquet values directly into the destination Doris column. ColumnReader owns
+    // levels/null/filter handling; the source owns only encoding-stream state; the target SerDe
+    // owns all physical/logical type interpretation and materialization.
+    virtual Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                            const ParquetDecodeContext& context, size_t num_values,
+                                            ParquetMaterializationState& state) const;
+    // Decode one dictionary page into the selected Doris type without consuming data-page
+    // indices. Dictionary filters use this to keep type interpretation in SerDe instead of
+    // exposing dictionary bytes or decoder-owned strings to ColumnReader.
+    virtual Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                           const ParquetDecodeContext& context) const;
     virtual Status read_field_from_decoded_value(const IDataType& data_type, Field* field,
                                                  const DecodedColumnView& view) const;
 
@@ -501,6 +530,7 @@ public:
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
+    virtual Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const;
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

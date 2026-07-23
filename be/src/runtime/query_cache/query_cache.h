@@ -23,9 +23,13 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <roaring/roaring.hh>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -40,6 +44,9 @@
 #include "util/time.h"
 
 namespace doris {
+
+class BaseTablet;
+struct TabletReadSource;
 
 using CacheResult = std::vector<BlockUPtr>;
 // A handle for mid-result from query lru cache.
@@ -73,11 +80,21 @@ public:
         return *this;
     }
 
+    bool valid() const { return _handle != nullptr; }
+
     std::vector<int>* get_cache_slot_orders();
 
     CacheResult* get_cache_result();
 
     int64_t get_cache_version();
+
+    // How many incremental merges have been accumulated on this entry since the
+    // last full recompute. See QueryCacheRuntime for the compaction policy.
+    int64_t get_cache_delta_count();
+
+    int64_t get_cache_total_bytes();
+
+    int64_t get_cache_total_rows();
 
 private:
     LRUCachePolicy* _cache = nullptr;
@@ -95,9 +112,28 @@ public:
         int64_t version;
         CacheResult result;
         std::vector<int> slot_orders;
+        // Number of incremental merges accumulated on this entry since the last
+        // full recompute. 0 means the entry was produced by a full scan.
+        int64_t delta_count;
+        // Size of this entry, used to decide upfront whether an incremental
+        // merge could ever be written back under the entry_max_bytes/rows
+        // limits (a merged entry can only be larger than the cached one).
+        int64_t total_bytes;
+        int64_t total_rows;
 
-        CacheValue(int64_t v, CacheResult&& r, const std::vector<int>& so)
-                : LRUCacheValueBase(), version(v), result(std::move(r)), slot_orders(so) {}
+        CacheValue(int64_t v, CacheResult&& r, const std::vector<int>& so, int64_t dc = 0,
+                   int64_t bytes = 0)
+                : LRUCacheValueBase(),
+                  version(v),
+                  result(std::move(r)),
+                  slot_orders(so),
+                  delta_count(dc),
+                  total_bytes(bytes) {
+            total_rows = 0;
+            for (const auto& block : result) {
+                total_rows += block->rows();
+            }
+        }
     };
 
     // Create global instance of this class
@@ -213,7 +249,155 @@ public:
 
     bool lookup(const CacheKey& key, int64_t version, QueryCacheHandle* handle);
 
+    // Look up the entry by key regardless of its version. The caller decides
+    // whether the entry is an exact hit (cached version == expected version) or
+    // a stale entry usable for incremental merge. Returns false if the key is
+    // not in the cache at all.
+    bool lookup_any_version(const CacheKey& key, QueryCacheHandle* handle);
+
     void insert(const CacheKey& key, int64_t version, CacheResult& result,
-                const std::vector<int>& solt_orders, int64_t cache_size);
+                const std::vector<int>& solt_orders, int64_t cache_size, int64_t delta_count = 0);
 };
+
+// The per-fragment-instance decision of how the query cache participates in the
+// execution, made exactly once (see QueryCacheRuntime) and consumed by both the
+// olap scan operator and the cache source operator, so the two operators can
+// never disagree (e.g. scan skips scanning because the entry looked fresh while
+// cache source misses because the entry got evicted in between -- which would
+// silently produce an empty result and poison the cache with it).
+struct QueryCacheInstanceDecision {
+    enum class Mode {
+        // Run the full scan and (if the key is valid) write the result back.
+        MISS,
+        // The cached entry matches the current version: emit cached blocks,
+        // skip scanning entirely, do not write back.
+        HIT,
+        // A stale entry is reusable: scan only the delta rowsets in
+        // (cached_version, current_version], emit the cached blocks and the
+        // delta partial result side by side (the upstream merge aggregation
+        // combines them), then write the merged entry back.
+        INCREMENTAL,
+    };
+
+    ~QueryCacheInstanceDecision();
+
+    // Take the pre-captured delta read source of one tablet. Returns nullptr if
+    // absent (already taken or never captured). Only meaningful in INCREMENTAL
+    // mode; each tablet's read source can be consumed exactly once.
+    std::unique_ptr<TabletReadSource> take_delta_read_source(int64_t tablet_id);
+
+    Mode mode = Mode::MISS;
+    // False when build_cache_key failed (e.g. tablets in this instance carry
+    // different versions because FE could not align instances to partitions).
+    // In that case the query degrades to an uncached scan: no lookup, no write
+    // back, but the query itself still succeeds.
+    bool key_valid = false;
+    // False when the merged entry could never satisfy entry_max_bytes/rows
+    // because the reused cached entry alone already exceeds them: the query
+    // still scans only the delta (INCREMENTAL), but skips cloning blocks for a
+    // write back that would be discarded anyway.
+    bool write_back_feasible = true;
+    // Why a stale entry was not reused incrementally (empty when it was, or
+    // when incremental merge is not enabled for this query). For the query
+    // profile only.
+    std::string incremental_fallback_reason;
+    std::string cache_key;
+    // The version this query is reading (from the scan ranges).
+    int64_t current_version = 0;
+    // Only set in INCREMENTAL mode: the version of the reused stale entry.
+    int64_t cached_version = 0;
+    // Only set in HIT/INCREMENTAL mode: delta merges accumulated on the entry.
+    int64_t cached_delta_count = 0;
+    // Pins the cache entry in HIT/INCREMENTAL mode so it cannot be evicted (and
+    // its blocks cannot be freed) while this query is using it. Note the pin
+    // lives until the fragment is torn down; when the merged entry replaces
+    // this one under the same key, both stay in memory for that window and the
+    // LRU usage accounting only sees the new one (the mem tracker still sees
+    // both) -- bounded by (in-flight incremental queries) x entry size.
+    QueryCacheHandle handle;
+
+private:
+    friend class QueryCacheRuntime;
+    std::mutex _take_lock;
+    // INCREMENTAL mode: read sources of (cached_version, current_version]
+    // captured at decision time, keyed by tablet id. Captured eagerly so that a
+    // capture failure (e.g. the delta versions were merged away by compaction)
+    // downgrades the decision to MISS *before* any operator acts on it; if the
+    // scan discovered the failure only at prepare time, the cache source might
+    // already have decided to emit the stale blocks.
+    std::unordered_map<int64_t, std::unique_ptr<TabletReadSource>> _delta_read_sources;
+};
+
+// Fragment-level query cache context shared by the olap scan operator and the
+// cache source operator of the same fragment. Both operators obtain the cache
+// decision of their instance through get_or_make_decision(); the first caller
+// makes the decision and the other one observes the same object, whatever the
+// operator local-state init order is.
+class QueryCacheRuntime {
+public:
+    // `cache` is injectable for tests; production callers pass nullptr and the
+    // global instance is used.
+    explicit QueryCacheRuntime(const TQueryCacheParam& param, QueryCache* cache = nullptr)
+            : _param(param), _cache(cache != nullptr ? cache : QueryCache::instance()) {}
+
+    QueryCache* cache() const { return _cache; }
+
+    // Row-binlog scans read a different data stream and must not serve or fill
+    // the query cache. Called while building the operator tree (single
+    // threaded, before any local state init), so no locking is needed.
+    void disable_for_binlog_scan() { _binlog_scan = true; }
+
+    // Idempotent: the first call for a given instance (identified by the cache
+    // key derived from its scan ranges) makes the decision, later calls return
+    // the same decision object. Never returns nullptr.
+    std::shared_ptr<QueryCacheInstanceDecision> get_or_make_decision(
+            const std::vector<TScanRangeParams>& scan_ranges);
+
+#ifdef BE_TEST
+    // Tests inject a hand-crafted decision (e.g. INCREMENTAL) for an instance,
+    // since a real storage engine is unavailable to capture delta read sources.
+    void inject_decision_for_test(const std::string& cache_key,
+                                  std::shared_ptr<QueryCacheInstanceDecision> decision) {
+        std::lock_guard<std::mutex> lock(_lock);
+        _decisions[cache_key] = std::move(decision);
+    }
+#endif
+
+private:
+    void _make_decision(const std::vector<TScanRangeParams>& scan_ranges,
+                        QueryCacheInstanceDecision* decision);
+
+    // Try to turn a stale entry into an INCREMENTAL decision. Returns true on
+    // success; on any failure the caller keeps the decision as MISS (full
+    // recompute), which is always safe.
+    bool _try_prepare_incremental(const std::vector<TScanRangeParams>& scan_ranges,
+                                  QueryCacheInstanceDecision* decision);
+
+    // Validate one tablet for incremental merge and capture its delta read
+    // source of (cached_version, current_version]. On any failure records the
+    // fallback reason in the decision and returns false.
+    bool _capture_tablet_delta(int64_t tablet_id, int64_t cached_version,
+                               QueryCacheInstanceDecision* decision);
+
+    // Merge-on-write only: true if any delete-bitmap entry stamped with a
+    // version inside (cached_version, current_version] targets a rowset
+    // OUTSIDE the captured delta set, i.e. the delta window rewrote rows that
+    // are already folded into the cached partial result (an upsert, a partial
+    // update or a delete sign hit a key that predates the cached version).
+    // Entries targeting the delta rowsets themselves are harmless: the delta
+    // scan reads those rowsets with the delete bitmap applied.
+    static bool _delta_rewrites_history(BaseTablet& tablet, const TabletReadSource& delta_source,
+                                        int64_t cached_version, int64_t current_version);
+
+    TQueryCacheParam _param;
+    QueryCache* _cache = nullptr;
+    bool _binlog_scan = false;
+
+    std::mutex _lock;
+    std::map<std::string, std::shared_ptr<QueryCacheInstanceDecision>> _decisions;
+    // Shared by every instance whose cache key cannot be built (see
+    // get_or_make_decision): one immutable MISS decision, one log line.
+    std::shared_ptr<QueryCacheInstanceDecision> _invalid_decision;
+};
+
 } // namespace doris

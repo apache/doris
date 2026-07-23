@@ -65,6 +65,10 @@ public:
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
+    FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
+                  std::unique_ptr<format::TableReader> table_reader);
+    static Status TEST_validate_scan_range(const TFileScanRangeParams& params,
+                                           const TFileRangeDesc& range);
     static Status TEST_to_file_format(TFileFormatType::type format_type,
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
@@ -80,6 +84,19 @@ public:
             UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
             int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
+    static void TEST_report_file_cache_profile(
+            RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
+    static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
+    static bool TEST_should_skip_empty(const Status& status, bool stopped);
+    static Status TEST_contextualize_output_filter_status(Status status,
+                                                          TFileFormatType::type format_type) {
+        return _contextualize_output_filter_status(std::move(status), format_type);
+    }
+    static bool TEST_should_run_adaptive_batch_size(bool predictor_initialized,
+                                                    bool current_split_uses_metadata_count) {
+        return _should_run_adaptive_batch_size(predictor_initialized,
+                                               current_split_uses_metadata_count);
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -97,10 +114,14 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
+    Status _filter_output_block(Block* block) override;
     void _collect_profile_before_close() override;
     bool _should_update_load_counters() const override;
 
 private:
+    static Status _validate_scan_range(const TFileScanRangeParams& params,
+                                       const TFileRangeDesc& range);
+    Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
     Status _init_expr_ctxes();
@@ -108,7 +129,12 @@ private:
     Status _init_table_reader(const TFileRangeDesc& range);
     Status _create_table_reader_for_format(const TFileRangeDesc& range,
                                            std::unique_ptr<format::TableReader>* reader) const;
-    Status _prepare_table_reader_split(const TFileRangeDesc& range);
+    Status _prepare_table_reader_split(const TFileRangeDesc& range,
+                                       std::map<std::string, Field> partition_values);
+    static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
+    static bool _should_skip_empty(const Status& status, bool stopped);
+    static Status _contextualize_output_filter_status(Status status,
+                                                      TFileFormatType::type format_type);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
@@ -126,6 +152,8 @@ private:
     void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
     bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
     bool _should_run_adaptive_batch_size() const;
+    static bool _should_run_adaptive_batch_size(bool predictor_initialized,
+                                                bool current_split_uses_metadata_count);
     size_t _predict_reader_batch_rows();
     void _update_adaptive_batch_size(const Block& block);
     static RealtimeCounterDeltas _collect_realtime_counter_deltas(
@@ -135,6 +163,8 @@ private:
             int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
     static UncachedReaderBytesStorage _uncached_reader_bytes_storage(TFileType::type file_type);
+    static void _report_file_cache_profile(RuntimeProfile* profile,
+                                           const io::FileCacheStatistics& file_cache_statistics);
     void _report_file_reader_predicate_filtered_rows();
     void _report_condition_cache_profile();
 
@@ -162,11 +192,21 @@ private:
     std::unordered_map<std::string, PartitionSlotInfo> _partition_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    io::FileCacheStatistics _reported_file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
 
+    RuntimeProfile::Counter* _scanner_total_timer = nullptr;
+    RuntimeProfile::Counter* _init_timer = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _prepare_split_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_range_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _io_timer = nullptr;
+    RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
@@ -182,6 +222,7 @@ private:
     int64_t _last_read_rows = 0;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
+    int64_t _reported_io_read_time = 0;
 };
 
 } // namespace doris

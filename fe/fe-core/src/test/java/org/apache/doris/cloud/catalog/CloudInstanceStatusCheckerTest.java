@@ -102,7 +102,7 @@ public class CloudInstanceStatusCheckerTest {
 
         new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertEquals("vcg", virtualComputeGroup.getName());
@@ -129,17 +129,17 @@ public class CloudInstanceStatusCheckerTest {
         try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
                      Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList())).thenAnswer(invocation -> null);
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenAnswer(invocation -> null);
 
             new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList()));
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         } finally {
             logger.removeAppender(appender);
             appender.stop();
         }
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertFalse(virtualComputeGroup.isNeedRebuildFileCache());
@@ -166,12 +166,15 @@ public class CloudInstanceStatusCheckerTest {
 
         String logs = appender.messagesAsString();
         Assertions.assertFalse(logs.contains("failed to create virtual compute group vcg"), logs);
-        Assertions.assertTrue(logs.contains("generate new jobIds"), logs);
+        Assertions.assertTrue(logs.contains("warmup-vcg rebuild-start"), logs);
+        Assertions.assertTrue(logs.contains("warmup-vcg rebuild-finish"), logs);
+        Assertions.assertTrue(logs.contains("srcCluster=active_cg"), logs);
+        Assertions.assertTrue(logs.contains("dstCluster=standby_cg"), logs);
     }
 
     private void addComputeGroup(String computeGroupId, String computeGroupName) {
         cloudSystemInfoService.addComputeGroup(computeGroupId,
-                new ComputeGroup(computeGroupId, computeGroupName, ComputeGroup.ComputeTypeEnum.COMPUTE));
+                new CloudComputeGroupMeta(computeGroupId, computeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE));
     }
 
     private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup() {

@@ -19,10 +19,35 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Answers;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.sql.DatabaseMetaData;
 
 public class JdbcClickHouseClientTest {
+
+    @Test
+    public void testDatabaseTermFollowsDriverMetadata() throws Exception {
+        DatabaseMetaData databaseMetaData = Mockito.mock(DatabaseMetaData.class);
+
+        Mockito.when(databaseMetaData.supportsCatalogsInDataManipulation()).thenReturn(false);
+        Assert.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.9.8"));
+
+        Mockito.when(databaseMetaData.supportsCatalogsInDataManipulation()).thenReturn(true);
+        Assert.assertTrue(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.7.1"));
+
+        Assert.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(databaseMetaData, "0.4.2"));
+    }
+
+    @Test
+    public void testClickHouseSpecificTableTypesAreVisible() {
+        JdbcClickHouseClient client = Mockito.mock(JdbcClickHouseClient.class, Answers.CALLS_REAL_METHODS);
+
+        Assert.assertArrayEquals(
+                new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
+                client.getTableTypes());
+    }
 
     @Test
     public void testIsNewClickHouseDriver() {

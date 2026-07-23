@@ -73,22 +73,15 @@ bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
 bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 }; // namespace s3_bvar
 
-bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
-bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
-bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
-bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
-
 AccessorRateLimiter::AccessorRateLimiter()
-        : _rate_limiters(
-                  {std::make_unique<S3RateLimiterHolder>(
-                           config::s3_get_token_per_second, config::s3_get_bucket_tokens,
-                           config::s3_get_token_limit,
-                           metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
-                   std::make_unique<S3RateLimiterHolder>(
-                           config::s3_put_token_per_second, config::s3_put_bucket_tokens,
-                           config::s3_put_token_limit,
-                           metric_func_factory(put_rate_limit_ns,
-                                               put_rate_limit_exceed_req_num))}) {}
+        : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                                  config::s3_get_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::GET)),
+                          std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                                  config::s3_put_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::PUT))}) {}
 
 S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
@@ -394,9 +387,6 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        if (config::s3_client_retry_slow_down) {
-            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
-        }
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
@@ -441,8 +431,9 @@ int S3Accessor::init() {
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
+        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry, config::s3_client_retry_slow_down);
+                config::max_s3_client_retry, /*retry_slow_down=*/false);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
@@ -451,6 +442,11 @@ int S3Accessor::init() {
         if (!_ca_cert_file_path.empty()) {
             aws_config.caFile = _ca_cert_file_path;
         }
+        // Mirror BE PR #49315: default ClientConfiguration leaves requestTimeoutMs=3000,
+        // which the vendored aws-sdk-cpp maps to CURLOPT_LOW_SPEED_TIME=3 and causes
+        // curl error 28 on slow/large S3 DeleteObjects (OVH cold vault).
+        aws_config.requestTimeoutMs = 30000;
+        aws_config.connectTimeoutMs = 5000;
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,

@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/ExternalTableSchema_types.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -33,13 +36,16 @@
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/primitive_type.h"
 #include "format/generic_reader.h"
 #include "format/table/equality_delete.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
+#include "util/url_coding.h"
 
 namespace doris {
 class TIcebergDeleteFileDesc;
@@ -81,6 +87,21 @@ public:
                 ADD_CHILD_TIMER(this->get_profile(), "DeleteRowsSortTime", iceberg_profile);
         _iceberg_profile.parse_delete_file_time =
                 ADD_CHILD_TIMER(this->get_profile(), "ParseDeleteFileTime", iceberg_profile);
+        _iceberg_profile.decoded_cache_hit_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorDecodedCacheHitCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.decoded_cache_miss_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorDecodedCacheMissCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.file_cache_hit_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorFileCacheHitCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.file_cache_miss_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorFileCacheMissCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.file_cache_peer_read_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorFileCachePeerReadCount",
+                                  TUnit::UNIT, iceberg_profile);
     }
 
     ~IcebergReaderMixin() override = default;
@@ -96,6 +117,7 @@ public:
     enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
     virtual void set_delete_rows() = 0;
+    virtual void set_deletion_vector() = 0;
 
     // Table-level COUNT(*) is handled by CountReader (created by FileScanner after
     // init_reader). If _do_get_next_block is called, COUNT must have been resolved.
@@ -119,8 +141,49 @@ public:
         return _position_delete_base(data_file_path, delete_files);
     }
 
+    void TEST_set_column_name_to_block_index(
+            std::unordered_map<std::string, uint32_t>* column_name_to_block_index) {
+        this->col_name_to_block_idx_ref() = column_name_to_block_index;
+    }
+
+    Status TEST_register_missing_equality_delete_column(int32_t field_id, const std::string& name,
+                                                        const DataTypePtr& delete_key_type) {
+        return _register_missing_equality_delete_column(field_id, name, delete_key_type);
+    }
+
+    Status TEST_materialize_missing_equality_delete_columns(Block* block, size_t rows) {
+        return _materialize_missing_equality_delete_columns(block, rows);
+    }
+
 protected:
     // ---- Hook implementations ----
+
+    Status on_fill_missing_columns(Block* block, size_t rows,
+                                   const std::vector<std::string>& cols) override {
+        if (!supports_iceberg_scan_semantics_v1(&this->get_scan_params())) {
+            return BaseReader::on_fill_missing_columns(block, rows, cols);
+        }
+        std::vector<std::string> generic_columns;
+        for (const auto& name : cols) {
+            const auto* field = _find_current_schema_field(name);
+            if (field == nullptr || !field->__isset.initial_default_value) {
+                generic_columns.push_back(name);
+                continue;
+            }
+            if (!this->col_name_to_block_idx_ref()->contains(name)) {
+                return Status::InternalError("Missing column: {} not found in block {}", name,
+                                             block->dump_structure());
+            }
+            const auto position = this->col_name_to_block_idx_ref()->at(name);
+            ColumnPtr value;
+            RETURN_IF_ERROR(_build_owned_initial_default_column(
+                    *field, block->get_by_position(position).type, rows, &value));
+            // Iceberg metadata is authoritative for pre-add rows; a generic FE expression may be
+            // the Base64 carrier rather than the logical BINARY/FIXED/UUID value.
+            block->get_by_position(position).column = value->convert_to_full_column_if_const();
+        }
+        return BaseReader::on_fill_missing_columns(block, rows, generic_columns);
+    }
 
     // Called before reading a block: expand block for equality delete columns + detect row_id
     Status on_before_read_block(Block* block) override {
@@ -235,6 +298,17 @@ protected:
 
     Status _expand_block_if_need(Block* block);
     Status _shrink_block_if_need(Block* block);
+    const schema::external::TStructField* _current_schema_root() const;
+    const schema::external::TField* _find_current_schema_field(const std::string& name) const;
+    const schema::external::TField* _find_current_schema_field(int32_t field_id) const;
+    Status _build_owned_initial_default_column(const schema::external::TField& field,
+                                               const DataTypePtr& type, size_t rows,
+                                               ColumnPtr* column) const;
+    Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
+                                                    const DataTypePtr& delete_key_type);
+    Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
+                                                       const ColumnPtr& value, size_t rows);
+    Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
 
     // Type aliases — must be defined before member function declarations that use them.
     using DeleteRows = std::vector<int64_t>;
@@ -247,8 +321,9 @@ protected:
     PositionDeleteRange _get_range(const ColumnString& file_path_column);
     static void _sort_delete_rows(const std::vector<std::vector<int64_t>*>& delete_rows_array,
                                   int64_t num_delete_rows, std::vector<int64_t>& result);
-    void _gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
-                                         size_t read_rows, bool file_path_column_dictionary_coded);
+    Status _gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
+                                           size_t read_rows,
+                                           bool file_path_column_dictionary_coded);
     void _generate_equality_delete_block(Block* block,
                                          const std::vector<std::string>& equality_delete_col_names,
                                          const std::vector<DataTypePtr>& equality_delete_col_types);
@@ -317,6 +392,11 @@ protected:
         RuntimeProfile::Counter* delete_files_read_time;
         RuntimeProfile::Counter* delete_rows_sort_time;
         RuntimeProfile::Counter* parse_delete_file_time;
+        RuntimeProfile::Counter* decoded_cache_hit_count;
+        RuntimeProfile::Counter* decoded_cache_miss_count;
+        RuntimeProfile::Counter* file_cache_hit_count;
+        RuntimeProfile::Counter* file_cache_miss_count;
+        RuntimeProfile::Counter* file_cache_peer_read_count;
     };
 
     bool _need_row_id_column = false;
@@ -327,8 +407,10 @@ protected:
     ShardedKVCache* _kv_cache;
     IcebergProfile _iceberg_profile;
     const std::vector<int64_t>* _iceberg_delete_rows = nullptr;
+    const DeletionVector* _iceberg_deletion_vector = nullptr;
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
+    std::unordered_map<std::string, ColumnPtr> _missing_equality_delete_values;
     std::vector<std::string> _all_required_col_names;
     Fileformat _file_format = Fileformat::NONE;
 
@@ -601,12 +683,195 @@ Status IcebergReaderMixin<BaseReader>::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
+        if (_missing_equality_delete_values.contains(col.name)) {
+            // Missing equality keys are logical columns, not physical file columns. Add them only
+            // after the base reader has established the batch row count.
+            continue;
+        }
         if (names.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         names.insert(col.name);
         (*this->col_name_to_block_idx_ref())[col.name] = block->columns();
         block->insert({col.type->create_column(), col.type, col.name});
+    }
+    return Status::OK();
+}
+
+template <typename BaseReader>
+const schema::external::TStructField* IcebergReaderMixin<BaseReader>::_current_schema_root() const {
+    const auto& scan_params = this->get_scan_params();
+    if (!scan_params.__isset.history_schema_info || scan_params.history_schema_info.empty()) {
+        return nullptr;
+    }
+    const schema::external::TSchema* current_schema = &scan_params.history_schema_info.front();
+    if (scan_params.__isset.current_schema_id) {
+        const auto schema_it = std::ranges::find_if(
+                scan_params.history_schema_info, [&](const schema::external::TSchema& schema) {
+                    return schema.__isset.schema_id &&
+                           schema.schema_id == scan_params.current_schema_id;
+                });
+        if (schema_it == scan_params.history_schema_info.end()) {
+            return nullptr;
+        }
+        current_schema = &*schema_it;
+    }
+    return current_schema->__isset.root_field ? &current_schema->root_field : nullptr;
+}
+
+template <typename BaseReader>
+const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_schema_field(
+        const std::string& name) const {
+    const auto* root = _current_schema_root();
+    if (root == nullptr) {
+        return nullptr;
+    }
+    const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
+        return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+               field_ptr.field_ptr->__isset.name && field_ptr.field_ptr->name == name;
+    });
+    return field == root->fields.end() ? nullptr : field->field_ptr.get();
+}
+
+template <typename BaseReader>
+const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_schema_field(
+        int32_t field_id) const {
+    const auto* root = _current_schema_root();
+    if (root == nullptr) {
+        return nullptr;
+    }
+    const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
+        return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+               field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id;
+    });
+    return field == root->fields.end() ? nullptr : field->field_ptr.get();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_build_owned_initial_default_column(
+        const schema::external::TField& field, const DataTypePtr& type, size_t rows,
+        ColumnPtr* column) const {
+    DORIS_CHECK(type != nullptr);
+    DORIS_CHECK(column != nullptr);
+    DORIS_CHECK(field.__isset.initial_default_value);
+    const auto nested_type = remove_nullable(type);
+    const bool is_base64 =
+            (field.__isset.initial_default_value_is_base64 &&
+             field.initial_default_value_is_base64) ||
+            (field.__isset.type && thrift_to_type(field.type.type) == TYPE_VARBINARY);
+    Field value;
+    if (is_base64) {
+        std::string decoded;
+        if (!base64_decode(field.initial_default_value, &decoded)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
+                                           field.name);
+        }
+        if (nested_type->get_primitive_type() == TYPE_VARBINARY) {
+            value = Field::create_field<TYPE_VARBINARY>(StringView(decoded));
+        } else {
+            DORIS_CHECK(is_string_type(nested_type->get_primitive_type()));
+            value = Field::create_field<TYPE_STRING>(decoded);
+        }
+        // Variable-width Fields borrow decoded. Materialize before it leaves scope so every V1
+        // missing-column and equality-delete boundary keeps UUID/FIXED payloads alive.
+        *column = type->create_column_const(rows, value);
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(field.initial_default_value, value));
+    *column = type->create_column_const(rows, value);
+    return Status::OK();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
+        int32_t field_id, const std::string& name, const DataTypePtr& delete_key_type) {
+    DORIS_CHECK(delete_key_type != nullptr);
+    const schema::external::TField* table_field = nullptr;
+    const auto& scan_params = this->get_scan_params();
+    const schema::external::TSchema* current_schema = nullptr;
+    if (scan_params.__isset.history_schema_info && !scan_params.history_schema_info.empty()) {
+        current_schema = &scan_params.history_schema_info.front();
+    }
+    if (current_schema != nullptr && scan_params.__isset.current_schema_id) {
+        const auto schema_it = std::ranges::find_if(
+                scan_params.history_schema_info, [&](const schema::external::TSchema& schema) {
+                    return schema.__isset.schema_id &&
+                           schema.schema_id == scan_params.current_schema_id;
+                });
+        if (schema_it != scan_params.history_schema_info.end()) {
+            current_schema = &*schema_it;
+        } else {
+            current_schema = nullptr;
+        }
+    }
+    if (current_schema != nullptr && current_schema->__isset.root_field) {
+        for (const auto& field_ptr : current_schema->root_field.fields) {
+            if (field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+                field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id) {
+                table_field = field_ptr.field_ptr.get();
+                break;
+            }
+        }
+    }
+    if (table_field == nullptr) {
+        // A projected descriptor from an older FE may omit a hidden equality key. Without the
+        // current Iceberg field metadata BE cannot distinguish a true NULL initial default from a
+        // non-NULL default, so continuing would risk silently keeping or deleting wrong rows.
+        return Status::InternalError(
+                "Missing Iceberg schema metadata for equality-delete field id {}", field_id);
+    }
+
+    ColumnPtr value_column;
+    if (table_field->__isset.initial_default_value) {
+        RETURN_IF_ERROR(_build_owned_initial_default_column(*table_field, delete_key_type, 1,
+                                                            &value_column));
+    } else {
+        value_column = delete_key_type->create_column_const(1, Field());
+    }
+    const bool inserted =
+            _missing_equality_delete_values.emplace(name, std::move(value_column)).second;
+    DORIS_CHECK(inserted);
+    this->register_synthesized_column_handler(
+            name, [this, name](Block* block, size_t rows) -> Status {
+                DORIS_CHECK(_missing_equality_delete_values.contains(name));
+                return _materialize_missing_equality_delete_column(
+                        block, name, _missing_equality_delete_values.at(name), rows);
+            });
+    return Status::OK();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_column(
+        Block* block, const std::string& name, const ColumnPtr& value, size_t rows) {
+    if (!this->col_name_to_block_idx_ref()->contains(name)) {
+        // ORC must not register a key that is absent from the file as a physical child. In that
+        // case the reader block has no slot for the synthesized key, so append one here before
+        // equality-delete filtering. MultiEqualityDelete requires a full, batch-sized column.
+        const auto expand_col = std::ranges::find_if(
+                _expand_columns,
+                [&](const ColumnWithTypeAndName& col) { return col.name == name; });
+        DORIS_CHECK(expand_col != _expand_columns.end());
+        (*this->col_name_to_block_idx_ref())[name] = block->columns();
+        block->insert({value->clone_resized(rows)->convert_to_full_column_if_const(),
+                       expand_col->type, name});
+        return Status::OK();
+    }
+    const auto position = this->col_name_to_block_idx_ref()->at(name);
+    DORIS_CHECK(position < block->columns());
+    DORIS_CHECK(block->get_by_position(position).column->empty());
+    // MultiEqualityDelete hashes each key column directly. Materialize the repeated default so
+    // every key has the batch row count; a ColumnConst keeps only one nested value and therefore
+    // cannot participate in the row-wise multi-column hash contract.
+    block->get_by_position(position).column =
+            value->clone_resized(rows)->convert_to_full_column_if_const();
+    return Status::OK();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_columns(Block* block,
+                                                                                    size_t rows) {
+    for (const auto& [name, value] : _missing_equality_delete_values) {
+        RETURN_IF_ERROR(_materialize_missing_equality_delete_column(block, name, value, rows));
     }
     return Status::OK();
 }
@@ -776,7 +1041,7 @@ void IcebergReaderMixin<BaseReader>::_sort_delete_rows(
 }
 
 template <typename BaseReader>
-void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
+Status IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
         Block& block, DeleteFile* position_delete, size_t read_rows,
         bool file_path_column_dictionary_coded) {
     SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
@@ -784,6 +1049,21 @@ void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
     ColumnPtr path_column = block.get_by_position(name_to_pos_map[ICEBERG_FILE_PATH]).column;
     DCHECK_EQ(path_column->size(), read_rows);
     ColumnPtr pos_column = block.get_by_position(name_to_pos_map[ICEBERG_ROW_POS]).column;
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*path_column);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption(
+                    "Iceberg position delete column file_path contains null values");
+        }
+        path_column = remove_nullable(path_column);
+    }
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*pos_column);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption("Iceberg position delete column pos contains null values");
+        }
+        pos_column = remove_nullable(pos_column);
+    }
     using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
     const int64_t* src_data = assert_cast<const ColumnType&>(*pos_column).get_data().data();
     PositionDeleteRange range;
@@ -810,42 +1090,55 @@ void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
         int64_t* dest_position = &(*delete_rows)[origin_size];
         memcpy(dest_position, cpy_start, cpy_count * sizeof(int64_t));
     }
+    return Status::OK();
 }
 
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
         const std::string& data_file_path, const TIcebergDeleteFileDesc& delete_file_desc) {
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_iceberg_deletion_vector_descriptor(delete_file_desc, bytes_read));
+
     Status create_status = Status::OK();
     SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
-    _iceberg_delete_rows = _kv_cache->template get<DeleteRows>(
+    bool decoded_cache_hit = false;
+    _iceberg_deletion_vector = _kv_cache->template get<DeletionVector>(
             build_iceberg_deletion_vector_cache_key(data_file_path, delete_file_desc),
-            [&]() -> DeleteRows* {
-                auto delete_rows = std::make_unique<DeleteRows>();
+            [&]() -> DeletionVector* {
+                auto deletion_vector = std::make_unique<DeletionVector>();
 
-                roaring::Roaring64Map bitmap;
+                io::FileCacheStatistics file_cache_stats;
                 IcebergDeleteFileReaderOptions options;
                 options.state = this->get_state();
                 options.profile = this->get_profile();
                 options.scan_params = &this->get_scan_params();
                 options.io_ctx = this->get_io_ctx();
                 options.fs_name = &this->get_scan_range().fs_name;
-                create_status = read_iceberg_deletion_vector(delete_file_desc, options, &bitmap);
+                options.deletion_vector_file_cache_stats = &file_cache_stats;
+                create_status = read_iceberg_deletion_vector(delete_file_desc, options,
+                                                             deletion_vector.get());
+                COUNTER_UPDATE(_iceberg_profile.file_cache_hit_count,
+                               file_cache_stats.num_local_io_total);
+                COUNTER_UPDATE(_iceberg_profile.file_cache_miss_count,
+                               file_cache_stats.num_remote_io_total);
+                COUNTER_UPDATE(_iceberg_profile.file_cache_peer_read_count,
+                               file_cache_stats.num_peer_io_total);
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
 
                 SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
-                delete_rows->reserve(bitmap.cardinality());
-                for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-                    delete_rows->push_back(*it);
-                }
-                COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
-                return delete_rows.release();
-            });
+                COUNTER_UPDATE(_iceberg_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector.release();
+            },
+            &decoded_cache_hit);
 
     RETURN_IF_ERROR(create_status);
-    if (!_iceberg_delete_rows->empty()) [[likely]] {
-        set_delete_rows();
+    COUNTER_UPDATE(decoded_cache_hit ? _iceberg_profile.decoded_cache_hit_count
+                                     : _iceberg_profile.decoded_cache_miss_count,
+                   1);
+    if (!_iceberg_deletion_vector->isEmpty()) [[likely]] {
+        set_deletion_vector();
     }
     return Status::OK();
 }

@@ -39,12 +39,19 @@ std::string JdbcJniReader::connector_class() const {
 }
 
 Status JdbcJniReader::prepare_split(const format::SplitReadOptions& options) {
-    _jdbc_params.clear();
-    if (options.current_range.__isset.table_format_params &&
-        options.current_range.table_format_params.table_format_type == "jdbc") {
-        _jdbc_params = std::map<std::string, std::string>(
-                options.current_range.table_format_params.jdbc_params.begin(),
-                options.current_range.table_format_params.jdbc_params.end());
+    {
+        // End these scopes before JniTableReader enters the same counters; nested use would count
+        // this JDBC parameter preparation twice instead of extending the common lifecycle total.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        SCOPED_TIMER(connector_total_timer());
+        _jdbc_params.clear();
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.table_format_type == "jdbc") {
+            _jdbc_params = std::map<std::string, std::string>(
+                    options.current_range.table_format_params.jdbc_params.begin(),
+                    options.current_range.table_format_params.jdbc_params.end());
+        }
     }
     return format::JniTableReader::prepare_split(options);
 }

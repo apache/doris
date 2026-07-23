@@ -102,6 +102,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.mysql.cj.conf.ConnectionUrl;
+import com.mysql.cj.conf.PropertyKey;
 import io.debezium.connector.mysql.MySqlConnection;
 import io.debezium.connector.mysql.MySqlConnectorConfig;
 import io.debezium.connector.mysql.MySqlPartition;
@@ -743,7 +744,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                         splitStart,
                         splitEnd,
                         null,
-                        tableSchemas);
+                        Collections.singletonMap(tableId, tableChange));
         return split;
     }
 
@@ -924,9 +925,10 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
-        // Schema change handling for MySQL is not yet implemented; keep disabled to avoid
-        // unnecessary processing overhead until DDL support is added.
-        configFactory.includeSchemaChanges(false);
+        boolean schemaChangeEnabled =
+                Boolean.parseBoolean(
+                        cdcConfig.getOrDefault(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "true"));
+        configFactory.includeSchemaChanges(schemaChangeEnabled);
 
         // Set table list
         String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
@@ -1017,6 +1019,13 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
         // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
         dbzProps.setProperty("enable.time.adjuster", "false");
+        // The converter is valid only when snapshot JDBC exposes YEAR values as numbers.
+        if ("false"
+                .equalsIgnoreCase(
+                        jdbcProperteis.getProperty(PropertyKey.yearIsDateType.getKeyName()))) {
+            dbzProps.setProperty("converters", "dorisYear");
+            dbzProps.setProperty("dorisYear.type", MySqlYearConverter.class.getName());
+        }
 
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
@@ -1310,6 +1319,13 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     }
                 } else if (RecordUtils.isHeartbeatEvent(element)) {
                     LOG.debug("Receive heartbeat event: {}", element);
+                    if (splitState.isBinlogSplitState()) {
+                        BinlogOffset position = RecordUtils.getBinlogPosition(element);
+                        splitState.asBinlogSplitState().setStartingOffset(position);
+                    }
+                    nextRecord = element;
+                    return true;
+                } else if (RecordUtils.isSchemaChangeEvent(element)) {
                     if (splitState.isBinlogSplitState()) {
                         BinlogOffset position = RecordUtils.getBinlogPosition(element);
                         splitState.asBinlogSplitState().setStartingOffset(position);

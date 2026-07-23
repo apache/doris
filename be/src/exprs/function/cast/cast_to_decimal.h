@@ -780,6 +780,17 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
 
+        if constexpr (IsDataTypeDecimalV3<ToDataType>) {
+            if (to_scale == 0 && !narrow_integral) {
+                for (size_t i = 0; i < size; i++) {
+                    vec_to_data[i].value =
+                            static_cast<typename ToFieldType::NativeType>(vec_from_data[i]);
+                }
+                block.get_by_position(result).column = std::move(col_to);
+                return Status::OK();
+            }
+        }
+
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {

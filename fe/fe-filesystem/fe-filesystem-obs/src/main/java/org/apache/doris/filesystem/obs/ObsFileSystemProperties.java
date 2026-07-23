@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -347,6 +348,11 @@ public final class ObsFileSystemProperties
     @Override
     public String getUsePathStyle() {
         return usePathStyle;
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return Set.of("obs", "s3", "s3a");
     }
 
     public String getForceParsingByStandardUrl() {

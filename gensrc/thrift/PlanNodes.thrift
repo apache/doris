@@ -324,6 +324,10 @@ struct TIcebergDeleteFileDesc {
     6: optional i64 content_offset;
     7: optional i64 content_size_in_bytes;
     8: optional TFileFormatType file_format;
+    // Original Iceberg delete file path before Doris storage path normalization.
+    9: optional string original_path;
+    // Referenced data file path. Required to materialize rows from deletion vectors.
+    10: optional string referenced_data_file_path;
 }
 
 struct TIcebergFileDesc {
@@ -556,6 +560,10 @@ struct TFileScanRangeParams {
     32: optional map<string, string> es_docvalue_context
     // ES fields field→keyword mappings
     33: optional map<string, string> es_fields_context
+    // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
+    // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
+    // logical initial-default materialization.
+    34: optional i32 iceberg_scan_semantics_version
 }
 
 struct TFileRangeDesc {
@@ -1709,6 +1717,10 @@ struct TPlanNode {
   52: optional TRecCTEScanNode rec_cte_scan_node
   53: optional TBucketedAggregationNode bucketed_agg_node
   54: optional TLocalExchangeNode local_exchange_node
+  // COUNT(*) and COUNT(col) share push_down_agg_type_opt=COUNT, but file readers need to know
+  // whether a projected scan slot is the aggregate argument or merely the placeholder retained by
+  // column pruning. Empty means row-count semantics; non-empty identifies explicit COUNT columns.
+  55: optional list<Types.TSlotId> push_down_count_slot_ids
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

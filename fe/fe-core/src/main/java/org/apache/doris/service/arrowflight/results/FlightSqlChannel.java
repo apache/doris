@@ -156,6 +156,12 @@ public class FlightSqlChannel {
         return resultCache.size();
     }
 
+    // Returns the off-heap memory (bytes) currently held by this channel's Arrow allocator.
+    // Exposed so tests can assert prepared-statement handling does not leak VectorSchemaRoot buffers.
+    public long getAllocatedMemory() {
+        return allocator.getAllocatedMemory();
+    }
+
     public void reset() {
         resultCache.invalidateAll();
     }

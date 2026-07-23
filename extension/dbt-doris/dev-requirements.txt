@@ -41,5 +41,6 @@ pytz
 tox>=3.13
 twine
 wheel
+
 # >=9.1.0 picks up the fix for GHSA-hgjp-83m4-h4fj (9.1 through 9.4 keep py39 support)
 mysql-connector-python>=9.1.0

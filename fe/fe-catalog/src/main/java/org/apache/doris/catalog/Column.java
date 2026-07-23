@@ -81,8 +81,8 @@ public class Column implements GsonPostProcessable {
 
     // columns for binlog schema
     // explicit columns
+    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
     public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
-    public static final String BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
     // implicit columns
     public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
     public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
@@ -101,6 +101,11 @@ public class Column implements GsonPostProcessable {
         Column afterValueColumn = new Column(column);
         afterValueColumn.setComment("after value (" + column.getName() + ")");
         afterValueColumn.setAggregationType(AggregateType.NONE, true);
+        afterValueColumn.setIsAllowNull(true);
+        // clear default value
+        afterValueColumn.defaultValue = null;
+        afterValueColumn.defaultValueExprDef = null;
+        afterValueColumn.realDefaultValue = null;
         return afterValueColumn;
     }
 
@@ -137,6 +142,10 @@ public class Column implements GsonPostProcessable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean nullableSpecified;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean commentSpecified;
     @SerializedName(value = "isAutoInc")
     private boolean isAutoInc;
 
@@ -363,6 +372,8 @@ public class Column implements GsonPostProcessable {
         this.isKey = column.isKey();
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.nullableSpecified = column.isNullableSpecified();
+        this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.realDefaultValue = column.realDefaultValue;
@@ -578,6 +589,14 @@ public class Column implements GsonPostProcessable {
         return isAllowNull;
     }
 
+    public boolean isNullableSpecified() {
+        return nullableSpecified;
+    }
+
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     public boolean isAutoInc() {
         return isAutoInc;
     }
@@ -588,6 +607,14 @@ public class Column implements GsonPostProcessable {
 
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
+    }
+
+    public void setNullableSpecified(boolean nullableSpecified) {
+        this.nullableSpecified = nullableSpecified;
+    }
+
+    public void setCommentSpecified(boolean commentSpecified) {
+        this.commentSpecified = commentSpecified;
     }
 
     public String getDefaultValue() {

@@ -45,6 +45,7 @@ public class CloudReplicaTest {
     private static final long INDEX_ID = 40001L;
     private static final long REPLICA_ID = 50001L;
     private static final long IDX = 0;
+    private static final int BUCKET_NUM = 128;
 
     private static final String CLUSTER_ID_1 = "cluster_id_1";
     private static final String CLUSTER_ID_2 = "cluster_id_2";
@@ -59,6 +60,7 @@ public class CloudReplicaTest {
     private boolean savedEnableCloudMultiReplica;
     private int savedCloudReplicaNum;
     private String savedCloudUniqueId;
+    private boolean savedEnableCloudColocateConsistentHash;
 
     @BeforeEach
     public void setUp() {
@@ -66,6 +68,8 @@ public class CloudReplicaTest {
         savedEnableCloudMultiReplica = Config.enable_cloud_multi_replica;
         savedCloudReplicaNum = Config.cloud_replica_num;
         savedCloudUniqueId = Config.cloud_unique_id;
+        savedEnableCloudColocateConsistentHash = Config.enable_cloud_colocate_consistent_hash;
+        Config.enable_cloud_colocate_consistent_hash = true;
         Config.cloud_unique_id = "test_cloud_unique_id";
 
         mockEnv = Mockito.mock(Env.class);
@@ -76,6 +80,16 @@ public class CloudReplicaTest {
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
         envMockedStatic.when(Env::getCurrentColocateIndex).thenReturn(mockColocateIndex);
         envMockedStatic.when(Env::getCurrentSystemInfo).thenReturn(mockInfoService);
+
+        Mockito.when(mockInfoService.getCloudColocateBucketsNum(Mockito.any(GroupId.class))).thenReturn(BUCKET_NUM);
+        Mockito.when(mockInfoService.getCloudColocateHrwBeId(Mockito.any(GroupId.class), Mockito.anyString(),
+                Mockito.anyList(), Mockito.anyLong())).thenAnswer(invocation -> {
+                    GroupId groupId = invocation.getArgument(0);
+                    List<Long> candidateBeIds = invocation.getArgument(2);
+                    long bucketIdx = invocation.getArgument(3);
+                    return CloudColocatePlacement.pickBackendId(groupId.grpId, bucketIdx,
+                            candidateBeIds.stream().mapToLong(Long::longValue).toArray());
+                });
     }
 
     @AfterEach
@@ -85,6 +99,7 @@ public class CloudReplicaTest {
         Config.enable_cloud_multi_replica = savedEnableCloudMultiReplica;
         Config.cloud_replica_num = savedCloudReplicaNum;
         Config.cloud_unique_id = savedCloudUniqueId;
+        Config.enable_cloud_colocate_consistent_hash = savedEnableCloudColocateConsistentHash;
     }
 
     private CloudReplica createReplica() {

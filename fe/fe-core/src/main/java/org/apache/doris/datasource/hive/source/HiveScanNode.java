@@ -58,8 +58,8 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
@@ -135,11 +135,20 @@ public class HiveScanNode extends FileQueryScanNode {
         super.doInitialize();
 
         if (hmsTable.isHiveTransactionalTable()) {
+            markTransactionalHiveScanParams(params);
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
             skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
         }
+    }
+
+    static void markTransactionalHiveScanParams(TFileScanRangeParams scanParams) {
+        // BE selects the scanner before remote batch splits are fetched, so expose the table format
+        // in scan-level params as well as in each range.
+        TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
+        tableFormatParams.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE.value());
+        scanParams.setTableFormatParams(tableFormatParams);
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
@@ -329,7 +338,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         /**
-         * If the push down aggregation operator is COUNT,
+         * If a table-level COUNT(*) is pushed down,
          * we don't need to split the file because for parquet/orc format, only metadata is read.
          * If we split the file, we will read metadata of a file multiple times, which is not efficient.
          *
@@ -337,7 +346,7 @@ public class HiveScanNode extends FileQueryScanNode {
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
+        if (isTableLevelCountStarPushdown()
                 && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
@@ -603,7 +612,7 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setNullFormat("");
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
-            if (textParams.isSetEnclose()) {
+            if (shouldTrimDoubleQuotes(textParams)) {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
             fileAttributes.setEnableTextValidateUtf8(
@@ -658,6 +667,10 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         return fileAttributes;
+    }
+
+    static boolean shouldTrimDoubleQuotes(TFileTextScanRangeParams textParams) {
+        return textParams.isSetEnclose() && textParams.getEnclose() == (byte) '"';
     }
 
     @Override

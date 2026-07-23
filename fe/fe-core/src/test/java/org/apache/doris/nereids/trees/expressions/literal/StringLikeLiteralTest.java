@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -202,6 +204,17 @@ public class StringLikeLiteralTest {
         StringLiteral finalS2 = s;
         Assertions.assertThrows(CastException.class, () -> finalS2.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(6, 2)));
 
+    }
+
+    @Test
+    void testCastMaxDateTimeStringToDateDoesNotRoundTimePart() {
+        StringLiteral literal = new StringLiteral("9999-12-31 23:59:59.999999");
+
+        DateLiteral date = (DateLiteral) literal.uncheckedCastTo(DateType.INSTANCE);
+        DateV2Literal dateV2 = (DateV2Literal) literal.uncheckedCastTo(DateV2Type.INSTANCE);
+
+        Assertions.assertEquals("9999-12-31", date.getStringValue());
+        Assertions.assertEquals("9999-12-31", dateV2.getStringValue());
     }
 
     @Test

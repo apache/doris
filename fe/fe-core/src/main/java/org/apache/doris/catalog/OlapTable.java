@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -1564,7 +1565,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // select the non-empty partition ids belonging to this table.
     //
     // ATTN: partitions not belonging to this table will be filtered.
-    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
         if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
             // Assumption: all partitions are CloudPartition.
             List<CloudPartition> partitions = partitionIds.stream()
@@ -2431,7 +2433,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         boolean needHistoricalValue = getBinlogConfig().getNeedHistoricalValue();
         List<Column> beforeColumns = new ArrayList<>();
 
-        for (Column column : getBaseSchema(false)) {
+        for (Column column : getBaseSchema(true)) {
+            if (!column.isVisible() && !column.isKey()) {
+                continue;
+            }
             Preconditions.checkState(!column.getType().isVariantType(),
                     "binlog<Row> does not support VARIANT column: " + column.getName());
             Preconditions.checkState(!column.isAutoInc(),
@@ -2453,15 +2458,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tableRowBinlogSchema.addAll(beforeColumns);
         }
 
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_LSN_COL, ScalarType.createType(PrimitiveType.LARGEINT),
+        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TSO_COL,
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
+                ColumnDef.DefaultValue.NOT_SET, "doris binlog tso column", false).toColumn());
+        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_LSN_COL, ScalarType.createType(PrimitiveType.BIGINT),
                 false, AggregateType.NONE, false, -1, ColumnDef.DefaultValue.NOT_SET,
                 "doris binlog lsn column", false).toColumn());
         tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_OPERATION_COL,
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, false, -1,
                 ColumnDef.DefaultValue.NOT_SET, "doris binlog operation column", false).toColumn());
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TIMESTAMP_COL,
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
-                ColumnDef.DefaultValue.NOT_SET, "doris binlog timestamp column", false).toColumn());
 
         for (Column column : tableRowBinlogSchema) {
             if (!column.isKey()) {

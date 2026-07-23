@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "format_v2/table_reader.h"
@@ -58,7 +60,27 @@ public:
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    bool current_split_pruned() const override;
+    bool current_split_uses_metadata_count() const override;
+    Status abort_split() override;
     Status close() override;
+    void set_batch_size(size_t batch_size) override;
+
+#ifdef BE_TEST
+    void TEST_install_batch_size_children() {
+        _native_reader = std::make_unique<format::TableReader>();
+        _jni_reader = std::make_unique<format::TableReader>();
+    }
+    std::pair<size_t, size_t> TEST_child_batch_sizes() const {
+        return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size()};
+    }
+    void TEST_set_child_reader_factories(
+            std::function<std::unique_ptr<format::TableReader>()> native_factory,
+            std::function<std::unique_ptr<format::TableReader>()> jni_factory) {
+        _test_native_reader_factory = std::move(native_factory);
+        _test_jni_reader_factory = std::move(jni_factory);
+    }
+#endif
 
 private:
     Status _ensure_current_split_reader(const format::SplitReadOptions& options);
@@ -73,6 +95,10 @@ private:
     std::unique_ptr<format::TableReader> _native_reader; // handle native parquet/orc splits
     std::unique_ptr<format::TableReader> _jni_reader;    // handle MOR JNI splits
     format::TableReader* _current_split_reader = nullptr;
+#ifdef BE_TEST
+    std::function<std::unique_ptr<format::TableReader>()> _test_native_reader_factory;
+    std::function<std::unique_ptr<format::TableReader>()> _test_jni_reader_factory;
+#endif
 };
 
 } // namespace doris::format::hudi

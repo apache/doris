@@ -34,6 +34,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
+#include "util/url_coding.h"
 
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -105,6 +106,35 @@
 #include "util/unaligned.h"
 
 namespace doris {
+static Status build_orc_initial_default_column(
+        const std::optional<TableSchemaChangeHelper::InitialDefaultValue>& metadata,
+        const DataTypePtr& type, size_t rows, ColumnPtr* column) {
+    DORIS_CHECK(column != nullptr);
+    if (!metadata.has_value()) {
+        *column = nullptr;
+        return Status::OK();
+    }
+    const auto nested_type = remove_nullable(type);
+    Field value;
+    if (metadata->is_base64 || nested_type->get_primitive_type() == TYPE_VARBINARY) {
+        std::string decoded;
+        if (!base64_decode(metadata->value, &decoded)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg nested initial default");
+        }
+        value = nested_type->get_primitive_type() == TYPE_VARBINARY
+                        ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
+                        : Field::create_field<TYPE_STRING>(decoded);
+        // StringView borrows decoded for payloads longer than 12 bytes. Build the owning column
+        // before the decode buffer leaves scope (UUID/FIXED defaults routinely exceed that size).
+        *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
+        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(metadata->value, value));
+    }
+    *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
+    return Status::OK();
+}
+
 class RuntimeState;
 namespace io {
 struct IOContext;
@@ -2145,15 +2175,28 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 
         for (int missing_field : missing_fields) {
             ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
-            if (!doris_field->is_nullable()) {
+            const auto& table_column_name = doris_struct_type->get_name_by_position(missing_field);
+            const auto& doris_type = doris_struct_type->get_element(missing_field);
+            ColumnPtr initial_default;
+            RETURN_IF_ERROR(build_orc_initial_default_column(
+                    root_node->children_initial_default_value(table_column_name), doris_type,
+                    num_values, &initial_default));
+            if (initial_default.get() != nullptr) {
+                // ORC projection may synthesize a missing nested field, but its Iceberg initial
+                // default remains the logical value for every row in the older file.
+                auto mutable_field = IColumn::mutate(std::move(doris_field));
+                mutable_field->insert_range_from(*initial_default, 0, num_values);
+                doris_field = std::move(mutable_field);
+            } else if (!doris_field->is_nullable()) {
                 return Status::InternalError(
                         "Child field of '{}' is not nullable, but is missing in orc file",
                         col_name);
+            } else {
+                auto mutable_field = IColumn::mutate(std::move(doris_field));
+                reinterpret_cast<ColumnNullable*>(mutable_field.get())
+                        ->insert_many_defaults(num_values);
+                doris_field = std::move(mutable_field);
             }
-            auto mutable_field = IColumn::mutate(std::move(doris_field));
-            reinterpret_cast<ColumnNullable*>(mutable_field.get())
-                    ->insert_many_defaults(num_values);
-            doris_field = std::move(mutable_field);
         }
 
         for (auto read_field : read_fields) {
@@ -2706,7 +2749,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr, start_row);
                     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
                             block, columns_to_filter, (*_delete_rows_filter_ptr)));
-                } else if (_position_delete_ordered_rowids != nullptr) {
+                } else if (_position_delete_ordered_rowids != nullptr ||
+                           (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
                     std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                     _execute_filter_position_delete_rowids(*filter, start_row);
                     RETURN_IF_CATCH_EXCEPTION(
@@ -3492,6 +3536,16 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
 }
 
 void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter, int64_t start_row) {
+    if (_deletion_vector != nullptr) {
+        auto it = _deletion_vector->begin();
+        it.move(cast_set<uint64_t>(start_row));
+        const auto end = _deletion_vector->end();
+        const auto end_row = cast_set<uint64_t>(start_row + _batch->numElements);
+        while (it != end && *it < end_row) {
+            filter[cast_set<size_t>(*it - cast_set<uint64_t>(start_row))] = 0;
+            ++it;
+        }
+    }
     if (_position_delete_ordered_rowids == nullptr) {
         return;
     }

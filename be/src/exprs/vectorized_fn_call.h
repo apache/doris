@@ -57,6 +57,11 @@ public:
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
@@ -77,6 +82,8 @@ public:
                std::any_of(_children.begin(), _children.end(),
                            [](VExprSPtr child) { return child->is_blockable(); });
     }
+    bool is_deterministic() const override;
+    bool is_safe_to_execute_on_selected_rows() const override;
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
             // udf function with no argument, can't sure it's must return const column
