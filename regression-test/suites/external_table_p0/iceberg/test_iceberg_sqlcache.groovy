@@ -15,12 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// WHY: an iceberg table must be able to use SqlCache. The eligibility "quiet window" gate compares
-// (now_millis - table_newest_update). iceberg reports its newest-update time in MICROSECONDS, and before the
-// fix that raw micros value was fed into the gate, so (now - micros) was always <= 0 and never cleared the
-// window -> iceberg (and any query joining it) was NEVER cacheable. The fix gives the gate a genuine
-// wall-clock millis (connector-normalized), so a quiet iceberg table becomes cacheable; a write still
-// invalidates via the version token (no stale results).
+// WHY: a (time-partitioned) iceberg table must be able to use SqlCache. Two independent gates control external
+// SqlCache eligibility, so the test must satisfy both:
+//   1) It is opt-in via `enable_hive_sql_cache` (default false) — set below. Without it BindRelation marks
+//      every external lakehouse table unsupported and nothing is ever cached.
+//   2) The table must be a valid MTMV-related table (exactly one year/month/day/hour partition transform) so
+//      the connector reports a real data-version token. An UNPARTITIONED iceberg table reports token 0 and is
+//      never cacheable (the version<=0 fail-safe in SqlCacheContext.addUsedTable) — hence the DAY(ts) spec.
+// The bug this actually exercises: the eligibility "quiet window" gate compares (now_millis - table_newest_update).
+// A partitioned iceberg table reports its newest-update time in MICROSECONDS, and before the fix that raw micros
+// value was fed into the gate, so (now - micros) was always <= 0 and never cleared the window -> a partitioned
+// iceberg table (and any query joining it) was NEVER cacheable. The fix gives the gate a genuine wall-clock
+// millis (connector-normalized), so a quiet iceberg table becomes cacheable; a write still invalidates via the
+// version token (no stale results).
 suite("test_iceberg_sqlcache", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -74,22 +81,30 @@ suite("test_iceberg_sqlcache", "p0,external") {
         sql """drop database if exists ${db} force"""
         sql """create database ${db}"""
         sql """use ${db}"""
-        sql """CREATE TABLE ${tbl} (id INT, v INT)"""
-        sql """INSERT INTO ${tbl} VALUES (1, 10), (2, 20)"""
+        // A time-transform partitioned table (DAY(ts)) is a valid MTMV-related table, so the connector reports a
+        // real (micros) newest-update token > 0 — the precondition for both eligibility gates. An unpartitioned
+        // table would report token 0 and never cache (see the WHY note above).
+        sql """CREATE TABLE ${tbl} (id INT, v INT, ts DATETIME) PARTITION BY LIST (DAY(ts)) ()"""
+        sql """INSERT INTO ${tbl} VALUES (1, 10, '2024-01-01 08:00:00'), (2, 20, '2024-01-02 09:00:00')"""
 
         sql """set enable_sql_cache=true"""
+        // External lakehouse SqlCache is opt-in (default off); without this the iceberg table is treated as an
+        // unsupported table and the query is never cached.
+        sql """set enable_hive_sql_cache=true"""
 
         def q = "select * from ${db}.${tbl} order by id".toString()
 
         // Quiet past the window since the last write, then create the cache entry. The gate must pass for the
         // entry to be stored — before the fix it never did for iceberg, so assertHasCache below stayed red.
+        logger.info("Sleeping ${quietWaitMillis} ms (cache_last_version_interval_second=${intervalSec}s + 3s) "
+                + "to pass the SqlCache quiet window since the last write, then build the cache entry")
         sleep(quietWaitMillis)
         sql "${q}"
         assertHasCache q
 
         // A write changes the table's version token, so the cached entry is invalidated and the plan must NOT
         // reuse it — proving the fix never serves stale results (the token guard is independent of the gate).
-        sql """INSERT INTO ${tbl} VALUES (3, 30)"""
+        sql """INSERT INTO ${tbl} VALUES (3, 30, '2024-01-03 10:00:00')"""
         assertNoCache q
     } finally {
         sql """drop table if exists ${catalog_name}.${db}.${tbl}"""
