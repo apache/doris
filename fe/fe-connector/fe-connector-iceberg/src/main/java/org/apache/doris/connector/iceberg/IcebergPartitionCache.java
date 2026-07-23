@@ -88,12 +88,8 @@ final class IcebergPartitionCache {
     private final MetaCacheEntry<Key, List<IcebergRawPartition>> entry;
 
     IcebergPartitionCache(long ttlSeconds, int maxSize) {
-        // Mirror IcebergLatestSnapshotCache: translate the connector's "<= 0 disables" contract to CacheSpec's
-        // ttl == 0 (disabled) rather than passing a negative value through (which CacheSpec reads as "no
-        // expiration").
-        CacheSpec spec = ttlSeconds > 0
-                ? CacheSpec.of(true, ttlSeconds, maxSize)
-                : CacheSpec.of(true, CacheSpec.CACHE_TTL_DISABLE_CACHE, maxSize);
+        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
+        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = new MetaCacheEntry<>("iceberg-partition", null, spec,
                 ForkJoinPool.commonPool(), false, true, 0L, true);
     }

@@ -189,6 +189,36 @@ public class CacheSpecTest {
     }
 
     @Test
+    public void ofConnectorTtlFoldsNonPositiveToDisabled() {
+        // A positive ttl passes through unchanged and stays enabled.
+        CacheSpec positive = CacheSpec.ofConnectorTtl(60, 100);
+        Assertions.assertTrue(positive.isEnable());
+        Assertions.assertEquals(60, positive.getTtlSecond());
+        Assertions.assertEquals(100, positive.getCapacity());
+        Assertions.assertTrue(CacheSpec.isCacheEnabled(
+                positive.isEnable(), positive.getTtlSecond(), positive.getCapacity()));
+
+        // ttl == 0 is already the disable sentinel and stays disabled.
+        CacheSpec zero = CacheSpec.ofConnectorTtl(0, 100);
+        Assertions.assertEquals(CacheSpec.CACHE_TTL_DISABLE_CACHE, zero.getTtlSecond());
+        Assertions.assertFalse(CacheSpec.isCacheEnabled(
+                zero.isEnable(), zero.getTtlSecond(), zero.getCapacity()));
+
+        // The load-bearing case: a NEGATIVE ttl must FOLD to the disable sentinel (0), NOT pass through as the
+        // -1 "no expiration (enabled)" sentinel. Without the fold, a negative operator value would silently
+        // produce a never-expiring cache -- the exact bug this factory replaces the per-cache ternary to avoid.
+        CacheSpec minusOne = CacheSpec.ofConnectorTtl(CacheSpec.CACHE_NO_TTL, 100);
+        Assertions.assertEquals(CacheSpec.CACHE_TTL_DISABLE_CACHE, minusOne.getTtlSecond());
+        Assertions.assertFalse(CacheSpec.isCacheEnabled(
+                minusOne.isEnable(), minusOne.getTtlSecond(), minusOne.getCapacity()));
+
+        CacheSpec minusTwo = CacheSpec.ofConnectorTtl(-2, 100);
+        Assertions.assertEquals(CacheSpec.CACHE_TTL_DISABLE_CACHE, minusTwo.getTtlSecond());
+        Assertions.assertFalse(CacheSpec.isCacheEnabled(
+                minusTwo.isEnable(), minusTwo.getTtlSecond(), minusTwo.getCapacity()));
+    }
+
+    @Test
     public void isCacheEnabledMatchesLegacyFormula() {
         Assertions.assertTrue(CacheSpec.isCacheEnabled(true, CacheSpec.CACHE_NO_TTL, 1));
         Assertions.assertFalse(CacheSpec.isCacheEnabled(false, CacheSpec.CACHE_NO_TTL, 1));

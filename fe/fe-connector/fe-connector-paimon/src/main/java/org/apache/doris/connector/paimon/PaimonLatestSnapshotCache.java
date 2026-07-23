@@ -50,13 +50,8 @@ final class PaimonLatestSnapshotCache {
     private final MetaCacheEntry<Identifier, Long> entry;
 
     PaimonLatestSnapshotCache(long ttlSeconds, int maxSize) {
-        // ttl-second <= 0 disables caching (always read live); a positive ttl is access-based expiry with the
-        // given capacity. CacheSpec treats ttl == -1 as "no expiration (enabled)" and ttl == 0 as "disabled",
-        // so translate the connector's "<= 0 disables" contract to ttl == 0 rather than passing a negative
-        // value straight through (which would otherwise flip -1 into a never-expiring cache).
-        CacheSpec spec = ttlSeconds > 0
-                ? CacheSpec.of(true, ttlSeconds, maxSize)
-                : CacheSpec.of(true, CacheSpec.CACHE_TTL_DISABLE_CACHE, maxSize);
+        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
+        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = new MetaCacheEntry<>("paimon-latest-snapshot", null, spec,
                 ForkJoinPool.commonPool(), false, true, 0L, true);
     }
