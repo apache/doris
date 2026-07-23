@@ -19,16 +19,18 @@ version: "2.1"
 
 services:
   doris--oceanbase:
-    image: oceanbase/oceanbase-ce:4.2.1-lts
+    image: quay.io/oceanbase/obbinlog-ce:4.2.5-test
     restart: always
     environment:
       MODE: slim
       OB_MEMORY_LIMIT: 5G
+      PASSWORD: 123456
       TZ: Asia/Shanghai
     ports:
       - ${DOCKER_OCEANBASE_EXTERNAL_PORT}:2881
+      - ${DOCKER_OCEANBASE_PROXY_EXTERNAL_PORT}:2883
     healthcheck:
-      test: ["CMD-SHELL", "obclient -h127.1 -P2881 -uroot@test -e 'SELECT * FROM doris_test.all_types limit 1'"]
+      test: ["CMD-SHELL", "obclient -h127.0.0.1 -P2881 -uroot@test -p123456 -e 'SELECT * FROM doris_test.all_types LIMIT 1' >/dev/null && obclient -h127.0.0.1 -P2883 -uroot@test -p123456 -Nse 'SHOW MASTER STATUS' | grep -q ."]
       interval: 5s
       timeout: 60s
       retries: 120

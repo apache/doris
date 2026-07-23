@@ -15,10 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.cdcclient.source.reader.oceanbase;
 
-public enum DataSourceType {
-    MYSQL,
-    POSTGRES,
-    OCEANBASE
+import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+
+public class OceanBaseSourceReader extends MySqlSourceReader {
+
+    @Override
+    protected boolean excludeHeartbeatFromEventCount() {
+        // OceanBase Binlog Service heartbeat events are not guaranteed to replay at the same
+        // position, so they must not participate in transaction restart event counting.
+        return true;
+    }
 }
