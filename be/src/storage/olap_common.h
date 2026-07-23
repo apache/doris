@@ -489,6 +489,20 @@ struct OlapReaderStatistics {
     int64_t variant_subtree_hierarchical_iter_count = 0;
     int64_t variant_subtree_sparse_iter_count = 0;
     int64_t variant_doc_value_column_iter_count = 0;
+
+    // Merge only the fields used by the rowid fetch (TopN lazy materialization phase 2) path.
+    // Used to combine statistics collected by parallel rowid fetch tasks.
+    void merge(const OlapReaderStatistics& other) {
+        io_ns += other.io_ns;
+        compressed_bytes_read += other.compressed_bytes_read;
+        decompress_ns += other.decompress_ns;
+        uncompressed_bytes_read += other.uncompressed_bytes_read;
+        bytes_read += other.bytes_read;
+        raw_rows_read += other.raw_rows_read;
+        total_pages_num += other.total_pages_num;
+        cached_pages_num += other.cached_pages_num;
+        file_cache_stats.merge(other.file_cache_stats);
+    }
 };
 
 using ColumnId = uint32_t;
