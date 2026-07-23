@@ -327,10 +327,9 @@ public class AlterMTMVTest extends TestWithFeService {
         MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
                 .getDb("stream_test").get()
                 .getTableOrMetaException("stream_mv");
-        String streamName = IvmUtil.streamName(mtmv.getId(), "stream_base");
-        org.apache.doris.catalog.TableIf streamTable = Env.getCurrentInternalCatalog()
-                .getDb("stream_test").get()
-                .getTableOrMetaException(streamName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("stream_test");
+        String streamName = ivmStreamName(db, mtmv.getId(), "stream_base");
+        org.apache.doris.catalog.TableIf streamTable = db.getTableOrMetaException(streamName);
         Assertions.assertNotNull(streamTable, "Stream should be auto-created for IVM base table");
         Assertions.assertTrue(streamTable instanceof org.apache.doris.catalog.stream.OlapTableStream,
                 "Should be an OlapTableStream");
@@ -345,8 +344,8 @@ public class AlterMTMVTest extends TestWithFeService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_replace_stream_test");
         MTMV oldMtmv = (MTMV) db.getTableOrMetaException("replace_old_mv");
         MTMV newMtmv = (MTMV) db.getTableOrMetaException("replace_new_mv");
-        String oldStreamName = IvmUtil.streamName(oldMtmv.getId(), "replace_old_base");
-        String newStreamName = IvmUtil.streamName(newMtmv.getId(), "replace_new_base");
+        String oldStreamName = ivmStreamName(db, oldMtmv.getId(), "replace_old_base");
+        String newStreamName = ivmStreamName(db, newMtmv.getId(), "replace_new_base");
         long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
         long newStreamId = db.getTableOrMetaException(newStreamName).getId();
 
@@ -372,8 +371,8 @@ public class AlterMTMVTest extends TestWithFeService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_replay_replace_stream_test");
         MTMV oldMtmv = (MTMV) db.getTableOrMetaException("replay_old_mv");
         MTMV newMtmv = (MTMV) db.getTableOrMetaException("replay_new_mv");
-        String oldStreamName = IvmUtil.streamName(oldMtmv.getId(), "replay_old_base");
-        String newStreamName = IvmUtil.streamName(newMtmv.getId(), "replay_new_base");
+        String oldStreamName = ivmStreamName(db, oldMtmv.getId(), "replay_old_base");
+        String newStreamName = ivmStreamName(db, newMtmv.getId(), "replay_new_base");
         long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
         long newStreamId = db.getTableOrMetaException(newStreamName).getId();
         ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), oldMtmv.getId(),
@@ -398,8 +397,8 @@ public class AlterMTMVTest extends TestWithFeService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_swap_replace_stream_test");
         MTMV oldMtmv = (MTMV) db.getTableOrMetaException("swap_old_mv");
         MTMV newMtmv = (MTMV) db.getTableOrMetaException("swap_new_mv");
-        String oldStreamName = IvmUtil.streamName(oldMtmv.getId(), "swap_old_base");
-        String newStreamName = IvmUtil.streamName(newMtmv.getId(), "swap_new_base");
+        String oldStreamName = ivmStreamName(db, oldMtmv.getId(), "swap_old_base");
+        String newStreamName = ivmStreamName(db, newMtmv.getId(), "swap_new_base");
         long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
         long newStreamId = db.getTableOrMetaException(newStreamName).getId();
 
@@ -424,6 +423,10 @@ public class AlterMTMVTest extends TestWithFeService {
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT k1, v1 FROM " + dbName + "." + baseTableName);
+    }
+
+    private String ivmStreamName(Database db, long mvId, String baseTableName) throws Exception {
+        return IvmUtil.streamName(mvId, db.getTableOrMetaException(baseTableName).getFullQualifiers());
     }
 
     @Test
@@ -451,9 +454,10 @@ public class AlterMTMVTest extends TestWithFeService {
         MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
                 .getDb("stream_excl_test").get()
                 .getTableOrMetaException("excl_stream_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("stream_excl_test");
 
         // excl_base1 is excluded → no stream should be created
-        String excludedStreamName = IvmUtil.streamName(mtmv.getId(), "excl_base1");
+        String excludedStreamName = ivmStreamName(db, mtmv.getId(), "excl_base1");
         Assertions.assertThrows(Exception.class,
                 () -> Env.getCurrentInternalCatalog()
                         .getDb("stream_excl_test").get()
@@ -461,7 +465,7 @@ public class AlterMTMVTest extends TestWithFeService {
                 "Excluded table should NOT have a stream auto-created");
 
         // excl_base2 is NOT excluded → stream should exist
-        String includedStreamName = IvmUtil.streamName(mtmv.getId(), "excl_base2");
+        String includedStreamName = ivmStreamName(db, mtmv.getId(), "excl_base2");
         org.apache.doris.catalog.TableIf includedStream = Env.getCurrentInternalCatalog()
                 .getDb("stream_excl_test").get()
                 .getTableOrMetaException(includedStreamName);
@@ -484,6 +488,7 @@ public class AlterMTMVTest extends TestWithFeService {
         MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
                 .getDb("alter_ivm_excluded_trigger_test").get()
                 .getTableOrMetaException("ivm_excluded_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_excluded_trigger_test");
 
         alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
                 + " SET ('excluded_trigger_tables' = 'ivm_base')");
@@ -491,8 +496,39 @@ public class AlterMTMVTest extends TestWithFeService {
         alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
                 + " SET ('excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')");
 
-        String streamName = IvmUtil.streamName(mtmv.getId(), "ivm_base");
+        String streamName = ivmStreamName(db, mtmv.getId(), "ivm_base");
         Assertions.assertFalse(Env.getCurrentInternalCatalog()
                 .getDb("alter_ivm_excluded_trigger_test").get().getTable(streamName).isPresent());
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerKeepsStreamOwnedByAnotherBaseTable() throws Exception {
+        createDatabaseAndUse("alter_ivm_stream_owner_test");
+        createTable("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW owner_mv "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
+                + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT k1, v1 FROM owner_base1");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_stream_owner_test");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("owner_mv");
+        String streamName = ivmStreamName(db, mtmv.getId(), "owner_base1");
+        Env.getCurrentInternalCatalog().dropTableWithoutCheck(
+                db, (Table) db.getTableOrMetaException(streamName), false, true);
+        createTable("CREATE STREAM " + streamName + " ON TABLE owner_base2 "
+                + "PROPERTIES ('type' = 'min_delta', 'show_initial_rows' = 'true')");
+        Table conflictingStream = (Table) db.getTableOrMetaException(streamName);
+
+        alterMv("ALTER MATERIALIZED VIEW owner_mv SET ('excluded_trigger_tables' = 'owner_base1')");
+        Assertions.assertSame(conflictingStream, db.getTableOrMetaException(streamName));
     }
 }

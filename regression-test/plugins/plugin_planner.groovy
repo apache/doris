@@ -153,23 +153,24 @@ Suite.metaClass.advance_ivm_stream_offset = { String mtmvName ->
     }
     suite.sql("""truncate table ${dbName}.test_ivm_tmp""")
     def mvRows = suite.sql("""
-        select Id, QuerySql
+        select Id
         from mv_infos('database'='${dbName}')
         where Name = '${mtmvName}'
     """)
     assert mvRows.size() == 1 : "Expected exactly one MV named ${mtmvName}, but got ${mvRows.size()}"
 
     def mvId = mvRows[0][0].toString()
-    def querySql = mvRows[0][1].toString()
-    def baseTableNames = [] as LinkedHashSet<String>
-    def matcher = querySql =~ ~/(?i)\b(?:FROM|JOIN)\s+`[^`]+`\.`[^`]+`\.`([^`]+)`/
-    matcher.each { match ->
-        baseTableNames.add(match[1])
-    }
-    assert !baseTableNames.isEmpty() : "No base tables found in MV query for ${mtmvName}: ${querySql}"
+    def streamRows = suite.sql("""
+        SELECT STREAM_NAME
+        FROM information_schema.table_streams
+        WHERE DB_NAME = '${dbName}'
+          AND starts_with(STREAM_NAME, '__doris_ivm_stream_${mvId}_')
+        ORDER BY STREAM_NAME
+    """)
+    assert !streamRows.isEmpty() : "No IVM streams found for ${mtmvName} (${mvId})"
 
-    baseTableNames.each { baseTableName ->
-        def streamName = "__doris_ivm_stream_${mvId}_${baseTableName}"
+    streamRows.each { streamRow ->
+        def streamName = streamRow[0].toString()
         suite.sql("""
             insert into ${dbName}.test_ivm_tmp
             select 1 from `${streamName}`

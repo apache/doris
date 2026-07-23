@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -40,10 +41,17 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -164,18 +172,38 @@ public class IvmUtil {
 
     /** IVM stream name prefix for auto-created streams. */
     public static final String IVM_STREAM_PREFIX = "__doris_ivm_stream_";
+    private static final int IVM_STREAM_HASH_BYTES = 16;
+    private static final int IVM_STREAM_HASH_BASE36_LENGTH = 25;
 
     /**
      * Computes the deterministic stream name for a base table backing an IVM-enabled MTMV.
-     * Format: __doris_ivm_stream_{mvId}_{baseTableName}
+     * Format: __doris_ivm_stream_{mvId}_{base36(sha256(catalog,db,table)[0..15])}
      */
-    public static String streamName(long mvId, String baseTableName) {
-        return IVM_STREAM_PREFIX + mvId + "_" + baseTableName;
+    public static String streamName(long mvId, List<String> baseTableFullQualifiers) {
+        Preconditions.checkArgument(mvId >= 0, "mvId must be non-negative");
+        Preconditions.checkArgument(baseTableFullQualifiers != null && baseTableFullQualifiers.size() == 3,
+                "base table full qualifiers must contain catalog, database, and table");
+        MessageDigest digest = DigestUtils.getSha256Digest();
+        for (String qualifier : baseTableFullQualifiers) {
+            Preconditions.checkNotNull(qualifier, "base table qualifier must not be null");
+            byte[] bytes = qualifier.getBytes(StandardCharsets.UTF_8);
+            digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+            digest.update(bytes);
+        }
+        byte[] qualifiedTableDigest = Arrays.copyOf(digest.digest(), IVM_STREAM_HASH_BYTES);
+        String base36Hash = new BigInteger(1, qualifiedTableDigest).toString(36);
+        return IVM_STREAM_PREFIX + mvId + "_"
+                + Strings.padStart(base36Hash, IVM_STREAM_HASH_BASE36_LENGTH, '0');
+    }
+
+    public static boolean isStreamOwnedBy(BaseTableStream stream, List<String> expectedBaseTableFullQualifiers) {
+        return stream.getBaseTableFullQualifiers().equals(expectedBaseTableFullQualifiers);
     }
 
     public static OlapTableStream getIvmStream(MTMV mtmv, OlapTable expectedBaseTable) {
         Database database = (Database) mtmv.getDatabase();
-        String streamName = streamName(mtmv.getId(), expectedBaseTable.getName());
+        List<String> expectedBaseTableFullQualifiers = expectedBaseTable.getFullQualifiers();
+        String streamName = streamName(mtmv.getId(), expectedBaseTableFullQualifiers);
         TableIf table = database.getTableNullable(streamName);
         if (!(table instanceof OlapTableStream)) {
             throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
@@ -183,7 +211,8 @@ public class IvmUtil {
         }
         OlapTableStream stream = (OlapTableStream) table;
         TableIf actualBaseTable = stream.getBaseTableNullable();
-        if (stream.isDisabled() || stream.isStale()
+        if (!isStreamOwnedBy(stream, expectedBaseTableFullQualifiers)
+                || stream.isDisabled() || stream.isStale()
                 || actualBaseTable == null || actualBaseTable.getId() != expectedBaseTable.getId()) {
             throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
                     "IVM stream is unavailable or references a different base table: " + streamName);

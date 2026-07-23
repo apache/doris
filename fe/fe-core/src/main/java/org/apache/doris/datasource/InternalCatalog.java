@@ -1072,9 +1072,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             return;
         }
         for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
-            String streamName = IvmUtil.streamName(mtmv.getId(), baseTableInfo.getTableName());
+            List<String> baseTableFullQualifiers = baseTableInfo.toList();
+            String streamName = IvmUtil.streamName(mtmv.getId(), baseTableFullQualifiers);
             TableIf streamTable = db.getTableNullable(streamName);
             if (streamTable != null) {
+                if (!(streamTable instanceof BaseTableStream)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it is not a stream", streamName);
+                    continue;
+                }
+                if (!IvmUtil.isStreamOwnedBy((BaseTableStream) streamTable, baseTableFullQualifiers)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it belongs to another base table",
+                            streamName);
+                    continue;
+                }
                 Table stream = (Table) streamTable;
                 stream.writeLock();
                 try {

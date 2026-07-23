@@ -311,7 +311,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
     }
 
     private String streamName(OlapTable baseTable) {
-        return IvmUtil.streamName(MV_ID, baseTable.getName());
+        return IvmUtil.streamName(MV_ID, baseTable.getFullQualifiers());
     }
 
     private MTMV mtmv() {

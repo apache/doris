@@ -1422,8 +1422,7 @@ public class Alter {
                 hasNewlyIncludedBaseTable = true;
                 if (!isReplay) {
                     TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
-                    CreateMTMVCommand.createTableStream(ConnectContext.get(), db, mtmv, baseTable,
-                            baseTableInfo.getDbName());
+                    CreateMTMVCommand.createTableStream(ConnectContext.get(), db, mtmv, baseTable);
                 }
             }
         }
@@ -1438,12 +1437,19 @@ public class Alter {
                 if (!MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
                     continue;
                 }
-                String streamName = IvmUtil.streamName(mtmv.getId(), baseTableInfo.getTableName());
+                List<String> baseTableFullQualifiers = baseTableInfo.toList();
+                String streamName = IvmUtil.streamName(mtmv.getId(), baseTableFullQualifiers);
                 TableIf streamTable = db.getTableNullable(streamName);
                 if (streamTable == null) {
                     continue;
                 }
                 if (!(streamTable instanceof BaseTableStream)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it is not a stream", streamName);
+                    continue;
+                }
+                if (!IvmUtil.isStreamOwnedBy((BaseTableStream) streamTable, baseTableFullQualifiers)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it belongs to another base table",
+                            streamName);
                     continue;
                 }
                 Table table = (Table) streamTable;

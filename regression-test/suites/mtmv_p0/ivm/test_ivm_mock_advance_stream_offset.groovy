@@ -60,7 +60,16 @@ suite("test_ivm_mock_advance_stream_offset") {
     """
     assert mvRows.size() == 1
     def mvId = mvRows[0][0].toString()
-    def streamName = "__doris_ivm_stream_${mvId}_ivm_mock_adv_base"
+    def streamRows = sql """
+        SELECT STREAM_NAME
+        FROM information_schema.table_streams
+        WHERE DB_NAME = '${context.dbName}'
+          AND BASE_TABLE_DB = '${context.dbName}'
+          AND BASE_TABLE_NAME = 'ivm_mock_adv_base'
+          AND starts_with(STREAM_NAME, '__doris_ivm_stream_${mvId}_')
+    """
+    assert streamRows.size() == 1
+    def streamName = streamRows[0][0].toString()
 
     def streamRowsBeforeAdvance = sql """select * from `${streamName}`"""
     assert !streamRowsBeforeAdvance.isEmpty()

@@ -25,7 +25,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
@@ -117,7 +119,7 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
                 continue;
             }
             TableIf table = MTMVUtil.getTable(baseTableInfo);
-            createTableStream(ctx, db, mtmv, table, baseTableInfo.getDbName(), createdStreamNames);
+            createTableStream(ctx, db, mtmv, table, createdStreamNames);
         }
     }
 
@@ -129,11 +131,10 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
      * @param mvDb database containing the MTMV
      * @param mtmv the MTMV
      * @param baseTable the base table to create stream for
-     * @param baseTableDbName the database name of the base table
      */
-    public static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable,
-            String baseTableDbName) throws UserException {
-        createTableStream(ctx, mvDb, mtmv, baseTable, baseTableDbName, null);
+    public static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable)
+            throws UserException {
+        createTableStream(ctx, mvDb, mtmv, baseTable, null);
     }
 
     /**
@@ -142,17 +143,24 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
      * @param createdStreamNames output list to collect created stream names (for rollback)
      */
     private static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable,
-            String baseTableDbName, List<String> createdStreamNames) throws UserException {
+            List<String> createdStreamNames) throws UserException {
         String mvDbName = mvDb.getFullName();
         long mvId = mtmv.getId();
-        String streamName = IvmUtil.streamName(mvId, baseTable.getName());
+        List<String> baseTableFullQualifiers = baseTable.getFullQualifiers();
+        String streamName = IvmUtil.streamName(mvId, baseTableFullQualifiers);
         TableNameInfo streamTableName = new TableNameInfo(
                 InternalCatalog.INTERNAL_CATALOG_NAME, mvDbName, streamName);
-        TableNameInfo baseTableName = new TableNameInfo(
-                InternalCatalog.INTERNAL_CATALOG_NAME, baseTableDbName, baseTable.getName());
+        TableNameInfo baseTableName = new TableNameInfo(baseTableFullQualifiers);
         // Drop old stream if exists, so validation always runs on the fresh stream
         TableIf oldStream = mvDb.getTableNullable(streamName);
         if (oldStream != null) {
+            if (!(oldStream instanceof BaseTableStream)) {
+                throw new DdlException("IVM stream name conflicts with a non-stream table: " + streamName);
+            }
+            if (!IvmUtil.isStreamOwnedBy((BaseTableStream) oldStream, baseTableFullQualifiers)) {
+                throw new DdlException("IVM stream name conflicts with a stream for another base table: "
+                        + streamName);
+            }
             Env.getCurrentInternalCatalog().dropTableWithoutCheck(
                     mvDb, (Table) oldStream, false, true /* forceDrop */);
         }

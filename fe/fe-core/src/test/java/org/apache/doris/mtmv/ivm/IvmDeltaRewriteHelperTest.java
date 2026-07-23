@@ -133,7 +133,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScanForTable(1, "t_pre");
         OlapTableStream stream = (OlapTableStream) Env.getCurrentInternalCatalog()
                 .getDbOrAnalysisException("test_db")
-                .getTableOrAnalysisException(IvmUtil.streamName(0L, "t_pre"));
+                .getTableOrAnalysisException(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
 
         LogicalPlan preSnapshot = (LogicalPlan) scan.withPreSnapshot(Optional.of(stream));
         LogicalPlan remapped = helper.remapOlapScanToPlan(scan, preSnapshot);

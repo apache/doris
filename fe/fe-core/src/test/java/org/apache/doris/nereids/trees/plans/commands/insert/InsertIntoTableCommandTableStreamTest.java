@@ -146,7 +146,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
     @Test
     public void testUserInsertRejectsIvmInternalTableStream() throws Exception {
         connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
-        String streamName = IvmUtil.streamName(12345L, "tbl_stream_base");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream");
+        String streamName = IvmUtil.streamName(12345L,
+                db.getTableOrDdlException("tbl_stream_base").getFullQualifiers());
         createTable("create stream if not exists test_stream." + streamName
                 + " on table test_stream.tbl_stream_base\n"
                 + "properties('show_initial_rows' = 'true')");

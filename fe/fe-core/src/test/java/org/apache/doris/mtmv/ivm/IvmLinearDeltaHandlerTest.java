@@ -106,6 +106,9 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     private static MTMV mockMtmv() {
         MTMV mtmv = Mockito.mock(MTMV.class);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
+        Assertions.assertNotNull(db, "test_db should exist");
+        Mockito.when(mtmv.getDatabase()).thenReturn(db);
         Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of(Column.IVM_ROW_ID_COL, "id", "name"));
@@ -126,8 +129,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScanForTable(tableId, tableName);
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
         if (db != null) {
-            db.unregisterTable(IvmUtil.streamName(0L, tableName));
-            db.unregisterTable(IvmUtil.streamName(1L, tableName));
+            db.unregisterTable(IvmUtil.streamName(0L, scan.getTable().getFullQualifiers()));
+            db.unregisterTable(IvmUtil.streamName(1L, scan.getTable().getFullQualifiers()));
         }
         return scan;
     }
