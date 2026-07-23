@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
@@ -46,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 /**
  * Minimal orchestration entry point for incremental refresh.
@@ -59,30 +57,19 @@ public class IvmRefreshManager {
     public IvmRefreshManager() {
     }
 
-    public IvmRefreshResult doRefresh(MTMV mtmv, Consumer<String> queryIdConsumer) {
-        Objects.requireNonNull(mtmv, "mtmv can not be null");
-        Objects.requireNonNull(queryIdConsumer, "queryIdConsumer can not be null");
+    public IvmRefreshResult doRefresh(IvmRefreshContext context) {
+        Objects.requireNonNull(context, "context can not be null");
+        MTMV mtmv = context.getMtmv();
+        Objects.requireNonNull(context.getAuditStmt(), "auditStmt can not be null");
+        Objects.requireNonNull(context.getQueryIdConsumer(), "queryIdConsumer can not be null");
         String forceFallbackReason = DebugPointUtil.getDebugParamOrDefault(
                 DEBUG_POINT_FORCE_FALLBACK_REASON, "reason", "");
         if (!forceFallbackReason.isEmpty()) {
             return IvmRefreshResult.fallback(
                     IvmFailureReason.valueOf(forceFallbackReason), "forced by debug point");
         }
-        final IvmRefreshContext context;
         try {
-            context = buildRefreshContext(mtmv);
-        } catch (IvmException e) {
-            IvmRefreshResult result = IvmRefreshResult.fallback(e.getFailureReason(), e.getMessage());
-            LOG.warn("IVM context build fell back for mv={}, result={}", mtmv.getName(), result, e);
-            return result;
-        } catch (Exception e) {
-            IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
-            LOG.warn("IVM context build failed for mv={}, result={}", mtmv.getName(), result);
-            return result;
-        }
-        try {
-            return doRefreshInternal(context, queryIdConsumer);
+            return doRefreshInternal(context);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -91,15 +78,7 @@ public class IvmRefreshManager {
         }
     }
 
-    @VisibleForTesting
-    IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
-        ConnectContext connectContext = MTMVPlanUtil.createMTMVContext(mtmv,
-                MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        return new IvmRefreshContext(mtmv, connectContext);
-    }
-
-    private IvmRefreshResult doRefreshInternal(
-            IvmRefreshContext context, Consumer<String> queryIdConsumer) throws Exception {
+    private IvmRefreshResult doRefreshInternal(IvmRefreshContext context) throws Exception {
         Objects.requireNonNull(context, "context can not be null");
         MTMV mtmv = context.getMtmv();
         try {
@@ -119,7 +98,7 @@ public class IvmRefreshManager {
             LOG.warn("IVM execution guard fell back for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         } finally {
-            queryIdConsumer.accept(DebugUtil.printId(context.getConnectContext().queryId()));
+            context.getQueryIdConsumer().accept(DebugUtil.printId(context.getConnectContext().queryId()));
         }
     }
 
@@ -135,7 +114,7 @@ public class IvmRefreshManager {
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.incremental(mtmv, false)));
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
-                statementContext, mtmv.getQuerySql());
+                statementContext, context.getAuditStmt());
     }
 
     @VisibleForTesting

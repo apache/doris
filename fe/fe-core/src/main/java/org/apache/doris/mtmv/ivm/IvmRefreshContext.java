@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Shared context for one FE-side incremental refresh attempt.
@@ -39,21 +40,29 @@ public class IvmRefreshContext {
     private final ConnectContext connectContext;
     private final IvmRewriteResult rewriteResult;
     private final boolean includeExhaustedStreams;
-
-    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext) {
-        this(mtmv, connectContext, null, false);
-    }
-
-    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult) {
-        this(mtmv, connectContext, rewriteResult, false);
-    }
+    private final String auditStmt;
+    private final Consumer<String> queryIdConsumer;
 
     public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
             boolean includeExhaustedStreams) {
+        this(mtmv, connectContext, rewriteResult, includeExhaustedStreams, null, null);
+    }
+
+    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext,
+            String auditStmt, Consumer<String> queryIdConsumer) {
+        this(mtmv, connectContext, null, false,
+                Objects.requireNonNull(auditStmt, "auditStmt can not be null"),
+                Objects.requireNonNull(queryIdConsumer, "queryIdConsumer can not be null"));
+    }
+
+    private IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
+            boolean includeExhaustedStreams, String auditStmt, Consumer<String> queryIdConsumer) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
         this.rewriteResult = rewriteResult;
         this.includeExhaustedStreams = includeExhaustedStreams;
+        this.auditStmt = auditStmt;
+        this.queryIdConsumer = queryIdConsumer;
     }
 
     public MTMV getMtmv() {
@@ -71,6 +80,14 @@ public class IvmRefreshContext {
 
     public boolean isIncludeExhaustedStreams() {
         return includeExhaustedStreams;
+    }
+
+    public String getAuditStmt() {
+        return auditStmt;
+    }
+
+    public Consumer<String> getQueryIdConsumer() {
+        return queryIdConsumer;
     }
 
     static TableNameInfo toTableNameInfo(LogicalOlapScan scan) {

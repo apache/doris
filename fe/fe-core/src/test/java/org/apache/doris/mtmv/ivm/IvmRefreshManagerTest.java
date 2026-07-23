@@ -19,7 +19,6 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -38,16 +37,16 @@ public class IvmRefreshManagerTest {
     public void testRefreshContextRejectsNulls() {
         MTMV mtmv = mockMtmv();
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(null, new ConnectContext()));
+                () -> new IvmRefreshContext(null, new ConnectContext(), null, false));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(mtmv, null));
+                () -> new IvmRefreshContext(mtmv, null, null, false));
     }
 
     @Test
     public void testManagerReturnsSuccessForEmptyBundles() {
         MTMV mtmv = mockMtmv();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
+        IvmRefreshResult result = manager.doRefresh(manager.context);
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(manager.executeCalled);
     }
@@ -57,7 +56,7 @@ public class IvmRefreshManagerTest {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
+        IvmRefreshResult result = manager.doRefresh(manager.context);
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(manager.executeCalled);
     }
@@ -84,7 +83,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
         manager.throwOnExecute = true;
 
-        Assertions.assertThrows(RuntimeException.class, () -> manager.doRefresh(mtmv, queryId -> { }));
+        Assertions.assertThrows(RuntimeException.class, () -> manager.doRefresh(manager.context));
         Assertions.assertTrue(manager.executeCalled);
     }
 
@@ -104,7 +103,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.throwBinlogNotEnabledOnAnalyze = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
+        IvmRefreshResult result = manager.doRefresh(manager.context);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, result.getFailureReason());
@@ -118,37 +117,10 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
 
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
+        IvmRefreshResult result = manager.doRefresh(manager.context);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, result.getFailureReason());
-    }
-
-    @Test
-    public void testManagerReturnsSnapshotFallbackWhenBuildContextFails() {
-        MTMV mtmv = mockMtmv();
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(null, Collections.emptyList());
-        manager.throwOnBuild = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
-
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFailureReason());
-        Assertions.assertFalse(manager.executeCalled);
-    }
-
-    @Test
-    public void testManagerPreservesIvmExceptionReasonWhenBuildContextFails() {
-        MTMV mtmv = mockMtmv();
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(null, Collections.emptyList());
-        manager.throwIvmExceptionOnBuild = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
-
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, result.getFailureReason());
-        Assertions.assertTrue(result.getDetailMessage().contains("build context unsupported"));
-        Assertions.assertFalse(manager.executeCalled);
     }
 
     @Test
@@ -157,7 +129,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.throwIvmExceptionOnAnalyze = true;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
+        IvmRefreshResult result = manager.doRefresh(manager.context);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.AGG_UNSUPPORTED, result.getFailureReason());
@@ -171,7 +143,7 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), makeCommands(cmd));
         manager.failureMessage = detail;
 
-        IvmRefreshResult result = manager.doRefresh(mtmv, queryId -> { });
+        IvmRefreshResult result = manager.doRefresh(manager.context);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(expectedReason, result.getFailureReason());
@@ -179,7 +151,7 @@ public class IvmRefreshManagerTest {
     }
 
     private static IvmRefreshContext newContext(MTMV mtmv) {
-        return new IvmRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult());
+        return new IvmRefreshContext(mtmv, new ConnectContext(), "audit", queryId -> { });
     }
 
     private static MTMV mockMtmv() {
@@ -200,8 +172,6 @@ public class IvmRefreshManagerTest {
         private boolean executeCalled;
         private boolean throwOnExecute;
         private String failureMessage;
-        private boolean throwOnBuild;
-        private boolean throwIvmExceptionOnBuild;
         private boolean throwIvmExceptionOnAnalyze;
         private boolean throwBinlogNotEnabledOnAnalyze;
         private IvmPlanSignature planSignatureMismatch;
@@ -209,18 +179,6 @@ public class IvmRefreshManagerTest {
         private TestIvmRefreshManager(IvmRefreshContext context, List<Command> commands) {
             this.context = context;
             this.commands = commands;
-        }
-
-        @Override
-        IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
-            if (throwIvmExceptionOnBuild) {
-                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                        "build context unsupported");
-            }
-            if (throwOnBuild) {
-                throw new AnalysisException("build context failed");
-            }
-            return context;
         }
 
         @Override
