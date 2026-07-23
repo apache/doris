@@ -92,11 +92,45 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     }
 
     executeCommand("mkdir -p ${localDriverDir}", false, 60)
-    executeCommand("mkdir -p ${jdbcDriversDir}", true, 60)
     if (!new File(localDriverPath).exists()) {
         executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true, 660)
     }
-    executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true, 60)
+
+    def clusterHostIps = new ArrayList()
+    String[][] backends = sql """show backends"""
+    for (def backend in backends) {
+        clusterHostIps.add(backend[1])
+    }
+    String[][] frontends = sql """show frontends"""
+    for (def frontend in frontends) {
+        clusterHostIps.add(frontend[1])
+    }
+    clusterHostIps = clusterHostIps.unique()
+
+    Set<String> localHostIps = ["127.0.0.1", "localhost", "::1"] as Set
+    java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces()).each { networkInterface ->
+        java.util.Collections.list(networkInterface.getInetAddresses()).each { address ->
+            localHostIps.add(address.getHostAddress().split("%")[0])
+        }
+    }
+    localHostIps.add(java.net.InetAddress.getLocalHost().getHostName())
+    localHostIps.add(java.net.InetAddress.getLocalHost().getCanonicalHostName())
+
+    for (def hostIp in clusterHostIps) {
+        // Scenario: every FE/BE receives the JDBC driver so metadata failover and distributed
+        // scan scheduling do not depend on a driver installed only on the regression runner.
+        if (localHostIps.contains(hostIp)) {
+            executeCommand("mkdir -p ${jdbcDriversDir}", true, 60)
+            executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true, 60)
+        } else {
+            executeCommand(
+                    "ssh -o BatchMode=yes -o StrictHostKeyChecking=no root@${hostIp} \"mkdir -p ${jdbcDriversDir}\"",
+                    true,
+                    60
+            )
+            scpFiles("root", hostIp, localDriverPath, jdbcDriversDir, false)
+        }
+    }
 
     String sparkContainerName = executeCommand(
             "${dockerCommand} ps --filter name=spark-iceberg --format {{.Names}}",

@@ -65,6 +65,7 @@ from passing accidentally.
 | Readers | File scanner V1/V2 | JNI/native/CPP-supported paths |
 | Cache | REST cache on/off | Filesystem metadata cache on/off |
 | Catalog smoke | REST full matrix and JDBC rename/time-travel | Filesystem full matrix and JDBC rename/time-travel |
+| Cluster topology | External endpoints are cluster-reachable; JDBC drivers are installed on every FE/BE | External endpoints are cluster-reachable; JDBC drivers are installed on every FE/BE |
 
 HMS and DLF are credential/environment variants rather than additional schema
 semantics. Their existing catalog suites remain responsible for connectivity;
@@ -102,21 +103,15 @@ back to the exact suite, scenario and file location from Jira instead.
 | DORIS-27433 | Paimon branch schema init fails; a post-fast-forward scan can abort BE | `test_paimon_schema_branch_partition_matrix.groovy` |
 | DORIS-27434 | Doris `DESC` omits Iceberg field comments | `test_iceberg_schema_metadata_atomicity_matrix.groovy` |
 
-## Verification record
+## Validation status
 
-- Source baseline: `8a1bf788e29` from `upstream/master`.
-- Full FE/BE build passed with
-  `DORIS_THIRDPARTY=/mnt/disk3/gabriel/Workspace/doris-master-thirdparty`.
-- The ten deterministic REST/filesystem suites above ran concurrently:
-  10 suites, 0 failed, 0 fatal, 0 skipped.
-- Log:
-  `output/regression-test/log/doris-regression-test.20260723.180450.log`.
-- The two JDBC catalog smoke suites ran concurrently with PostgreSQL, MySQL,
-  local JDBC drivers and Docker: 2 suites, 0 failed, 0 fatal, 0 skipped.
-- JDBC log:
-  `output/regression-test/log/doris-regression-test.20260723.180753.log`.
-- Regression framework compile and `git diff --check` are required before the
-  branch is pushed.
+- The ten REST/filesystem matrix suites pass with no failed, fatal or skipped
+  suite.
+- The two JDBC catalog suites pass with no failed, fatal or skipped suite.
+- The validation covers current and historical schema binding, nested
+  evolution, deletes, branches, tags, dual historical relations, metadata
+  atomicity, reader/cache variants, catalog variants and distributed cluster
+  scheduling.
 
 The requested schema-change × historical-operation correctness matrix has no
 unimplemented P0 cell. Unsupported format operations and currently incorrect
