@@ -216,6 +216,18 @@ Status rewrite_slot_refs_to_global_index(
     return Status::OK();
 }
 
+Status adapt_runtime_filter_for_table_reader(VExprSPtr* expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (*expr == nullptr) {
+        return Status::OK();
+    }
+    if (auto* branch_wrapper = dynamic_cast<VRuntimeFilterWrapper*>(expr->get());
+        branch_wrapper != nullptr) {
+        *expr = branch_wrapper->to_runtime_filter_expr();
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 #ifdef BE_TEST
@@ -249,6 +261,10 @@ Status FileScannerV2::TEST_rewrite_slot_refs_to_global_index(
         VExprSPtr* expr,
         const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index) {
     return rewrite_slot_refs_to_global_index(expr, slot_id_to_global_index);
+}
+
+Status FileScannerV2::TEST_adapt_runtime_filter_for_table_reader(VExprSPtr* expr) {
+    return adapt_runtime_filter_for_table_reader(expr);
 }
 
 FileScannerV2::RealtimeCounterDeltas FileScannerV2::TEST_collect_realtime_counter_deltas(
@@ -828,6 +844,7 @@ Status FileScannerV2::_build_table_conjuncts(const VExprContextSPtrs& source,
         VExprSPtr root;
         RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));
+        RETURN_IF_ERROR(adapt_runtime_filter_for_table_reader(&root));
         conjuncts->push_back(VExprContext::create_shared(std::move(root)));
     }
     return Status::OK();

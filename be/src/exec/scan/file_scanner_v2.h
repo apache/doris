@@ -78,6 +78,7 @@ public:
     static Status TEST_rewrite_slot_refs_to_global_index(
             VExprSPtr* expr,
             const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index);
+    static Status TEST_adapt_runtime_filter_for_table_reader(VExprSPtr* expr);
     static RealtimeCounterDeltas TEST_collect_realtime_counter_deltas(
             const io::FileReaderStats& file_reader_stats,
             const io::FileCacheStatistics& file_cache_statistics,

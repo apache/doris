@@ -38,6 +38,7 @@
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vliteral.h"
@@ -745,6 +746,23 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         EXPECT_EQ(rewritten_child->column_id(), 2);
         EXPECT_EQ(rewritten_child->column_name(), "rf_value");
     }
+}
+
+TEST(FileScannerV2Test, AdaptsBranchRuntimeFilterForMasterTableReader) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto node = bool_in_pred_node();
+    auto impl = VDirectInPredicate::create_shared(node, nullptr);
+    impl->add_child(slot_ref(11, 2, int_type, "rf_value"));
+    VExprSPtr expr = VRuntimeFilterWrapper::create_shared(node, std::move(impl), 0.4, false, 7);
+
+    ASSERT_TRUE(FileScannerV2::TEST_adapt_runtime_filter_for_table_reader(&expr).ok());
+    const auto* runtime_filter = dynamic_cast<const RuntimeFilterExpr*>(expr.get());
+    ASSERT_NE(runtime_filter, nullptr);
+    ASSERT_NE(runtime_filter->get_impl(), nullptr);
+    ASSERT_EQ(runtime_filter->get_impl()->get_num_children(), 1);
+    const auto* child =
+            assert_cast<const VSlotRef*>(runtime_filter->get_impl()->children()[0].get());
+    EXPECT_EQ(child->column_id(), 2);
 }
 
 TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
