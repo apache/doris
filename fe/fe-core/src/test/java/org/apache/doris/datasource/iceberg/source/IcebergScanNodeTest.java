@@ -24,10 +24,12 @@ import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -137,6 +139,7 @@ public class IcebergScanNodeTest {
         IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
                 3, Collections.emptyMap(), new ArrayList<>(), dataPath);
         split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.PARQUET);
         split.setFirstRowId(10L);
         split.setLastUpdatedSequenceNumber(20L);
         split.setDeleteFileFilters(Collections.emptyList(), Collections.singletonList(
@@ -159,6 +162,25 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSetIcebergParamsUsesSplitFileFormat() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        String dataPath = "file:///tmp/data-file.orc";
+        IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
+                2, Collections.emptyMap(), new ArrayList<>(), dataPath);
+        split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.ORC);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
+                TFileRangeDesc.class, IcebergSplit.class);
+        method.setAccessible(true);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        method.invoke(node, rangeDesc, split);
+
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
     public void testSetIcebergParamsPropagatesPositionDeleteFileFormat() throws Exception {
         SessionVariable sv = new SessionVariable();
         TestIcebergScanNode node = new TestIcebergScanNode(sv);
@@ -172,6 +194,7 @@ public class IcebergScanNodeTest {
         IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
                 2, Collections.emptyMap(), new ArrayList<>(), dataPath);
         split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.PARQUET);
         split.setDeleteFileFilters(Collections.emptyList(), Collections.singletonList(
                 new IcebergDeleteFileFilter.PositionDelete(deletePath, -1L, -1L, 256L,
                         org.apache.iceberg.FileFormat.ORC)));
