@@ -83,6 +83,13 @@ int main(int argc, char** argv) {
     const std::string src = argv[1];
     const std::string out = argv[2];
     std::error_code ec;
+    if (!fs::is_directory(src, ec)) {
+        std::fprintf(stderr,
+                     "kuromoji dict source directory not found: %s\n"
+                     "stage the mecab-ipadic thirdparty package before building the dictionary.\n",
+                     src.c_str());
+        return 1;
+    }
     fs::create_directories(out, ec);
 
     // --- system dictionary: group all *.csv lexicon rows by surface (homographs) ---
