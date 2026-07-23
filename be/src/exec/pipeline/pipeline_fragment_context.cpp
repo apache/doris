@@ -87,6 +87,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -1371,6 +1372,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                                        output_exprs);
         break;
     }
+    case TDataSinkType::PAIMON_TABLE_SINK: {
+        if (!thrift_sink.__isset.paimon_table_sink) {
+            return Status::InternalError("Missing paimon table sink.");
+        }
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                           output_exprs);
+        break;
+    }
     case TDataSinkType::JDBC_TABLE_SINK: {
         if (!thrift_sink.__isset.jdbc_table_sink) {
             return Status::InternalError("Missing data jdbc sink.");
@@ -2537,6 +2546,20 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                 params.__isset.mc_commit_datas = true;
                 params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
                                               rs_mcd.end());
+            }
+        }
+    }
+
+    if (auto pcm = req.runtime_state->paimon_commit_messages(); !pcm.empty()) {
+        params.__isset.paimon_commit_messages = true;
+        params.paimon_commit_messages.insert(params.paimon_commit_messages.end(), pcm.begin(),
+                                             pcm.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (auto rs_pcm = rs->paimon_commit_messages(); !rs_pcm.empty()) {
+                params.__isset.paimon_commit_messages = true;
+                params.paimon_commit_messages.insert(params.paimon_commit_messages.end(),
+                                                     rs_pcm.begin(), rs_pcm.end());
             }
         }
     }

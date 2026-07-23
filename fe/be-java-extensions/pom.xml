@@ -27,7 +27,7 @@ under the License.
         <module>hive-udf-shade</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
-        <module>paimon-scanner</module>
+        <module>paimon-connector</module>
         <module>max-compute-connector</module>
         <!-- lakesoul-scanner module has been deprecated -->
         <!-- <module>lakesoul-scanner</module> -->

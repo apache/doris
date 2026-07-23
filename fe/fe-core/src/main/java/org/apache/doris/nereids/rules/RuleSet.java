@@ -85,6 +85,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOd
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
+import org.apache.doris.nereids.rules.implementation.LogicalPaimonTableSinkToPhysicalPaimonTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalPartitionTopNToPhysicalPartitionTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor;
@@ -228,6 +229,7 @@ public class RuleSet {
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
             .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
+            .add(new LogicalPaimonTableSinkToPhysicalPaimonTableSink())
             .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
             .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
             .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
@@ -276,6 +278,7 @@ public class RuleSet {
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
             .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
+            .add(new LogicalPaimonTableSinkToPhysicalPaimonTableSink())
             .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
             .add(new LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink())
             .add(new LogicalIcebergMergeSinkToPhysicalIcebergMergeSink())
