@@ -192,15 +192,43 @@ run_gate_phase head-b1 "${head_binary}"
 run_gate_phase head-b2 "${head_binary}"
 run_gate_phase base-a2 "${base_binary}"
 
-python3 "${script_dir}/compare-parquet-microbenchmark.py" \
-    --base-a1 "${result_dir}/base-a1.json" \
-    --head-b1 "${result_dir}/head-b1.json" \
-    --head-b2 "${result_dir}/head-b2.json" \
-    --base-a2 "${result_dir}/base-a2.json" \
-    --output-json "${result_dir}/comparison.json" \
-    --output-markdown "${result_dir}/comparison.md" \
-    --regression-threshold-pct "${PARQUET_REGRESSION_THRESHOLD_PCT:-15}" \
-    --warning-threshold-pct "${PARQUET_WARNING_THRESHOLD_PCT:-5}" \
-    --max-cv-pct "${PARQUET_MAX_CV_PCT:-3}"
+compare_gate() {
+    local prefix="$1"
+    python3 "${script_dir}/compare-parquet-microbenchmark.py" \
+        --base-a1 "${result_dir}/${prefix}base-a1.json" \
+        --head-b1 "${result_dir}/${prefix}head-b1.json" \
+        --head-b2 "${result_dir}/${prefix}head-b2.json" \
+        --base-a2 "${result_dir}/${prefix}base-a2.json" \
+        --output-json "${result_dir}/comparison.json" \
+        --output-markdown "${result_dir}/comparison.md" \
+        --regression-threshold-pct "${PARQUET_REGRESSION_THRESHOLD_PCT:-15}" \
+        --warning-threshold-pct "${PARQUET_WARNING_THRESHOLD_PCT:-5}" \
+        --max-cv-pct "${PARQUET_MAX_CV_PCT:-3}"
+}
+
+set +e
+compare_gate ""
+comparison_status=$?
+set -e
+if [[ "${comparison_status}" -eq 3 ]]; then
+    echo "WARN: suspicious regression is noisy; retry the complete ABBA measurement once"
+    mv "${result_dir}/comparison.json" "${result_dir}/comparison-attempt-1.json"
+    mv "${result_dir}/comparison.md" "${result_dir}/comparison-attempt-1.md"
+    run_gate_phase retry-base-a1 "${base_binary}"
+    run_gate_phase retry-head-b1 "${head_binary}"
+    run_gate_phase retry-head-b2 "${head_binary}"
+    run_gate_phase retry-base-a2 "${base_binary}"
+    set +e
+    compare_gate "retry-"
+    comparison_status=$?
+    set -e
+fi
+if [[ "${comparison_status}" -ne 0 ]]; then
+    if [[ "${comparison_status}" -eq 3 ]]; then
+        echo "ERROR: performance comparison remained inconclusive after retry"
+        exit 1
+    fi
+    exit "${comparison_status}"
+fi
 
 echo "INFO: Parquet microbenchmark performance gate passed"

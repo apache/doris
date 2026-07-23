@@ -138,7 +138,7 @@ def main():
         if failed:
             status = "FAIL"
         elif delta >= args.warning_threshold_pct:
-            status = "WARN" if stable else "NOISY"
+            status = "WARN" if stable else "INCONCLUSIVE"
         else:
             status = "PASS" if stable else "NOISY"
         results.append(
@@ -167,7 +167,7 @@ def main():
         },
         "counts": {
             status: sum(result["status"] == status for result in results)
-            for status in ("FAIL", "WARN", "NOISY", "PASS")
+            for status in ("FAIL", "WARN", "INCONCLUSIVE", "NOISY", "PASS")
         },
         "results": results,
     }
@@ -183,7 +183,7 @@ def main():
         "| Status | Regression | 95% CI | Base CV | PR CV | Case |",
         "|---|---:|---:|---:|---:|---|",
     ]
-    order = {"FAIL": 0, "WARN": 1, "NOISY": 2, "PASS": 3}
+    order = {"FAIL": 0, "INCONCLUSIVE": 1, "WARN": 2, "NOISY": 3, "PASS": 4}
     for result in sorted(
         results, key=lambda item: (order[item["status"]], -item["regression_pct"])
     ):
@@ -201,7 +201,11 @@ def main():
             f"base_cv={result['base_cv_pct']:.2f}% head_cv={result['head_cv_pct']:.2f}% "
             f"{result['name']}"
         )
-    return 1 if summary["counts"]["FAIL"] else 0
+    if summary["counts"]["FAIL"]:
+        return 1
+    if summary["counts"]["INCONCLUSIVE"]:
+        return 3
+    return 0
 
 
 if __name__ == "__main__":
