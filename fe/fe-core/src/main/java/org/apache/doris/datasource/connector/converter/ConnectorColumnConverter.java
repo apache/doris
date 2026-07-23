@@ -157,7 +157,11 @@ public final class ConnectorColumnConverter {
                 col.getDefaultValue(),
                 col.isKey(),
                 col.isAutoInc(),
-                col.isAggregated());
+                col.isAggregated())
+                // Thread the #65329 "specified" markers so a connector's nested MODIFY COLUMN can honor
+                // omit-preserves-metadata (an omitted NULL/NOT NULL never widens the field; an omitted COMMENT
+                // keeps the current doc). Inert for connectors / paths that don't read them.
+                .withSpecified(col.isNullableSpecified(), col.isCommentSpecified());
     }
 
     /**

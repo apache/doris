@@ -24,14 +24,29 @@ Rebase applied its generic changes cleanly but they (a) break compile, (b) regre
       ColumnDefinitionTest 2 = 37/0/0 GREEN.
 
 ### Tier 2 (full nested port)
-- [ ] T2.1 fe-connector-api: neutral ConnectorColumnPath DTO (parts, isNested, topLevel/leaf/parent).
-- [ ] T2.2 ConnectorTableOps: path-addressed ops (nested add-under-parent / drop / rename / modify / modifyComment).
-- [ ] T2.3 PluginDrivenExternalCatalog: thread analysis.ColumnPath -> ConnectorColumnPath -> new SPI ops.
-- [ ] T2.4 IcebergConnectorMetadata + IcebergCatalogOps: replicate #65329 IcebergMetadataOps ~550-line spec
-      (resolveColumnPath struct/array.element/map.value; reject map.key; identifier-field fixup on rename;
-      primitive promotion; nullable-nested; position moveFirst/moveAfter; row-lineage guards; no partial commit).
-- [ ] T2.5 migrate +1310-line IcebergMetadataOpsValidationTest coverage to connector-side unit tests.
-- [ ] T2.6 verify build + connector unit tests.
+- [x] T2.1 fe-connector-api: neutral ConnectorColumnPath DTO (parts, isNested, topLevel/leaf/parent, getFullPath).
+      = connector/api/ddl/ConnectorColumnPath.java (JDK-only, mirrors analysis.ColumnPath).
+- [x] T2.2 ConnectorTableOps: 5 path-addressed default-throw ops (addColumn(path,col,pos)/dropColumn(path)/
+      renameColumn(path,new)/modifyColumn(path,col,pos)/modifyColumnComment(path,comment)).
+- [x] T2.3 PluginDrivenExternalCatalog: 5 ColumnPath overrides now route non-nested->flat, nested->new SPI path
+      ops; modifyColumnComment (flat+nested)->SPI path op; toConnectorPath helper.
+- [x] T2.4 DONE: new IcebergNestedColumnEvolution.java (resolveColumnPath struct/list.element/map.value +
+      reject map.key; validateNestedStructFieldPath; applyPosition; applyRenameColumn identifier-field fixup;
+      validateCollectionPseudoFieldComment); IcebergConnectorMetadata 5 nested SPI overrides (build type outside
+      auth, single executeAuthenticated commit); IcebergCatalogOps 5 nested seam methods; ConnectorColumn
+      +nullableSpecified/commentSpecified (excluded from equals/hashCode) + ConnectorColumnConverter threads them.
+      Deviations (accepted): row-lineage guard omitted (matches flat ops); upgradeNestedModifyError generic msg.
+- [x] T2.5 DONE: IcebergNestedColumnEvolutionTest.java = 25 tests (resolveColumnPath 6 / nested ADD 5 / DROP+RENAME
+      4 incl. identifier fixup / MODIFY 7 / COMMENT 3). Engine needed ZERO fixes.
+- [x] T2.6 DONE: full FE build6 install SUCCESS (compile+testCompile+checkstyle all 70 modules). Tests:
+      IcebergNestedColumnEvolution 25 + CatalogBackedIcebergCatalogOpsColumnEvolution 25 + IcebergConnectorMetadata
+      ColumnEvolution 20 = 70/0/0; HudiReadOnlyWriteReject 4/0/0. fe-core AlterTableCommand+DdlRouting pending.
+      NOTE: new path SPI ops RENAMED to add/drop/rename/modifyNestedColumn (distinct names) to avoid overload
+      ambiguity with flat String/ConnectorColumn ops at Mockito.any()/null call sites (HudiReadOnlyWriteRejectTest,
+      PluginDrivenExternalCatalogDdlRoutingTest). ConnectorTableOps+IcebergConnectorMetadata+PluginDrivenExternalCatalog updated.
+      Offline test-run gotcha: iceberg tests need NO -am (IcebergCatalogFactoryTest needs hive.conf from installed shade jar).
+
+Tier 1 committed: 67addbbb5cb. Tier 2 commit pending.
 
 ### Tests
 Keep-as-is: IcebergNestedSchemaEvolutionParserTest, PruneNestedColumnTest, ColumnDefinitionTest, SchemaChangeHandlerTest.
