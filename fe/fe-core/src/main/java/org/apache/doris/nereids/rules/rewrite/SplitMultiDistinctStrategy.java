@@ -75,7 +75,7 @@ public class SplitMultiDistinctStrategy {
         // construct cte consumer and aggregate
         List<LogicalAggregate<Plan>> newAggs = new ArrayList<>();
         // All otherAggFuncs are placed in the first one
-        Map<Alias, Alias> newToOriginDistinctFuncAlias = new HashMap<>();
+        Map<Alias, Alias> newToOriginDistinctFuncAlias = new LinkedHashMap<>();
         List<Expression> outputJoinGroupBys = new ArrayList<>();
         for (int i = 0; i < distinctFuncWithAliasReplaced.size(); ++i) {
             List<Alias> aliases = distinctFuncWithAliasReplaced.get(i);

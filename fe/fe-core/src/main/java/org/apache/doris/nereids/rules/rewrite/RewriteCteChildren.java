@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -44,10 +45,15 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
@@ -113,8 +119,90 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         if (cteConsumers.isEmpty()) {
             return outer;
         }
+        // Save original producer output before rewrite, to detect ExprId changes
+        // caused by rules like EliminateGroupByKey that wrap slots with any_value().
+        List<Slot> oldProducerOutput = cteAnchor.child(0).getOutput();
         Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
+        outer = syncCteConsumerSlotMaps(oldProducerOutput, producer.getOutput(),
+                cteAnchor.getCteId(), outer, cascadesContext);
         return cteAnchor.withChildren(producer, outer);
+    }
+
+    /**
+     * If the producer rewrite changed output ExprIds (e.g. any_value wrapping in
+     * EliminateGroupByKey), update CTEConsumer slot maps in the consumer tree to match.
+     *
+     * @return the consumer tree, updated if any producer ExprIds changed
+     */
+    private LogicalPlan syncCteConsumerSlotMaps(List<Slot> oldProducerOutput, List<Slot> newProducerOutput,
+            CTEId cteId, LogicalPlan outer, CascadesContext cascadesContext) {
+        if (oldProducerOutput.size() != newProducerOutput.size()) {
+            return outer;
+        }
+        Map<ExprId, ExprId> exprIdReplaceMap = new HashMap<>();
+        for (int i = 0; i < oldProducerOutput.size(); i++) {
+            ExprId oldId = oldProducerOutput.get(i).getExprId();
+            ExprId newId = newProducerOutput.get(i).getExprId();
+            if (!oldId.equals(newId)) {
+                exprIdReplaceMap.put(oldId, newId);
+            }
+        }
+        if (exprIdReplaceMap.isEmpty()) {
+            return outer;
+        }
+        // Collect old→new CTEConsumer mappings by walking the consumer tree.
+        Map<LogicalCTEConsumer, LogicalCTEConsumer> oldToNew = new LinkedHashMap<>();
+        outer.foreach(p -> {
+            if (p instanceof LogicalCTEConsumer) {
+                LogicalCTEConsumer consumer = (LogicalCTEConsumer) p;
+                if (consumer.getCteId().equals(cteId)) {
+                    oldToNew.put(consumer, updateCteConsumerSlotMaps(consumer, exprIdReplaceMap));
+                }
+            }
+            return false;
+        });
+        if (oldToNew.isEmpty()) {
+            return outer;
+        }
+        outer = (LogicalPlan) outer.rewriteUp(p -> {
+            Plan replacement = oldToNew.get(p);
+            return replacement != null ? replacement : p;
+        });
+        // Re-collect updated consumers so cteIdToConsumers stays in sync.
+        Set<LogicalCTEConsumer> updatedConsumers = Sets.newHashSet();
+        outer.foreach(p -> {
+            if (p instanceof LogicalCTEConsumer) {
+                LogicalCTEConsumer c = (LogicalCTEConsumer) p;
+                if (c.getCteId().equals(cteId)) {
+                    updatedConsumers.add(c);
+                }
+            }
+            return false;
+        });
+        cascadesContext.getCteIdToConsumers().put(cteId, updatedConsumers);
+        cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteId, outer);
+        return outer;
+    }
+
+    /**
+     * Rebuild CTEConsumer slot maps so that producer-side slots reference the new ExprIds
+     * produced by aggregate rewriting (e.g. any_value wrapping in EliminateGroupByKey).
+     */
+    private LogicalCTEConsumer updateCteConsumerSlotMaps(
+            LogicalCTEConsumer cteConsumer, Map<ExprId, ExprId> exprIdReplaceMap) {
+        Map<Slot, Slot> newConsumerToProducer = new LinkedHashMap<>();
+        Multimap<Slot, Slot> newProducerToConsumer = LinkedHashMultimap.create();
+        for (Slot producerSlot : cteConsumer.getConsumerToProducerOutputMap().values()) {
+            ExprId newExprId = exprIdReplaceMap.get(producerSlot.getExprId());
+            Slot effectiveProducerSlot = newExprId != null
+                    ? (Slot) producerSlot.withExprId(newExprId)
+                    : producerSlot;
+            for (Slot consumerSlot : cteConsumer.getProducerToConsumerOutputMap().get(producerSlot)) {
+                newProducerToConsumer.put(effectiveProducerSlot, consumerSlot);
+                newConsumerToProducer.put(consumerSlot, effectiveProducerSlot);
+            }
+        }
+        return (LogicalCTEConsumer) cteConsumer.withTwoMaps(newConsumerToProducer, newProducerToConsumer);
     }
 
     @Override

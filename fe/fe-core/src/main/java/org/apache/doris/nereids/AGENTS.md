@@ -13,6 +13,10 @@
 - [ ] New rewrite rule placed in correct stage w.r.t. dependencies (esp. `PUSH_DOWN_FILTERS`, `InferPredicates`)?
 - [ ] Exploration/implementation rules in correct `RuleSet` entry points?
 
+## CTE Producer Rules
+
+- [ ] Rules that modify `LogicalCTEProducer` output must preserve slot order — ExprIds can be replaced, but the sequence must not be reordered. Non-deterministic iteration (e.g., `HashMap.entrySet()`) over output slots is prohibited; use insertion-order-preserving structures (`LinkedHashMap`, or iterate the original `agg.getOutputExpressions()` order) when building projections atop a producer. Reordering breaks `syncCteConsumerSlotMaps` which relies on position-based alignment between old and new producer outputs.
+
 ## Property Derivation
 
 - [ ] New physical operator has `RequestPropertyDeriver` logic?
