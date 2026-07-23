@@ -19,17 +19,44 @@
 
 #include <gtest/gtest.h>
 
+#include "util/s3_util.h"
+
 namespace doris {
 
 class CloudStorageEngineTest : public testing::Test {};
 
-TEST_F(CloudStorageEngineTest, CheckStorageVaultOnlyOnFirstSync) {
-    CloudStorageEngine engine(EngineOptions {});
+TEST_F(CloudStorageEngineTest, CheckNewAndChangedKeylessStorageVault) {
     bool previous_value = config::enable_check_storage_vault;
     config::enable_check_storage_vault = true;
 
-    EXPECT_TRUE(engine._should_check_storage_vault());
-    EXPECT_FALSE(engine._should_check_storage_vault());
+    S3ClientConf hmac_conf {
+            .endpoint = std::string(GCS_XML_ENDPOINT),
+            .region = "us-central1",
+            .ak = "access-key",
+            .sk = "secret-key",
+            .bucket = "bucket",
+            .provider = io::ObjStorageType::GCP,
+    };
+    S3ClientConf workload_identity_conf = hmac_conf;
+    workload_identity_conf.ak.clear();
+    workload_identity_conf.sk.clear();
+    workload_identity_conf.cred_provider_type = CredProviderType::GcpWorkloadIdentity;
+
+    EXPECT_TRUE(CloudStorageEngine::_should_check_storage_vault(nullptr, workload_identity_conf));
+    EXPECT_TRUE(
+            CloudStorageEngine::_should_check_storage_vault(&hmac_conf, workload_identity_conf));
+    EXPECT_FALSE(CloudStorageEngine::_should_check_storage_vault(&workload_identity_conf,
+                                                                 workload_identity_conf));
+    EXPECT_FALSE(CloudStorageEngine::_should_check_storage_vault(nullptr, hmac_conf));
+
+    S3ClientConf role_conf = hmac_conf;
+    role_conf.ak.clear();
+    role_conf.sk.clear();
+    role_conf.role_arn = "arn:aws:iam::123456789012:role/test-role";
+    EXPECT_TRUE(CloudStorageEngine::_should_check_storage_vault(nullptr, role_conf));
+
+    config::enable_check_storage_vault = false;
+    EXPECT_FALSE(CloudStorageEngine::_should_check_storage_vault(nullptr, workload_identity_conf));
 
     config::enable_check_storage_vault = previous_value;
 }

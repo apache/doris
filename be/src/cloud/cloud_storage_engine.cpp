@@ -417,11 +417,18 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     return Status::OK();
 }
 
-bool CloudStorageEngine::_should_check_storage_vault() {
-    return !_storage_vault_synced.exchange(true) && config::enable_check_storage_vault;
+bool CloudStorageEngine::_should_check_storage_vault(const S3ClientConf* current_conf,
+                                                     const S3ClientConf& new_conf) {
+    if (!config::enable_check_storage_vault ||
+        (new_conf.role_arn.empty() &&
+         new_conf.cred_provider_type != CredProviderType::GcpWorkloadIdentity)) {
+        return false;
+    }
+    return current_conf == nullptr || *current_conf != new_conf;
 }
 
 void CloudStorageEngine::sync_storage_vault() {
+    std::lock_guard sync_lock(_sync_storage_vault_mtx);
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
 
@@ -436,15 +443,23 @@ void CloudStorageEngine::sync_storage_vault() {
         return;
     }
 
-    bool check_storage_vault = _should_check_storage_vault();
-    if (check_storage_vault) {
-        LOG(INFO) << "first sync storage vault info, BE try to check iam role connectivity, "
-                     "check_storage_vault="
-                  << check_storage_vault;
-    }
-
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
+        bool check_storage_vault = false;
+        if (auto* s3_conf = std::get_if<S3Conf>(&vault_info); s3_conf != nullptr) {
+            if (fs == nullptr) {
+                check_storage_vault = _should_check_storage_vault(nullptr, s3_conf->client_conf);
+            } else {
+                DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
+                auto s3_fs = std::static_pointer_cast<io::S3FileSystem>(fs);
+                auto current_conf = s3_fs->client_holder()->s3_client_conf();
+                check_storage_vault =
+                        _should_check_storage_vault(&current_conf, s3_conf->client_conf);
+            }
+        }
+        if (check_storage_vault) {
+            LOG(INFO) << "check keyless storage vault connectivity, resource_id=" << id;
+        }
         auto status =
                 (fs == nullptr)
                         ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
