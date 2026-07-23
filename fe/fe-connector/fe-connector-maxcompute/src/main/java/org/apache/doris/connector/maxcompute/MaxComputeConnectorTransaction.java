@@ -19,6 +19,7 @@ package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteBlockAllocatingConnectorTransaction;
 import org.apache.doris.thrift.TMCCommitData;
 
 import com.aliyun.odps.table.TableIdentifier;
@@ -58,7 +59,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * step. {@link #commit()} depends on the write-session state populated by P4-T04
  * (via {@link #setWriteSession}); it is intentionally not runnable before then.</p>
  */
-public class MaxComputeConnectorTransaction implements ConnectorTransaction {
+public class MaxComputeConnectorTransaction
+        implements ConnectorTransaction, WriteBlockAllocatingConnectorTransaction {
 
     private static final Logger LOG = LogManager.getLogger(
             MaxComputeConnectorTransaction.class);
@@ -122,11 +124,6 @@ public class MaxComputeConnectorTransaction implements ConnectorTransaction {
         synchronized (this) {
             commitDataList.add(data);
         }
-    }
-
-    @Override
-    public boolean supportsWriteBlockAllocation() {
-        return true;
     }
 
     @Override

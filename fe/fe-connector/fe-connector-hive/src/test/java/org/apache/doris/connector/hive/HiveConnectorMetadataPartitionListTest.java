@@ -38,7 +38,7 @@ import java.util.Optional;
 
 /**
  * Tests {@link HiveConnectorMetadata#listPartitions} / {@link HiveConnectorMetadata#listPartitionNames}
- * (HMS cutover §4.2, dormant).
+ * (HMS cutover §4.2).
  *
  * <p>WHY these assertions matter:</p>
  * <ul>

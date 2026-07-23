@@ -69,9 +69,8 @@ import java.util.concurrent.ForkJoinPool;
  * a broken storage config from silently returning an empty scan (legacy failed {@code FileSystem.get} loud) while
  * preserving one-bad-partition resilience.</p>
  *
- * <p><b>Dormant.</b> {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog builds a
- * {@link HiveConnector}, so this cache is never instantiated for a live catalog until the flip. Byte-neutral for
- * every other connector.</p>
+ * <p><b>Live since the hms flip.</b> Every live hms catalog builds a {@link HiveConnector}, which constructs
+ * this cache in its ctor to back the scan directory listings. Byte-neutral for every other connector.</p>
  */
 public class HiveFileListingCache {
 

@@ -55,8 +55,7 @@ import java.util.Optional;
  * integration tests prove BOTH consumers — the scan provider and the row-count estimate — are served from the SAME
  * cache, so a repeated scan / refresh does not re-list.</p>
  *
- * <p>Dormant: {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog builds a connector; this
- * exercises the cache directly.</p>
+ * <p>Live since the hms flip; this exercises the cache directly.</p>
  */
 public class HiveFileListingCacheTest {
 

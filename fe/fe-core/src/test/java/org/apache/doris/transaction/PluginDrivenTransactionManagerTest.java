@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteBlockAllocatingConnectorTransaction;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -41,14 +42,10 @@ import java.util.List;
  */
 public class PluginDrivenTransactionManagerTest {
 
-    /** Hand-written {@link ConnectorTransaction} test double recording delegated calls. */
-    private static final class RecordingConnectorTransaction implements ConnectorTransaction {
+    /** Hand-written {@link ConnectorTransaction} test double recording delegated calls (no write-block). */
+    private static class RecordingConnectorTransaction implements ConnectorTransaction {
         private final long txnId;
         private final List<byte[]> commitFragments = new ArrayList<>();
-        private boolean supportsBlockAllocation;
-        private long blockRangeStart;
-        private String lastWriteSessionId;
-        private long lastCount;
         private long updateCnt;
         private boolean failOnCommit;
 
@@ -82,8 +79,24 @@ public class PluginDrivenTransactionManagerTest {
         }
 
         @Override
-        public boolean supportsWriteBlockAllocation() {
-            return supportsBlockAllocation;
+        public long getUpdateCnt() {
+            return updateCnt;
+        }
+    }
+
+    /**
+     * A write-block-capable double: it additionally implements the narrow
+     * {@link WriteBlockAllocatingConnectorTransaction}, so the manager wraps it in the write-block subclass
+     * and {@code getTransaction(id)} is a {@link WriteBlockAllocatingTransaction}.
+     */
+    private static final class RecordingWriteBlockConnectorTransaction extends RecordingConnectorTransaction
+            implements WriteBlockAllocatingConnectorTransaction {
+        private long blockRangeStart;
+        private String lastWriteSessionId;
+        private long lastCount;
+
+        private RecordingWriteBlockConnectorTransaction(long txnId) {
+            super(txnId);
         }
 
         @Override
@@ -91,11 +104,6 @@ public class PluginDrivenTransactionManagerTest {
             this.lastWriteSessionId = writeSessionId;
             this.lastCount = count;
             return blockRangeStart;
-        }
-
-        @Override
-        public long getUpdateCnt() {
-            return updateCnt;
         }
     }
 
@@ -113,23 +121,37 @@ public class PluginDrivenTransactionManagerTest {
     }
 
     @Test
-    public void supportsWriteBlockAllocationIsDelegated() throws UserException {
+    public void writeBlockCapableConnectorYieldsWriteBlockTransaction() throws UserException {
         PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
-        RecordingConnectorTransaction connectorTx = new RecordingConnectorTransaction(778L);
-        connectorTx.supportsBlockAllocation = true;
+        RecordingWriteBlockConnectorTransaction connectorTx =
+                new RecordingWriteBlockConnectorTransaction(778L);
         long txnId = manager.begin(connectorTx);
 
-        Assert.assertTrue(manager.getTransaction(txnId).supportsWriteBlockAllocation());
+        // The narrow capability is exposed as a TYPE (instanceof gate), not a supports*() runtime flag.
+        Assert.assertTrue(manager.getTransaction(txnId) instanceof WriteBlockAllocatingTransaction);
+    }
+
+    @Test
+    public void plainConnectorIsNotAWriteBlockTransaction() throws UserException {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        long txnId = manager.begin(new RecordingConnectorTransaction(781L));
+
+        // A connector without the narrow capability must NOT wrap into a WriteBlockAllocatingTransaction,
+        // so the write-block RPC handler's instanceof gate rejects it.
+        Assert.assertFalse(manager.getTransaction(txnId) instanceof WriteBlockAllocatingTransaction);
     }
 
     @Test
     public void allocateWriteBlockRangeIsDelegated() throws UserException {
         PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
-        RecordingConnectorTransaction connectorTx = new RecordingConnectorTransaction(779L);
+        RecordingWriteBlockConnectorTransaction connectorTx =
+                new RecordingWriteBlockConnectorTransaction(779L);
         connectorTx.blockRangeStart = 100L;
         long txnId = manager.begin(connectorTx);
 
-        long start = manager.getTransaction(txnId).allocateWriteBlockRange("write-session-x", 5L);
+        Transaction txn = manager.getTransaction(txnId);
+        Assert.assertTrue(txn instanceof WriteBlockAllocatingTransaction);
+        long start = ((WriteBlockAllocatingTransaction) txn).allocateWriteBlockRange("write-session-x", 5L);
 
         Assert.assertEquals(100L, start);
         Assert.assertEquals("write-session-x", connectorTx.lastWriteSessionId);
@@ -152,18 +174,12 @@ public class PluginDrivenTransactionManagerTest {
         long txnId = manager.begin();
         Transaction txn = manager.getTransaction(txnId);
 
-        // The legacy no-op marker (null connector transaction) must stay inert,
-        // matching the interface defaults: addCommitData is a silent no-op,
-        // block allocation is unsupported, and the update count is zero.
+        // The legacy no-op marker (null connector transaction) must stay inert: addCommitData is a silent
+        // no-op, the update count is zero, and it does not carry the write-block capability (so the RPC
+        // handler's instanceof gate rejects it).
         txn.addCommitData(new byte[] {9});
-        Assert.assertFalse(txn.supportsWriteBlockAllocation());
         Assert.assertEquals(0L, txn.getUpdateCnt());
-        try {
-            txn.allocateWriteBlockRange("none", 1L);
-            Assert.fail("expected UnsupportedOperationException for the legacy marker");
-        } catch (UnsupportedOperationException expected) {
-            // legacy marker does not support write block allocation
-        }
+        Assert.assertFalse(txn instanceof WriteBlockAllocatingTransaction);
     }
 
     // ──────────── global registration (P4-T06a W-d / gap G3) ────────────

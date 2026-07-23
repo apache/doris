@@ -181,8 +181,8 @@ public class PaimonTypeMappingToPaimonTest {
     public void nestedNullabilityPreservedForStructField() {
         // WHY (FIX-L13): declared per-field nullability (STRUCT<x:INT NOT NULL, y:STRING>) must survive to
         // the paimon DataField types (legacy struct = fieldResults.get(i).copy(field.getContainsNull())).
-        // Asserted via field.type().isNullable() — NOT DataField equality: the field comment stays dropped
-        // (DV-035 M10.1), so a DataField carrying a description would false-differ for an unrelated reason.
+        // Asserted via field.type().isNullable() to isolate the nullability facet; the nested field
+        // comment is now carried too and is covered separately by nestedStructFieldCommentPreserved.
         // MUTATION: dropping the .copy(isChildNullable(i)) on the struct DataField -> field 0 stays nullable.
         ConnectorType struct = ConnectorType.structOf(
                 Arrays.asList("x", "y"),
@@ -194,6 +194,24 @@ public class PaimonTypeMappingToPaimonTest {
                 "a NOT NULL struct field must map to a non-null paimon field type");
         Assertions.assertTrue(row.getFields().get(1).type().isNullable(),
                 "a nullable struct field stays nullable");
+    }
+
+    @Test
+    public void nestedStructFieldCommentPreserved() {
+        // WHY: a COMMENT on a field nested inside a STRUCT column must survive CREATE TABLE mapping,
+        // reaching the paimon DataField description (parity with top-level column comments already
+        // carried by PaimonSchemaBuilder). Without it the on-disk paimon schema — and, via the
+        // symmetric read fix, DESCRIBE — loses the comment.
+        // MUTATION: reverting to the 3-arg DataField (dropping type.getChildComment(i)) leaves the
+        // description null -> this assertion goes red.
+        ConnectorType struct = ConnectorType.structOf(
+                Arrays.asList("x", "y"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                Arrays.asList(true, true),
+                Arrays.asList("note on x", ""));
+        RowType row = (RowType) PaimonTypeMapping.toPaimonType(struct);
+        Assertions.assertEquals("note on x", row.getFields().get(0).description(),
+                "a nested struct field comment must be carried into the paimon DataField");
     }
 
     @Test

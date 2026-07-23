@@ -29,9 +29,9 @@ import java.util.Optional;
  * {@link org.apache.doris.connector.api.write.ConnectorWritePlanProvider#planWrite}.
  *
  * <p>Carries the engine-resolved facts about a single DML write: the target
- * table handle, the column list, whether it is an OVERWRITE, and a free-form
- * write context (static partition spec, write path, etc.). The connector reads
- * these to build its Thrift data sink.</p>
+ * table handle, the column list, whether it is an OVERWRITE, and the static
+ * partition spec ({@link #getWriteContext}). The connector reads these to build
+ * its Thrift data sink.</p>
  */
 public interface ConnectorWriteHandle {
 
@@ -45,8 +45,13 @@ public interface ConnectorWriteHandle {
     boolean isOverwrite();
 
     /**
-     * Free-form write context: static partition spec, write path, and other
-     * connector-defined keys carried from the bound sink to {@code planWrite}.
+     * The static partition spec (partition column name -&gt; value) for a statically partitioned write,
+     * carried from the bound sink to {@code planWrite}; an EMPTY map when the write is not statically
+     * partitioned. Despite the "write context" name (once envisioned as a free-form bag), the only content
+     * the sole producer ({@code PluginDrivenTableSink.bindDataSink} -&gt;
+     * {@code PluginDrivenInsertCommandContext.getStaticPartitionSpec}) ever populates is the static
+     * partition spec, and the write providers (hive/iceberg/maxcompute) all consume it as such (iceberg
+     * ships it verbatim as {@code TDataSink.static_partition_values}).
      */
     Map<String, String> getWriteContext();
 

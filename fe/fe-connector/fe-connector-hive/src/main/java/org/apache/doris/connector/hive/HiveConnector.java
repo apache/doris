@@ -89,13 +89,13 @@ public class HiveConnector implements Connector {
     private volatile boolean pluginAuthComputed;
 
     // Read-transaction manager for transactional (ACID) Hive scans. One per connector, keyed by query.
-    // Plugin-owned and dormant until the read cutover wires its query-finish commit (see the manager).
+    // Plugin-owned; live since the read cutover wired its query-finish commit (see the manager).
     private final HiveReadTransactionManager readTxnManager = new HiveReadTransactionManager();
 
     // Connector-owned directory-listing cache, shared by the (per-call) scan provider and metadata. One per
     // connector (like readTxnManager above) — the scan provider / metadata are rebuilt per query, so the cache
-    // must live on the long-lived connector to survive across scans. Built from catalog props; dormant until hms
-    // enters SPI_READY_TYPES. Its metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
+    // must live on the long-lived connector to survive across scans. Built from catalog props. Its
+    // metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
     private final HiveFileListingCache fileListingCache;
 
     // PERF-06 (S6): cross-query DERIVED partition-view cache ("cache A", the generic ConnectorPartitionViewCache
@@ -115,16 +115,14 @@ public class HiveConnector implements Connector {
     // once per gateway connector (lazily) in the iceberg plugin's OWN child-first classloader via
     // context.createSiblingConnector — never co-packaged into the hive zip (a second AWS SDK would poison S3
     // JVM-wide). Held ONLY as the parent-first Connector interface and NEVER cast: its concrete type is invisible
-    // to the hive loader, so a cast would CCE across the loader split. Dormant until hms enters SPI_READY_TYPES —
-    // nothing builds it today.
+    // to the hive loader, so a cast would CCE across the loader split.
     private volatile Connector icebergSibling;
 
     // Embedded hudi SIBLING connector: a flipped hms gateway delegates its hudi-on-HMS tables to it. Same
     // lifecycle/classloader contract as icebergSibling above — built once per gateway (lazily) in the hudi
     // plugin's OWN child-first classloader via context.createSiblingConnector, never co-packaged into the hive
     // zip (a second AWS SDK would poison S3 JVM-wide). Held ONLY as the parent-first Connector interface and
-    // NEVER cast (a cast would CCE across the loader split). Dormant until hms enters SPI_READY_TYPES AND the
-    // getTableHandle HUDI divert is wired (a later substep) — nothing references it today.
+    // NEVER cast (a cast would CCE across the loader split).
     private volatile Connector hudiSibling;
 
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
@@ -244,8 +242,7 @@ public class HiveConnector implements Connector {
      * so no pinning is needed here. The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete
      * sibling type is invisible across the loader split — a cast would CCE). A HUDI table (once its divert lands)
      * routes to the hudi sibling by the 3-way {@link #resolveSiblingOwner} — a HUDI-stamped HiveTableHandle stays
-     * hive. Pairs with the getTableHandle diverts; dormant until hms enters SPI_READY_TYPES (nothing selects a
-     * scan provider for this connector today).
+     * hive. Pairs with the getTableHandle diverts.
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
@@ -265,7 +262,7 @@ public class HiveConnector implements Connector {
      * OWNING sibling's per-handle write provider (resolved 3-way by {@link #resolveSiblingOwner}). The foreign
      * handle is passed through UNMODIFIED and NEVER cast (its concrete sibling type is invisible across the loader
      * split — a cast would CCE). A HUDI-stamped HiveTableHandle stays on the hive write path. Mirrors {@link
-     * #getScanPlanProvider(ConnectorTableHandle)}; dormant until hms enters SPI_READY_TYPES. The returned sibling
+     * #getScanPlanProvider(ConnectorTableHandle)}. The returned sibling
      * provider's planWrite runs on fe-core threads, but the write-path TCCL pin is already carried by the sibling's
      * own {@code TcclPinningConnectorContext} (e.g. {@code IcebergConnector} wraps {@code executeAuthenticated},
      * classloader-thread-independent), so no additional pin is needed here — verified, not an open flip-time gap.
@@ -286,8 +283,7 @@ public class HiveConnector implements Connector {
      * iceberg-on-HMS table gains the native iceberg procedures (rollback_to_snapshot, rewrite_data_files, ...).
      * The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete sibling type is invisible
      * across the loader split — a cast would CCE). A HUDI-stamped HiveTableHandle stays hive and inherits the
-     * null (no procedures), same as plain-hive. Mirrors {@link #getWritePlanProvider(ConnectorTableHandle)};
-     * dormant until hms enters SPI_READY_TYPES (nothing selects procedure ops for this connector today).
+     * null (no procedures), same as plain-hive. Mirrors {@link #getWritePlanProvider(ConnectorTableHandle)}.
      */
     @Override
     public ConnectorProcedureOps getProcedureOps(ConnectorTableHandle handle) {
@@ -300,7 +296,7 @@ public class HiveConnector implements Connector {
     @Override
     public Set<ConnectorCapability> getCapabilities() {
         // Connector-wide capabilities for the flipped hms catalog, each a faithful port of a legacy
-        // HMSExternalTable/HMS admission. Inert until hms enters SPI_READY_TYPES.
+        // HMSExternalTable/HMS admission.
         //  - SUPPORTS_VIEW: legacy resolves isView() from the remote table's view text; the plugin path then
         //    consults viewExists, routes a view DROP to dropView, and merges listViewNames into SHOW TABLES —
         //    hive returns an EMPTY listViewNames (its listTableNames already includes views), so the merge is a
@@ -350,7 +346,7 @@ public class HiveConnector implements Connector {
      * objects, column stats) AND the {@link HiveFileListingCache} directory listings — because a hive table's
      * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
      * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
-     * {@code connector.invalidateTable} for a plugin-driven catalog; dormant until hms enters SPI_READY_TYPES.
+     * {@code connector.invalidateTable} for a plugin-driven catalog.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
@@ -378,8 +374,7 @@ public class HiveConnector implements Connector {
      * REFRESH DATABASE hook: drop the connector-owned scan caches for EVERY table in this database — both cache
      * layers ({@link CachingHmsClient#flushDb} metastore-metadata + {@link HiveFileListingCache#invalidateDb}
      * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
-     * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog;
-     * dormant until hms enters SPI_READY_TYPES.
+     * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
@@ -400,7 +395,7 @@ public class HiveConnector implements Connector {
     /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
      * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
-     * client as {@link #invalidateTable(String, String)}. Dormant until the flip.
+     * client as {@link #invalidateTable(String, String)}.
      * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
@@ -570,8 +565,6 @@ public class HiveConnector implements Connector {
      *
      * <p>Fails loud when no hudi provider is available (e.g. the plugin is not installed). The failure is NOT
      * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
-     *
-     * <p>Dormant: no production path references it until the getTableHandle HUDI divert lands (a later substep).
      */
     Connector getOrCreateHudiSibling() {
         if (hudiSibling == null) {
@@ -664,8 +657,8 @@ public class HiveConnector implements Connector {
      *
      * <p>Extracted (package-private) so a unit test can verify the wrap + caching WITHOUT {@link #createClient()}
      * building a real {@code ThriftHmsClient} (whose Hadoop stack is absent from connector unit tests) — mirrors
-     * {@link #newMetadata(HmsClient)}. Dormant: {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog
-     * builds a {@code HiveConnector} — this wrap only runs in unit tests until the flip.
+     * {@link #newMetadata(HmsClient)}. Live since the hms flip: every live hms catalog builds a
+     * {@code HiveConnector}, and {@link #createClient()} wraps its {@code ThriftHmsClient} here.
      */
     HmsClient wrapWithCache(HmsClient raw) {
         return new CachingHmsClient(raw, properties);

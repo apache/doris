@@ -28,11 +28,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link HiveReadTransaction} is registered (which opens the metastore transaction); when the query
  * finishes it is deregistered (which commits the transaction, releasing the shared read lock).
  *
- * <p>Plugin-side port of fe-core {@code HiveTransactionMgr}. It is <b>plugin-owned and dormant</b> until
- * the read cutover: today transactional-hive reads still flow through fe-core
- * {@code HiveScanNode}/{@code Env.getCurrentHiveTransactionMgr()}. At cutover the query-finish trigger
- * (fe-core {@code QueryFinishCallbackRegistry}) is wired to {@link #deregister} and the legacy
- * {@code Env} manager is removed. Until then nothing invokes this manager on a live path.</p>
+ * <p>Plugin-side port of fe-core {@code HiveTransactionMgr}. Plugin-owned and <b>live since the read
+ * cutover</b>: a transactional-hive scan registers via {@code HiveScanPlanProvider.planAcidScan}, and the
+ * fe-core query-finish callback ({@code PluginDrivenScanNode}) drives {@link #deregister} through
+ * {@code releaseReadTransaction}. The legacy fe-core {@code HiveScanNode} /
+ * {@code Env.getCurrentHiveTransactionMgr()} are removed.</p>
  */
 public class HiveReadTransactionManager {
     private static final Logger LOG = LogManager.getLogger(HiveReadTransactionManager.class);

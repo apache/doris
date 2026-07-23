@@ -135,36 +135,57 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
 
     @Test
     public void testModifyColumnWidensType() {
-        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "c", true), null);
+        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "c", true), true, null);
         Assertions.assertEquals(Type.TypeID.LONG, reload().findField("val").type().typeId());
     }
 
     @Test
     public void testModifyColumnCommentOnly() {
         // VARCHAR maps to iceberg STRING; re-sending the same type with a new doc updates only the comment.
-        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "new comment", true), null);
+        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "new comment", true), true, null);
         Assertions.assertEquals("new comment", reload().findField("name").doc());
         Assertions.assertEquals(Type.TypeID.STRING, reload().findField("name").type().typeId());
     }
 
     @Test
+    public void testModifyColumnOmittedCommentPreservesExistingDoc() {
+        // #65329 omit-preserves parity — regression for iceberg_schema_change_ddl "after_no_comment": a MODIFY
+        // that carries no COMMENT (commentSpecified=false) must keep the column's current doc instead of
+        // clearing it, for BOTH a same-type modify and a widening one; a specified comment still overrides.
+        // name starts with doc "old", val with doc "" (see setUp); both are optional, so pass nullable=true.
+        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "", true), false, null);
+        Assertions.assertEquals("old", reload().findField("name").doc(), "same-type omit must preserve doc");
+
+        // Give val a doc, then widen INT -> LONG omitting the comment: the doc must survive the type change.
+        ops.modifyColumn("db1", "t1", change("val", Types.IntegerType.get(), "vdoc", true), true, null);
+        ops.modifyColumn("db1", "t1", change("val", Types.LongType.get(), "", true), false, null);
+        Types.NestedField val = reload().findField("val");
+        Assertions.assertEquals(Type.TypeID.LONG, val.type().typeId());
+        Assertions.assertEquals("vdoc", val.doc(), "widening omit must preserve doc");
+
+        // When the comment IS specified (commentSpecified=true), it still overrides the existing doc.
+        ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "brand new", true), true, null);
+        Assertions.assertEquals("brand new", reload().findField("name").doc());
+    }
+
+    @Test
     public void testModifyColumnRequiredToOptional() {
         Assertions.assertFalse(reload().findField("req").isOptional());
-        ops.modifyColumn("db1", "t1", change("req", Types.IntegerType.get(), null, true), null);
+        ops.modifyColumn("db1", "t1", change("req", Types.IntegerType.get(), null, true), true, null);
         Assertions.assertTrue(reload().findField("req").isOptional());
     }
 
     @Test
     public void testModifyColumnRepositions() {
         ops.modifyColumn("db1", "t1", change("name", Types.StringType.get(), "c", true),
-                ConnectorColumnPosition.FIRST);
+                true, ConnectorColumnPosition.FIRST);
         Assertions.assertEquals("name", columnOrder().get(0));
     }
 
     @Test
     public void testModifyColumnOptionalToRequiredFailsLoud() {
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops.modifyColumn("db1", "t1", change("id", Types.LongType.get(), null, false), null));
+                () -> ops.modifyColumn("db1", "t1", change("id", Types.LongType.get(), null, false), true, null));
         Assertions.assertTrue(ex.getMessage().contains("not null"));
         // schema unchanged: id stays optional.
         Assertions.assertTrue(reload().findField("id").isOptional());
@@ -173,7 +194,7 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     @Test
     public void testModifyMissingColumnFailsLoud() {
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops.modifyColumn("db1", "t1", change("ghost", Types.IntegerType.get(), null, true), null));
+                () -> ops.modifyColumn("db1", "t1", change("ghost", Types.IntegerType.get(), null, true), true, null));
         Assertions.assertTrue(ex.getMessage().contains("does not exist"));
     }
 
@@ -203,7 +224,7 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     private void modifyComplex(String table, String colName, ConnectorType newType, boolean topNullable) {
         ops.modifyColumn("db1", table,
                 new IcebergColumnChange(colName, IcebergSchemaBuilder.buildColumnType(newType), null, null,
-                        topNullable), null);
+                        topNullable), true, null);
     }
 
     private static ConnectorType structType(List<String> names, List<ConnectorType> types,
@@ -356,5 +377,21 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> modifyComplex("c_cat", "st", ConnectorType.arrayOf(ConnectorType.of("INT")), true));
         Assertions.assertTrue(ex.getMessage().contains("category"));
+    }
+
+    @Test
+    public void testModifyComplexToPrimitiveFailsLoud() {
+        // Legacy parity (regression for iceberg_schema_change_ddl "MODIFY COLUMN address STRING"): a top-level
+        // STRUCT/ARRAY/MAP cannot be changed to a primitive; the seam rejects it with a clean message before
+        // iceberg's updateColumn leaks a raw struct<...> type-diff error.
+        createTable("c2p", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("c2p", "st", ConnectorType.of("STRING"), true));
+        Assertions.assertTrue(ex.getMessage().contains("Modify column type from complex to primitive is not"
+                + " supported"));
+        // schema unchanged: st stays a struct.
+        Assertions.assertTrue(reload("c2p").findField("st").type().isStructType());
     }
 }
