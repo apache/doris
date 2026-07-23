@@ -48,7 +48,9 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -320,7 +322,8 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.start\" = \"-3\",\n"
                 + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
-                + "\"dynamic_partition.prefix\" = \"p\"\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\"\n"
                 + ");";
         createTable(createOlapTblStmt);
     }
@@ -406,9 +409,10 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.enable\" = \"true\",\n"
                 + "\"dynamic_partition.start\" = \"-3\",\n"
                 + "\"dynamic_partition.end\" = \"3\",\n"
-                + "\"dynamic_partition.buckets\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
-                + "\"dynamic_partition.prefix\" = \"p\"\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"3\",\n"
+                + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
                 + ");";
         createTable(createOlapTblStmt);
     }
@@ -1173,6 +1177,7 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.enable\" = \"true\",\n"
                 + "\"dynamic_partition.start\" = \"-3\",\n"
                 + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
@@ -1182,9 +1187,15 @@ public class DynamicPartitionTableTest {
         tbl = (OlapTable) testDb.getTableOrAnalysisException("hot_partition_day_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
-        Assert.assertEquals(4, idToDataProperty.size());
+        Assert.assertEquals(7, idToDataProperty.size());
+        int dayCount = 0;
         for (DataProperty dataProperty : idToDataProperty.values()) {
-            Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            if (dayCount < 2) {
+                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+            } else {
+                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            }
+            ++dayCount;
         }
 
         createOlapTblStmt = "CREATE TABLE test.`hot_partition_day_tbl2` (\n"
@@ -2402,6 +2413,10 @@ public class DynamicPartitionTableTest {
         // just before UTC midnight to intersect the shifted reserved range and
         // not be dropped. Verify the drop cutoff now aligns with the add path.
         String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        DynamicPartitionScheduler scheduler = Env.getCurrentEnv().getDynamicPartitionScheduler();
+        DynamicPartitionScheduler spyScheduler = Mockito.spy(scheduler);
+        Field schedulerField = Env.class.getDeclaredField("dynamicPartitionScheduler");
+        schedulerField.setAccessible(true);
         try {
             connectContext.getSessionVariable().setTimeZone("America/Chicago");
 
@@ -2425,7 +2440,8 @@ public class DynamicPartitionTableTest {
             // implementation, not just for 16 hours of the day.
             ZonedDateTime fixedNow = ZonedDateTime.of(
                     2026, 7, 21, 8, 0, 0, 0, ZoneOffset.UTC);
-            DynamicPartitionScheduler.testNow = fixedNow;
+            Mockito.doReturn(fixedNow).when(spyScheduler).getNow(Mockito.any());
+            schedulerField.set(Env.getCurrentEnv(), spyScheduler);
 
             String createOlapTblStmt = "CREATE TABLE test.`tstz_drop_cutoff` (\n"
                     + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
@@ -2491,7 +2507,7 @@ public class DynamicPartitionTableTest {
                         "00", lowerStr.substring(11, 13));
             }
         } finally {
-            DynamicPartitionScheduler.testNow = null;
+            schedulerField.set(Env.getCurrentEnv(), scheduler);
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
     }
@@ -2644,22 +2660,33 @@ public class DynamicPartitionTableTest {
                 + "nowPartitionName='" + wrongNowPartitionName + "' does not match any partition",
                 currentFoundByName);
 
-        // 2. With currentUtcBorder: range-based correctly excludes the current partition.
-        List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                table, wrongNowPartitionName, currentUtcBorder);
-        boolean currentFoundByRange = false;
-        for (Partition p : historicalWithUtc) {
+        // 2. With the correct nowPartitionName matching the current partition's
+        //    actual name, name-based exclusion correctly removes it.
+        String currentPartitionName = null;
+        for (Partition p : table.getPartitions()) {
             RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
             String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
             if (lowerBound.equals(currentUtcBorder)) {
-                currentFoundByRange = true;
+                currentPartitionName = p.getName();
                 break;
             }
         }
-        Assert.assertFalse("Range-based should correctly exclude the current partition",
-                currentFoundByRange);
+        Assert.assertNotNull("Should find the current partition", currentPartitionName);
+        List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
+                table, currentPartitionName, currentUtcBorder);
+        boolean currentFoundByName2 = false;
+        for (Partition p : historicalWithName) {
+            RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+            String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+            if (lowerBound.equals(currentUtcBorder)) {
+                currentFoundByName2 = true;
+                break;
+            }
+        }
+        Assert.assertFalse("Name-based should exclude the current partition when name matches",
+                currentFoundByName2);
         Assert.assertEquals("Should exclude exactly the current partition",
-                totalPartitions - 1, historicalWithUtc.size());
+                totalPartitions - 1, historicalWithName.size());
     }
 
     @Test
@@ -3486,23 +3513,34 @@ public class DynamicPartitionTableTest {
             Assert.assertTrue("Scaled TIMESTAMPTZ(6): name-based should fail to exclude current partition",
                     currentFoundByName);
 
-            // With currentUtcBorder: range-based correctly excludes the current
-            // partition even though the string representations differ (.000000).
-            List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, wrongNowPartitionName, currentUtcBorder);
-            boolean currentFoundByRange = false;
-            for (Partition p : historicalWithUtc) {
+            // With the correct nowPartitionName matching the current partition's
+            // actual name, name-based exclusion works correctly even when the
+            // lower bound string has a different scale (.000000 vs no fraction).
+            String currentPartitionName = null;
+            for (Partition p : table.getPartitions()) {
                 RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
                 String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
                 if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
-                    currentFoundByRange = true;
+                    currentPartitionName = p.getName();
                     break;
                 }
             }
-            Assert.assertFalse("Scaled TIMESTAMPTZ(6): range-based must exclude current partition",
-                    currentFoundByRange);
+            Assert.assertNotNull("Should find the current partition", currentPartitionName);
+            List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, currentPartitionName, currentUtcBorder);
+            boolean currentFoundByNameCorrect = false;
+            for (Partition p : historicalWithName) {
+                RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+                String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
+                    currentFoundByNameCorrect = true;
+                    break;
+                }
+            }
+            Assert.assertFalse("Scaled TIMESTAMPTZ(6): name-based must exclude current partition "
+                    + "when nowPartitionName matches", currentFoundByNameCorrect);
             Assert.assertEquals("Scaled TIMESTAMPTZ(6): exclude exactly one partition",
-                    totalPartitions - 1, historicalWithUtc.size());
+                    totalPartitions - 1, historicalWithName.size());
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -3592,23 +3630,34 @@ public class DynamicPartitionTableTest {
             Assert.assertTrue("Old prefix: name-based should fail to exclude current partition",
                     currentFoundByName);
 
-            // 2. With currentUtcBorder: range-based correctly excludes the
-            //    current partition despite the name mismatch.
-            List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, newPrefixNowName, currentUtcBorder);
-            boolean currentFoundByRange = false;
-            for (Partition p : historicalWithUtc) {
+            // 2. With the correct nowPartitionName (the actual partition name
+            //    with old prefix "p"), name-based exclusion works.
+            String currentPartitionName = null;
+            for (Partition p : table.getPartitions()) {
                 RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
                 String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
                 if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
-                    currentFoundByRange = true;
+                    currentPartitionName = p.getName();
                     break;
                 }
             }
-            Assert.assertFalse("Old prefix: range-based must exclude current partition",
-                    currentFoundByRange);
+            Assert.assertNotNull("Should find the current partition", currentPartitionName);
+            Assert.assertTrue("Current partition should start with 'p'", currentPartitionName.startsWith("p"));
+            List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, currentPartitionName, currentUtcBorder);
+            boolean currentFoundByName2 = false;
+            for (Partition p : historicalWithName) {
+                RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
+                String lowerBound = item.getItems().lowerEndpoint().getKeys().get(0).getStringValue();
+                if (lowerBound.contains(currentUtcBorder.replace("+00:00", ""))) {
+                    currentFoundByName2 = true;
+                    break;
+                }
+            }
+            Assert.assertFalse("Old prefix: name-based must exclude current partition "
+                    + "when nowPartitionName matches", currentFoundByName2);
             Assert.assertEquals("Old prefix: exclude exactly one partition",
-                    totalPartitions - 1, historicalWithUtc.size());
+                    totalPartitions - 1, historicalWithName.size());
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -3647,14 +3696,14 @@ public class DynamicPartitionTableTest {
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
             // Derive all timestamps from today's UTC midnight so the
-            // test is independent of wall-clock time.  At 2026-07-22
+            // test is independent of wall-clock time.  At current date
             // 00:00:00Z:
-            //   lower = yesterday 16:00Z = 2026-07-21 16:00Z
-            //   upper = today     16:00Z = 2026-07-22 16:00Z
+            //   lower = yesterday 16:00Z
+            //   upper = today     16:00Z
             //
-            // currentUtcBorder (today 00:00Z = 2026-07-22 00:00Z) is
-            // always inside [yesterday 16:00Z, today 16:00Z) regardless
-            // of when the test runs.
+            // currentUtcBorder (today 00:00Z) is always inside
+            // [yesterday 16:00Z, today 16:00Z) regardless of when
+            // the test runs.
             ZonedDateTime todayMidnight = ZonedDateTime.now(ZoneOffset.UTC)
                     .withHour(0).withMinute(0).withSecond(0).withNano(0);
             ZonedDateTime yesterday16Z = todayMidnight.minusHours(8);  // yesterday 16:00Z
@@ -3673,7 +3722,8 @@ public class DynamicPartitionTableTest {
             // currentUtcBorder = today's UTC midnight → inside p_legacy.
             String currentUtcBorder = fmt.format(todayMidnight) + "+00:00";
 
-            // Sanity check: currentUtcBorder is inside p_legacy.
+            // Sanity check: currentUtcBorder is inside p_legacy but not equal
+            // to its lower bound.
             RangePartitionInfo info = (RangePartitionInfo) table.getPartitionInfo();
             for (Map.Entry<Long, PartitionItem> entry : info.getIdToItem(false).entrySet()) {
                 RangePartitionItem item = (RangePartitionItem) entry.getValue();
@@ -3696,18 +3746,16 @@ public class DynamicPartitionTableTest {
             Assert.assertEquals("Name-based fallback returns all partitions",
                     2, historicalNoUtc.size());
 
-            // 2. With currentUtcBorder: range containment excludes p_legacy
-            //    because 00:00Z ∈ [yesterday 16:00Z, today 16:00Z).
-            //    p_legacy's lower bound (16:00Z) ≠ 00:00Z, so exact equality
-            //    would NOT find it — only containment does.
-            List<Partition> historicalWithUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, wrongNowPartitionName, currentUtcBorder);
-            Assert.assertEquals("Range containment excludes exactly one partition",
-                    1, historicalWithUtc.size());
-            Assert.assertFalse("p_legacy must be excluded by range containment",
-                    "p_legacy".equals(historicalWithUtc.get(0).getName()));
+            // 2. With the correct nowPartitionName matching p_legacy,
+            //    name-based exclusion removes it.
+            List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
+                    table, "p_legacy", currentUtcBorder);
+            Assert.assertEquals("Name-based exclusion removes exactly one partition",
+                    1, historicalWithName.size());
+            Assert.assertFalse("p_legacy must be excluded by name match",
+                    "p_legacy".equals(historicalWithName.get(0).getName()));
             Assert.assertEquals("p_hist should survive",
-                    "p_hist", historicalWithUtc.get(0).getName());
+                    "p_hist", historicalWithName.get(0).getName());
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }

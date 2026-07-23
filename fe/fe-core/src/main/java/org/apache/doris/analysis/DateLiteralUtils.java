@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -66,6 +66,7 @@ public class DateLiteralUtils {
             TemporalAccessor dateTime = null;
             boolean parsed = false;
             int offset = 0;
+            ZoneId sourceZone = null;
 
             // parse timezone
             if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
@@ -81,13 +82,7 @@ public class DateLiteralUtils {
                     tzString = s.substring(s.length() - 6);
                     s = s.substring(0, s.length() - 6);
                 }
-                ZoneId zone = ZoneId.of(tzString);
-                ZoneId dorisZone = DateUtils.getTimeZone();
-                if (type != null && type.isTimeStampTz()) {
-                    dorisZone = ZoneId.of("UTC");
-                }
-                offset = dorisZone.getRules().getOffset(Instant.now()).getTotalSeconds()
-                        - zone.getRules().getOffset(Instant.now()).getTotalSeconds();
+                sourceZone = ZoneId.of(tzString);
             }
 
             if (!s.contains("-")) {
@@ -214,6 +209,27 @@ public class DateLiteralUtils {
                         type = ScalarType.createDatetimeV2Type(scale);
                     }
                 }
+            }
+
+            // Recompute the timezone offset using the target date rather than
+            // Instant.now(), so DST-sensitive zones (e.g. America/Chicago)
+            // produce the correct shift regardless of when the code runs.
+            // The original code used Instant.now() which returns the current
+            // DST offset; when the target date falls in a different DST period
+            // the computed shift is wrong by the DST gap.
+            if (sourceZone != null) {
+                // Use TimeUtils.getTimeZone() for consistency with the
+                // downstream unixTimestamp(TimeUtils.getTimeZone()) call.
+                ZoneId dorisZone = TimeUtils.getTimeZone().toZoneId();
+                if (type != null && type.isTimeStampTz()) {
+                    dorisZone = ZoneId.of("UTC");
+                }
+                LocalDateTime parsedLdt = LocalDateTime.of(
+                        (int) year, (int) month, (int) day,
+                        (int) hour, (int) minute, (int) second);
+                Instant targetInstant = parsedLdt.atZone(sourceZone).toInstant();
+                offset = dorisZone.getRules().getOffset(targetInstant).getTotalSeconds()
+                        - sourceZone.getRules().getOffset(targetInstant).getTotalSeconds();
             }
 
             // Apply timezone offset before constructing the DateLiteral.
