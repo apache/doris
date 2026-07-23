@@ -64,7 +64,7 @@ suite("test_compaction_agg_keys_with_delete") {
                 `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                 `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列" )
             AGGREGATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES

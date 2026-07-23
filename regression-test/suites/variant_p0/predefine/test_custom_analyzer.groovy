@@ -94,7 +94,8 @@ suite("test_variant_custom_analyzer", "p0") {
         DUPLICATE KEY(`a`)
         DISTRIBUTED BY RANDOM BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "true"
         );
     """
 
