@@ -264,7 +264,7 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-net.version>3.13.0</commons-net.version>
