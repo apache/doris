@@ -943,6 +943,20 @@ public:
 
     io::FileReaderSPtr& get_tracing_file_reader() { return _tracing_file_reader; }
 
+    // Reassign the active file reader (e.g. wrap with RangeCacheFileReader for the
+    // all-tiny-stripe path). This MUST be used instead of mutating _file_reader
+    // directly, because _tracing_file_reader holds an independent shared_ptr
+    // captured at construction time and would otherwise keep pointing at the
+    // previous (inner) reader -- bypassing the wrapper. See vorc_reader.cpp
+    // ORCFileInputStream::read() which always reads through _tracing_file_reader.
+    void set_file_reader(io::FileReaderSPtr new_file_reader) {
+        _file_reader = std::move(new_file_reader);
+        _tracing_file_reader = _io_ctx && _io_ctx->file_reader_stats
+                                       ? std::make_shared<io::TracingFileReader>(
+                                                 _file_reader, _io_ctx->file_reader_stats)
+                                       : _file_reader;
+    }
+
 protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override { _collect_profile_before_close_file_stripe(); }
