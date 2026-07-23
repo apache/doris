@@ -32,8 +32,8 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
-import org.apache.doris.connector.cache.PartitionViewCacheKey;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -97,14 +97,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // existing direct-construction tests compile unchanged; production goes through the 5-arg ctor.
     private final PaimonLatestSnapshotCache latestSnapshotCache;
 
-    // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorPartitionViewCache), injected by the
+    // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorMetadataCache), injected by the
     // owning PaimonConnector; null = no cross-query derived layer (the convenience/test ctors used by ~15
     // existing direct-construction tests pass null). Layered ABOVE the raw remote catalogOps.listPartitions
     // call: a hit skips both the derived-view BUILD (collectPartitions) and the remote round-trip, keyed by
     // (db, table, snapshotId, schemaId). Consumed only by listPartitions -- paimon does not override
     // getMvccPartitionView (see ConnectorMetadata's default), so the generic MTMV model already uses
     // listPartitions for its LIST/timestamp partition view; there is no second hook to wrap.
-    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache;
+    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
     public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
@@ -132,7 +132,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo,
             PaimonLatestSnapshotCache latestSnapshotCache,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
         this.catalogOps = catalogOps;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
         this.context = context;
@@ -1092,7 +1092,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 || partitionKeys == null || partitionKeys.isEmpty()) {
             return collectPartitions(paimonHandle);
         }
-        PartitionViewCacheKey key = partitionViewCacheKey(paimonHandle);
+        ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
         return partitionViewCache.get(key, () -> collectPartitions(paimonHandle));
     }
 
@@ -1109,7 +1109,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * and a new snapshot (data change, once the entry expires or REFRESH invalidates it) naturally mints a new key.
      *
      * <p><b>schemaId</b>: pinned {@code -1} ("unversioned" for that axis, matching
-     * {@link PartitionViewCacheKey}'s documented convention). Unlike iceberg, paimon's {@link PaimonTableHandle}
+     * {@link ConnectorTableKey}'s documented convention). Unlike iceberg, paimon's {@link PaimonTableHandle}
      * carries no schemaId — {@code applySnapshot} threads only {@code scanOptions} (an opaque properties map;
      * see its javadoc) onto the handle, and {@link #beginQuerySnapshot} (the common latest-pin path) never
      * resolves a schemaId either (its {@code ConnectorMvccSnapshot} keeps the builder default {@code -1}). This
@@ -1117,11 +1117,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * (fixed at handle-build time) and paimon's raw partition specs, and paimon partition columns are immutable
      * post-creation, so schema evolution (e.g. ADD COLUMN) does not change what this method computes.
      */
-    private PartitionViewCacheKey partitionViewCacheKey(PaimonTableHandle paimonHandle) {
+    private ConnectorTableKey partitionViewCacheKey(PaimonTableHandle paimonHandle) {
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long snapshotId = latestSnapshotCache.getOrLoad(identifier,
                 () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
-        return new PartitionViewCacheKey(
+        return new ConnectorTableKey(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName(), snapshotId, -1L);
     }
 

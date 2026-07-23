@@ -21,7 +21,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
 
 /**
  * PERF-06 tests for the cross-query DERIVED partition-view cache ("cache A", the generic
- * {@link ConnectorPartitionViewCache}) wired into {@link IcebergConnectorMetadata#getMvccPartitionView} /
+ * {@link ConnectorMetadataCache}) wired into {@link IcebergConnectorMetadata#getMvccPartitionView} /
  * {@link IcebergConnectorMetadata#listPartitions}. Uses the real {@link InMemoryCatalog} +
  * {@link RecordingIcebergCatalogOps} harness (no Mockito, no docker): the cache sits ABOVE the per-query build,
  * whose first step is {@code resolveTableForRead -> catalogOps.loadTable} (logged as {@code loadTable:db1.t1}), so
@@ -89,7 +89,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
     }
 
     private static IcebergConnectorMetadata metadataWithMvccCache(RecordingIcebergCatalogOps ops,
-            ConnectorPartitionViewCache<ConnectorMvccPartitionView> cache) {
+            ConnectorMetadataCache<ConnectorMvccPartitionView> cache) {
         // 9-arg ctor: disabled latest-snapshot cache + null table/partition/comment caches so the loadTable count
         // reflects cache A alone; only the mvcc view cache under test is injected.
         return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
@@ -97,7 +97,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
     }
 
     private static IcebergConnectorMetadata metadataWithListCache(RecordingIcebergCatalogOps ops,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
         return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
                 new IcebergLatestSnapshotCache(0L, 1), null, null, null, null, cache);
     }
@@ -110,12 +110,12 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         return ops.log.stream().filter(s -> s.equals("loadTable:db1.t1")).count();
     }
 
-    private static ConnectorPartitionViewCache<ConnectorMvccPartitionView> mvccCache() {
-        return new ConnectorPartitionViewCache<>("iceberg", Collections.emptyMap());
+    private static ConnectorMetadataCache<ConnectorMvccPartitionView> mvccCache() {
+        return new ConnectorMetadataCache<>("iceberg", "partition_view", Collections.emptyMap());
     }
 
-    private static ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> listCache() {
-        return new ConnectorPartitionViewCache<>("iceberg", Collections.emptyMap());
+    private static ConnectorMetadataCache<List<ConnectorPartitionInfo>> listCache() {
+        return new ConnectorMetadataCache<>("iceberg", "partition_view", Collections.emptyMap());
     }
 
     private static List<String> mvccNames(Optional<ConnectorMvccPartitionView> view) {
@@ -135,7 +135,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
-        ConnectorPartitionViewCache<ConnectorMvccPartitionView> cache = mvccCache();
+        ConnectorMetadataCache<ConnectorMvccPartitionView> cache = mvccCache();
         IcebergConnectorMetadata md = metadataWithMvccCache(ops, cache);
 
         Optional<ConnectorMvccPartitionView> first = md.getMvccPartitionView(null, handle());
@@ -174,7 +174,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
-        ConnectorPartitionViewCache<ConnectorMvccPartitionView> cache = mvccCache();
+        ConnectorMetadataCache<ConnectorMvccPartitionView> cache = mvccCache();
         IcebergConnectorMetadata md = metadataWithMvccCache(ops, cache);
 
         md.getMvccPartitionView(null, handle());
@@ -208,7 +208,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = listCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = listCache();
         IcebergConnectorMetadata md = metadataWithListCache(ops, cache);
 
         List<ConnectorPartitionInfo> first = md.listPartitions(null, handle(), Optional.empty());
@@ -229,7 +229,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = listCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = listCache();
         IcebergConnectorMetadata md = metadataWithListCache(ops, cache);
 
         ConnectorExpression filter = Collections::emptyList; // any non-empty filter
@@ -249,7 +249,7 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = listCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = listCache();
         IcebergConnectorMetadata md = metadataWithListCache(ops, cache);
 
         md.listPartitions(null, handle(), Optional.empty());

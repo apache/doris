@@ -19,7 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;
@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
 
 /**
  * PERF-06 tests for the cross-query DERIVED partition-view cache ("cache A", the generic
- * {@link ConnectorPartitionViewCache}) wired into {@link PaimonConnectorMetadata#listPartitions}. Paimon does
+ * {@link ConnectorMetadataCache}) wired into {@link PaimonConnectorMetadata#listPartitions}. Paimon does
  * NOT override {@code getMvccPartitionView} (the generic MTMV model falls back to its default
  * listPartitions/LIST/timestamp path), so — unlike iceberg's two typed fields — there is exactly ONE
  * enumeration hook to wrap.
@@ -57,14 +57,14 @@ import java.util.stream.Collectors;
 public class PaimonConnectorMetadataPartitionViewCacheTest {
 
     private static PaimonConnectorMetadata metadataWithCache(RecordingPaimonCatalogOps ops,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
         return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
                 new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE),
                 new PaimonLatestSnapshotCache(0L, 1), cache);
     }
 
-    private static ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache() {
-        return new ConnectorPartitionViewCache<>("paimon", Collections.emptyMap());
+    private static ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache() {
+        return new ConnectorMetadataCache<>("paimon", "partition_view", Collections.emptyMap());
     }
 
     private static RowType regionRowType() {
@@ -113,7 +113,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Arrays.asList(partition("cn"), partition("us"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -135,7 +135,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = regionTable();
         ops.table = table;
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -162,7 +162,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Collections.singletonList(partition("cn"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -181,7 +181,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Collections.singletonList(partition("cn"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -205,7 +205,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Collections.singletonList(partition("cn"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -251,7 +251,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         PaimonTableHandle h = new PaimonTableHandle(
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         h.setPaimonTable(table);
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
 
         List<ConnectorPartitionInfo> result = md.listPartitions(null, h, Optional.empty());
