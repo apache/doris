@@ -124,6 +124,27 @@ TEST_F(RowsetMetaTest, TestRowsetIdInit) {
     EXPECT_EQ(id.to_string(), "72057594037927935");
 }
 
+TEST_F(RowsetMetaTest, SegmentGroupsKeepRowsetOverlappingSemantics) {
+    RowsetMeta rowset_meta;
+    rowset_meta.set_version({10, 10});
+    rowset_meta.set_num_segments(5);
+    rowset_meta.set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    rowset_meta.set_segment_group_sizes({2, 3});
+
+    EXPECT_TRUE(rowset_meta.is_segments_overlapping());
+    EXPECT_TRUE(rowset_meta.produced_by_compaction());
+    EXPECT_EQ(rowset_meta.get_compaction_score(), 5);
+    EXPECT_EQ(rowset_meta.get_merge_way_num(), 5);
+
+    auto rowset_meta_pb = rowset_meta.get_rowset_pb();
+    ASSERT_EQ(rowset_meta_pb.segment_group_sizes_size(), 2);
+    EXPECT_EQ(rowset_meta_pb.segment_group_sizes(0), 2);
+    EXPECT_EQ(rowset_meta_pb.segment_group_sizes(1), 3);
+
+    rowset_meta.clear_segment_group_sizes();
+    EXPECT_EQ(rowset_meta.get_rowset_pb().segment_group_sizes_size(), 0);
+}
+
 TEST_F(RowsetMetaTest, TestNumSegmentRowsSetAndGet) {
     RowsetMeta rowset_meta;
     EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));

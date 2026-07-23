@@ -22,14 +22,18 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <mutex>
+#include <string>
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "json2pb/json_to_pb.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -40,6 +44,20 @@
 
 namespace doris {
 class TabletMap;
+
+namespace {
+
+void expect_segment_group_merge_ranges(const std::vector<cloud::SegmentGroupMergeRange>& actual,
+                                       const std::vector<cloud::SegmentGroupMergeRange>& expected) {
+    ASSERT_EQ(actual.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(actual[i].segment_start, expected[i].segment_start);
+        EXPECT_EQ(actual[i].segment_end, expected[i].segment_end);
+        EXPECT_EQ(actual[i].merge_way_num, expected[i].merge_way_num);
+    }
+}
+
+} // namespace
 
 class CloudCompactionTest : public testing::Test {
     CloudCompactionTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
@@ -202,7 +220,7 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
 }
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
-                                     int data_size) {
+                                     int data_size, int num_key_columns = 1) {
     auto rs_meta = std::make_shared<RowsetMeta>();
     rs_meta->set_rowset_type(BETA_ROWSET); // important
     rs_meta->_rowset_meta_pb.set_start_version(version.first);
@@ -210,6 +228,19 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
     rs_meta->set_num_segments(num_segments);
     rs_meta->set_segments_overlap(overlapping ? OVERLAPPING : NONOVERLAPPING);
     rs_meta->set_total_disk_size(data_size);
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    for (int i = 0; i < num_key_columns + 1; ++i) {
+        ColumnPB* column = tablet_schema_pb.add_column();
+        column->set_unique_id(i);
+        column->set_name("c" + std::to_string(i));
+        column->set_type("INT");
+        column->set_is_key(i < num_key_columns);
+        column->set_is_nullable(false);
+    }
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(tablet_schema_pb);
+    rs_meta->set_tablet_schema(tablet_schema);
     RowsetSharedPtr rowset;
     Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
     if (!st.ok()) {
@@ -454,6 +485,343 @@ TEST_F(CloudCompactionTest, should_cache_compaction_output) {
     config::enable_file_cache_write_index_file_only = true;
     ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
     LOG(INFO) << "should_cache_compaction_output done";
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_execution_path_conditions) {
+    auto old_enable = config::enable_cloud_single_rowset_compaction;
+    auto old_min_segments = config::cloud_single_rowset_compaction_min_segments;
+    auto old_group_size = config::cloud_single_rowset_compaction_segment_group_size;
+    Defer restore_config {[&] {
+        config::enable_cloud_single_rowset_compaction = old_enable;
+        config::cloud_single_rowset_compaction_min_segments = old_min_segments;
+        config::cloud_single_rowset_compaction_segment_group_size = old_group_size;
+    }};
+    config::enable_cloud_single_rowset_compaction = true;
+    config::cloud_single_rowset_compaction_min_segments = 4;
+    config::cloud_single_rowset_compaction_segment_group_size = 2;
+
+    RowsetSharedPtr candidate = create_rowset(Version(2, 2), 4, true, 1024);
+    ASSERT_TRUE(candidate != nullptr);
+    const auto& tablet_schema = *candidate->tablet_schema();
+    EXPECT_TRUE(cloud::is_single_rowset_compaction_candidate(candidate));
+    EXPECT_TRUE(cloud::should_use_single_rowset_grouped_compaction({candidate}, tablet_schema,
+                                                                   CUMULATIVE_SIZE_BASED_POLICY));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction({candidate}, tablet_schema,
+                                                                    CUMULATIVE_TIME_SERIES_POLICY));
+
+    TabletSchemaPB cluster_key_schema_pb;
+    tablet_schema.to_schema_pb(&cluster_key_schema_pb);
+    cluster_key_schema_pb.set_keys_type(UNIQUE_KEYS);
+    cluster_key_schema_pb.add_cluster_key_uids(1);
+    TabletSchema cluster_key_schema;
+    cluster_key_schema.init_from_pb(cluster_key_schema_pb);
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction({candidate}, cluster_key_schema,
+                                                                    CUMULATIVE_SIZE_BASED_POLICY));
+
+    config::enable_cloud_single_rowset_compaction = false;
+    EXPECT_TRUE(cloud::is_single_rowset_compaction_candidate(candidate));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction({candidate}, tablet_schema,
+                                                                    CUMULATIVE_SIZE_BASED_POLICY));
+    config::enable_cloud_single_rowset_compaction = true;
+
+    RowsetSharedPtr non_overlapping = create_rowset(Version(3, 3), 4, false, 1024);
+    ASSERT_TRUE(non_overlapping != nullptr);
+    EXPECT_FALSE(cloud::is_single_rowset_compaction_candidate(non_overlapping));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction(
+            {non_overlapping}, tablet_schema, CUMULATIVE_SIZE_BASED_POLICY));
+
+    RowsetSharedPtr too_few_segments = create_rowset(Version(4, 4), 3, true, 1024);
+    ASSERT_TRUE(too_few_segments != nullptr);
+    EXPECT_FALSE(cloud::is_single_rowset_compaction_candidate(too_few_segments));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction(
+            {too_few_segments}, tablet_schema, CUMULATIVE_SIZE_BASED_POLICY));
+
+    RowsetSharedPtr grouped_candidate = create_rowset(Version(5, 5), 8, true, 1024);
+    ASSERT_TRUE(grouped_candidate != nullptr);
+    grouped_candidate->rowset_meta()->set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    grouped_candidate->rowset_meta()->set_segment_group_sizes({2, 2, 2, 2});
+    EXPECT_TRUE(cloud::is_single_rowset_compaction_candidate(grouped_candidate));
+
+    RowsetSharedPtr grouped_with_too_few_groups = create_rowset(Version(6, 6), 8, true, 1024);
+    ASSERT_TRUE(grouped_with_too_few_groups != nullptr);
+    grouped_with_too_few_groups->rowset_meta()->set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    grouped_with_too_few_groups->rowset_meta()->set_segment_group_sizes({3, 3, 2});
+    EXPECT_FALSE(cloud::is_single_rowset_compaction_candidate(grouped_with_too_few_groups));
+
+    RowsetSharedPtr no_key_columns = create_rowset(Version(7, 7), 4, true, 1024, 0);
+    ASSERT_TRUE(no_key_columns != nullptr);
+    EXPECT_TRUE(cloud::is_single_rowset_compaction_candidate(no_key_columns));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction(
+            {no_key_columns}, *no_key_columns->tablet_schema(), CUMULATIVE_SIZE_BASED_POLICY));
+
+    RowsetSharedPtr with_delete_predicate = create_rowset(Version(8, 8), 4, true, 1024);
+    ASSERT_TRUE(with_delete_predicate != nullptr);
+    DeletePredicatePB delete_predicate;
+    auto* in_predicate = delete_predicate.add_in_predicates();
+    in_predicate->set_column_name("c1");
+    in_predicate->add_values("1");
+    with_delete_predicate->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
+    EXPECT_FALSE(cloud::is_single_rowset_compaction_candidate(with_delete_predicate));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction(
+            {with_delete_predicate}, tablet_schema, CUMULATIVE_SIZE_BASED_POLICY));
+
+    RowsetSharedPtr another_candidate = create_rowset(Version(9, 9), 4, true, 1024);
+    ASSERT_TRUE(another_candidate != nullptr);
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction(
+            {candidate, another_candidate}, tablet_schema, CUMULATIVE_SIZE_BASED_POLICY));
+    EXPECT_FALSE(cloud::should_use_single_rowset_grouped_compaction({}, tablet_schema,
+                                                                    CUMULATIVE_SIZE_BASED_POLICY));
+
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    CloudCumulativeCompaction compaction(_engine, tablet);
+    compaction._input_rowsets = {candidate};
+    compaction._cur_tablet_schema = candidate->tablet_schema();
+    compaction._single_rowset_compaction_segment_group_size =
+            config::cloud_single_rowset_compaction_segment_group_size;
+    Compaction::MergeInputRowsetsResult result;
+    ASSERT_TRUE(compaction.prepare_merge_input_rowsets(&result).ok());
+    EXPECT_TRUE(compaction._single_rowset_compaction_segment_group_size.has_value());
+    EXPECT_TRUE(result.is_segment_grouped);
+    EXPECT_EQ(result.segment_group_size, config::cloud_single_rowset_compaction_segment_group_size);
+
+    _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_TIME_SERIES_POLICY));
+    CloudCumulativeCompaction time_series_compaction(_engine, tablet);
+    time_series_compaction._input_rowsets = {candidate};
+    time_series_compaction._cur_tablet_schema = candidate->tablet_schema();
+    Compaction::MergeInputRowsetsResult time_series_result;
+    ASSERT_TRUE(time_series_compaction.prepare_merge_input_rowsets(&time_series_result).ok());
+    EXPECT_FALSE(time_series_compaction._single_rowset_compaction_segment_group_size.has_value());
+    EXPECT_FALSE(time_series_result.is_segment_grouped);
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_builds_logical_group_ranges) {
+    RowsetMeta overlapping_meta;
+    overlapping_meta.set_num_segments(5);
+    overlapping_meta.set_segments_overlap(OVERLAPPING);
+
+    const auto overlapping_ranges = cloud::build_segment_group_merge_ranges(overlapping_meta, 2);
+    expect_segment_group_merge_ranges(overlapping_ranges,
+                                      {{.segment_start = 0, .segment_end = 2, .merge_way_num = 2},
+                                       {.segment_start = 2, .segment_end = 4, .merge_way_num = 2},
+                                       {.segment_start = 4, .segment_end = 5, .merge_way_num = 1}});
+
+    const auto single_overlapping_range =
+            cloud::build_segment_group_merge_ranges(overlapping_meta, 10);
+    expect_segment_group_merge_ranges(single_overlapping_range,
+                                      {{.segment_start = 0, .segment_end = 5, .merge_way_num = 5}});
+
+    overlapping_meta.set_segments_overlap(NONOVERLAPPING);
+    const auto nonoverlapping_ranges = cloud::build_segment_group_merge_ranges(overlapping_meta, 2);
+    expect_segment_group_merge_ranges(nonoverlapping_ranges,
+                                      {{.segment_start = 0, .segment_end = 2, .merge_way_num = 2},
+                                       {.segment_start = 2, .segment_end = 4, .merge_way_num = 2},
+                                       {.segment_start = 4, .segment_end = 5, .merge_way_num = 1}});
+
+    overlapping_meta.set_segments_overlap(OVERLAP_UNKNOWN);
+    const auto unknown_overlap_ranges =
+            cloud::build_segment_group_merge_ranges(overlapping_meta, 2);
+    expect_segment_group_merge_ranges(unknown_overlap_ranges,
+                                      {{.segment_start = 0, .segment_end = 2, .merge_way_num = 2},
+                                       {.segment_start = 2, .segment_end = 4, .merge_way_num = 2},
+                                       {.segment_start = 4, .segment_end = 5, .merge_way_num = 1}});
+
+    RowsetMeta grouped_meta;
+    grouped_meta.set_num_segments(5);
+    grouped_meta.set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    grouped_meta.set_segment_group_sizes({2, 2, 1});
+
+    const auto grouped_ranges = cloud::build_segment_group_merge_ranges(grouped_meta, 2);
+    expect_segment_group_merge_ranges(grouped_ranges,
+                                      {{.segment_start = 0, .segment_end = 4, .merge_way_num = 2},
+                                       {.segment_start = 4, .segment_end = 5, .merge_way_num = 1}});
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_builds_group_range_boundaries) {
+    RowsetMeta grouped_meta;
+    grouped_meta.set_num_segments(5);
+    grouped_meta.set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    grouped_meta.set_segment_group_sizes({2, 2, 1});
+
+    const auto single_range = cloud::build_segment_group_merge_ranges(grouped_meta, 10);
+    expect_segment_group_merge_ranges(single_range,
+                                      {{.segment_start = 0, .segment_end = 5, .merge_way_num = 3}});
+
+    grouped_meta.set_num_segments(10);
+    grouped_meta.set_segment_group_sizes({1, 2, 3, 4});
+    const auto exact_ranges = cloud::build_segment_group_merge_ranges(grouped_meta, 2);
+    expect_segment_group_merge_ranges(
+            exact_ranges, {{.segment_start = 0, .segment_end = 3, .merge_way_num = 2},
+                           {.segment_start = 3, .segment_end = 10, .merge_way_num = 2}});
+
+    grouped_meta.set_num_segments(15);
+    grouped_meta.set_segment_group_sizes({3, 1, 4, 2, 5});
+    const auto irregular_ranges = cloud::build_segment_group_merge_ranges(grouped_meta, 2);
+    expect_segment_group_merge_ranges(
+            irregular_ranges, {{.segment_start = 0, .segment_end = 4, .merge_way_num = 2},
+                               {.segment_start = 4, .segment_end = 10, .merge_way_num = 2},
+                               {.segment_start = 10, .segment_end = 15, .merge_way_num = 1}});
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_rejects_invalid_range_input) {
+    RowsetMeta rowset_meta;
+    rowset_meta.set_num_segments(5);
+    rowset_meta.set_segments_overlap(OVERLAPPING);
+    EXPECT_DEATH(static_cast<void>(cloud::build_segment_group_merge_ranges(rowset_meta, 1)), "");
+
+    RowsetMeta empty_rowset_meta;
+    empty_rowset_meta.set_segments_overlap(OVERLAPPING);
+    EXPECT_DEATH(static_cast<void>(cloud::build_segment_group_merge_ranges(empty_rowset_meta, 2)),
+                 "");
+
+    RowsetMetaPB invalid_group_layout_pb;
+    invalid_group_layout_pb.set_rowset_id(1);
+    invalid_group_layout_pb.set_num_segments(5);
+    invalid_group_layout_pb.set_segments_overlap_pb(NONOVERLAPPING_WITHIN_GROUP);
+
+    RowsetMeta empty_group_layout;
+    ASSERT_TRUE(empty_group_layout.init_from_pb(invalid_group_layout_pb));
+    EXPECT_DEATH(static_cast<void>(cloud::build_segment_group_merge_ranges(empty_group_layout, 2)),
+                 "");
+
+    invalid_group_layout_pb.add_segment_group_sizes(2);
+    invalid_group_layout_pb.add_segment_group_sizes(2);
+    RowsetMeta invalid_group_layout;
+    ASSERT_TRUE(invalid_group_layout.init_from_pb(invalid_group_layout_pb));
+    EXPECT_DEATH(
+            static_cast<void>(cloud::build_segment_group_merge_ranges(invalid_group_layout, 2)),
+            "");
+
+    invalid_group_layout_pb.clear_segment_group_sizes();
+    invalid_group_layout_pb.add_segment_group_sizes(2);
+    invalid_group_layout_pb.add_segment_group_sizes(0);
+    invalid_group_layout_pb.add_segment_group_sizes(3);
+    RowsetMeta zero_sized_group_layout;
+    ASSERT_TRUE(zero_sized_group_layout.init_from_pb(invalid_group_layout_pb));
+    EXPECT_DEATH(
+            static_cast<void>(cloud::build_segment_group_merge_ranges(zero_sized_group_layout, 2)),
+            "");
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_calculates_cumulative_point) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    CloudCumulativeCompaction compaction(_engine, tablet);
+    compaction._input_rowsets = {create_rowset(Version(2, 2), 5, true, 1024)};
+    compaction._output_rowset = create_rowset(Version(2, 2), 5, false, 1024);
+    ASSERT_TRUE(compaction._input_rowsets.front() != nullptr);
+    ASSERT_TRUE(compaction._output_rowset != nullptr);
+    compaction._single_rowset_compaction_segment_group_size = 2;
+
+    EXPECT_TRUE(compaction.should_calculate_new_cumulative_point(2));
+    EXPECT_FALSE(compaction.should_calculate_new_cumulative_point(1));
+
+    compaction._output_rowset->rowset_meta()->set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    compaction._output_rowset->rowset_meta()->set_segment_group_sizes({2, 2, 1});
+    EXPECT_FALSE(compaction.should_calculate_new_cumulative_point(2));
+
+    compaction._single_rowset_compaction_segment_group_size.reset();
+    EXPECT_TRUE(compaction.should_calculate_new_cumulative_point(1));
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_uses_selection_snapshot) {
+    auto old_enable = config::enable_cloud_single_rowset_compaction;
+    auto old_min_segments = config::cloud_single_rowset_compaction_min_segments;
+    auto old_group_size = config::cloud_single_rowset_compaction_segment_group_size;
+    Defer restore_config {[&] {
+        config::enable_cloud_single_rowset_compaction = old_enable;
+        config::cloud_single_rowset_compaction_min_segments = old_min_segments;
+        config::cloud_single_rowset_compaction_segment_group_size = old_group_size;
+    }};
+    config::enable_cloud_single_rowset_compaction = true;
+    config::cloud_single_rowset_compaction_min_segments = 4;
+    config::cloud_single_rowset_compaction_segment_group_size = 2;
+
+    std::vector<RowsetSharedPtr> rowsets;
+    auto grouped_rowset = create_rowset(Version(2, 2), 4, true, 1024);
+    ASSERT_TRUE(grouped_rowset != nullptr);
+    rowsets.push_back(grouped_rowset);
+    for (int64_t version = 3; version <= 13; ++version) {
+        auto rowset = create_rowset(Version(version, version), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(std::move(rowset));
+    }
+
+    TabletSchemaPB tablet_schema_pb;
+    grouped_rowset->tablet_schema()->to_schema_pb(&tablet_schema_pb);
+    _tablet_meta->mutable_tablet_schema()->init_from_pb(tablet_schema_pb);
+    _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_SIZE_BASED_POLICY));
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    {
+        std::unique_lock wlock(tablet->get_header_lock());
+        tablet->add_rowsets(std::move(rowsets), false, wlock, false);
+    }
+
+    for (const int32_t invalid_group_size : {0, 1}) {
+        config::cloud_single_rowset_compaction_segment_group_size = invalid_group_size;
+        CloudCumulativeCompaction invalid_config_compaction(_engine, tablet);
+        ASSERT_TRUE(invalid_config_compaction.pick_rowsets_to_compact().ok());
+        EXPECT_FALSE(
+                invalid_config_compaction._single_rowset_compaction_segment_group_size.has_value());
+    }
+    config::cloud_single_rowset_compaction_segment_group_size = 2;
+
+    CloudCumulativeCompaction compaction(_engine, tablet);
+    ASSERT_TRUE(compaction.pick_rowsets_to_compact().ok());
+    ASSERT_EQ(compaction._input_rowsets.size(), 1);
+    EXPECT_EQ(compaction._input_rowsets.front(), grouped_rowset);
+    ASSERT_TRUE(compaction._single_rowset_compaction_segment_group_size.has_value());
+    EXPECT_EQ(*compaction._single_rowset_compaction_segment_group_size, 2);
+
+    config::enable_cloud_single_rowset_compaction = false;
+    config::cloud_single_rowset_compaction_min_segments = 5;
+    config::cloud_single_rowset_compaction_segment_group_size = 3;
+
+    Compaction::MergeInputRowsetsResult result;
+    ASSERT_TRUE(compaction.prepare_merge_input_rowsets(&result).ok());
+    EXPECT_TRUE(compaction._single_rowset_compaction_segment_group_size.has_value());
+    EXPECT_TRUE(result.is_segment_grouped);
+    EXPECT_EQ(result.segment_group_size, 2);
+}
+
+TEST_F(CloudCompactionTest, single_rowset_grouped_compaction_honors_notready_policy_filter) {
+    auto old_enable = config::enable_cloud_single_rowset_compaction;
+    auto old_min_segments = config::cloud_single_rowset_compaction_min_segments;
+    auto old_enable_empty_rowset_compaction = config::enable_empty_rowset_compaction;
+    Defer restore_config {[&] {
+        config::enable_cloud_single_rowset_compaction = old_enable;
+        config::cloud_single_rowset_compaction_min_segments = old_min_segments;
+        config::enable_empty_rowset_compaction = old_enable_empty_rowset_compaction;
+    }};
+    config::enable_cloud_single_rowset_compaction = true;
+    config::cloud_single_rowset_compaction_min_segments = 4;
+    config::enable_empty_rowset_compaction = false;
+
+    std::vector<RowsetSharedPtr> rowsets;
+    auto filtered_grouped_rowset = create_rowset(Version(2, 2), 4, true, 1024);
+    ASSERT_TRUE(filtered_grouped_rowset != nullptr);
+    rowsets.push_back(filtered_grouped_rowset);
+    for (int64_t version = 3; version <= 13; ++version) {
+        auto rowset = create_rowset(Version(version, version), 1, false, 1024);
+        ASSERT_TRUE(rowset != nullptr);
+        rowsets.push_back(std::move(rowset));
+    }
+
+    TabletSchemaPB tablet_schema_pb;
+    filtered_grouped_rowset->tablet_schema()->to_schema_pb(&tablet_schema_pb);
+    _tablet_meta->mutable_tablet_schema()->init_from_pb(tablet_schema_pb);
+    _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_SIZE_BASED_POLICY));
+    _tablet_meta->set_tablet_state(TABLET_NOTREADY);
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
+    tablet->set_alter_version(1);
+    {
+        std::unique_lock wlock(tablet->get_header_lock());
+        tablet->add_rowsets(std::move(rowsets), false, wlock, false);
+    }
+
+    CloudCumulativeCompaction compaction(_engine, tablet);
+    ASSERT_TRUE(compaction.pick_rowsets_to_compact().ok());
+    ASSERT_EQ(compaction._input_rowsets.size(), 11);
+    EXPECT_EQ(compaction._input_rowsets.front()->version(), Version(3, 3));
+    EXPECT_EQ(compaction._input_rowsets.back()->version(), Version(13, 13));
 }
 
 TEST_F(CloudCompactionTest, test_truncate_rowsets_by_txn_size_empty_input) {

@@ -95,6 +95,9 @@ DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);
 DECLARE_mInt32(compaction_max_rowset_count);
 DECLARE_mInt64(compaction_txn_max_size_bytes);
+DECLARE_mBool(enable_cloud_single_rowset_compaction);
+DECLARE_mInt32(cloud_single_rowset_compaction_min_segments);
+DECLARE_mInt32(cloud_single_rowset_compaction_segment_group_size);
 
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
