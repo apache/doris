@@ -60,7 +60,7 @@ import java.util.Optional;
  * sibling is always built first, by getTableHandle, before it can produce the handle). It never force-builds an
  * unrelated plugin merely to classify a handle — so a catalog serving only hudi (no iceberg plugin installed)
  * still routes its hudi handles, and the iceberg arm stays byte-behaviour-identical (an iceberg handle routes to
- * iceberg without ever touching the hudi holder). Dormant until hms enters {@code SPI_READY_TYPES}.</p>
+ * iceberg without ever touching the hudi holder).</p>
  */
 public class HiveConnectorThreeWayRoutingTest {
 

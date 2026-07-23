@@ -38,29 +38,6 @@ public interface Transaction {
         // no-op: write transactions override this
     }
 
-    /**
-     * Whether this transaction allocates write block ranges through a write-time
-     * BE&rarr;FE callback (e.g. maxcompute). Default {@code false}.
-     */
-    default boolean supportsWriteBlockAllocation() {
-        return false;
-    }
-
-    /**
-     * Allocates a contiguous range of write block ids for the given write
-     * session, returning the first allocated id. Only invoked when
-     * {@link #supportsWriteBlockAllocation()} returns {@code true}; the default
-     * throws.
-     *
-     * @param writeSessionId opaque connector-defined write session identifier
-     * @param count          number of block ids to allocate
-     * @return the first allocated block id
-     * @throws UserException on validation failure or allocation overflow
-     */
-    default long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
-        throw new UnsupportedOperationException("write block allocation not supported");
-    }
-
     /** Returns the number of rows affected by the write(s) in this transaction. */
     default long getUpdateCnt() {
         return 0;

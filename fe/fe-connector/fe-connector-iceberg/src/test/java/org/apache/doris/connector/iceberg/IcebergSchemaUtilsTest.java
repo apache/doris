@@ -323,6 +323,76 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertFalse(fields.get("name").isSetInitialDefaultValue());
     }
 
+    @Test
+    public void writeDefaultCarriedAsDorisString() {
+        // #10: parseSchema surfaces a field's iceberg WRITE default as the FE Column default (INSERT-omitted
+        // fill + DESC). Non-binary scalars use the same human-string form as the read-side initial default;
+        // complex/binary-like types and a missing write default surface no Column default (null).
+        // MUTATION: dropping the isBinaryLike / isPrimitiveType guard -> the binary/complex asserts flip;
+        // reverting parseSchema to a hardcoded null default -> DESC/INSERT lose the write default.
+
+        Types.NestedField intField = Types.NestedField.optional("i").withId(1)
+                .ofType(Types.IntegerType.get()).withWriteDefault(42).build();
+        Assertions.assertEquals("42",
+                IcebergSchemaUtils.writeDefaultToDorisString(intField.type(), intField.writeDefault(), false));
+
+        Types.NestedField strField = Types.NestedField.optional("s").withId(2)
+                .ofType(Types.StringType.get()).withWriteDefault("hi").build();
+        Assertions.assertEquals("hi",
+                IcebergSchemaUtils.writeDefaultToDorisString(strField.type(), strField.writeDefault(), false));
+
+        Types.NestedField boolField = Types.NestedField.optional("b").withId(3)
+                .ofType(Types.BooleanType.get()).withWriteDefault(true).build();
+        Assertions.assertEquals("true",
+                IcebergSchemaUtils.writeDefaultToDorisString(boolField.type(), boolField.writeDefault(), false));
+
+        // DATE: iceberg stores days-from-epoch; 19723 == 2024-01-01.
+        Types.NestedField dateField = Types.NestedField.optional("d").withId(4)
+                .ofType(Types.DateType.get()).withWriteDefault(19723).build();
+        Assertions.assertEquals("2024-01-01",
+                IcebergSchemaUtils.writeDefaultToDorisString(dateField.type(), dateField.writeDefault(), false));
+
+        // TIMESTAMP without zone: micros; iceberg ISO 'T' becomes a DATETIMEV2 space (parity with read default).
+        Types.NestedField tsField = Types.NestedField.optional("ts").withId(5)
+                .ofType(Types.TimestampType.withoutZone()).withWriteDefault(1_704_067_200_123_456L).build();
+        Assertions.assertEquals("2024-01-01 00:00:00.123456",
+                IcebergSchemaUtils.writeDefaultToDorisString(tsField.type(), tsField.writeDefault(), false));
+
+        // TIMESTAMP with zone, tz-mapping off: keep the UTC wall time, drop the trailing offset.
+        Types.NestedField tstzField = Types.NestedField.optional("tstz").withId(6)
+                .ofType(Types.TimestampType.withZone()).withWriteDefault(1_704_067_200_123_456L).build();
+        String tstz = IcebergSchemaUtils.writeDefaultToDorisString(
+                tstzField.type(), tstzField.writeDefault(), false);
+        Assertions.assertTrue(tstz.startsWith("2024-01-01 00:00:00"),
+                "timestamptz wall time preserved: " + tstz);
+        Assertions.assertFalse(tstz.matches(".*(Z|[+-]\\d{2}:\\d{2})$"),
+                "timestamptz offset dropped when tz mapping off: " + tstz);
+
+        // Binary-like (UUID/BINARY/FIXED): not representable as a flat Doris default literal -> null (skip).
+        Types.NestedField uuidField = Types.NestedField.optional("u").withId(7)
+                .ofType(Types.UUIDType.get())
+                .withWriteDefault(UUID.fromString("00000000-0000-0000-0000-000000000000")).build();
+        Assertions.assertNull(
+                IcebergSchemaUtils.writeDefaultToDorisString(uuidField.type(), uuidField.writeDefault(), false));
+        Types.NestedField binField = Types.NestedField.optional("bin").withId(8)
+                .ofType(Types.BinaryType.get())
+                .withWriteDefault(ByteBuffer.wrap(new byte[] {0, 1, 2})).build();
+        Assertions.assertNull(
+                IcebergSchemaUtils.writeDefaultToDorisString(binField.type(), binField.writeDefault(), false));
+
+        // Complex type (LIST): a flat Column default can't carry it -> null (out of scope).
+        Types.NestedField listField = Types.NestedField.optional("l").withId(9)
+                .ofType(Types.ListType.ofOptional(10, Types.IntegerType.get())).build();
+        Assertions.assertNull(
+                IcebergSchemaUtils.writeDefaultToDorisString(listField.type(), listField.writeDefault(), false));
+
+        // No write default -> no Column default.
+        Types.NestedField noDefault = Types.NestedField.optional("n").withId(11)
+                .ofType(Types.IntegerType.get()).build();
+        Assertions.assertNull(
+                IcebergSchemaUtils.writeDefaultToDorisString(noDefault.type(), noDefault.writeDefault(), false));
+    }
+
     // --- scalar placeholder + nested struct/array/map carry field ids at every level ---
 
     @Test

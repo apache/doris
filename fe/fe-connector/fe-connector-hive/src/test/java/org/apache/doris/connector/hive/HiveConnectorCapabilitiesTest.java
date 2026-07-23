@@ -26,10 +26,10 @@ import java.util.Collections;
 import java.util.Set;
 
 /**
- * Pins the exact connector-wide capability set the hive connector declares (HMS cutover §4.2, dormant).
+ * Pins the exact connector-wide capability set the hive connector declares (HMS cutover §4.2).
  *
  * <p>Each capability is either a faithful port of a legacy HMSExternalTable/HMS admission (declared) or a
- * deliberate deferral (withheld). The set is inert until hms enters SPI_READY_TYPES, so these assertions are
+ * deliberate deferral (withheld). The set is live for every flipped hms catalog, so these assertions are
  * a Rule-9 guard: flipping any capability without the supporting machinery (or dropping a legacy-parity one)
  * would silently change post-flip behavior, and this test fails loud instead.</p>
  */
