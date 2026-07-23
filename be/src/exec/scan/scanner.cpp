@@ -160,8 +160,11 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     DCHECK(block->rows() == 0);
                     break;
                 }
-                _num_rows_read += block->rows();
-                _num_byte_read += block->allocated_bytes();
+                // Some scanners apply owned predicates before returning the block. Account the
+                // materialized input, not only survivors, so the per-turn progress bound remains
+                // effective for highly selective predicates.
+                _num_rows_read += _last_block_rows_read(*block);
+                _num_byte_read += _last_block_bytes_read(*block);
             }
 
             // 2. Filter the output block finally.

@@ -60,6 +60,7 @@ public:
     // Update EWMA estimates from a completed batch.  Must be called only when block.rows() > 0
     // and the batch returned Status::OK().
     void update(const Block& block);
+    void update(size_t rows, size_t bytes);
 
     // Predict how many rows the next batch should read.
     // Never exceeds |block_size_rows|; never returns less than 1.

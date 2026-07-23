@@ -180,6 +180,7 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
 Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.exec_timer);
+    _reset_materialized_block_stats();
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
@@ -198,15 +199,18 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
     }
 
     if (_delete_file_kind == DeleteFileKind::DELETION_VECTOR) {
-        while (true) {
-            size_t read_rows = 0;
-            RETURN_IF_ERROR(_append_deletion_vector_block(block, &read_rows, eos));
+        size_t read_rows = 0;
+        RETURN_IF_ERROR(_append_deletion_vector_block(block, &read_rows, eos));
+        if (read_rows > 0) {
+            _record_materialized_block_stats(*block, read_rows);
             RETURN_IF_ERROR(_filter_remaining_conjuncts(block, &read_rows));
-            if (read_rows > 0 || *eos) {
-                return Status::OK();
-            }
+        }
+        if (read_rows == 0) {
+            // Yield after one deletion-vector batch so cancellation and Scanner row budgets are
+            // observed even when residual predicates reject every synthesized row.
             block->clear_column_data(_projected_columns.size());
         }
+        return Status::OK();
     }
 
     DORIS_CHECK(_position_reader != nullptr);
@@ -223,10 +227,14 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
             size_t read_rows = 0;
             RETURN_IF_ERROR(
                     _append_position_delete_block(block, delete_block, delete_rows, &read_rows));
+            _record_materialized_block_stats(*block, read_rows);
             RETURN_IF_ERROR(_filter_remaining_conjuncts(block, &read_rows));
             if (read_rows == 0) {
+                // A filtered materialized batch is still progress; return it to Scanner instead of
+                // consuming an unbounded number of position-delete batches in this call.
                 block->clear_column_data(_projected_columns.size());
-                continue;
+                *eos = false;
+                return Status::OK();
             }
             *eos = false;
             return Status::OK();

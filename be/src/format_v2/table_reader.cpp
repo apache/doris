@@ -678,6 +678,8 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PrepareSplitTime", table_profile, 1);
         _profile.finalize_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "FinalizeBlockTime", table_profile, 1);
+        _profile.residual_filter_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                _scanner_profile, "ResidualFilterTime", table_profile, 1);
         _profile.create_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "CreateReaderTime", table_profile, 1);
         _profile.pushdown_agg_timer =
@@ -734,7 +736,45 @@ Status TableReader::init(TableReadOptions&& options) {
     }
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
-    _conjuncts = std::move(options.conjuncts);
+    return _replace_conjuncts(options.conjuncts);
+}
+
+Status TableReader::_prepare_conjunct(const VExprContextSPtr& source, VExprContextSPtr* prepared) {
+    DORIS_CHECK(source != nullptr);
+    DORIS_CHECK(source->root() != nullptr);
+    DORIS_CHECK(prepared != nullptr);
+    VExprSPtr root;
+    RETURN_IF_ERROR(clone_table_expr_tree(source->root(), &root));
+    auto conjunct = VExprContext::create_shared(std::move(root));
+    RETURN_IF_ERROR(conjunct->prepare(_runtime_state, RowDescriptor {}));
+    RETURN_IF_ERROR(conjunct->open(_runtime_state));
+    *prepared = std::move(conjunct);
+    return Status::OK();
+}
+
+Status TableReader::_replace_conjuncts(const VExprContextSPtrs& conjuncts) {
+    VExprContextSPtrs prepared;
+    prepared.reserve(conjuncts.size());
+    for (const auto& source : conjuncts) {
+        VExprContextSPtr conjunct;
+        RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        prepared.push_back(std::move(conjunct));
+    }
+    _conjuncts = std::move(prepared);
+    return Status::OK();
+}
+
+Status TableReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
+    for (const auto& source : conjuncts) {
+        VExprContextSPtr conjunct;
+        RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        _conjuncts.push_back(conjunct);
+        if (_current_task != nullptr) {
+            // The active reader has already fixed its localized predicate set. Appended runtime
+            // filters must remain residual until the next split rebuilds its FileScanRequest.
+            _remaining_conjuncts.push_back(std::move(conjunct));
+        }
+    }
     return Status::OK();
 }
 
@@ -771,16 +811,9 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 }
 
 Status TableReader::_prepare_all_conjuncts_as_remaining() {
-    _remaining_conjuncts.clear();
-    RowDescriptor row_desc;
-    for (const auto& source_conjunct : _conjuncts) {
-        VExprSPtr root;
-        RETURN_IF_ERROR(clone_table_expr_tree(source_conjunct->root(), &root));
-        auto conjunct = VExprContext::create_shared(std::move(root));
-        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(conjunct->open(_runtime_state));
-        _remaining_conjuncts.push_back(std::move(conjunct));
-    }
+    // Expression contexts carry mutable state (for example sequence/stateful functions). Select
+    // from the TableReader-owned contexts instead of reopening clones for every split.
+    _remaining_conjuncts = _conjuncts;
     return Status::OK();
 }
 
@@ -798,17 +831,11 @@ Status TableReader::_prepare_remaining_conjuncts(
     }
 
     _remaining_conjuncts.clear();
-    RowDescriptor row_desc;
     for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
         if (localized_conjuncts[conjunct_index]) {
             continue;
         }
-        VExprSPtr root;
-        RETURN_IF_ERROR(clone_table_expr_tree(_conjuncts[conjunct_index]->root(), &root));
-        auto conjunct = VExprContext::create_shared(std::move(root));
-        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(conjunct->open(_runtime_state));
-        _remaining_conjuncts.push_back(std::move(conjunct));
+        _remaining_conjuncts.push_back(_conjuncts[conjunct_index]);
     }
     return Status::OK();
 }
@@ -819,6 +846,7 @@ Status TableReader::_filter_remaining_conjuncts(Block* block, size_t* rows) {
     if (*rows == 0 || _remaining_conjuncts.empty()) {
         return Status::OK();
     }
+    SCOPED_TIMER(_profile.residual_filter_timer);
     const size_t rows_before_filter = *rows;
     auto status = VExprContext::filter_block(_remaining_conjuncts, block, block->columns());
     if (!status.ok() && _format == FileFormat::ORC) {
@@ -1088,7 +1116,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
         _condition_cache_digest = _initial_condition_cache_digest;
     }
     if (options.conjuncts.has_value()) {
-        _conjuncts = *options.conjuncts;
+        RETURN_IF_ERROR(_replace_conjuncts(*options.conjuncts));
     }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;

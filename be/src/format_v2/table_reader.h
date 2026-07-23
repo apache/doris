@@ -116,6 +116,7 @@ struct ReadProfile {
     RuntimeProfile::Counter* exec_timer = nullptr;
     RuntimeProfile::Counter* prepare_split_timer = nullptr;
     RuntimeProfile::Counter* finalize_timer = nullptr;
+    RuntimeProfile::Counter* residual_filter_timer = nullptr;
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
@@ -130,6 +131,13 @@ struct ReadProfile {
     RuntimeProfile::Counter* file_reader_get_block_timer = nullptr;
     RuntimeProfile::Counter* file_reader_aggregate_timer = nullptr;
     RuntimeProfile::Counter* file_reader_close_timer = nullptr;
+};
+
+struct MaterializedBlockStats {
+    bool has_materialized_input = false;
+    size_t rows = 0;
+    size_t bytes = 0;
+    size_t allocated_bytes = 0;
 };
 
 struct TableReadOptions {
@@ -230,6 +238,15 @@ public:
         return _current_split_uses_metadata_count;
     }
 
+    // Runtime filters that arrive after a split has opened cannot be pushed into that file reader.
+    // Keep their expression contexts in TableReader and evaluate them as residual predicates for
+    // the active reader; later splits can localize them normally.
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts);
+
+    const MaterializedBlockStats& last_materialized_block_stats() const {
+        return _last_materialized_block_stats;
+    }
+
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
     // with no concrete reader or split-local state left from the failed split.
@@ -259,6 +276,7 @@ public:
     virtual Status get_block(Block* block, bool* eos) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.exec_timer);
+        _last_materialized_block_stats = {};
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
 
@@ -341,8 +359,11 @@ public:
                 RETURN_IF_ERROR(close_current_reader());
             }
             if (current_rows == 0) {
+                // One materialized batch is one Scanner progress unit even when residual
+                // predicates reject every row. Returning here preserves row-budget and
+                // cancellation checks in Scanner::get_block().
                 block->clear_column_data(_projected_columns.size());
-                continue;
+                return Status::OK();
             }
             return Status::OK();
         }
@@ -533,6 +554,8 @@ protected:
     }
 
     Status _build_table_filters_from_conjuncts();
+    Status _replace_conjuncts(const VExprContextSPtrs& conjuncts);
+    Status _prepare_conjunct(const VExprContextSPtr& source, VExprContextSPtr* prepared);
     Status _prepare_remaining_conjuncts(const FilterLocalizationResult& localization_result);
     Status _prepare_all_conjuncts_as_remaining();
     Status _filter_remaining_conjuncts(Block* block, size_t* rows);
@@ -790,6 +813,17 @@ protected:
         }
     }
 
+    void _reset_materialized_block_stats() { _last_materialized_block_stats = {}; }
+
+    void _record_materialized_block_stats(const Block& block, size_t rows) {
+        _last_materialized_block_stats = {
+                .has_materialized_input = true,
+                .rows = rows,
+                .bytes = block.bytes(),
+                .allocated_bytes = block.allocated_bytes(),
+        };
+    }
+
     // Finalize file-local block to table/global schema block.
     Status finalize_chunk(Block* block, size_t* rows) {
         DORIS_CHECK(rows != nullptr);
@@ -808,6 +842,9 @@ protected:
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
         // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+        // Preserve the cost of materialization before residual predicates shrink the block. The
+        // scanner uses this snapshot for bounded progress and adaptive batch sizing.
+        _record_materialized_block_stats(*block, *rows);
         // Predicate ownership is split-local: only predicates not acknowledged as exact by this
         // split's FileScanRequest run here, after virtual/default/schema-evolution values exist.
         return _filter_remaining_conjuncts(block, rows);
@@ -1769,6 +1806,7 @@ protected:
     size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
     VExprContextSPtrs _remaining_conjuncts;
+    MaterializedBlockStats _last_materialized_block_stats;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;

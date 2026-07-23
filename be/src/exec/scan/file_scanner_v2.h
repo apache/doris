@@ -111,6 +111,8 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
     Status _filter_output_block(Block* block) override;
+    size_t _last_block_rows_read(const Block& block) const override;
+    size_t _last_block_bytes_read(const Block& block) const override;
     void _collect_profile_before_close() override;
     bool _should_update_load_counters() const override;
 
@@ -140,6 +142,7 @@ private:
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
+    Status _sync_table_reader_conjuncts();
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
     void _reset_adaptive_batch_size_state();
@@ -217,6 +220,8 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
     int64_t _reported_io_read_time = 0;
+    size_t _table_reader_conjunct_count = 0;
+    int _table_reader_applied_rf_num = 0;
 };
 
 } // namespace doris

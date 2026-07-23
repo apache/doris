@@ -401,6 +401,7 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
     SCOPED_TIMER(_get_block_timer);
     while (true) {
         RETURN_IF_CANCELLED(state);
+        RETURN_IF_ERROR(_sync_table_reader_conjuncts());
         if (!_has_prepared_split) {
             RETURN_IF_ERROR(_prepare_next_split(eof));
             if (*eof) {
@@ -454,6 +455,16 @@ Status FileScannerV2::_filter_output_block(Block* block) {
     // FileReader and TableReader jointly enforce the split's exact predicate ownership. Running
     // scanner conjuncts again would duplicate deterministic work and stateful expression effects.
     return Status::OK();
+}
+
+size_t FileScannerV2::_last_block_rows_read(const Block& block) const {
+    const auto& stats = _table_reader->last_materialized_block_stats();
+    return stats.has_materialized_input ? stats.rows : block.rows();
+}
+
+size_t FileScannerV2::_last_block_bytes_read(const Block& block) const {
+    const auto& stats = _table_reader->last_materialized_block_stats();
+    return stats.has_materialized_input ? stats.allocated_bytes : block.allocated_bytes();
 }
 
 Status FileScannerV2::_prepare_next_split(bool* eos) {
@@ -521,6 +532,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
+    const size_t table_conjunct_count = table_conjuncts.size();
     std::optional<std::vector<format::GlobalIndex>> push_down_count_columns;
     const auto& push_down_count_slot_ids = _local_state->get_push_down_count_slot_ids();
     if (push_down_count_slot_ids.has_value()) {
@@ -549,6 +561,8 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
+    _table_reader_conjunct_count = table_conjunct_count;
+    _table_reader_applied_rf_num = _applied_rf_num;
     return Status::OK();
 }
 
@@ -593,15 +607,12 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
     format::FileFormat current_split_format;
     RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
-    VExprContextSPtrs conjuncts;
-    RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
     if (_state->query_options().enable_runtime_filter_partition_prune) {
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
-            .conjuncts = std::move(conjuncts),
             .partition_prune_conjuncts = std::move(partition_prune_conjuncts),
             // A metadata COUNT split may span scheduler turns. Do not enter that irreversible
             // synthetic-row path while a runtime filter can still arrive between batches.
@@ -803,6 +814,29 @@ Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const
     return Status::OK();
 }
 
+Status FileScannerV2::_sync_table_reader_conjuncts() {
+    if (_table_reader == nullptr) {
+        return Status::OK();
+    }
+    if (_table_reader_applied_rf_num == _applied_rf_num) {
+        return Status::OK();
+    }
+    VExprContextSPtrs conjuncts;
+    RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
+    if (conjuncts.size() < _table_reader_conjunct_count) {
+        return Status::InternalError("Late runtime-filter snapshot shrank from {} to {} conjuncts",
+                                     _table_reader_conjunct_count, conjuncts.size());
+    }
+
+    VExprContextSPtrs appended(conjuncts.begin() + _table_reader_conjunct_count, conjuncts.end());
+    // Preserve existing expression state and append only newly arrived RFs. Replacing the whole
+    // snapshot would restart stateful predicates that already processed earlier splits.
+    RETURN_IF_ERROR(_table_reader->append_conjuncts(appended));
+    _table_reader_conjunct_count = conjuncts.size();
+    _table_reader_applied_rf_num = _applied_rf_num;
+    return Status::OK();
+}
+
 TFileFormatType::type FileScannerV2::_get_current_format_type() const {
     return get_range_format_type(*_params, _current_range);
 }
@@ -926,17 +960,19 @@ void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
     if (!_should_run_adaptive_batch_size()) {
         return;
     }
-    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(block.bytes()));
-    if (block.rows() == 0) {
+    const auto& stats = _table_reader->last_materialized_block_stats();
+    const size_t rows = stats.has_materialized_input ? stats.rows : block.rows();
+    const size_t bytes = stats.has_materialized_input ? stats.bytes : block.bytes();
+    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(bytes));
+    if (rows == 0) {
         return;
     }
-    // The sample is taken after TableReader has finalized file-local columns to table columns.
-    // This matches the memory shape seen by upstream operators and catches very wide nested
-    // columns, such as map/string payloads, after the first probe batch.
+    // Residual predicates run after wide table columns are materialized. Learn from that pre-filter
+    // shape so selective predicates cannot make the next reader batch dangerously large.
     if (!_block_size_predictor->has_history()) {
         COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
     }
-    _block_size_predictor->update(block);
+    _block_size_predictor->update(rows, bytes);
 }
 
 Status FileScannerV2::close(RuntimeState* state) {

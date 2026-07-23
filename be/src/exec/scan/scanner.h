@@ -231,6 +231,11 @@ public:
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
+    virtual size_t _last_block_rows_read(const Block& block) const { return block.rows(); }
+    virtual size_t _last_block_bytes_read(const Block& block) const {
+        return block.allocated_bytes();
+    }
+
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
 
