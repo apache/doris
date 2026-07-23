@@ -52,7 +52,7 @@ comment_to_pipeline=(
     ['cloud_p0']='Doris_DorisRegression_CloudP0'
     ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
     ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
-    ['nonConcurrent']='Doris_DorisRegression_NonConcurrentRegression'
+    ['nonConcurrent']='Doris_DorisCloudRegression_NonConcurrent_NonConcurrentRegression'
     ['check_coverage']='Doris_Coverage_Merge_P0_UT'
 )
 
