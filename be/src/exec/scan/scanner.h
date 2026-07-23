@@ -263,6 +263,9 @@ protected:
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
+    // Exact append-only RF delta for readers that preserve state across multiple splits. It must
+    // not be reconstructed by position from the cost-sorted full conjunct snapshot.
+    VExprContextSPtrs _late_arrival_rf_conjuncts;
     VExprContextSPtrs _projections;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<VExprContextSPtrs> _intermediate_projections;

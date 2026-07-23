@@ -125,6 +125,25 @@ void HudiHybridReader::set_batch_size(size_t batch_size) {
     }
 }
 
+Status HudiHybridReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
+    // The wrapper snapshot initializes future children, while every existing child needs the same
+    // late RF immediately so active and later reused splits keep identical predicate ownership.
+    RETURN_IF_ERROR(format::TableReader::append_conjuncts(conjuncts));
+    if (_native_reader != nullptr) {
+        RETURN_IF_ERROR(_native_reader->append_conjuncts(conjuncts));
+    }
+    if (_jni_reader != nullptr) {
+        RETURN_IF_ERROR(_jni_reader->append_conjuncts(conjuncts));
+    }
+    return Status::OK();
+}
+
+const format::MaterializedBlockStats& HudiHybridReader::last_materialized_block_stats() const {
+    // FileScannerV2 budgets cooperative work from the child that actually materialized the block.
+    return _current_split_reader != nullptr ? _current_split_reader->last_materialized_block_stats()
+                                            : format::TableReader::last_materialized_block_stats();
+}
+
 Status HudiHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     DORIS_CHECK(_scan_params != nullptr);
     if (_is_jni_split(*_scan_params, options.current_range)) {

@@ -241,9 +241,9 @@ public:
     // Runtime filters that arrive after a split has opened cannot be pushed into that file reader.
     // Keep their expression contexts in TableReader and evaluate them as residual predicates for
     // the active reader; later splits can localize them normally.
-    Status append_conjuncts(const VExprContextSPtrs& conjuncts);
+    virtual Status append_conjuncts(const VExprContextSPtrs& conjuncts);
 
-    const MaterializedBlockStats& last_materialized_block_stats() const {
+    virtual const MaterializedBlockStats& last_materialized_block_stats() const {
         return _last_materialized_block_stats;
     }
 
@@ -1011,31 +1011,7 @@ protected:
     // - table VARCHAR(10), file STRING: truncate to 10 because STRING has no declared bound;
     // - table STRING, any file type: no truncation because the target has no bound.
     static bool _should_truncate_char_or_varchar_column(const ColumnMapping& mapping) {
-        if (mapping.table_type == nullptr) {
-            return false;
-        }
-        const auto table_type = remove_nullable(mapping.table_type);
-        const auto primitive_type = table_type->get_primitive_type();
-        if (primitive_type != TYPE_VARCHAR && primitive_type != TYPE_CHAR) {
-            return false;
-        }
-        const auto target_len = assert_cast<const DataTypeString*>(table_type.get())->len();
-        if (target_len <= 0) {
-            return false;
-        }
-        if (mapping.file_type == nullptr) {
-            return true;
-        }
-        const auto file_type = remove_nullable(mapping.file_type);
-        DORIS_CHECK(file_type != nullptr);
-        int file_len = -1;
-        if (file_type->get_primitive_type() == TYPE_VARCHAR ||
-            file_type->get_primitive_type() == TYPE_CHAR ||
-            file_type->get_primitive_type() == TYPE_STRING) {
-            file_len = assert_cast<const DataTypeString*>(file_type.get())->len();
-        }
-
-        return file_len < 0 || target_len < file_len;
+        return requires_char_or_varchar_truncation(mapping);
     }
 
     // Truncate a materialized CHAR/VARCHAR column in place by reusing the vectorized substring

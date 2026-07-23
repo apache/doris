@@ -37,6 +37,8 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -139,6 +141,16 @@ public:
         SCOPED_TIMER(_profile.prepare_split_timer);
         return Status::OK();
     }
+};
+
+class AppendTrackingTableReader final : public TableReader {
+public:
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts) override {
+        appended_conjuncts += conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t appended_conjuncts = 0;
 };
 
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
@@ -260,6 +272,47 @@ TEST(HudiHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
     const auto child_batch_sizes = reader.TEST_child_batch_sizes();
     EXPECT_EQ(child_batch_sizes.first, 123);
     EXPECT_EQ(child_batch_sizes.second, 123);
+}
+
+TEST(HudiHybridReaderTest, ReportsActiveChildMaterializedBlockStats) {
+    hudi::HudiHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader._current_split_reader = reader._native_reader.get();
+    reader._native_reader->_last_materialized_block_stats = {
+            .has_materialized_input = true, .rows = 7, .bytes = 70, .allocated_bytes = 96};
+
+    const auto& stats = reader.last_materialized_block_stats();
+    EXPECT_TRUE(stats.has_materialized_input);
+    EXPECT_EQ(stats.rows, 7);
+    EXPECT_EQ(stats.bytes, 70);
+    EXPECT_EQ(stats.allocated_bytes, 96);
+}
+
+TEST(HudiHybridReaderTest, LateConjunctReachesInitializedNativeAndJniChildren) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    hudi::HudiHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    auto native_reader = std::make_unique<AppendTrackingTableReader>();
+    auto jni_reader = std::make_unique<AppendTrackingTableReader>();
+    auto* native_reader_ptr = native_reader.get();
+    auto* jni_reader_ptr = jni_reader.get();
+    reader._native_reader = std::move(native_reader);
+    reader._jni_reader = std::move(jni_reader);
+
+    auto literal = VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                           Field::create_field<TYPE_INT>(1));
+    ASSERT_TRUE(reader.append_conjuncts({VExprContext::create_shared(std::move(literal))}).ok());
+    EXPECT_EQ(native_reader_ptr->appended_conjuncts, 1);
+    EXPECT_EQ(jni_reader_ptr->appended_conjuncts, 1);
 }
 
 TEST(HudiHybridReaderTest, NativeCountStarReportsMetadataRowsThroughHybridReader) {

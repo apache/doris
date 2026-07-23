@@ -399,6 +399,33 @@ std::string TableColumnMapperOptions::debug_string() const {
     return out.str();
 }
 
+bool requires_char_or_varchar_truncation(const ColumnMapping& mapping) {
+    if (mapping.table_type == nullptr) {
+        return false;
+    }
+    const auto table_type = remove_nullable(mapping.table_type);
+    const auto primitive_type = table_type->get_primitive_type();
+    if (primitive_type != TYPE_VARCHAR && primitive_type != TYPE_CHAR) {
+        return false;
+    }
+    const auto target_len = assert_cast<const DataTypeString*>(table_type.get())->len();
+    if (target_len <= 0) {
+        return false;
+    }
+    if (mapping.file_type == nullptr) {
+        return true;
+    }
+    const auto file_type = remove_nullable(mapping.file_type);
+    DORIS_CHECK(file_type != nullptr);
+    int file_len = -1;
+    if (file_type->get_primitive_type() == TYPE_VARCHAR ||
+        file_type->get_primitive_type() == TYPE_CHAR ||
+        file_type->get_primitive_type() == TYPE_STRING) {
+        file_len = assert_cast<const DataTypeString*>(file_type.get())->len();
+    }
+    return file_len < 0 || target_len < file_len;
+}
+
 std::string ColumnDefinition::debug_string() const {
     std::ostringstream out;
     out << "ColumnDefinition{name=" << name << ", identifier=" << field_debug_string(identifier)
@@ -2308,6 +2335,16 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             const auto predicate = impl != nullptr ? impl : root;
             if (!table_filter.can_localize || !predicate->is_deterministic() ||
                 !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
+                continue;
+            }
+            if (runtime_state != nullptr &&
+                runtime_state->query_options().truncate_char_or_varchar_columns &&
+                std::ranges::any_of(table_filter.global_indices, [&](GlobalIndex global_index) {
+                    const auto* mapping = _find_filter_mapping(global_index);
+                    return mapping != nullptr && requires_char_or_varchar_truncation(*mapping);
+                })) {
+                // The table predicate observes the bounded value after finalize; evaluating it on
+                // a wider file string would change equality and range semantics.
                 continue;
             }
             // FileReader becomes the exact owner only for a stable predicate whose complete

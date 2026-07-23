@@ -171,6 +171,8 @@ struct TableColumnMapperOptions {
     std::string debug_string() const;
 };
 
+bool requires_char_or_varchar_truncation(const ColumnMapping& mapping);
+
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr);
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values);

@@ -2373,6 +2373,35 @@ TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
     EXPECT_TRUE(request.conjuncts.empty());
 }
 
+TEST(ColumnMapperLocalizeFiltersTest, VarcharWidthTruncationFilterStaysAboveFileReader) {
+    const auto table_type = std::make_shared<DataTypeString>(3, TYPE_VARCHAR);
+    const auto file_type = std::make_shared<DataTypeString>(10, TYPE_VARCHAR);
+    const auto table_column = name_col("value", table_type);
+    const auto file_column = name_col("value", file_type, 7);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
+
+    TableFilter filter {.conjunct = VExprContext::create_shared(binary_predicate(
+                                TExprOpcode::EQ, table_slot(0, 0, table_type, "value"),
+                                literal(table_type, Field::create_field<TYPE_STRING>("abc")))),
+                        .global_indices = {GlobalIndex(0)}};
+    TQueryOptions query_options;
+    query_options.__set_truncate_char_or_varchar_columns(true);
+    RuntimeState state {query_options, TQueryGlobals()};
+    FileScanRequest request;
+    FilterLocalizationResult localization_result;
+
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request, &state,
+                                           &localization_result)
+                        .ok());
+    ASSERT_EQ(localization_result.localized_filters.size(), 1);
+    EXPECT_FALSE(localization_result.localized_filters[0]);
+    EXPECT_TRUE(request.conjuncts.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(7));
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, NestedVarbinaryFilterStaysAboveFileReader) {
     const auto table_column = struct_name_col(
             "payload", {name_col("id", i32()), name_col("binary_value", varbinary())});

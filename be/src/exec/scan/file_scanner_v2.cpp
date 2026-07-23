@@ -532,7 +532,6 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
-    const size_t table_conjunct_count = table_conjuncts.size();
     std::optional<std::vector<format::GlobalIndex>> push_down_count_columns;
     const auto& push_down_count_slot_ids = _local_state->get_push_down_count_slot_ids();
     if (push_down_count_slot_ids.has_value()) {
@@ -561,8 +560,9 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
-    _table_reader_conjunct_count = table_conjunct_count;
     _table_reader_applied_rf_num = _applied_rf_num;
+    // RFs collected before TableReader initialization are already present in the full snapshot.
+    _late_arrival_rf_conjuncts.clear();
     return Status::OK();
 }
 
@@ -802,10 +802,15 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
 }
 
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
+    return _build_table_conjuncts(_conjuncts, conjuncts);
+}
+
+Status FileScannerV2::_build_table_conjuncts(const VExprContextSPtrs& source,
+                                             VExprContextSPtrs* conjuncts) const {
     DORIS_CHECK(conjuncts != nullptr);
     conjuncts->clear();
-    conjuncts->reserve(_conjuncts.size());
-    for (const auto& conjunct : _conjuncts) {
+    conjuncts->reserve(source.size());
+    for (const auto& conjunct : source) {
         VExprSPtr root;
         RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));
@@ -821,18 +826,12 @@ Status FileScannerV2::_sync_table_reader_conjuncts() {
     if (_table_reader_applied_rf_num == _applied_rf_num) {
         return Status::OK();
     }
-    VExprContextSPtrs conjuncts;
-    RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
-    if (conjuncts.size() < _table_reader_conjunct_count) {
-        return Status::InternalError("Late runtime-filter snapshot shrank from {} to {} conjuncts",
-                                     _table_reader_conjunct_count, conjuncts.size());
-    }
-
-    VExprContextSPtrs appended(conjuncts.begin() + _table_reader_conjunct_count, conjuncts.end());
-    // Preserve existing expression state and append only newly arrived RFs. Replacing the whole
-    // snapshot would restart stateful predicates that already processed earlier splits.
+    VExprContextSPtrs appended;
+    RETURN_IF_ERROR(_build_table_conjuncts(_late_arrival_rf_conjuncts, &appended));
+    // Preserve existing expression state and append the identity-tracked RF delta. Cost sorting
+    // may move a late RF ahead of an old stateful predicate in the full scanner snapshot.
     RETURN_IF_ERROR(_table_reader->append_conjuncts(appended));
-    _table_reader_conjunct_count = conjuncts.size();
+    _late_arrival_rf_conjuncts.clear();
     _table_reader_applied_rf_num = _applied_rf_num;
     return Status::OK();
 }

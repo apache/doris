@@ -45,6 +45,8 @@
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exec/common/endian.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
@@ -77,6 +79,16 @@ public:
         SCOPED_TIMER(_profile.prepare_split_timer);
         return Status::OK();
     }
+};
+
+class AppendTrackingTableReader final : public TableReader {
+public:
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts) override {
+        appended_conjuncts += conjuncts.size();
+        return Status::OK();
+    }
+
+    size_t appended_conjuncts = 0;
 };
 
 DataTypePtr table_type(const DataTypePtr& type) {
@@ -692,6 +704,47 @@ TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
     const auto child_batch_sizes = reader.TEST_child_batch_sizes();
     EXPECT_EQ(child_batch_sizes.first, 321);
     EXPECT_EQ(child_batch_sizes.second, 321);
+}
+
+TEST(PaimonHybridReaderTest, ReportsActiveChildMaterializedBlockStats) {
+    paimon::PaimonHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader._current_split_reader = reader._native_reader.get();
+    reader._native_reader->_last_materialized_block_stats = {
+            .has_materialized_input = true, .rows = 7, .bytes = 70, .allocated_bytes = 96};
+
+    const auto& stats = reader.last_materialized_block_stats();
+    EXPECT_TRUE(stats.has_materialized_input);
+    EXPECT_EQ(stats.rows, 7);
+    EXPECT_EQ(stats.bytes, 70);
+    EXPECT_EQ(stats.allocated_bytes, 96);
+}
+
+TEST(PaimonHybridReaderTest, LateConjunctReachesInitializedNativeAndJniChildren) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    paimon::PaimonHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    auto native_reader = std::make_unique<AppendTrackingTableReader>();
+    auto jni_reader = std::make_unique<AppendTrackingTableReader>();
+    auto* native_reader_ptr = native_reader.get();
+    auto* jni_reader_ptr = jni_reader.get();
+    reader._native_reader = std::move(native_reader);
+    reader._jni_reader = std::move(jni_reader);
+
+    auto literal = VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                           Field::create_field<TYPE_INT>(1));
+    ASSERT_TRUE(reader.append_conjuncts({VExprContext::create_shared(std::move(literal))}).ok());
+    EXPECT_EQ(native_reader_ptr->appended_conjuncts, 1);
+    EXPECT_EQ(jni_reader_ptr->appended_conjuncts, 1);
 }
 
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {

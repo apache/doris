@@ -65,6 +65,8 @@ public:
     Status abort_split() override;
     Status close() override;
     void set_batch_size(size_t batch_size) override;
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts) override;
+    const format::MaterializedBlockStats& last_materialized_block_stats() const override;
 
 #ifdef BE_TEST
     void TEST_install_batch_size_children() {
