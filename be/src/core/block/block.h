@@ -449,6 +449,15 @@ private:
     DataTypes _data_types;
     std::vector<std::string> _names;
 
+    void materialize_const_column(size_t position) {
+        if (is_column_const(*_columns[position])) {
+            // ScopedMutableBlock can retain a const destination while merge materializes
+            // its source, so normalize the destination before appending full columns.
+            _columns[position] =
+                    IColumn::mutate(_columns[position]->convert_to_full_column_if_const());
+        }
+    }
+
 public:
     // Build from a consumed Block. This has no restore contract: the source
     // Block is left without columns and must not be used as a live output block.
@@ -588,6 +597,7 @@ public:
                                        dump_names(), dump_types(), block.dump_names(),
                                        block.dump_types());
             }
+            materialize_const_column(i);
             _columns[i]->insert_range_from_ignore_overflow(
                     *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
                     block.rows());
@@ -621,6 +631,7 @@ public:
                         block.dump_names(), block.dump_types());
             }
             for (int i = 0; i < _columns.size(); ++i) {
+                materialize_const_column(i);
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
                     DCHECK(_data_types[i]->is_nullable())
                             << " target type: " << _data_types[i]->get_name()
