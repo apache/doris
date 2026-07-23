@@ -1479,6 +1479,48 @@ TEST(TableReaderTest, UnsafePredicateRunsAfterTableMaterialization) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, ScannerOwnedUnsafePredicateIsPassedButNotExecutedByTableReader) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto unsafe_predicate =
+            std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    unsafe_predicate->add_child(table_int32_slot_ref(0, 0, "id"));
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(&state, unsafe_predicate)},
+                                    .table_reader_owned_conjunct_count = 0,
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+
+    ASSERT_NE(fake_state->last_request, nullptr);
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    EXPECT_EQ(reader.TEST_conjunct_count(), 1);
+    EXPECT_EQ(reader.TEST_table_reader_owned_conjunct_count(), 0);
+    EXPECT_FALSE(predicate_executed);
+    EXPECT_EQ(block.rows(), 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, ResidualExpressionStateSurvivesAcrossSplits) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));

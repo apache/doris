@@ -723,6 +723,9 @@ Status TableReader::init(TableReadOptions&& options) {
     _push_down_count_columns = options.push_down_count_columns;
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
+    _table_reader_owned_conjunct_count =
+            options.table_reader_owned_conjunct_count.value_or(options.conjuncts.size());
+    DORIS_CHECK_LE(_table_reader_owned_conjunct_count, options.conjuncts.size());
     _projected_columns = std::move(options.projected_columns);
     if (supports_iceberg_scan_semantics_v1(_scan_params)) {
         for (auto& projected_column : _projected_columns) {
@@ -764,12 +767,31 @@ Status TableReader::_replace_conjuncts(const VExprContextSPtrs& conjuncts) {
     return Status::OK();
 }
 
+Status TableReader::append_conjuncts_with_ownership(const VExprContextSPtrs& conjuncts,
+                                                    size_t table_reader_owned_conjunct_count) {
+    DORIS_CHECK(!_appended_table_reader_owned_conjunct_count.has_value());
+    _appended_table_reader_owned_conjunct_count = table_reader_owned_conjunct_count;
+    auto status = append_conjuncts(conjuncts);
+    _appended_table_reader_owned_conjunct_count.reset();
+    return status;
+}
+
 Status TableReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
-    for (const auto& source : conjuncts) {
+    const size_t owned_count =
+            _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
+    DORIS_CHECK_LE(owned_count, conjuncts.size());
+    // Once Scanner owns a suffix, later predicates cannot be inserted into the TableReader-owned
+    // prefix without reordering them ahead of that stateful/error-preserving barrier.
+    DORIS_CHECK(owned_count == 0 || _table_reader_owned_conjunct_count == _conjuncts.size());
+    for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
+        const auto& source = conjuncts[conjunct_index];
         VExprContextSPtr conjunct;
         RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
         _conjuncts.push_back(conjunct);
-        if (_current_task != nullptr) {
+        if (conjunct_index < owned_count) {
+            ++_table_reader_owned_conjunct_count;
+        }
+        if (_current_task != nullptr && conjunct_index < owned_count) {
             // The active reader has already fixed its localized predicate set. Appended runtime
             // filters must remain residual until the next split rebuilds its FileScanRequest.
             _remaining_conjuncts.push_back(std::move(conjunct));
@@ -789,10 +811,10 @@ Status TableReader::_build_table_filters_from_conjuncts() {
         // `_table_filters` omits expressions without slot references, but such an expression still
         // occupies a position in the row-level conjunct order. Record how many localized filters
         // precede the first unsafe original conjunct so constant pruning cannot jump over a
-        // slotless non-deterministic/error-preserving barrier. Unsafe predicates remain on the
-        // post-materialization TableReader path because pre-executing them could change errors or
-        // stateful results.
-        if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
+        // slotless non-deterministic/error-preserving barrier. An unsafe predicate is either kept
+        // on TableReader's post-materialization path by a standalone caller or carried only for
+        // analysis when FileScannerV2 owns the ordered suffix.
+        if (in_safe_prefix && !is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
         const size_t filters_before = _table_filters.size();
@@ -813,7 +835,9 @@ Status TableReader::_build_table_filters_from_conjuncts() {
 Status TableReader::_prepare_all_conjuncts_as_remaining() {
     // Expression contexts carry mutable state (for example sequence/stateful functions). Select
     // from the TableReader-owned contexts instead of reopening clones for every split.
-    _remaining_conjuncts = _conjuncts;
+    _remaining_conjuncts.assign(
+            _conjuncts.begin(),
+            _conjuncts.begin() + cast_set<ptrdiff_t>(_table_reader_owned_conjunct_count));
     return Status::OK();
 }
 
@@ -831,7 +855,8 @@ Status TableReader::_prepare_remaining_conjuncts(
     }
 
     _remaining_conjuncts.clear();
-    for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
+    for (size_t conjunct_index = 0; conjunct_index < _table_reader_owned_conjunct_count;
+         ++conjunct_index) {
         if (localized_conjuncts[conjunct_index]) {
             continue;
         }
@@ -1186,7 +1211,7 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
         // Keep only the safe prefix of the original conjunct order. If an unsafe conjunct is
         // skipped, a later predicate could prune the split before the unsafe one reaches its
         // normal row-level evaluation point.
-        if (!_is_safe_to_pre_execute(conjunct)) {
+        if (!is_safe_to_pre_execute(conjunct)) {
             break;
         }
         std::set<GlobalIndex> global_indices;
@@ -1222,7 +1247,7 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
                                            can_filter_all);
 }
 
-bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
+bool TableReader::is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
     DORIS_CHECK(conjunct != nullptr);
     DORIS_CHECK(conjunct->root() != nullptr);
     const auto root = conjunct->root();

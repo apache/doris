@@ -146,6 +146,10 @@ struct TableReadOptions {
     const std::vector<ColumnDefinition> projected_columns;
     // All complex conjuncts from scan operator
     const VExprContextSPtrs conjuncts;
+    // Number of leading conjuncts whose row-level execution is owned by TableReader/FileReader.
+    // FileScannerV2 still passes the complete ordered list so mapping, pruning guards, aggregate
+    // eligibility, and condition-cache analysis see the exact query semantics. nullopt means all.
+    const std::optional<size_t> table_reader_owned_conjunct_count = std::nullopt;
     // File format of the underlying data files, needed for reader initialization and reader-level
     // filter pushdown.
     const FileFormat format;
@@ -218,6 +222,10 @@ public:
 
 #ifdef BE_TEST
     size_t TEST_batch_size() const { return _batch_size; }
+    size_t TEST_conjunct_count() const { return _conjuncts.size(); }
+    size_t TEST_table_reader_owned_conjunct_count() const {
+        return _table_reader_owned_conjunct_count;
+    }
     bool TEST_current_data_file_is_immutable() const {
         DORIS_CHECK(_current_task != nullptr);
         DORIS_CHECK(_current_task->data_file != nullptr);
@@ -242,6 +250,16 @@ public:
     // Keep their expression contexts in TableReader and evaluate them as residual predicates for
     // the active reader; later splits can localize them normally.
     virtual Status append_conjuncts(const VExprContextSPtrs& conjuncts);
+
+    // Append a full ordered snapshot delta while marking only its leading prefix as owned by
+    // TableReader/FileReader. This non-virtual wrapper preserves the long-standing virtual API and
+    // carries the ownership boundary through hybrid readers to their children.
+    Status append_conjuncts_with_ownership(const VExprContextSPtrs& conjuncts,
+                                           size_t table_reader_owned_conjunct_count);
+
+    // Shared safety classification for deciding which ordered conjunct prefix may execute below
+    // Scanner without changing stateful or error-preserving semantics.
+    static bool is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
 
     virtual const MaterializedBlockStats& last_materialized_block_stats() const {
         return _last_materialized_block_stats;
@@ -561,7 +579,6 @@ protected:
     Status _filter_remaining_conjuncts(Block* block, size_t* rows);
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
-    static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
     Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
@@ -580,7 +597,7 @@ protected:
             if (table_filter.conjunct == nullptr) {
                 continue;
             }
-            DORIS_CHECK(_is_safe_to_pre_execute(table_filter.conjunct));
+            DORIS_CHECK(is_safe_to_pre_execute(table_filter.conjunct));
             // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by the
             // row-level filter path through execute_filter(). Constant split pruning uses
             // VExprContext::execute() on a one-row synthetic block, so runtime filters must not be
@@ -1781,6 +1798,8 @@ protected:
     // intentionally absent from that vector but must still act as ordering barriers.
     size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
+    size_t _table_reader_owned_conjunct_count = 0;
+    std::optional<size_t> _appended_table_reader_owned_conjunct_count;
     VExprContextSPtrs _remaining_conjuncts;
     MaterializedBlockStats _last_materialized_block_stats;
     ReadProfile _profile;

@@ -45,6 +45,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exec/common/endian.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "format/format_common.h"
@@ -85,10 +86,48 @@ class AppendTrackingTableReader final : public TableReader {
 public:
     Status append_conjuncts(const VExprContextSPtrs& conjuncts) override {
         appended_conjuncts += conjuncts.size();
+        owned_conjuncts += _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
         return Status::OK();
     }
 
     size_t appended_conjuncts = 0;
+    size_t owned_conjuncts = 0;
+};
+
+class OneRowTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    Status get_block(Block* block, bool* eos) override {
+        auto column = ColumnInt32::create();
+        column->insert_value(1);
+        block->replace_by_position(0, std::move(column));
+        *eos = false;
+        return Status::OK();
+    }
+};
+
+class StatefulHybridPredicate final : public VExpr {
+public:
+    explicit StatefulHybridPredicate(std::vector<int>* observed_invocations)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _observed_invocations(observed_invocations) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        _observed_invocations->push_back(_invocation++);
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_constant() const override { return false; }
+    bool is_deterministic() const override { return false; }
+
+private:
+    std::vector<int>* const _observed_invocations;
+    mutable int _invocation = 0;
+    const std::string _expr_name = "StatefulHybridPredicate";
 };
 
 DataTypePtr table_type(const DataTypePtr& type) {
@@ -742,9 +781,63 @@ TEST(PaimonHybridReaderTest, LateConjunctReachesInitializedNativeAndJniChildren)
 
     auto literal = VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
                                            Field::create_field<TYPE_INT>(1));
-    ASSERT_TRUE(reader.append_conjuncts({VExprContext::create_shared(std::move(literal))}).ok());
+    ASSERT_TRUE(reader.append_conjuncts_with_ownership(
+                              {VExprContext::create_shared(std::move(literal))}, 0)
+                        .ok());
     EXPECT_EQ(native_reader_ptr->appended_conjuncts, 1);
     EXPECT_EQ(jni_reader_ptr->appended_conjuncts, 1);
+    EXPECT_EQ(native_reader_ptr->owned_conjuncts, 0);
+    EXPECT_EQ(jni_reader_ptr->owned_conjuncts, 0);
+}
+
+TEST(PaimonHybridReaderTest, ScannerStatefulResidualSurvivesNativeJniNativeSwitch) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("paimon_scanner_stateful_residual");
+    auto scan_params = make_local_parquet_scan_params();
+    auto hybrid_reader = std::make_unique<paimon::PaimonHybridReader>();
+    auto* hybrid_reader_ptr = hybrid_reader.get();
+    hybrid_reader_ptr->TEST_set_child_reader_factories(
+            [] { return std::make_unique<OneRowTableReader>(); },
+            [] { return std::make_unique<OneRowTableReader>(); });
+
+    std::vector<int> observed_invocations;
+    auto conjunct = VExprContext::create_shared(
+            std::make_shared<StatefulHybridPredicate>(&observed_invocations));
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor {}).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    FileScannerV2 scanner(&state, &profile, std::move(hybrid_reader));
+    scanner.TEST_set_scanner_conjuncts({std::move(conjunct)});
+
+    const std::vector<ColumnDefinition> projected_columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>()),
+    };
+    ASSERT_TRUE(hybrid_reader_ptr
+                        ->init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = {},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = &scan_params,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = &profile,
+                        })
+                        .ok());
+
+    auto run_split = [&](FileFormat format, TFileRangeDesc range) {
+        SplitReadOptions split;
+        split.current_split_format = format;
+        split.current_range = std::move(range);
+        ASSERT_TRUE(hybrid_reader_ptr->prepare_split(split).ok());
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(hybrid_reader_ptr->get_block(&block, &eos).ok());
+        ASSERT_TRUE(scanner.TEST_filter_output_block(&block).ok());
+    };
+    run_split(FileFormat::PARQUET, make_paimon_native_range(TFileFormatType::FORMAT_PARQUET));
+    run_split(FileFormat::JNI, make_paimon_jni_range());
+    run_split(FileFormat::PARQUET, make_paimon_native_range(TFileFormatType::FORMAT_PARQUET));
+
+    EXPECT_EQ(observed_invocations, std::vector<int>({0, 1, 2}));
 }
 
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {

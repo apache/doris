@@ -93,6 +93,17 @@ public:
         return _should_run_adaptive_batch_size(predictor_initialized,
                                                current_split_uses_metadata_count);
     }
+    void TEST_set_scanner_conjuncts(VExprContextSPtrs conjuncts) {
+        _conjuncts = std::move(conjuncts);
+        _initialize_scanner_residual_conjuncts();
+    }
+    Status TEST_filter_output_block(Block* block) { return _filter_output_block(block); }
+    size_t TEST_table_reader_owned_conjunct_count() const {
+        return _table_reader_owned_conjunct_count;
+    }
+    size_t TEST_scanner_residual_conjunct_count() const {
+        return _scanner_residual_conjuncts.size();
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -145,6 +156,9 @@ private:
     Status _build_table_conjuncts(const VExprContextSPtrs& source,
                                   VExprContextSPtrs* conjuncts) const;
     Status _sync_table_reader_conjuncts();
+    static size_t _safe_conjunct_prefix_size(const VExprContextSPtrs& conjuncts);
+    void _initialize_scanner_residual_conjuncts();
+    void _refresh_scanner_residual_profile();
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
     void _reset_adaptive_batch_size_state();
@@ -180,6 +194,10 @@ private:
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
+    size_t _table_reader_owned_conjunct_count = 0;
+    // Scanner owns one persistent context vector for the first unsafe conjunct and every later
+    // conjunct. Hybrid child readers may be recreated or switched, but this state must not be.
+    VExprContextSPtrs _scanner_residual_conjuncts;
     std::vector<format::ColumnDefinition> _projected_columns;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
@@ -213,6 +231,9 @@ private:
     RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_actual_bytes_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_residual_filter_timer = nullptr;
+    RuntimeProfile::Counter* _scanner_residual_rows_filtered_counter = nullptr;
+    RuntimeProfile* _scanner_profile = nullptr;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
