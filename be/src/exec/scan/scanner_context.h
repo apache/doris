@@ -267,6 +267,7 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
+    bool _is_shared_scan_limit_exhausted() const;
 
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;

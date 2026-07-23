@@ -404,7 +404,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
 
     if (_completed_tasks.empty() &&
         (_num_finished_scanners == _all_scanners.size() ||
-         (_shared_scan_limit->load(std::memory_order_acquire) == 0 && _in_flight_tasks_num == 0))) {
+         (_is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
         _set_scanner_done();
         _is_finished = true;
     }
@@ -545,6 +545,10 @@ void ScannerContext::_set_scanner_done() {
     _dependency->set_always_ready();
 }
 
+bool ScannerContext::_is_shared_scan_limit_exhausted() const {
+    return limit >= 0 && _shared_scan_limit->load(std::memory_order_acquire) <= 0;
+}
+
 void ScannerContext::update_peak_running_scanner(int num) {
 #ifndef BE_TEST
     _local_state->_peak_running_scanner->add(num);
@@ -661,9 +665,11 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
         if (first_pull) {
             task_to_run = _pull_next_scan_task(current_scan_task, current_concurrency);
             if (task_to_run == nullptr) {
-                // In two situations we will get nullptr.
+                // In three situations we will get nullptr.
                 // 1. current_concurrency already reached _max_scan_concurrency.
                 // 2. all scanners are finished.
+                // 3. The shared LIMIT is exhausted while completed or in-flight tasks can still
+                //    make progress.
                 if (current_scan_task) {
                     DCHECK(current_scan_task->cached_block == nullptr);
                     DCHECK(!current_scan_task->is_eos());
@@ -735,9 +741,11 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_tasks.empty()) {
-        // Skip submitting more pending scanners once the LIMIT budget is
-        // exhausted; they would only open and immediately EOF.
-        if (_shared_scan_limit->load(std::memory_order_acquire) == 0) {
+        // Do not submit more pending scanners after the shared LIMIT is exhausted while
+        // completed or in-flight tasks can still make progress. If neither exists, allow pending
+        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        if (_is_shared_scan_limit_exhausted() &&
+            (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;
         }
         std::shared_ptr<ScanTask> next_scan_task;
