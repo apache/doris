@@ -760,6 +760,37 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
 
     {
         AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(vault_name);
+        req.mutable_vault()->set_alter_name("rejected_workload_identity_rename");
+        req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+
+        InstanceInfoPB stored_instance;
+        get_test_instance(stored_instance);
+        ASSERT_EQ(stored_instance.storage_vault_names_size(), 1);
+        ASSERT_EQ(stored_instance.storage_vault_names(0), vault_name);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({stored_instance.instance_id(), "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB stored_vault;
+        ASSERT_TRUE(stored_vault.ParseFromString(val));
+        ASSERT_EQ(stored_vault.name(), vault_name);
+        ASSERT_FALSE(stored_vault.obj_info().has_cred_provider_type());
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
         constexpr char new_vault_name[] = "@!#vault_name";
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
