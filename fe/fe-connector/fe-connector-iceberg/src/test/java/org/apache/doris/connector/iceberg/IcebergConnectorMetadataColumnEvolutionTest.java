@@ -225,6 +225,21 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyScalarColumnThreadsCommentSpecifiedToSeam() {
+        // #65329: the flat modify must forward the column's isCommentSpecified() flag to the seam, so an
+        // omitted COMMENT preserves the existing doc (the preserve behavior itself is proven end-to-end in
+        // CatalogBackedIcebergCatalogOpsColumnEvolutionTest against a real InMemoryCatalog).
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        // col(...) builds commentSpecified=false (COMMENT omitted).
+        metadata(ops, ctx).modifyColumn(null, HANDLE, col("age", "BIGINT"), null);
+        Assertions.assertFalse(ops.lastModifyCommentSpecified);
+        // A column carrying a specified comment forwards true.
+        metadata(ops, ctx).modifyColumn(null, HANDLE, col("age", "BIGINT").withSpecified(false, true), null);
+        Assertions.assertTrue(ops.lastModifyCommentSpecified);
+    }
+
+    @Test
     public void testModifyComplexColumnBuildsTreeAndIsAuthWrapped() {
         // B2b: a complex modify now routes to the seam carrying the FULL new complex iceberg type
         // (built PURELY outside auth); the seam diffs it against the current schema.

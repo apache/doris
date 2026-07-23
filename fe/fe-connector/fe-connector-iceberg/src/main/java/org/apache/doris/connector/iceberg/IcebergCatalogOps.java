@@ -152,8 +152,14 @@ public interface IcebergCatalogOps {
     /** Renames {@code oldName} to {@code newName} in {@code dbName.tableName}. */
     void renameColumn(String dbName, String tableName, String oldName, String newName);
 
-    /** Modifies a primitive {@code column} (type/comment/nullable) of {@code dbName.tableName}, optional move. */
-    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, ConnectorColumnPosition position);
+    /**
+     * Modifies a primitive {@code column} (type/comment/nullable) of {@code dbName.tableName}, optional move.
+     * {@code commentSpecified} carries the #65329 "omit-preserves-metadata" semantics: an omitted COMMENT keeps
+     * the column's current doc rather than clearing it (parity with {@link #modifyNestedColumn} and legacy
+     * {@code IcebergMetadataOps.modifyColumn}).
+     */
+    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, boolean commentSpecified,
+            ConnectorColumnPosition position);
 
     /** Reorders the columns of {@code dbName.tableName} to match {@code newOrder} (full ordered name list). */
     void reorderColumns(String dbName, String tableName, List<String> newOrder);
@@ -461,7 +467,7 @@ public interface IcebergCatalogOps {
 
         @Override
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
-                ConnectorColumnPosition position) {
+                boolean commentSpecified, ConnectorColumnPosition position) {
             Table table = loadTable(dbName, tableName);
             Types.NestedField current = table.schema().findField(column.getName());
             if (current == null) {
@@ -476,8 +482,18 @@ public interface IcebergCatalogOps {
             }
             UpdateSchema updateSchema = table.updateSchema();
             Type newType = column.getType();
+            // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
+            // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).
+            String targetComment = commentSpecified ? column.getComment() : current.doc();
             if (newType.isPrimitiveType()) {
-                updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), column.getComment());
+                // Reject a complex -> primitive change with a clean message before iceberg's updateColumn leaks a
+                // raw type-diff error — parity with IcebergNestedColumnEvolution.modifyColumn / legacy
+                // IcebergMetadataOps (symmetric with the non-complex -> complex guard below).
+                if (!current.type().isPrimitiveType()) {
+                    throw new DorisConnectorException("Modify column type from complex to primitive is not"
+                            + " supported: " + column.getName());
+                }
+                updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), targetComment);
             } else {
                 // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
                 // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
@@ -486,8 +502,8 @@ public interface IcebergCatalogOps {
                             + " supported: " + column.getName());
                 }
                 IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType);
-                if (!Objects.equals(current.doc(), column.getComment())) {
-                    updateSchema.updateColumnDoc(column.getName(), column.getComment());
+                if (!Objects.equals(current.doc(), targetComment)) {
+                    updateSchema.updateColumnDoc(column.getName(), targetComment);
                 }
             }
             if (column.isNullable()) {

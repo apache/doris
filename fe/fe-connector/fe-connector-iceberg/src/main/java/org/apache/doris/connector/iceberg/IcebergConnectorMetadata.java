@@ -1214,9 +1214,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
                 column.getComment(), null, column.isNullable());
+        boolean commentSpecified = column.isCommentSpecified();
         try {
             context.executeAuthenticated(() -> {
-                catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
+                catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change,
+                        commentSpecified, position);
                 return null;
             });
         } catch (Exception e) {
