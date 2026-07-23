@@ -35,10 +35,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format/table/parquet_utils.h"
@@ -63,6 +65,31 @@ protected:
     }
 
     void _collect_profile_before_close() override { ++collect_calls; }
+};
+
+class RejectAllRowsPredicate final : public VExpr {
+public:
+    RejectAllRowsPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 0);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _name; }
+    bool is_deterministic() const override { return false; }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<RejectAllRowsPredicate>();
+        return Status::OK();
+    }
+
+private:
+    const std::string _name = "RejectAllRowsPredicate";
 };
 
 SlotDescriptor* make_slot(ObjectPool* pool, int id, std::string name, DataTypePtr type) {
@@ -999,6 +1026,52 @@ TEST(IcebergPositionDeleteSysTableV2ReaderTest, StopsBeforeExpandingDeletionVect
     bool eof = false;
     ASSERT_TRUE(reader.get_block(&block, &eof).ok());
     EXPECT_TRUE(eof);
+}
+
+TEST(IcebergPositionDeleteSysTableV2ReaderTest,
+     AllFilteredDeletionVectorYieldsBeforeObservingCancellation) {
+    ObjectPool pool;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("test_profile");
+    const auto nullable_int64 = make_nullable(std::make_shared<DataTypeInt64>());
+    std::vector<SlotDescriptor*> file_slot_descs {
+            make_slot(&pool, 0, "pos", nullable_int64),
+    };
+
+    auto conjunct = VExprContext::create_shared(std::make_shared<RejectAllRowsPredicate>());
+    RowDescriptor row_desc;
+    ASSERT_TRUE(conjunct->prepare(&state, row_desc).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+
+    format::iceberg::IcebergPositionDeleteSysTableV2Reader reader;
+    reader._runtime_state = &state;
+    reader._scanner_profile = &profile;
+    reader._io_ctx = std::make_shared<io::IOContext>();
+    reader._file_slot_descs = &file_slot_descs;
+    reader._projected_columns.resize(file_slot_descs.size());
+    reader._remaining_conjuncts = {conjunct};
+    reader._has_split = true;
+    reader._delete_file_kind =
+            format::iceberg::IcebergPositionDeleteSysTableV2Reader::DeleteFileKind::DELETION_VECTOR;
+    reader._batch_size = 1;
+    reader._dv_positions.add(uint64_t {7});
+    reader._dv_positions.add(uint64_t {9});
+    reader._dv_positions.add(uint64_t {11});
+    reader._next_dv_position.emplace(reader._dv_positions.begin());
+
+    Block block = make_output_block(file_slot_descs);
+    bool eof = false;
+    ASSERT_TRUE(reader.get_block(&block, &eof).ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(block.rows(), 0);
+    ASSERT_TRUE(reader._next_dv_position.has_value());
+    EXPECT_EQ(**reader._next_dv_position, 9);
+
+    reader._io_ctx->should_stop = true;
+    ASSERT_TRUE(reader.get_block(&block, &eof).ok());
+    EXPECT_TRUE(eof);
+    ASSERT_TRUE(reader._next_dv_position.has_value());
+    EXPECT_EQ(**reader._next_dv_position, 9);
 }
 
 TEST(IcebergPositionDeleteSysTableV2ReaderTest, ParquetRowUsesAnyFieldIdMapping) {

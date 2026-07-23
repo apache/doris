@@ -152,6 +152,27 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     }
 }
 
+Status PaimonHybridReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
+    // The wrapper snapshot initializes future children, while every existing child needs the same
+    // late RF immediately so active and later reused splits keep identical predicate ownership.
+    const size_t owned_count =
+            _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
+    RETURN_IF_ERROR(format::TableReader::append_conjuncts(conjuncts));
+    if (_native_reader != nullptr) {
+        RETURN_IF_ERROR(_native_reader->append_conjuncts_with_ownership(conjuncts, owned_count));
+    }
+    if (_jni_reader != nullptr) {
+        RETURN_IF_ERROR(_jni_reader->append_conjuncts_with_ownership(conjuncts, owned_count));
+    }
+    return Status::OK();
+}
+
+const format::MaterializedBlockStats& PaimonHybridReader::last_materialized_block_stats() const {
+    // FileScannerV2 budgets cooperative work from the child that actually materialized the block.
+    return _current_split_reader != nullptr ? _current_split_reader->last_materialized_block_stats()
+                                            : format::TableReader::last_materialized_block_stats();
+}
+
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
@@ -199,6 +220,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
     RETURN_IF_ERROR(reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(conjuncts),
+            .table_reader_owned_conjunct_count = _table_reader_owned_conjunct_count,
             .format = file_format,
             .scan_params = _scan_params,
             .io_ctx = _io_ctx,
