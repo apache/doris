@@ -17,21 +17,76 @@
 
 #include <benchmark/benchmark.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <vector>
+
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_bit_pack.hpp"
+#include "benchmark_bits.hpp"
+#include "benchmark_block_bloom_filter.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
+#include "benchmark_column_view.hpp"
+#include "benchmark_damerau_levenshtein.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
+#include "benchmark_hybrid_set.hpp"
+#include "benchmark_pdep_unpack.hpp"
+#include "benchmark_string.hpp"
+#include "benchmark_string_replace.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
+#include "common/config.h"
 #include "core/block/block.h"
-#include "vec/columns/column_string.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
+#include "parquet/benchmark_parquet_decoder.hpp"
+#include "parquet/benchmark_parquet_reader.hpp"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/thread_context.h"
+
+// benchmark_binary_plain_page_v2.hpp must be included LAST: it transitively pulls AWS SDK
+// headers (via storage/cache/page_cache.h) whose symbols shadow types used by the benchmark
+// headers above (notably binary_cast_benchmark.hpp). Keeping it last avoids the clash without
+// disabling any benchmark. (Do not let clang-format reorder it above the others.)
+#include "benchmark_binary_plain_page_v2.hpp"
 
 namespace doris { // change if need
+
+static bool init_benchmark_config(const char* executable) {
+    std::vector<std::filesystem::path> candidates;
+    if (const char* doris_home = std::getenv("DORIS_HOME"); doris_home != nullptr) {
+        candidates.emplace_back(std::filesystem::path(doris_home) / "conf" / "be.conf");
+    }
+    candidates.emplace_back(std::filesystem::current_path() / "conf" / "be.conf");
+    const auto executable_dir = std::filesystem::absolute(executable).parent_path();
+    candidates.emplace_back(executable_dir / ".." / ".." / "conf" / "be.conf");
+    candidates.emplace_back(executable_dir / ".." / ".." / ".." / "conf" / "be.conf");
+    for (const auto& candidate : candidates) {
+        if (!std::filesystem::exists(candidate)) {
+            continue;
+        }
+        if (std::getenv("DORIS_HOME") == nullptr) {
+            const auto inferred_home = candidate.parent_path().parent_path().string();
+            // be.conf contains paths relative to DORIS_HOME. Keep standalone benchmark launches
+            // equivalent to build/test scripts after locating the same repository config.
+            if (::setenv("DORIS_HOME", inferred_home.c_str(), 0) != 0) {
+                return false;
+            }
+        }
+        // Mutable config storage is populated by config::init. Reader benchmarks must use the
+        // production defaults because zero-initialized safety limits reject every valid footer.
+        return config::init(candidate.c_str(), false);
+    }
+    std::cerr << "Unable to find conf/be.conf for benchmark initialization\n";
+    return false;
+}
 
 static void Example1(benchmark::State& state) {
     // init. dont time it.
@@ -55,4 +110,28 @@ static void Example1(benchmark::State& state) {
 BENCHMARK(Example1);
 } // namespace doris
 
-BENCHMARK_MAIN();
+// Custom main: benchmarks that touch DataPage allocation require a Doris
+// ThreadContext + mem tracker, otherwise the allocator throws E-7412. Mirrors
+// the minimal subset of be/test/testutil/run_all_tests.cpp::main.
+int main(int argc, char** argv) {
+    if (!doris::init_benchmark_config(argv[0])) {
+        return 1;
+    }
+    doris::config::enable_bmi2_optimizations = true;
+
+    SCOPED_INIT_THREAD_CONTEXT();
+    doris::ExecEnv::GetInstance()->init_mem_tracker();
+    doris::thread_context()->thread_mem_tracker_mgr->init();
+    auto bench_tracker = doris::MemTrackerLimiter::create_shared(
+            doris::MemTrackerLimiter::Type::GLOBAL, "BE-BENCH");
+    doris::thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(bench_tracker);
+    doris::ExecEnv::set_tracking_memory(false);
+
+    ::benchmark::Initialize(&argc, argv);
+    if (::benchmark::ReportUnrecognizedArguments(argc, argv)) {
+        return 1;
+    }
+    ::benchmark::RunSpecifiedBenchmarks();
+    ::benchmark::Shutdown();
+    return 0;
+}

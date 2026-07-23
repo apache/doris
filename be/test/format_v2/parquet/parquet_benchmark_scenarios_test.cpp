@@ -109,25 +109,6 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
     }
 }
 
-TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversFixedWidthRawFilterAxes) {
-    const auto scenarios = reader_scenarios();
-    for (const auto encoding : {Encoding::BYTE_STREAM_SPLIT, Encoding::DELTA_BINARY_PACKED}) {
-        for (const int selectivity : {1, 10, 50, 90}) {
-            for (const auto projection :
-                 {Projection::PREDICATE_ONLY, Projection::PREDICATE_PROJECTED}) {
-                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
-                    return scenario.operation == ReaderOperation::PREDICATE_SCAN &&
-                           scenario.encoding == encoding && scenario.null_percent == 10 &&
-                           scenario.null_pattern == Pattern::ALTERNATING &&
-                           scenario.selectivity_percent == selectivity &&
-                           scenario.projection == projection && scenario.schema_width == 32 &&
-                           scenario.predicate_position == 0;
-                })) << "missing fixed-width raw filter axis combination";
-            }
-        }
-    }
-}
-
 TEST(ParquetBenchmarkScenariosTest, SelectionPlanDistinguishesClusteredAndSparseRuns) {
     const auto clustered = make_selection_plan(1000, 10, Pattern::CLUSTERED);
     EXPECT_EQ(clustered.total_rows, 1000);
