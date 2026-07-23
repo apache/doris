@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.OlapTable;
@@ -194,6 +195,50 @@ class RuntimeFilterPartitionPruneClassifierTest {
     }
 
     @Test
+    void testAggregateSyncMvColumnIsNotValuePreservingAlias() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column mvColumn = createSyncMvColumn("sum_part_col", 1, partitionColumn);
+        mvColumn.setAggregationType(AggregateType.SUM, false);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, mvColumn);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("not a partition column"));
+    }
+
+    @Test
+    void testOrdinaryRollupRejectsCrossIndexUniqueIdCollision() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column rollupValueColumn = new Column("value_col", PrimitiveType.INT);
+        rollupValueColumn.setUniqueId(1);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, rollupValueColumn, 2L);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("not a partition column"));
+    }
+
+    @Test
+    void testOrdinaryRollupPartitionColumnMatchesByBaseName() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column rollupPartitionColumn = new Column("part_col", PrimitiveType.INT);
+        rollupPartitionColumn.setUniqueId(0);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, rollupPartitionColumn, 2L);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
     void testRejectNoneMovableListTargetExpression() {
         RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
                 TRuntimeFilterType.IN, PartitionType.LIST, ListPartitionItem.DUMMY_ITEM,
@@ -227,13 +272,30 @@ class RuntimeFilterPartitionPruneClassifierTest {
     private RuntimeFilterPartitionPruneClassifier.Classification classify(
             TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
             Column partitionColumn, Column targetColumn) {
+        long selectedIndexId = targetColumn.isMaterializedViewColumn() ? 2L : 1L;
         return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
-                targetSlot -> targetSlot, targetSlot -> targetSlot);
+                selectedIndexId);
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
+            Column partitionColumn, Column targetColumn, long selectedIndexId) {
+        return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
+                selectedIndexId, targetSlot -> targetSlot, targetSlot -> targetSlot);
     }
 
     private RuntimeFilterPartitionPruneClassifier.Classification classify(
             TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
             Column partitionColumn, Column targetColumn,
+            Function<SlotRef, Expr> legacyTargetFactory,
+            Function<SlotReference, Expression> nereidsTargetFactory) {
+        return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
+                1L, legacyTargetFactory, nereidsTargetFactory);
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
+            Column partitionColumn, Column targetColumn, long selectedIndexId,
             Function<SlotRef, Expr> legacyTargetFactory,
             Function<SlotReference, Expression> nereidsTargetFactory) {
         SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(1), new TupleId(1));
@@ -246,7 +308,9 @@ class RuntimeFilterPartitionPruneClassifierTest {
         PartitionInfo partitionInfo = Mockito.mock(PartitionInfo.class);
         OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
         Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getSelectedIndexId()).thenReturn(selectedIndexId);
         Mockito.when(scanNode.getSelectedPartitionIds()).thenReturn(ImmutableList.of(1L, 2L));
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
         Mockito.when(table.getPartitionInfo()).thenReturn(partitionInfo);
         Mockito.when(partitionInfo.getType()).thenReturn(partitionType);
         Mockito.when(partitionInfo.getPartitionColumns()).thenReturn(ImmutableList.of(partitionColumn));

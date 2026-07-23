@@ -147,3 +147,9 @@ Beijing	3
 
 -- !sync_mv_alias_minmax --
 100	596100
+
+-- !rollup_local_unique_id_collision --
+1	107
+
+-- !aggregate_mv_not_alias --
+1	13
