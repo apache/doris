@@ -46,6 +46,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -198,7 +199,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Getter
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
-    @Getter
     @ConnectorProperty(names = {PROVIDER, FS_PROVIDER_KEY}, required = false,
             description = "The S3 service provider.")
     private String provider = "";
@@ -209,71 +209,50 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         return propertiesObj;
     }
 
-    /** Returns whether the user explicitly selected AWS as the S3 provider. */
-    public static boolean isAwsProvider(Map<String, String> properties) {
-        return "AWS".equalsIgnoreCase(resolveProvider(properties));
-    }
+    private void configureS3Express(String uri) throws UserException {
+        if (!"AWS".equalsIgnoreCase(provider)) {
+            return;
+        }
 
-    /** Returns whether the S3 properties select AWS Express for their object URI. */
-    public static boolean isS3Express(Map<String, String> properties) {
-        return getPropertyIgnoreCase(properties, URI_KEY)
-                .map(uri -> isS3Express(uri, properties))
-                .orElse(false);
-    }
-
-    /** Returns whether the URI and properties select AWS Express. */
-    public static boolean isS3Express(String uri, Map<String, String> properties) {
-        return isAwsProvider(properties) && isS3ExpressUri(uri);
-    }
-
-    /** Returns whether this typed configuration selects AWS Express. */
-    public boolean isS3Express() {
-        return getPropertyIgnoreCase(origProps, URI_KEY)
-                .map(this::isS3Express)
-                .orElse(false);
-    }
-
-    /** Returns whether this typed configuration selects AWS Express for the supplied URI. */
-    public boolean isS3Express(String uri) {
-        return isAwsProvider() && isS3ExpressUri(uri);
-    }
-
-    public boolean isAwsProvider() {
-        return "AWS".equalsIgnoreCase(provider);
-    }
-
-    /** Returns whether the URI contains a complete S3 Express directory bucket name. */
-    public static boolean isS3ExpressUri(String uri) {
+        boolean isObjectUrl = StringUtils.startsWithIgnoreCase(uri, "http://")
+                || StringUtils.startsWithIgnoreCase(uri, "https://");
+        S3URI s3Uri;
         try {
-            S3URI s3Uri = S3URI.create(uri);
-            if (!S3ExpressUtils.isDirectoryBucket(s3Uri.getBucket())) {
-                return false;
+            s3Uri = S3URI.create(uri);
+        } catch (UserException e) {
+            if (isObjectUrl) {
+                throw e;
             }
-            return !isHttpUri(uri) || validateS3ExpressObjectUrl(uri).isPresent();
-        } catch (UserException | IllegalArgumentException e) {
-            return false;
+            return;
         }
-    }
-
-    private static Optional<String> validateS3ExpressObjectUrl(String uri) throws UserException {
-        if (!isHttpUri(uri)) {
-            return Optional.empty();
-        }
-
-        S3URI s3Uri = S3URI.create(uri);
         Optional<String> bucketZone = S3ExpressUtils.directoryBucketZoneId(s3Uri.getBucket());
-        String endpoint = s3Uri.getEndpoint().orElse("");
-        Matcher endpointMatcher = S3_EXPRESS_ZONAL_ENDPOINT_PATTERN.matcher(endpoint);
-        boolean directoryBucket = bucketZone.isPresent();
-        boolean expressEndpoint = StringUtils.startsWithIgnoreCase(endpoint, "s3express-")
-                || hasS3ExpressEndpointInAuthority(uri);
-        if (!directoryBucket && !expressEndpoint) {
-            return Optional.empty();
+
+        if (!isObjectUrl) {
+            if (bucketZone.isEmpty()) {
+                return;
+            }
+            if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
+                extractRegion(ENDPOINT_PATTERN, endpoint).ifPresent(this::setRegion);
+            }
+            if (StringUtils.isNotBlank(region)) {
+                endpoint = "https://s3." + region + ".amazonaws.com";
+            }
+            return;
+        }
+
+        String objectEndpoint = s3Uri.getEndpoint().orElse("");
+        Matcher endpointMatcher = S3_EXPRESS_ZONAL_ENDPOINT_PATTERN.matcher(objectEndpoint);
+        String authority = URI.create(uri).getAuthority();
+        boolean expressEndpoint = StringUtils.startsWithIgnoreCase(objectEndpoint, "s3express-")
+                || StringUtils.startsWithIgnoreCase(authority, "s3express-")
+                || StringUtils.containsIgnoreCase(authority, ".s3express-");
+        if (bucketZone.isEmpty() && !expressEndpoint) {
+            return;
         }
         if (!StringUtils.startsWithIgnoreCase(uri, "https://")) {
             throw new UserException("S3 Express Object URL must use HTTPS: " + uri);
         }
-        if (!directoryBucket) {
+        if (bucketZone.isEmpty()) {
             throw new UserException("S3 Express Object URL must use a directory bucket name: " + uri);
         }
         if (!endpointMatcher.matches()) {
@@ -286,55 +265,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             throw new UserException("S3 Express Object URL Zone ID " + endpointZone
                     + " does not match directory bucket Zone ID " + bucketZone.get() + ": " + uri);
         }
-        return Optional.of(endpointMatcher.group(2));
-    }
-
-    private static boolean isHttpUri(String uri) {
-        return StringUtils.startsWithIgnoreCase(uri, "http://")
-                || StringUtils.startsWithIgnoreCase(uri, "https://");
-    }
-
-    private static boolean hasS3ExpressEndpointInAuthority(String uri) {
-        String authority = java.net.URI.create(uri).getAuthority();
-        return StringUtils.startsWithIgnoreCase(authority, "s3express-")
-                || StringUtils.containsIgnoreCase(authority, ".s3express-");
-    }
-
-    private void configureFromS3ExpressObjectUrl(String uri) throws UserException {
-        if (!isAwsProvider()) {
-            return;
-        }
-        Optional<String> urlRegion = validateS3ExpressObjectUrl(uri);
-        if (urlRegion.isEmpty()) {
-            return;
-        }
         if (Boolean.parseBoolean(getUsePathStyle())) {
             throw new UserException("S3 Express Object URL requires virtual-hosted-style access; "
                     + "use_path_style must be false: " + uri);
         }
+        String urlRegion = endpointMatcher.group(2);
         if (StringUtils.isBlank(getRegion())) {
-            setRegion(urlRegion.get());
-        } else if (!getRegion().equalsIgnoreCase(urlRegion.get())) {
-            throw new UserException("S3 Express Object URL Region " + urlRegion.get()
+            setRegion(urlRegion);
+        } else if (!getRegion().equalsIgnoreCase(urlRegion)) {
+            throw new UserException("S3 Express Object URL Region " + urlRegion
                     + " does not match configured S3 Region " + getRegion() + ": " + uri);
         }
-    }
-
-    private void configureS3Express(String uri) throws UserException {
-        configureFromS3ExpressObjectUrl(uri);
-        if (isS3Express(uri) && StringUtils.isNotBlank(region)) {
-            endpoint = "https://s3." + region + ".amazonaws.com";
-        }
-    }
-
-    private void configureFromS3ExpressObjectUrlProperty() {
-        getPropertyIgnoreCase(origProps, URI_KEY).ifPresent(uri -> {
-            try {
-                configureS3Express(uri);
-            } catch (UserException e) {
-                throw new IllegalArgumentException(e.getMessage(), e);
-            }
-        });
+        this.endpoint = "https://s3." + region + ".amazonaws.com";
     }
 
     private static Optional<String> getPropertyIgnoreCase(
@@ -389,11 +331,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        if (isS3Express()) {
-            // Express read clients derive the zonal endpoint from the directory bucket. Keep the
-            // generic endpoint used by FE connectivity checks and BE fallback paths regional.
-            endpoint = "https://s3." + region + ".amazonaws.com";
-        }
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isBlank(s3IAMRole)) {
             throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
         }
@@ -404,7 +341,13 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     protected void setEndpointIfPossible() {
         provider = resolveProvider(origProps);
-        configureFromS3ExpressObjectUrlProperty();
+        getPropertyIgnoreCase(origProps, URI_KEY).ifPresent(uri -> {
+            try {
+                configureS3Express(uri);
+            } catch (UserException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            }
+        });
         super.setEndpointIfPossible();
     }
 
@@ -436,7 +379,22 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 .map(Map.Entry::getValue)
                 .findFirst();
         if (uriValue.isPresent()) {
-            return uriValue.get().contains("amazonaws.com") || isS3Express(uriValue.get(), origProps);
+            String uri = uriValue.get();
+            if (uri.contains("amazonaws.com")) {
+                return true;
+            }
+            if (StringUtils.startsWithIgnoreCase(uri, "http://")
+                    || StringUtils.startsWithIgnoreCase(uri, "https://")) {
+                return false;
+            }
+            if (!"AWS".equalsIgnoreCase(resolveProvider(origProps))) {
+                return false;
+            }
+            try {
+                return S3ExpressUtils.isDirectoryBucket(S3URI.create(uri).getBucket());
+            } catch (UserException | IllegalArgumentException e) {
+                return false;
+            }
         }
 
         // guess from region

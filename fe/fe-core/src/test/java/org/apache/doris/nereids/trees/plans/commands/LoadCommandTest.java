@@ -24,7 +24,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -199,9 +198,6 @@ public class LoadCommandTest extends TestWithFeService {
         Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
                 backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
-        Assertions.assertTrue(S3Properties.isS3Express(
-                commandSpy.getDataDescriptions().get(0).getFilePaths().get(0),
-                commandSpy.getBrokerDesc().getProperties()));
     }
 
     @Test

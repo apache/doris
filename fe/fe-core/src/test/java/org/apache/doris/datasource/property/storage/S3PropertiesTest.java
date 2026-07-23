@@ -571,22 +571,10 @@ public class S3PropertiesTest {
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
 
-        Assertions.assertFalse(S3Properties.isS3Express(origProps));
-        origProps.put("s3.provider", "GCS");
-        Assertions.assertFalse(S3Properties.isS3Express(origProps));
-        origProps.remove("s3.provider");
         origProps.put("provider", "AWS");
-        Assertions.assertTrue(S3Properties.isS3Express(origProps));
-        origProps.remove("provider");
-        origProps.put("s3.provider", "AWS");
-        Assertions.assertTrue(S3Properties.isS3Express(origProps));
-        origProps.put("uri", "s3://analytics--usw2-azx--x-s3/data/file.parquet");
-        Assertions.assertFalse(S3Properties.isS3Express(origProps));
-        origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
         origProps.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
         origProps.put("s3.region", "us-west-2");
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
-        Assertions.assertTrue(s3Properties.isS3Express());
         Map<String, String> backendProperties = s3Properties.getBackendConfigProperties();
         Assertions.assertEquals("AWS", backendProperties.get("provider"));
         Assertions.assertEquals("myS3AccessKey", backendProperties.get("AWS_ACCESS_KEY"));
@@ -594,6 +582,31 @@ public class S3PropertiesTest {
         Assertions.assertEquals("https://s3.us-west-2.amazonaws.com",
                 backendProperties.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backendProperties.get("AWS_REGION"));
+    }
+
+    @Test
+    public void testS3ExpressDerivesRegionFromZonalEndpoint() {
+        origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
+        origProps.put("s3.provider", "AWS");
+        origProps.put("s3.endpoint", "https://s3express-usw2-az1.us-west-2.amazonaws.com");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        Assertions.assertEquals("us-west-2", s3Properties.getRegion());
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
+    }
+
+    @Test
+    public void testS3ExpressRequiresAwsProvider() {
+        origProps.put("uri", "s3://analytics--usw2-az1--x-s3/data/file.parquet");
+        origProps.put("s3.provider", "GCS");
+        origProps.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+
+        Assertions.assertEquals("https://s3.us-east-1.amazonaws.com", s3Properties.getEndpoint());
+        Assertions.assertEquals("GCS", s3Properties.getBackendConfigProperties().get("provider"));
     }
 
     @Test
@@ -607,8 +620,6 @@ public class S3PropertiesTest {
 
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
 
-        Assertions.assertTrue(S3Properties.isS3ExpressUri(objectUrl));
-        Assertions.assertTrue(s3Properties.isS3Express());
         Assertions.assertEquals("eu-north-1", s3Properties.getRegion());
         Assertions.assertEquals("https://s3.eu-north-1.amazonaws.com", s3Properties.getEndpoint());
         Assertions.assertEquals("s3://analytics--eun1-az1--x-s3/data/file.parquet",
@@ -641,7 +652,6 @@ public class S3PropertiesTest {
 
         origProps.put("uri", "https://analytics--eun1-az1--x-s3."
                 + "s3express-eun1-az2.eu-north-1.amazonaws.com/data/file.parquet");
-        Assertions.assertFalse(S3Properties.isS3ExpressUri(origProps.get("uri")));
         IllegalArgumentException zoneError = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> StorageProperties.createPrimary(origProps));
         Assertions.assertTrue(zoneError.getMessage().contains(
@@ -649,7 +659,6 @@ public class S3PropertiesTest {
 
         origProps.put("uri", "https://analytics--eun1-az1--x-s3."
                 + "s3.eu-north-1.amazonaws.com/data/file.parquet");
-        Assertions.assertFalse(S3Properties.isS3ExpressUri(origProps.get("uri")));
         IllegalArgumentException endpointError = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> StorageProperties.createPrimary(origProps));
         Assertions.assertTrue(endpointError.getMessage().contains(
