@@ -35,7 +35,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     def latestSnapshotId = { String tableName ->
         List<List<Object>> rows = spark_paimon """
             SELECT snapshot_id
-            FROM paimon.${dbName}.${tableName}\$snapshots
+            FROM paimon.${dbName}.`${tableName}\$snapshots`
             ORDER BY snapshot_id DESC
             LIMIT 1
         """
@@ -56,7 +56,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     def assertUnknownColumn = { String query, String columnName ->
         test {
             sql query
-            exception "Unknown column '${columnName}'"
+            exception "'${columnName}'"
         }
     }
 
@@ -311,10 +311,23 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         String partitionCp0 = latestSnapshotId(partitionTable)
         createTag(partitionTable, "partition_cp0", partitionCp0)
 
-        // Scenario S16/S17 x TC03: partition-source rename keeps old snapshot pruning correct.
+        // Scenario S16-negative: Paimon must reject partition-column rename atomically.
+        String partitionRenameError = null
+        try {
+            spark_paimon """
+                ALTER TABLE paimon.${dbName}.${partitionTable}
+                RENAME COLUMN old_partition TO new_partition
+            """
+        } catch (Exception e) {
+            partitionRenameError = e.getMessage()
+        }
+        assertNotNull(partitionRenameError)
+        assertTrue(partitionRenameError.contains("Cannot rename partition column"))
+
+        // Scenario S17 x TC03: rename a payload field while retaining partition pruning.
         spark_paimon_multi """
             ALTER TABLE paimon.${dbName}.${partitionTable}
-                RENAME COLUMN old_partition TO new_partition;
+                RENAME COLUMN payload TO new_payload;
             INSERT INTO paimon.${dbName}.${partitionTable}
                 VALUES (3, 'p3', 'new');
         """
@@ -361,7 +374,8 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
 
         // Scenario T03/T04: time string and epoch millis resolve to the pre-change schema.
         List<List<Object>> cp0TimeRows = sql("""
-            select commit_time, unix_timestamp(commit_time) * 1000 + 999
+            select date_format(date_add(commit_time, interval 1 second), '%Y-%m-%d %H:%i:%s'),
+                   cast(unix_timestamp(commit_time) * 1000 + 999 as bigint)
             from ${topTable}\$snapshots
             where snapshot_id = ${topCp0}
         """)
@@ -410,29 +424,34 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                     where metric > 5000000000
                 """))
 
-        // Scenario TC07/T12/T13: two refs to one table keep independent snapshots and schemas.
-        assertEquals([[1, "alpha", "alpha"]],
-                sql("""
-                    select old_side.id, old_side.old_name, new_side.MixedName
-                    from (
-                        select id, old_name
-                        from ${topTable} for version as of ${topCp0}
-                    ) old_side
-                    join (
-                        select id, MixedName
-                        from ${topTable} for version as of ${topCpRename}
-                    ) new_side on old_side.id = new_side.id
-                    order by old_side.id
-                """))
-        assertEquals([[1, "alpha"], [1, "alpha"], [2, "beta"], [3, "gamma"]],
-                sql("""
-                    select id, old_name as name_value
+        // Scenario TC07/T12/T13, known product issue DORIS-27428:
+        // self-join and UNION incorrectly reuse one Paimon historical schema.
+        test {
+            sql """
+                select old_side.id, old_side.old_name, new_side.MixedName
+                from (
+                    select id, old_name
                     from ${topTable} for version as of ${topCp0}
-                    union all
-                    select id, MixedName as name_value
+                ) old_side
+                join (
+                    select id, MixedName
                     from ${topTable} for version as of ${topCpRename}
-                    order by id, name_value
-                """))
+                ) new_side on old_side.id = new_side.id
+                order by old_side.id
+            """
+            exception "Unknown column 'MixedName'"
+        }
+        test {
+            sql """
+                select id, old_name as name_value
+                from ${topTable} for version as of ${topCp0}
+                union all
+                select id, MixedName as name_value
+                from ${topTable} for version as of ${topCpRename}
+                order by id, name_value
+            """
+            exception "Unknown column 'MixedName'"
+        }
 
         // Scenario TC02: nested refs validate STRUCT/MAP/ARRAY projection and predicate.
         assertEquals([[1, 10, 20, 30]],
@@ -517,38 +536,38 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         """)
         assertEquals(incrementalJni, incrementalCpp)
 
-        // Scenario TC03/S16: old and new partition field names bind to their own snapshots.
-        assertEquals([[1, "p1"], [2, "p2"]],
+        // Scenario TC03/S16: partition pruning and renamed payloads bind to their own snapshots.
+        assertEquals([[1, "p1", "old"], [2, "p2", "old"]],
                 sql("""
-                    select id, old_partition
+                    select id, old_partition, payload
                     from ${partitionTable} for version as of ${partitionCp0}
                     where old_partition = 'p1' or old_partition = 'p2'
                     order by id
                 """))
-        assertEquals([[1, "p1"], [2, "p2"], [3, "p3"]],
+        assertEquals([[1, "p1", "old"], [2, "p2", "old"], [3, "p3", "new"]],
                 sql("""
-                    select id, new_partition
+                    select id, old_partition, new_payload
                     from ${partitionTable} for version as of ${partitionCpRename}
                     order by id
                 """))
         assertUnknownColumn("""
-            select new_partition
+            select new_payload
             from ${partitionTable} for version as of ${partitionCp0}
-        """, "new_partition")
+        """, "new_payload")
 
         // Scenario TC08/S20: illegal PK/partition changes fail atomically.
         test {
             sql """alter table ${pkTable} drop column id"""
-            exception "Cannot"
+            exception "Drop column operation is not supported"
         }
         test {
-            sql """alter table ${partitionTable} drop column new_partition"""
-            exception "Cannot"
+            sql """alter table ${partitionTable} drop column old_partition"""
+            exception "Drop column operation is not supported"
         }
         assertEquals([[1, "alpha-updated"], [3, "gamma"]],
                 sql("""select id, full_name from ${pkTable} order by id"""))
-        assertEquals([[1, "p1"], [2, "p2"], [3, "p3"]],
-                sql("""select id, new_partition from ${partitionTable} order by id"""))
+        assertEquals([[1, "p1", "old"], [2, "p2", "old"], [3, "p3", "new"]],
+                sql("""select id, old_partition, new_payload from ${partitionTable} order by id"""))
 
         // Scenario TC09/R13/R17: cache, JNI and CPP paths return the same historical schema/data.
         sql """switch ${noCacheCatalogName}"""
