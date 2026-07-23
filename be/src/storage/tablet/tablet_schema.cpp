@@ -27,11 +27,13 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <charconv>
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
 #include <vector>
 
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
@@ -40,6 +42,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
+#include "core/types.h"
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
@@ -1740,6 +1743,30 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
         }
     }
     return nullptr;
+}
+
+double TabletSchema::get_bloom_filter_fpp(int32_t col_unique_id) const {
+    const auto* bloom_filter_index = get_index(col_unique_id, IndexType::BLOOMFILTER, "");
+    if (bloom_filter_index != nullptr) {
+        const auto& properties = bloom_filter_index->properties();
+        auto iter = properties.find("bloom_filter_fpp");
+        if (iter != properties.end()) {
+            StringParser::ParseResult parse_result = StringParser::PARSE_FAILURE;
+            auto index_level_fpp = StringParser::string_to_float<Float64>(
+                    iter->second.data(), iter->second.size(), &parse_result);
+            DORIS_CHECK(parse_result == StringParser::PARSE_SUCCESS)
+                    << "failed to parse '" << iter->second << "' as double";
+            return index_level_fpp;
+        }
+        return BLOOM_FILTER_DEFAULT_FPP;
+    }
+    return has_bf_fpp() ? bloom_filter_fpp() : BLOOM_FILTER_DEFAULT_FPP;
+}
+
+double TabletSchema::get_bloom_filter_fpp(const TabletColumn& column) const {
+    const int32_t col_unique_id =
+            column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
+    return get_bloom_filter_fpp(col_unique_id);
 }
 
 const TabletIndex* TabletSchema::get_index(int32_t col_unique_id, IndexType index_type,

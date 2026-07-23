@@ -170,6 +170,35 @@ public class OlapTableTest {
     }
 
     @Test
+    public void testNamedBloomFilterTableLevelFppDoesNotAffectSignature() throws IOException {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+
+            Database db = UnitTestUtil.createDb(11, 12, 13, 14, 15, 16, 17);
+            OlapTable olapTable = null;
+            for (Table table : db.getTables()) {
+                if (table.getType() == TableType.OLAP) {
+                    olapTable = (OlapTable) table;
+                    break;
+                }
+            }
+            Assert.assertNotNull(olapTable);
+
+            olapTable.setIndexes(Lists.newArrayList(new Index(1L, "bf_v1", Lists.newArrayList("v1"),
+                    IndexType.BLOOMFILTER, null, "")));
+
+            List<String> partNames = Lists.newArrayList(olapTable.getPartitionNames());
+            olapTable.setBloomFilterInfo(null, 0.01);
+            String signatureWithFpp001 = olapTable.getSignature(1, partNames);
+
+            olapTable.setBloomFilterInfo(null, 0.02);
+            String signatureWithFpp002 = olapTable.getSignature(1, Lists.newArrayList(olapTable.getPartitionNames()));
+
+            Assert.assertEquals(signatureWithFpp001, signatureWithFpp002);
+        }
+    }
+
+    @Test
     public void testResetPropertiesForRestoreInCloudMode() {
         // simulate a restoring table with properties that are unsupported in cloud mode
         Map<String, String> properties = Maps.newHashMap();

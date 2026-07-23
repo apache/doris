@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
@@ -308,7 +309,14 @@ public class DescribeCommand extends ShowCommand {
                 if (table instanceof OlapTable) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
-                    Set<String> bfColumns = olapTable.getCopiedBfColumns();
+                    Set<String> bfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+                    if (olapTable.getCopiedBfColumns() != null) {
+                        bfColumns.addAll(olapTable.getCopiedBfColumns());
+                    }
+                    bfColumns.addAll(Index.extractBloomFilterColumns(olapTable.getIndexes()));
+                    if (bfColumns.isEmpty()) {
+                        bfColumns = null;
+                    }
                     Map<Long, List<Column>> indexIdToSchema = olapTable.getIndexIdToSchema();
 
                     // indices order

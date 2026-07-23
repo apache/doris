@@ -22,11 +22,13 @@ import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.metric.MetricRepo;
@@ -192,6 +194,103 @@ public class AgentTaskTest {
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);
         Assert.assertNotNull(requestWithRowBinlog.getCreateTabletReq());
         Assert.assertNotNull(requestWithRowBinlog.getCreateTabletReq().getRowBinlogSchema());
+
+        List<Index> namedBloomFilterIndexes = Arrays.asList(new Index(1L, "bf_k1", Arrays.asList("k1"),
+                IndexType.BLOOMFILTER, Map.of("bloom_filter_fpp", "0.02"), ""));
+        AgentTask createWithNamedBloomFilter = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, columns, null, 0, latch, namedBloomFilterIndexes, false,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
+        TAgentTaskRequest requestWithNamedBloomFilter =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithNamedBloomFilter);
+        Assert.assertNotNull(requestWithNamedBloomFilter.getCreateTabletReq());
+        Assert.assertTrue(requestWithNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).isIsBloomFilterColumn());
+        Assert.assertFalse(requestWithNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(1).isSetIsBloomFilterColumn());
+        // bfColumns is null, so table-level FPP is not set for named-only bloom filter indexes.
+        // Each named index carries its own FPP in its properties.
+        Assert.assertFalse(requestWithNamedBloomFilter.getCreateTabletReq().getTabletSchema().isSetBloomFilterFpp());
+        Assert.assertTrue(requestWithNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getIndexes().get(0).getProperties().containsKey("bloom_filter_fpp"));
+        Assert.assertEquals("0.02", requestWithNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getIndexes().get(0).getProperties().get("bloom_filter_fpp"));
+
+        Set<String> legacyBloomFilterColumns = new HashSet<>();
+        legacyBloomFilterColumns.add("k1");
+        AgentTask createWithLegacyBloomFilter = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, columns, legacyBloomFilterColumns, 0.02, latch, null, false,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
+        TAgentTaskRequest requestWithLegacyBloomFilter =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithLegacyBloomFilter);
+        Assert.assertNotNull(requestWithLegacyBloomFilter.getCreateTabletReq());
+        Assert.assertTrue(requestWithLegacyBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).isIsBloomFilterColumn());
+        Assert.assertEquals(0.02,
+                requestWithLegacyBloomFilter.getCreateTabletReq().getTabletSchema().getBloomFilterFpp(), 0);
+
+        List<Column> shadowColumns = Arrays.asList(
+                new Column(Column.SHADOW_NAME_PREFIX + "k1", ScalarType.createType(PrimitiveType.INT),
+                        false, null, "1", ""),
+                new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1", ""));
+        AgentTask createWithShadowNamedBloomFilter = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, shadowColumns, null, 0, latch, namedBloomFilterIndexes, false,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
+        TAgentTaskRequest requestWithShadowNamedBloomFilter =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithShadowNamedBloomFilter);
+        Assert.assertEquals("k1", requestWithShadowNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).getColumnName());
+        Assert.assertTrue(requestWithShadowNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).isIsBloomFilterColumn());
+
+        AgentTask createWithFoldedNamedBloomFilter = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, shadowColumns, null, 0, latch,
+                Arrays.asList(new Index(2L, "bf_shadow_k1", Arrays.asList("k1"),
+                        IndexType.BLOOMFILTER, Map.of("bloom_filter_fpp", "0.03"), "")), false,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
+        TAgentTaskRequest requestWithFoldedNamedBloomFilter =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithFoldedNamedBloomFilter);
+        Assert.assertEquals("k1", requestWithFoldedNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).getColumnName());
+        Assert.assertTrue(requestWithFoldedNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).isIsBloomFilterColumn());
+        // bfColumns is null, so table-level FPP is not set. Named indexes carry their own FPP.
+        Assert.assertFalse(requestWithFoldedNamedBloomFilter.getCreateTabletReq().getTabletSchema().isSetBloomFilterFpp());
+        Assert.assertTrue(requestWithFoldedNamedBloomFilter.getCreateTabletReq().getTabletSchema().isSetIndexes());
+        Assert.assertEquals("0.03", requestWithFoldedNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getIndexes().get(0).getProperties().get("bloom_filter_fpp"));
+
+        Set<String> emptyLegacyBloomFilterColumns = new HashSet<>();
+        // When bfColumns is non-null (even empty), table-level FPP is set to whatever was
+        // passed in. Here bfFpp=0, so the schema-level FPP will be 0. Named indexes carry
+        // their own per-index FPP via index properties.
+        AgentTask createWithEmptyLegacySetAndNamedBloomFilter = new CreateReplicaTask(backendId1, dbId, tableId,
+                partitionId, indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS,
+                storageType, TStorageMedium.SSD, columns, emptyLegacyBloomFilterColumns, 0, latch,
+                namedBloomFilterIndexes, false, TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false,
+                "", false, false, "", 0, 0, 0, 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false,
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
+        TAgentTaskRequest requestWithEmptyLegacySetAndNamedBloomFilter =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask,
+                        createWithEmptyLegacySetAndNamedBloomFilter);
+        Assert.assertTrue(requestWithEmptyLegacySetAndNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(0).isIsBloomFilterColumn());
+        Assert.assertTrue(requestWithEmptyLegacySetAndNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                .isSetBloomFilterFpp());
+        Assert.assertEquals(0.0,
+                requestWithEmptyLegacySetAndNamedBloomFilter.getCreateTabletReq().getTabletSchema()
+                        .getBloomFilterFpp(), 0);
 
         // drop
         TAgentTaskRequest request2 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, dropTask);

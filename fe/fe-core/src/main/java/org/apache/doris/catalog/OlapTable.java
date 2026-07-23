@@ -200,7 +200,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "tps", alternate = {"tempPartitions"})
     private TempPartitions tempPartitions = new TempPartitions();
 
-    // bloom filter columns
+    // Legacy bloom filter columns managed by table property bloom_filter_columns.
+    // Named BLOOMFILTER indexes are stored in `indexes`.
     @SerializedName(value = "bfc", alternate = {"bfColumns"})
     private Set<String> bfColumns;
 
@@ -1973,8 +1974,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         // bloom filter
-        if (bfColumns != null && !bfColumns.isEmpty()) {
-            for (String bfCol : bfColumns) {
+        Set<String> legacyBloomFilterColumns = getCopiedBfColumns();
+        if (legacyBloomFilterColumns != null && !legacyBloomFilterColumns.isEmpty()) {
+            for (String bfCol : legacyBloomFilterColumns) {
                 sb.append(bfCol);
             }
             sb.append(bfFpp);
@@ -2496,8 +2498,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 && Objects.equals(partitionInfo, other.partitionInfo) && Objects.equals(
                 idToPartition, other.idToPartition) && Objects.equals(nameToPartition,
                 other.nameToPartition) && Objects.equals(tempPartitions, other.tempPartitions)
-                && Objects.equals(bfColumns, other.bfColumns) && Objects.equals(colocateGroup,
-                other.colocateGroup) && Objects.equals(sequenceType, other.sequenceType)
+                && Objects.equals(bfColumns, other.bfColumns)
+                && Objects.equals(colocateGroup, other.colocateGroup)
+                && Objects.equals(sequenceType, other.sequenceType)
                 && Objects.equals(indexes, other.indexes) && Objects.equals(tableProperty,
                 other.tableProperty);
     }

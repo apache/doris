@@ -196,7 +196,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
     if (opts.need_bloom_filter) {
-        opts.bf_options.fpp = schema->has_bf_fpp() ? schema->bloom_filter_fpp() : 0.05;
+        opts.bf_options.fpp = schema->get_bloom_filter_fpp(column);
     }
     auto* tablet_index = schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {

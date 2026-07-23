@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -25,9 +26,11 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
@@ -49,6 +52,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -322,6 +326,119 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assert.assertFalse(cols.contains(Column.SEQUENCE_COL));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+    }
+
+    @Test
+    public void testCheckLegacyBloomFilterColumnsManagedByNamedIndexesPrivateHelper() {
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        // No-op case: legacy/property-managed BF columns stay unchanged and do not overlap with
+        // named BF columns.
+        Deencapsulation.invoke(schemaChangeHandler,
+                "checkLegacyBloomFilterColumnsManagedByNamedIndexes",
+                Sets.newTreeSet(List.of("v1")),
+                Sets.newTreeSet(List.of("v1")),
+                Sets.newTreeSet(List.of("v2")));
+
+        // Adding a legacy BF definition on top of a named BF column must be rejected.
+        DdlException createConflict = Assertions.assertThrows(DdlException.class,
+                () -> Deencapsulation.invoke(schemaChangeHandler,
+                        "checkLegacyBloomFilterColumnsManagedByNamedIndexes",
+                        Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER),
+                        Sets.newTreeSet(List.of("v1")),
+                        Sets.newTreeSet(List.of("v1"))));
+        Assertions.assertTrue(createConflict.getMessage().contains(
+                "expected to create bloom filter index on column v1"));
+
+        // Old legacy BF metadata overlapping named BF metadata is an internal invariant violation,
+        // not a user-facing ALTER error path.
+        IllegalStateException overlappingMetadata = Assertions.assertThrows(IllegalStateException.class,
+                () -> Deencapsulation.invoke(schemaChangeHandler,
+                        "checkLegacyBloomFilterColumnsManagedByNamedIndexes",
+                        Sets.newTreeSet(List.of("v1")),
+                        Sets.newTreeSet(List.of("v1")),
+                        Sets.newTreeSet(List.of("v1"))));
+        Assertions.assertTrue(overlappingMetadata.getMessage().contains(
+                "legacy bloom filter columns overlap named BLOOMFILTER columns: v1"));
+    }
+
+    @Test
+    public void testModifyTableLightSchemaChangeReplayNormalizesLegacyBloomFilterColumns() throws Exception {
+        String tableName = "sc_replay_bf_case";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'k1');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        LinkedList<Column> alteredSchema = table.getBaseSchema().stream()
+                .map(Column::new)
+                .collect(Collectors.toCollection(LinkedList::new));
+        alteredSchema.add(new Column("v2", ScalarType.createType(PrimitiveType.INT),
+                false, AggregateType.NONE, "0", ""));
+
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(table.getBaseIndexId(), alteredSchema);
+        long replayJobId = Env.getCurrentEnv().getNextId();
+
+        table.writeLock();
+        try {
+            table.setBloomFilterInfo(Sets.newHashSet("K1"), table.getBfFpp());
+            schemaChangeHandler.modifyTableLightSchemaChange("", db, table, indexSchemaMap, table.getIndexes(),
+                    null, false, replayJobId, true, Maps.newHashMap());
+
+            Assertions.assertNotNull(table.getColumn("v2"));
+            Assertions.assertEquals(Sets.newHashSet("k1"), table.getCopiedBfColumns());
+        } finally {
+            table.writeUnlock();
+            schemaChangeHandler.getAlterJobsV2().remove(replayJobId);
+            schemaChangeHandler.runnableSchemaChangeJobV2.remove(replayJobId);
+        }
+    }
+
+    @Test
+    public void testCreateJobRejectsUnchangedLegacyBloomFilterColumnsAndFpp() throws Exception {
+        String tableName = "sc_bf_unchanged_cols_fpp";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'k1', 'bloom_filter_fpp' = '0.05');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(table.getBaseIndexId(), table.getBaseSchema().stream()
+                .map(Column::new)
+                .collect(Collectors.toCollection(LinkedList::new)));
+
+        // This unit test invokes createJob() directly because SQL ALTER TABLE SET with both
+        // bloom_filter_columns and bloom_filter_fpp is rejected earlier by property validation.
+        // The goal here is to hit SchemaChangeHandler's "columns: yes, fpp: yes, nothing changed"
+        // branch and verify the exact no-change exception.
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("bloom_filter_columns", "k1");
+        properties.put("bloom_filter_fpp", "0.05");
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> Deencapsulation.invoke(schemaChangeHandler, "createJob", "",
+                        db.getId(), table, indexSchemaMap, properties, table.getIndexes(), Maps.newHashMap()));
+        Assertions.assertTrue(exception.getMessage().contains("Bloom filter index has no change"),
+                exception.getMessage());
     }
 
     @Test

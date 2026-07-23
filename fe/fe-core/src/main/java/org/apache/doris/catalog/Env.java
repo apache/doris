@@ -3950,10 +3950,10 @@ public class Env {
         }
 
         // bloom filter
-        Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
-        if (bfColumnNames != null) {
+        Set<String> legacyBloomFilterColumnNames = olapTable.getCopiedBfColumns();
+        if (legacyBloomFilterColumnNames != null) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
-            sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
+            sb.append(Joiner.on(", ").join(legacyBloomFilterColumnNames)).append("\"");
         }
 
         if (separatePartition) {
@@ -6169,17 +6169,17 @@ public class Env {
         }
 
         // 6. modify bloom filter col
-        Set<String> bfCols = table.getCopiedBfColumns();
-        if (bfCols != null) {
-            Set<String> newBfCols = new HashSet<>();
-            for (String bfCol : bfCols) {
-                if (bfCol.equalsIgnoreCase(colName)) {
-                    newBfCols.add(newColName);
+        Set<String> legacyBloomFilterColumns = table.getCopiedBfColumns();
+        if (legacyBloomFilterColumns != null) {
+            Set<String> renamedLegacyBloomFilterColumns = new HashSet<>();
+            for (String legacyBloomFilterColumn : legacyBloomFilterColumns) {
+                if (legacyBloomFilterColumn.equalsIgnoreCase(colName)) {
+                    renamedLegacyBloomFilterColumns.add(newColName);
                 } else {
-                    newBfCols.add(bfCol);
+                    renamedLegacyBloomFilterColumns.add(legacyBloomFilterColumn);
                 }
             }
-            table.setBloomFilterInfo(newBfCols, table.getBfFpp());
+            table.setBloomFilterInfo(renamedLegacyBloomFilterColumns, table.getBfFpp());
         }
 
         table.rebuildFullSchema();

@@ -37,8 +37,9 @@ public class ColumnToProtobuf {
         // when doing schema change, some modified column has a prefix in name.
         // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
         String name = column.getName();
-        builder.setName(name.startsWith(Column.SHADOW_NAME_PREFIX)
-                ? name.substring(Column.SHADOW_NAME_PREFIX.length()) : name);
+        String nonShadowColumnName = name.startsWith(Column.SHADOW_NAME_PREFIX)
+                ? name.substring(Column.SHADOW_NAME_PREFIX.length()) : name;
+        builder.setName(nonShadowColumnName);
 
         builder.setUniqueId(column.getUniqueId());
         builder.setType(column.getDataType().toThrift().name());
@@ -88,7 +89,8 @@ public class ColumnToProtobuf {
             builder.setIndexLength(column.getOlapColumnIndexSize());
         }
 
-        if (bfColumns != null && bfColumns.contains(column.getName())) {
+        if ((bfColumns != null && bfColumns.contains(nonShadowColumnName))
+                || Index.hasBloomFilterIndex(indexes, nonShadowColumnName)) {
             builder.setIsBfColumn(true);
         } else {
             builder.setIsBfColumn(false);

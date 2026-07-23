@@ -28,7 +28,10 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -42,6 +45,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -56,10 +60,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -87,6 +94,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class SchemaChangeJobV2Test {
 
@@ -582,5 +590,135 @@ public class SchemaChangeJobV2Test {
         expectedEx.expectMessage("errCode = 2, detailMessage = Cannot change "
                 + "distribution type of aggregate keys table which has value columns with REPLACE type.");
         Env.getCurrentEnv().convertDistributionType(db, table);
+    }
+
+    @Test
+    public void testCreateShadowIndexReplicaCopiesNamedIndexesOnlyForBaseShadowReplica() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        Partition partition = table.getPartition(CatalogTestUtil.testPartitionId2);
+
+        long rollupIndexId = 40001L;
+        long rollupTabletId = 40002L;
+        long rollupReplicaId = 40003L;
+        String rollupName = "r1";
+        List<Column> rollupSchema = Lists.newArrayList(new Column(table.getBaseSchema().get(0)),
+                new Column(table.getBaseSchema().get(2)));
+        partition.createRollupIndex(createLocalIndex(rollupIndexId, rollupTabletId, rollupReplicaId,
+                CatalogTestUtil.testBackendId1, IndexState.NORMAL));
+        table.setIndexMeta(rollupIndexId, rollupName, rollupSchema, 1, 41001, (short) 2,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+
+        List<Index> namedBloomFilterIndexes = Lists.newArrayList(
+                new Index(1L, "bf_v1", Lists.newArrayList("v1"), IndexType.BLOOMFILTER, null, ""));
+        table.setIndexes(namedBloomFilterIndexes);
+        table.setState(OlapTableState.SCHEMA_CHANGE);
+
+        long shadowBaseIndexId = 50001L;
+        long shadowBaseTabletId = 50002L;
+        long shadowBaseReplicaId = 50003L;
+        long shadowRollupIndexId = 50011L;
+        long shadowRollupTabletId = 50012L;
+        long shadowRollupReplicaId = 50013L;
+
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2("", 1000L, db.getId(),
+                table.getId(), table.getName(), 60000L);
+        schemaChangeJob.setAlterIndexInfo(true, namedBloomFilterIndexes);
+        schemaChangeJob.setBloomFilterInfo(false, null, 0.02);
+        schemaChangeJob.addPartitionShadowIndex(partition.getId(), shadowBaseIndexId,
+                createLocalIndex(shadowBaseIndexId, shadowBaseTabletId, shadowBaseReplicaId,
+                        CatalogTestUtil.testBackendId1, IndexState.SHADOW));
+        schemaChangeJob.addTabletIdMap(partition.getId(), shadowBaseIndexId, shadowBaseTabletId,
+                CatalogTestUtil.testTabletId2);
+        schemaChangeJob.addIndexSchema(shadowBaseIndexId, table.getBaseIndexId(),
+                Column.SHADOW_NAME_PREFIX + table.getIndexNameById(table.getBaseIndexId()), 2, 51001, (short) 3,
+                createShadowSchema(table.getBaseSchema()));
+
+        schemaChangeJob.addPartitionShadowIndex(partition.getId(), shadowRollupIndexId,
+                createLocalIndex(shadowRollupIndexId, shadowRollupTabletId, shadowRollupReplicaId,
+                        CatalogTestUtil.testBackendId1, IndexState.SHADOW));
+        schemaChangeJob.addTabletIdMap(partition.getId(), shadowRollupIndexId, shadowRollupTabletId, rollupTabletId);
+        schemaChangeJob.addIndexSchema(shadowRollupIndexId, rollupIndexId,
+                Column.SHADOW_NAME_PREFIX + rollupName, 2, 51002, (short) 2, createShadowSchema(rollupSchema));
+
+        List<AgentTask> submittedTasks = new ArrayList<>();
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = false;
+        mockedAgentTaskExecutor.when(() -> AgentTaskExecutor.submit(Mockito.any(AgentBatchTask.class)))
+                .thenAnswer(invocation -> {
+                    AgentBatchTask batchTask = invocation.getArgument(0);
+                    submittedTasks.addAll(batchTask.getAllTasks());
+                    for (AgentTask task : batchTask.getAllTasks()) {
+                        CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
+                        createReplicaTask.countDownLatch(createReplicaTask.getBackendId(),
+                                createReplicaTask.getTabletId());
+                    }
+                    return null;
+                });
+
+        try {
+            schemaChangeJob.createShadowIndexReplica();
+        } finally {
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+            AgentTaskQueue.clearAllTasks();
+        }
+
+        // Only base shadow indexes copy named index metadata. legacy/property-managed bloom
+        // filter columns are carried separately via bfColumns, so named BF does not get folded
+        // into the rollup shadow replica.
+        Assert.assertEquals(2, submittedTasks.size());
+        CreateReplicaTask baseTask = (CreateReplicaTask) submittedTasks.stream()
+                .filter(task -> task.getIndexId() == shadowBaseIndexId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("base shadow create task not found"));
+        CreateReplicaTask rollupTask = (CreateReplicaTask) submittedTasks.stream()
+                .filter(task -> task.getIndexId() == shadowRollupIndexId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("rollup shadow create task not found"));
+
+        @SuppressWarnings("unchecked")
+        List<Index> baseTaskIndexes = Deencapsulation.getField(baseTask, "indexes");
+        @SuppressWarnings("unchecked")
+        List<Index> rollupTaskIndexes = Deencapsulation.getField(rollupTask, "indexes");
+        @SuppressWarnings("unchecked")
+        Set<String> baseTaskBfColumns = Deencapsulation.getField(baseTask, "bfColumns");
+        @SuppressWarnings("unchecked")
+        Set<String> rollupTaskBfColumns = Deencapsulation.getField(rollupTask, "bfColumns");
+
+        Assert.assertEquals(namedBloomFilterIndexes, baseTaskIndexes);
+        Assert.assertNull(rollupTaskIndexes);
+        Assert.assertNull(baseTaskBfColumns);
+        Assert.assertNull(rollupTaskBfColumns);
+    }
+
+    private MaterializedIndex createLocalIndex(long indexId, long tabletId, long replicaId, long backendId,
+            IndexState indexState) {
+        MaterializedIndex index = new MaterializedIndex(indexId, indexState);
+        LocalTablet tablet = new LocalTablet(tabletId);
+        tablet.addReplica(new LocalReplica(replicaId, backendId, CatalogTestUtil.testStartVersion, 0, 0L, 0L, 0L,
+                Replica.ReplicaState.NORMAL, -1, 0), true);
+        index.addTablet(tablet, null, true);
+        return index;
+    }
+
+    private List<Column> createShadowSchema(List<Column> originSchema) {
+        List<Column> shadowSchema = new ArrayList<>(originSchema.size());
+        for (Column column : originSchema) {
+            Column shadowColumn = new Column(column);
+            shadowColumn.setName(Column.SHADOW_NAME_PREFIX + column.getName());
+            shadowSchema.add(shadowColumn);
+        }
+        return shadowSchema;
     }
 }

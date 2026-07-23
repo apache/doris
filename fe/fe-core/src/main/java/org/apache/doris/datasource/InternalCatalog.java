@@ -2708,9 +2708,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(properties);
-            if (bfColumns != null && bfFpp == 0) {
+            boolean hasLegacyBf = bfColumns != null;
+            if (hasLegacyBf && bfFpp == 0) {
                 bfFpp = FeConstants.default_bloom_filter_fpp;
-            } else if (bfColumns == null) {
+            } else if (!hasLegacyBf) {
                 bfFpp = 0;
             }
 
