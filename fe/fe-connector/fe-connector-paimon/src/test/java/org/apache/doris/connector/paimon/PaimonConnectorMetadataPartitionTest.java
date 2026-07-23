@@ -374,4 +374,134 @@ public class PaimonConnectorMetadataPartitionTest {
         Assertions.assertTrue(ops.log.contains("listPartitions:db1.t1"),
                 "the seam must have been reached (and thrown) before the empty result");
     }
+
+    // ─────────── #65904: path-special characters in partition values ───────────
+    // Legacy fe-core concatenated spec values into a Hive-style name and re-parsed it with
+    // HiveUtil.toPartitionValues(); a value containing '/' or '=' parsed back wrong. Our SPI already
+    // supplies values directly (fe-core never re-parses the name), so the core bug cannot occur — these
+    // pin the remaining #65904 parity: partitionColumn-ordered values + SDK-escaped, collision-free names.
+
+    /** Builds a rowType with an INT {@code id} plus the given STRING partition columns. */
+    private static RowType stringPartitionedRowType(List<String> partitionCols) {
+        RowType.Builder builder = RowType.builder().field("id", DataTypes.INT());
+        for (String col : partitionCols) {
+            builder.field(col, DataTypes.STRING());
+        }
+        return builder.build();
+    }
+
+    private static PaimonTableHandle stringHandle(FakePaimonTable table, List<String> partitionCols) {
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", partitionCols, Collections.emptyList());
+        handle.setPaimonTable(table);
+        return handle;
+    }
+
+    private static FakePaimonTable stringTable(List<String> partitionCols) {
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", stringPartitionedRowType(partitionCols), partitionCols, Collections.emptyList());
+        // legacy-name is irrelevant for STRING columns (no epoch-day render), but the collector reads it.
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "false"));
+        return table;
+    }
+
+    @Test
+    public void specialCharacterValuesAreEscapedInNameButRawInValues() {
+        List<String> cols = Arrays.asList("source", "part_str", "pass");
+        FakePaimonTable table = stringTable(cols);
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("source", "dataset/team-a/segment-01");
+        spec.put("part_str", "/ymd=20260701/hour=[0-9][0-9]/*.jsonl");
+        spec.put("pass", "s1");
+        ops.partitions = Collections.singletonList(partition(spec, 1L, 1L, 1L));
+
+        ConnectorPartitionInfo info = metadataWith(ops)
+                .listPartitions(null, stringHandle(table, cols), Optional.empty()).get(0);
+
+        // WHY: a VALUE containing '/'/'='/'['/... must NOT be concatenated raw into the Hive-style name
+        // (#65904); the name MUST be escaped by the Paimon SDK (generatePartitionPath) while the
+        // connector-supplied VALUES stay RAW (fe-core consumes them directly, never re-parsing the name).
+        // MUTATION: reverting to raw sb.append(value) -> name loses the %2F/%3D/%5B escapes -> red.
+        String expectedName = "source=dataset%2Fteam-a%2Fsegment-01"
+                + "/part_str=%2Fymd%3D20260701%2Fhour%3D%5B0-9%5D%5B0-9%5D%2F%2A.jsonl/pass=s1";
+        Assertions.assertEquals(expectedName, info.getPartitionName());
+        Assertions.assertEquals(
+                Arrays.asList("dataset/team-a/segment-01", "/ymd=20260701/hour=[0-9][0-9]/*.jsonl", "s1"),
+                info.getOrderedPartitionValues());
+    }
+
+    @Test
+    public void usesPartitionColumnOrderNotSpecIterationOrder() {
+        List<String> cols = Arrays.asList("source", "part_str", "pass");
+        FakePaimonTable table = stringTable(cols);
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        // Spec iteration order (pass, part_str, source) DIFFERS from the partition-column order.
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("pass", "s1");
+        spec.put("part_str", "/ymd=20260721");
+        spec.put("source", "dataset/team-a/segment-01");
+        ops.partitions = Collections.singletonList(partition(spec, 1L, 1L, 1L));
+
+        ConnectorPartitionInfo info = metadataWith(ops)
+                .listPartitions(null, stringHandle(table, cols), Optional.empty()).get(0);
+
+        // WHY: name segments AND orderedValues MUST follow the partition-COLUMN order (source, part_str,
+        // pass), never Paimon's spec map order, so value i lines up with the partition-column type i that
+        // fe-core (PluginDrivenMvccExternalTable.toListPartitionItem) zips them against.
+        // MUTATION: iterating spec.entrySet() -> order becomes pass/part_str/source -> red.
+        Assertions.assertEquals(
+                "source=dataset%2Fteam-a%2Fsegment-01/part_str=%2Fymd%3D20260721/pass=s1",
+                info.getPartitionName());
+        Assertions.assertEquals(
+                Arrays.asList("dataset/team-a/segment-01", "/ymd=20260721", "s1"),
+                info.getOrderedPartitionValues());
+    }
+
+    @Test
+    public void specialCharValuesProduceCollisionFreeNames() {
+        List<String> cols = Arrays.asList("a", "b");
+        FakePaimonTable table = stringTable(cols);
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        Map<String, String> firstSpec = new LinkedHashMap<>();
+        firstSpec.put("a", "x/b=y");
+        firstSpec.put("b", "z");
+        Map<String, String> secondSpec = new LinkedHashMap<>();
+        secondSpec.put("a", "x");
+        secondSpec.put("b", "y/b=z");
+        ops.partitions = Arrays.asList(
+                partition(firstSpec, 1L, 1L, 1L), partition(secondSpec, 2L, 2L, 2L));
+
+        List<ConnectorPartitionInfo> infos = metadataWith(ops)
+                .listPartitions(null, stringHandle(table, cols), Optional.empty());
+
+        // WHY: un-escaped, {a:"x/b=y", b:"z"} and {a:"x", b:"y/b=z"} both concat to the SAME name
+        // "a=x/b=y/b=z"; escaping keeps them distinct so neither partition is lost. MUTATION: raw concat
+        // -> the two names collide -> the dedup guard throws (or, pre-guard, a partition silently vanishes).
+        Assertions.assertEquals(2, infos.size());
+        Assertions.assertEquals("a=x%2Fb%3Dy/b=z", infos.get(0).getPartitionName());
+        Assertions.assertEquals("a=x/b=y%2Fb%3Dz", infos.get(1).getPartitionName());
+        Assertions.assertEquals(Arrays.asList("x/b=y", "z"), infos.get(0).getOrderedPartitionValues());
+        Assertions.assertEquals(Arrays.asList("x", "y/b=z"), infos.get(1).getOrderedPartitionValues());
+    }
+
+    @Test
+    public void duplicatePartitionNamesFailLoud() {
+        List<String> cols = Collections.singletonList("part");
+        FakePaimonTable table = stringTable(cols);
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        ops.partitions = Arrays.asList(
+                partition(Collections.singletonMap("part", "same"), 1L, 1L, 1L),
+                partition(Collections.singletonMap("part", "same"), 2L, 2L, 2L));
+
+        // WHY: two genuinely-duplicate remote partition specs must fail loud, not silently collapse to one
+        // via a later name->item map-put. MUTATION: dropping the seenPartitionNames guard -> no throw -> red.
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
+                () -> metadataWith(ops).listPartitions(null, stringHandle(table, cols), Optional.empty()));
+        Assertions.assertTrue(ex.getMessage().contains("Duplicate Paimon partition name"));
+    }
 }
