@@ -116,10 +116,13 @@ public interface GlobalTransactionMgrIface extends Writable {
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
-    public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+    default boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
-            throws UserException;
+            throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment);
+    }
 
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException;

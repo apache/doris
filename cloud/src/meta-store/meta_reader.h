@@ -90,20 +90,9 @@ public:
     //
     // Returns TXN_KEY_NOT_FOUND when the offset has never been materialized in this instance at
     // the configured snapshot version.
-    TxnErrorCode get_table_stream_offset(const TableStreamIdentityPB& identity,
-                                         int64_t partition_id, TableStreamOffsetPB* offset,
-                                         Versionstamp* versionstamp, bool snapshot = false);
     TxnErrorCode get_table_stream_offset(Transaction* txn, const TableStreamIdentityPB& identity,
                                          int64_t partition_id, TableStreamOffsetPB* offset,
                                          Versionstamp* versionstamp, bool snapshot = false);
-
-    // Get versioned table stream offsets for the given partitions. Missing offsets are omitted from
-    // the output maps.
-    TxnErrorCode get_table_stream_offsets(Transaction* txn, const TableStreamIdentityPB& identity,
-                                          const std::vector<int64_t>& partition_ids,
-                                          std::unordered_map<int64_t, TableStreamOffsetPB>* offsets,
-                                          std::unordered_map<int64_t, Versionstamp>* versionstamps,
-                                          bool snapshot = false);
 
     // Get versioned offsets for all (stream, partition) pairs in the bindings. Results are keyed by
     // stream id and then partition id. Missing offsets are omitted.

@@ -167,7 +167,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
                 .setExpiration(0)
                 .build();
-        executeTableStreamRpc("prepare Cloud Table Stream",
+        executeMetaServiceRpc("prepare Cloud Table Stream",
                 () -> MetaServiceProxy.getInstance().prepareIndex(request), Cloud.IndexResponse::getStatus);
     }
 
@@ -185,7 +185,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         .collect(Collectors.toList()))
                 .addAllTableStreamOffsets(offsets)
                 .build();
-        executeTableStreamRpc("commit Cloud Table Stream partitions",
+        executeMetaServiceRpc("commit Cloud Table Stream partitions",
                 () -> MetaServiceProxy.getInstance().commitPartition(request), Cloud.PartitionResponse::getStatus);
     }
 
@@ -200,16 +200,16 @@ public class CloudInternalCatalog extends InternalCatalog {
                 .addIndexIds(streamId)
                 .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
                 .build();
-        executeTableStreamRpc("commit Cloud Table Stream",
+        executeMetaServiceRpc("commit Cloud Table Stream",
                 () -> MetaServiceProxy.getInstance().commitIndex(request), Cloud.IndexResponse::getStatus);
     }
 
     @FunctionalInterface
-    private interface TableStreamRpc<T> {
+    private interface MetaServiceRpc<T> {
         T call() throws RpcException;
     }
 
-    private <T> T executeTableStreamRpc(String operation, TableStreamRpc<T> rpc,
+    private <T> T executeMetaServiceRpc(String operation, MetaServiceRpc<T> rpc,
             Function<T, Cloud.MetaServiceResponseStatus> getStatus) throws DdlException {
         T response = null;
         for (int attempt = 1; attempt <= Config.metaServiceRpcRetryTimes(); attempt++) {
@@ -747,27 +747,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         final Cloud.PartitionRequest partitionRequest = partitionRequestBuilder.build();
 
-        Cloud.PartitionResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().commitPartition(partitionRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, commitPartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("commitPartition response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        Cloud.PartitionResponse response = executeMetaServiceRpc("commit partitions",
+                () -> MetaServiceProxy.getInstance().commitPartition(partitionRequest),
+                Cloud.PartitionResponse::getStatus);
         if (response.hasTableVersion()) {
             return response.getTableVersion();
         }
@@ -789,27 +771,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setExpiration(expiration);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
-        Cloud.IndexResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().prepareIndex(indexRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, prepareIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("prepareIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        executeMetaServiceRpc("prepare materialized index",
+                () -> MetaServiceProxy.getInstance().prepareIndex(indexRequest),
+                Cloud.IndexResponse::getStatus);
     }
 
     /**
@@ -837,27 +801,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                 tableId, partitionIds, indexIds);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
-        Cloud.IndexResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().commitIndex(indexRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, commitIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("commitIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        Cloud.IndexResponse response = executeMetaServiceRpc("commit materialized index",
+                () -> MetaServiceProxy.getInstance().commitIndex(indexRequest),
+                Cloud.IndexResponse::getStatus);
         if (isCreateTable && response.hasTableVersion()) {
             return response.getTableVersion();
         }
@@ -997,7 +943,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 .addIndexIds(stream.getId())
                 .setObjectType(Cloud.IndexObjectTypePB.TABLE_STREAM)
                 .build();
-        executeTableStreamRpc("drop Cloud Table Stream",
+        executeMetaServiceRpc("drop Cloud Table Stream",
                 () -> MetaServiceProxy.getInstance().dropIndex(request), Cloud.IndexResponse::getStatus);
     }
 
@@ -1226,27 +1172,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.setDbId(dbId);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
-        Cloud.IndexResponse response = null;
-        int tryTimes = 0;
-        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
-            try {
-                response = MetaServiceProxy.getInstance().dropIndex(indexRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
-            } catch (RpcException e) {
-                LOG.warn("tryTimes:{}, dropIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
-            sleepSeveralMs();
-        }
-
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            LOG.warn("dropIndex response: {} ", response);
-            throw new DdlException(response.getStatus().getMsg());
-        }
+        executeMetaServiceRpc("drop materialized index",
+                () -> MetaServiceProxy.getInstance().dropIndex(indexRequest),
+                Cloud.IndexResponse::getStatus);
     }
 
     /**

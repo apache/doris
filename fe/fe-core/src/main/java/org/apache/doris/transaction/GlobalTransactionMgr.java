@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -312,22 +311,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
-        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
-                txnCommitAttachment, Collections.emptyList());
-    }
-
-    @Override
-    public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
-            throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         TransactionState transactionState = dbTransactionMgr.getTransactionState(transactionId);
-        if (!streamUpdateInfos.isEmpty()) {
-            transactionState.setStreamUpdateInfos(streamUpdateInfos);
-        }
         List<Table> lockTableList = buildLockTableList(tableList, transactionState);
         if (!MetaLockUtils.tryWriteLockTablesOrMetaException(lockTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("

@@ -19,15 +19,14 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
-import org.apache.doris.rpc.RpcException;
-import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -92,29 +91,13 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
             return plan;
         }
 
-        Cloud.GetTableStreamReadStateRequest.Builder request =
-                Cloud.GetTableStreamReadStateRequest.newBuilder()
-                        .setCloudUniqueId(Config.cloud_unique_id)
-                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
-        requestedPartitions.forEach((identity, partitionIds) -> request.addBindings(
-                Cloud.TableStreamPartitionSetPB.newBuilder()
-                        .setIdentity(identity)
-                        .addAllPartitionIds(partitionIds)));
-
-        Cloud.GetTableStreamReadStateResponse response;
-        MetaServiceProxy proxy = MetaServiceProxy.getInstance();
+        Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates;
         try {
-            response = proxy.getTableStreamReadState(request.build());
-        } catch (RpcException e) {
-            throw new AnalysisException("Failed to get Cloud Table Stream read state: " + e.getMessage(), e);
-        }
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            throw new AnalysisException("Failed to get Cloud Table Stream read state: "
-                    + response.getStatus().getMsg());
+            readStates = CloudTableStreamReadStateHelper.getReadStates(requestedPartitions);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
 
-        Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates =
-                validateResponse(requestedPartitions, response);
         for (Map.Entry<OlapTableStreamWrapper, Set<Long>> wrapperEntry : wrapperPartitions.entrySet()) {
             OlapTableStreamWrapper wrapper = wrapperEntry.getKey();
             Map<Long, Cloud.TableStreamPartitionReadStatePB> bindingStates =
@@ -131,33 +114,5 @@ public class ResolveCloudTableStreamReadState implements CustomRewriter {
             wrapper.installCloudReadStates(wrapperStates.build());
         }
         return plan;
-    }
-
-    private Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> validateResponse(
-            Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions,
-            Cloud.GetTableStreamReadStateResponse response) {
-        Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates =
-                new LinkedHashMap<>();
-        for (Cloud.TableStreamReadBindingResultPB binding : response.getBindingsList()) {
-            if (!binding.hasIdentity() || !requestedPartitions.containsKey(binding.getIdentity())) {
-                throw new AnalysisException("MetaService returned an unexpected Cloud Table Stream binding");
-            }
-            Map<Long, Cloud.TableStreamPartitionReadStatePB> partitionStates = new LinkedHashMap<>();
-            for (Cloud.TableStreamPartitionReadStatePB state : binding.getPartitionStatesList()) {
-                if (!state.hasPartitionId() || partitionStates.put(state.getPartitionId(), state) != null) {
-                    throw new AnalysisException("MetaService returned duplicate or invalid partition state");
-                }
-            }
-            if (!partitionStates.keySet().equals(requestedPartitions.get(binding.getIdentity()))) {
-                throw new AnalysisException("MetaService returned an incomplete Cloud Table Stream binding");
-            }
-            if (readStates.put(binding.getIdentity(), partitionStates) != null) {
-                throw new AnalysisException("MetaService returned a duplicate Cloud Table Stream binding");
-            }
-        }
-        if (!readStates.keySet().equals(requestedPartitions.keySet())) {
-            throw new AnalysisException("MetaService did not return all Cloud Table Stream bindings");
-        }
-        return readStates;
     }
 }

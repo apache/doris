@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -36,8 +36,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.rpc.RpcException;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -54,7 +52,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -439,48 +436,14 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             return;
         }
 
-        Cloud.GetTableStreamReadStateRequest.Builder request = Cloud.GetTableStreamReadStateRequest.newBuilder()
-                .setCloudUniqueId(Config.cloud_unique_id)
-                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
-        snapshots.forEach((identity, snapshot) -> request.addBindings(
-                Cloud.TableStreamPartitionSetPB.newBuilder()
-                        .setIdentity(identity)
-                        .addAllPartitionIds(snapshot.partitionNames.keySet())));
-
-        Cloud.GetTableStreamReadStateResponse response;
-        MetaServiceProxy proxy = MetaServiceProxy.getInstance();
-        try {
-            response = proxy.getTableStreamReadState(request.build());
-        } catch (RpcException e) {
-            throw new UserException("Failed to get Cloud Table Stream consumption state: " + e.getMessage(), e);
-        }
-        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-            throw new UserException("Failed to get Cloud Table Stream consumption state: "
-                    + response.getStatus().getMsg());
-        }
-
-        Set<Cloud.TableStreamIdentityPB> returnedIdentities = new LinkedHashSet<>();
-        for (Cloud.TableStreamReadBindingResultPB binding : response.getBindingsList()) {
-            if (!binding.hasIdentity()) {
-                throw new UserException("MetaService returned a Cloud Table Stream without identity");
-            }
-            CloudStreamConsumptionSnapshot snapshot = snapshots.get(binding.getIdentity());
-            if (snapshot == null || !returnedIdentities.add(binding.getIdentity())) {
-                throw new UserException("MetaService returned an unexpected or duplicate Cloud Table Stream");
-            }
-            Map<Long, Cloud.TableStreamPartitionReadStatePB> partitionStates = new LinkedHashMap<>();
-            for (Cloud.TableStreamPartitionReadStatePB state : binding.getPartitionStatesList()) {
-                if (!state.hasPartitionId() || partitionStates.put(state.getPartitionId(), state) != null) {
-                    throw new UserException("MetaService returned a duplicate or invalid partition state");
-                }
-            }
-            if (!partitionStates.keySet().equals(snapshot.partitionNames.keySet())) {
-                throw new UserException("MetaService returned incomplete Cloud Table Stream consumption state");
-            }
-            snapshot.fillRows(partitionStates, dataBatch);
-        }
-        if (!returnedIdentities.equals(snapshots.keySet())) {
-            throw new UserException("MetaService did not return all Cloud Table Stream consumption states");
+        Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new LinkedHashMap<>();
+        snapshots.forEach((identity, snapshot) ->
+                requestedPartitions.put(identity, snapshot.partitionNames.keySet()));
+        Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates =
+                CloudTableStreamReadStateHelper.getReadStates(requestedPartitions);
+        for (Map.Entry<Cloud.TableStreamIdentityPB, CloudStreamConsumptionSnapshot> entry
+                : snapshots.entrySet()) {
+            entry.getValue().fillRows(readStates.get(entry.getKey()), dataBatch);
         }
     }
 

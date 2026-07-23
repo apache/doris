@@ -76,24 +76,6 @@ public:
     TxnErrorCode get_partition_version(Transaction* txn, int64_t partition_id, VersionPB* version,
                                        Versionstamp* versionstamp, bool snapshot = false);
 
-    // Get the effective table stream offset by searching the current instance first and then its
-    // source snapshot chain. Returns TXN_KEY_NOT_FOUND only when the entire chain has no offset.
-    TxnErrorCode get_table_stream_offset(const TableStreamIdentityPB& identity,
-                                         int64_t partition_id, TableStreamOffsetPB* offset,
-                                         Versionstamp* versionstamp, bool snapshot = false);
-    TxnErrorCode get_table_stream_offset(Transaction* txn, const TableStreamIdentityPB& identity,
-                                         int64_t partition_id, TableStreamOffsetPB* offset,
-                                         Versionstamp* versionstamp, bool snapshot = false);
-
-    // Get effective table stream offsets for the given partitions by searching the current
-    // instance first and then its source snapshot chain. Partitions missing from the entire chain
-    // are omitted from the output maps.
-    TxnErrorCode get_table_stream_offsets(Transaction* txn, const TableStreamIdentityPB& identity,
-                                          const std::vector<int64_t>& partition_ids,
-                                          std::unordered_map<int64_t, TableStreamOffsetPB>* offsets,
-                                          std::unordered_map<int64_t, Versionstamp>* versionstamps,
-                                          bool snapshot = false);
-
     // Get effective offsets for all (stream, partition) pairs in the bindings from the clone chain.
     TxnErrorCode get_table_stream_offsets(
             Transaction* txn, const std::vector<TableStreamPartitionSetPB>& bindings,

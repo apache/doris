@@ -160,22 +160,6 @@ TxnErrorCode MetaReader::get_partition_version(Transaction* txn, int64_t partiti
     return TxnErrorCode::TXN_OK;
 }
 
-TxnErrorCode MetaReader::get_table_stream_offset(const TableStreamIdentityPB& identity,
-                                                 int64_t partition_id, TableStreamOffsetPB* offset,
-                                                 Versionstamp* versionstamp, bool snapshot) {
-    DCHECK(txn_kv_) << "TxnKv must be set before calling";
-    if (!txn_kv_) {
-        return TxnErrorCode::TXN_INVALID_ARGUMENT;
-    }
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        return err;
-    }
-    return get_table_stream_offset(txn.get(), identity, partition_id, offset, versionstamp,
-                                   snapshot);
-}
-
 TxnErrorCode MetaReader::get_table_stream_offset(Transaction* txn,
                                                  const TableStreamIdentityPB& identity,
                                                  int64_t partition_id, TableStreamOffsetPB* offset,
@@ -201,53 +185,6 @@ TxnErrorCode MetaReader::get_table_stream_offset(Transaction* txn,
                 .tag("partition_id", partition_id)
                 .tag("key", hex(key));
         return TxnErrorCode::TXN_INVALID_DATA;
-    }
-    return TxnErrorCode::TXN_OK;
-}
-
-TxnErrorCode MetaReader::get_table_stream_offsets(
-        Transaction* txn, const TableStreamIdentityPB& identity,
-        const std::vector<int64_t>& partition_ids,
-        std::unordered_map<int64_t, TableStreamOffsetPB>* offsets,
-        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
-    if (partition_ids.empty()) {
-        return TxnErrorCode::TXN_OK;
-    }
-
-    std::vector<std::string> keys;
-    keys.reserve(partition_ids.size());
-    for (int64_t partition_id : partition_ids) {
-        keys.push_back(versioned::table_stream_offset_key(
-                {instance_id_, identity.base_db_id(), identity.base_table_id(),
-                 identity.stream_db_id(), identity.stream_id(), partition_id}));
-    }
-
-    std::vector<std::optional<std::pair<std::string, Versionstamp>>> values;
-    TxnErrorCode err = versioned_batch_get(txn, keys, snapshot_version_, &values, snapshot);
-    if (err != TxnErrorCode::TXN_OK) {
-        return err;
-    }
-
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (!values[i].has_value()) {
-            continue;
-        }
-        const auto& [value, versionstamp] = *values[i];
-        int64_t partition_id = partition_ids[i];
-        TableStreamOffsetPB offset;
-        if (!offset.ParseFromString(value)) {
-            LOG_ERROR("Failed to parse TableStreamOffsetPB")
-                    .tag("instance_id", instance_id_)
-                    .tag("stream_id", identity.stream_id())
-                    .tag("partition_id", partition_id)
-                    .tag("key", hex(keys[i]));
-            return TxnErrorCode::TXN_INVALID_DATA;
-        }
-        offsets->emplace(partition_id, std::move(offset));
-        if (versionstamps) {
-            versionstamps->emplace(partition_id, versionstamp);
-        }
-        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
     }
     return TxnErrorCode::TXN_OK;
 }
