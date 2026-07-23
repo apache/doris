@@ -571,6 +571,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-extension-spi")
     modules+=("fe-extension-loader")
+    modules+=("horn4j")
     modules+=("fe-core")
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
