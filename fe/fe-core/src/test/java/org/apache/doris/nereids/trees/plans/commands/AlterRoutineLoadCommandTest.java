@@ -29,7 +29,6 @@ import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
-import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -237,22 +236,18 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
-    public void testValidateTargetTableWithKinesisDataSourceProperties() throws Exception {
+    public void testValidateTargetTableRejectsKinesisJob() throws Exception {
         runBefore();
         Mockito.when(routineLoadJob.getDataSourceType()).thenReturn(LoadDataSourceType.KINESIS);
-        Mockito.when(currentTable.getId()).thenReturn(3000L);
-        mockTargetTable(currentTable);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
                 "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
                         + "PROPERTIES(\"max_error_number\"=\"1\") "
                         + "FROM KINESIS(\"property.client.timeout\"=\"1000\")");
 
-        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
-        Assertions.assertInstanceOf(KinesisDataSourceProperties.class, command.getDataSourceProperties());
-        Assertions.assertEquals("1000", command.getDataSourceProperties()
-                .getOriginalDataSourceProperties().get("property.client.timeout"));
-        Assertions.assertEquals(3000L, command.getTargetTableId());
-        Mockito.verify(routineLoadJob).validateTargetTable(db, currentTable);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext));
+        Assertions.assertTrue(exception.getMessage().contains("only supports Kafka jobs"));
+        Mockito.verify(catalog, Mockito.never()).getDbOrAnalysisException(Mockito.anyString());
     }
 
     @Test

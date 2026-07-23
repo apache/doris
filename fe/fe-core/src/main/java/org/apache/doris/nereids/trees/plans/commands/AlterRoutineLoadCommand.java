@@ -35,6 +35,7 @@ import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -373,6 +374,9 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     }
 
     private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job) throws UserException {
+        if (job.getDataSourceType() != LoadDataSourceType.KAFKA) {
+            throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports Kafka jobs");
+        }
         if (job.isMultiTable()) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
