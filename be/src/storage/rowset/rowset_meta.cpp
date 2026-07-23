@@ -73,9 +73,10 @@ bool RowsetMeta::init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
     if (rowset_meta_pb.has_tablet_schema()) {
         set_tablet_schema(rowset_meta_pb.tablet_schema());
     }
-    // Release ownership of TabletSchemaPB from `rowset_meta_pb` and then set it back to `rowset_meta_pb`,
-    // this won't break const semantics of `rowset_meta_pb`, because `rowset_meta_pb` is not changed
-    // before and after call this method.
+    // Temporarily detach TabletSchemaPB from the input proto so `_rowset_meta_pb` can copy the
+    // rowset metadata without keeping another large schema payload. `schema` is owned by
+    // `rowset_meta_pb` before release_tablet_schema(), and set_allocated_tablet_schema(schema)
+    // immediately returns that ownership to the same proto before this method returns.
     auto& mut_rowset_meta_pb = const_cast<RowsetMetaPB&>(rowset_meta_pb);
     auto* schema = mut_rowset_meta_pb.release_tablet_schema();
     _rowset_meta_pb = mut_rowset_meta_pb;
@@ -246,6 +247,9 @@ bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
     }
     if (_rowset_meta_pb.has_tablet_schema()) {
         set_tablet_schema(_rowset_meta_pb.tablet_schema());
+        // The schema has been materialized into TabletSchemaCache by set_tablet_schema(). Drop the
+        // protobuf-owned copy from `_rowset_meta_pb` to avoid holding the large schema twice; passing
+        // nullptr intentionally deletes the current protobuf submessage.
         _rowset_meta_pb.set_allocated_tablet_schema(nullptr);
     }
     return true;
