@@ -26,14 +26,19 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.table.system.FilesTable;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
@@ -46,10 +51,15 @@ import java.lang.management.MemoryUsage;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.zone.ZoneOffsetTransition;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -70,6 +80,8 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
     static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.jni.enable_file_reader_async";
+    static final String DORIS_FILE_CREATION_TIME_LOCAL_MILLIS =
+            "doris.scan.file-creation-time-local-millis";
     static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
 
     private final Map<String, String> params;
@@ -571,6 +583,10 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
+        table = applyFileCreationTimeLowerBound(
+                table,
+                params.get(PAIMON_OPTION_PREFIX + DORIS_FILE_CREATION_TIME_LOCAL_MILLIS),
+                ZoneId.systemDefault());
         table = table.copy(buildTableOptions(table.options()));
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
@@ -592,5 +608,76 @@ public class PaimonJniScanner extends JniScanner {
             options.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), MAX_ASYNC_READ_THRESHOLD);
         }
         return options;
+    }
+
+    static long toFileCreationTimeEpochMillis(long localMillis, ZoneId zoneId) {
+        LocalDateTime localDateTime = Timestamp.fromEpochMillis(localMillis).toLocalDateTime();
+        ZoneOffsetTransition transition = zoneId.getRules().getTransition(localDateTime);
+        if (transition != null && transition.isGap()) {
+            // No file can have a wall-clock time inside a DST gap. Using the transition instant
+            // keeps the pushdown no stronger than the retained local-time predicate.
+            return transition.getInstant().toEpochMilli();
+        }
+        // Paimon converts every file creation timestamp with the BE JVM's default zone, so the
+        // cutoff must be converted in this same JVM when FE and BE zones differ.
+        return localDateTime.atZone(zoneId).toInstant().toEpochMilli();
+    }
+
+    static Table applyFileCreationTimeLowerBound(Table table, String localMillis, ZoneId zoneId) {
+        if (localMillis == null || !(table instanceof FilesTable)) {
+            return table;
+        }
+        FileStoreTable storeTable = extractStoreTable((FilesTable) table);
+        if (storeTable == null || containsFallbackRead(storeTable)
+                || !supportsFileCreationTimeStartup(storeTable)) {
+            return table;
+        }
+
+        long epochMillis = toFileCreationTimeEpochMillis(Long.parseLong(localMillis), zoneId);
+        String existingMillis = storeTable.options().get(
+                CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key());
+        if (existingMillis != null) {
+            // Read the cutoff from the exact serialized wrapper so a stale FE metadata handle
+            // cannot weaken a restriction already attached to this scan revision.
+            epochMillis = Math.max(epochMillis, Long.parseLong(existingMillis));
+        }
+        return table.copy(Collections.singletonMap(
+                CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), String.valueOf(epochMillis)));
+    }
+
+    private static FileStoreTable extractStoreTable(FilesTable filesTable) {
+        try {
+            // Paimon 1.3 does not expose FilesTable's wrapped table; inspecting this exact object
+            // avoids mixing independently refreshed catalog metadata into the scan.
+            Field field = FilesTable.class.getDeclaredField("storeTable");
+            field.setAccessible(true);
+            return (FileStoreTable) field.get(filesTable);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOG.warn("Skip file creation time pushdown because the wrapped Paimon table is unavailable", e);
+            return null;
+        }
+    }
+
+    private static boolean containsFallbackRead(FileStoreTable table) {
+        FileStoreTable current = table;
+        while (current instanceof DelegatedFileStoreTable) {
+            if (current instanceof FallbackReadFileStoreTable) {
+                // Copying a cutoff to both branches changes which branch owns a partition.
+                return true;
+            }
+            current = ((DelegatedFileStoreTable) current).wrapped();
+        }
+        return false;
+    }
+
+    private static boolean supportsFileCreationTimeStartup(FileStoreTable table) {
+        CoreOptions coreOptions = table.coreOptions();
+        CoreOptions.StartupMode configuredMode = coreOptions.toConfiguration().get(CoreOptions.SCAN_MODE);
+        CoreOptions.StartupMode effectiveMode = coreOptions.startupMode();
+        // Paimon rejects this cutoff when snapshot, timestamp, incremental, or an explicit
+        // latest-full startup mode already owns the scan starting point.
+        return effectiveMode == CoreOptions.StartupMode.FROM_FILE_CREATION_TIME
+                || (configuredMode == CoreOptions.StartupMode.DEFAULT
+                        && effectiveMode == CoreOptions.StartupMode.LATEST_FULL);
     }
 }

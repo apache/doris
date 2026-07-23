@@ -17,14 +17,24 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.FilesTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -34,9 +44,11 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +62,121 @@ public class PaimonJniScannerTest {
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundUsesBackendSystemTimeZone() {
+        Assert.assertEquals(1784566923456L,
+                PaimonJniScanner.toFileCreationTimeEpochMillis(
+                        1784595723456L, ZoneId.of("Asia/Shanghai")));
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundUsesGapStartDuringDstTransition() {
+        Assert.assertEquals(1772953200000L,
+                PaimonJniScanner.toFileCreationTimeEpochMillis(
+                        1772937000000L, ZoneId.of("America/New_York")));
+    }
+
+    @Test
+    public void testQueryLowerBoundPreservesStrongerFilesTableOption() throws Exception {
+        Map<String, String> schemaOptions = new HashMap<>();
+        schemaOptions.put(CoreOptions.BUCKET.key(), "-1");
+        schemaOptions.put(CoreOptions.SCAN_MODE.key(), "from-file-creation-time");
+        schemaOptions.put(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), "2000");
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "k", DataTypes.INT())),
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                schemaOptions,
+                "");
+        FileStoreTable storeTable = FileStoreTableFactory.create(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder("paimon-table").toURI()),
+                schema);
+        FilesTable filesTable = new FilesTable(storeTable);
+
+        FilesTable copiedFilesTable = (FilesTable) PaimonJniScanner.applyFileCreationTimeLowerBound(
+                filesTable, "1000", ZoneId.of("UTC"));
+        Field storeTableField = FilesTable.class.getDeclaredField("storeTable");
+        storeTableField.setAccessible(true);
+        FileStoreTable copiedStoreTable = (FileStoreTable) storeTableField.get(copiedFilesTable);
+        Assert.assertEquals("2000",
+                copiedStoreTable.options().get(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundAppliesToDefaultStartupMode() throws Exception {
+        FilesTable filesTable = createFilesTable("default", Collections.emptyMap());
+
+        FilesTable result = (FilesTable) PaimonJniScanner.applyFileCreationTimeLowerBound(
+                filesTable, "1000", ZoneId.of("UTC"));
+
+        Assert.assertEquals("1000", extractStoreTable(result).options().get(
+                CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key()));
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundSkipsIncompatibleStartupModes() throws Exception {
+        Map<String, String> snapshot = new HashMap<>();
+        snapshot.put(CoreOptions.SCAN_MODE.key(), "from-snapshot");
+        snapshot.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), "1");
+        Map<String, String> timestamp = new HashMap<>();
+        timestamp.put(CoreOptions.SCAN_MODE.key(), "from-timestamp");
+        timestamp.put(CoreOptions.SCAN_TIMESTAMP_MILLIS.key(), "1");
+        Map<String, String> incremental = new HashMap<>();
+        incremental.put(CoreOptions.SCAN_MODE.key(), "incremental");
+        incremental.put(CoreOptions.INCREMENTAL_BETWEEN.key(), "1,2");
+        List<Map<String, String>> incompatibleOptions = Arrays.asList(
+                Collections.singletonMap(CoreOptions.SCAN_MODE.key(), "latest-full"),
+                snapshot,
+                timestamp,
+                incremental);
+
+        for (int i = 0; i < incompatibleOptions.size(); i++) {
+            FilesTable filesTable = createFilesTable("incompatible-" + i, incompatibleOptions.get(i));
+            Table result = PaimonJniScanner.applyFileCreationTimeLowerBound(
+                    filesTable, "1000", ZoneId.of("UTC"));
+            Assert.assertSame(filesTable, result);
+        }
+    }
+
+    @Test
+    public void testFileCreationTimeLowerBoundSkipsFallbackReadTable() throws Exception {
+        FileStoreTable main = extractStoreTable(createFilesTable("main", Collections.emptyMap()));
+        FileStoreTable fallback = extractStoreTable(createFilesTable("fallback", Collections.emptyMap()));
+        FilesTable filesTable = new FilesTable(new FallbackReadFileStoreTable(main, fallback));
+
+        Table result = PaimonJniScanner.applyFileCreationTimeLowerBound(
+                filesTable, "1000", ZoneId.of("UTC"));
+
+        Assert.assertSame(filesTable, result);
+    }
+
+    private FilesTable createFilesTable(String directory, Map<String, String> extraOptions) throws Exception {
+        Map<String, String> schemaOptions = new HashMap<>(extraOptions);
+        schemaOptions.put(CoreOptions.BUCKET.key(), "-1");
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "k", DataTypes.INT())),
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                schemaOptions,
+                "");
+        FileStoreTable storeTable = FileStoreTableFactory.create(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder(directory).toURI()),
+                schema);
+        return new FilesTable(storeTable);
+    }
+
+    private static FileStoreTable extractStoreTable(FilesTable filesTable) throws Exception {
+        Field storeTableField = FilesTable.class.getDeclaredField("storeTable");
+        storeTableField.setAccessible(true);
+        return (FileStoreTable) storeTableField.get(filesTable);
     }
 
     @Test
