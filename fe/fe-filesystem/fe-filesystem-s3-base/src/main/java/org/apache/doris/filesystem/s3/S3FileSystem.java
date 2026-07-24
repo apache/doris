@@ -33,7 +33,13 @@ public class S3FileSystem extends S3CompatibleFileSystem {
         this(properties, new S3ObjStorage(properties));
     }
 
-    S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
+    /**
+     * Public rather than package-private because the dialect providers (GCS/MinIO/Ozone) live in
+     * sibling plugin jars that share this package name. Package-private access across jars only
+     * holds when both are loaded by the same classloader, which the plugin classloaders do not
+     * guarantee; it would fail with {@code IllegalAccessError} at runtime.
+     */
+    public S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
         this.properties = properties;
     }
