@@ -2415,20 +2415,12 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
         return false;
     }
 
-    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
-    std::string tablet_idx_val;
-    err = txn->get(tablet_idx_key, &tablet_idx_val);
-    if (TxnErrorCode::TXN_OK != err) {
-        LOG(WARNING) << "failed to get tablet index, instance_id=" << instance_id
-                     << " tablet_id=" << tablet_id << " err=" << err
-                     << " key=" << hex(tablet_idx_key);
-        return false;
-    }
-
     TabletIndexPB tablet_idx_pb;
-    if (!tablet_idx_pb.ParseFromString(tablet_idx_val)) {
-        LOG(WARNING) << "failed to parse tablet_idx_pb, instance_id=" << instance_id
-                     << " tablet_id=" << tablet_id;
+    MetaServiceCode code;
+    std::string msg;
+    std::tie(code, msg) = get_tablet_index(txn.get(), instance_id, tablet_id, &tablet_idx_pb);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << msg;
         return false;
     }
 
