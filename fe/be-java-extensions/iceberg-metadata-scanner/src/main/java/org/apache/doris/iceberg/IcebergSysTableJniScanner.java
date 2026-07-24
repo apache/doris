@@ -36,8 +36,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -51,21 +49,19 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
-    private final Iterator<FileScanTask> scanTasks;
-    private final List<NestedField> fields;
+    private final FileScanTask scanTask;
+    private final List<SelectedField> fields;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
-        List<FileScanTask> scanTasks = Arrays.stream(params.get("serialized_splits").split(","))
-                .map(SerializationUtil::deserializeFromBase64)
-                .map(obj -> (FileScanTask) obj)
-                .collect(Collectors.toList());
-        Preconditions.checkState(!scanTasks.isEmpty(), "scanTasks shoudle not be empty");
-        this.scanTasks = scanTasks.iterator();
+        String serializedSplitParams = params.get("serialized_split");
+        Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
+                "serialized_split should not be empty");
+        this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
         String[] requiredFields = params.get("required_fields").split(",");
-        this.fields = selectSchema(scanTasks.get(0).schema().asStruct(), requiredFields);
+        this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -79,13 +75,11 @@ public class IcebergSysTableJniScanner extends JniScanner {
     @Override
     public void open() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            nextScanTask();
+            openReader();
         }
     }
 
-    private void nextScanTask() throws IOException {
-        Preconditions.checkArgument(scanTasks.hasNext());
-        FileScanTask scanTask = scanTasks.next();
+    private void openReader() throws IOException {
         try {
             try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
                 preExecutionAuthenticator.execute(() -> {
@@ -96,7 +90,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
             }
         } catch (Exception e) {
             this.close();
-            String msg = String.format("Failed to open next scan task: %s", scanTask);
+            String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
         }
@@ -107,26 +101,20 @@ public class IcebergSysTableJniScanner extends JniScanner {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             int rows = 0;
             long startAppendDataTime = System.nanoTime();
-            long scanTime = 0;
             while (rows < getBatchSize()) {
-                while (!reader.hasNext() && scanTasks.hasNext()) {
-                    long startScanTaskTime = System.nanoTime();
-                    nextScanTask();
-                    scanTime = System.nanoTime() - startScanTaskTime;
-                }
                 if (!reader.hasNext()) {
                     break;
                 }
                 StructLike row = reader.next();
                 for (int i = 0; i < fields.size(); i++) {
-                    NestedField field = fields.get(i);
-                    Object value = row.get(i, field.type().typeId().javaClass());
+                    SelectedField field = fields.get(i);
+                    Object value = row.get(field.sourceIndex, field.field.type().typeId().javaClass());
                     ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
                     appendData(i, columnValue);
                 }
                 rows++;
             }
-            appendDataTime += System.nanoTime() - startAppendDataTime - scanTime;
+            appendDataTime += System.nanoTime() - startAppendDataTime;
             return rows;
         }
     }
@@ -141,16 +129,32 @@ public class IcebergSysTableJniScanner extends JniScanner {
         }
     }
 
-    private static List<NestedField> selectSchema(StructType schema, String[] requiredFields) {
-        List<NestedField> selectedFields = new ArrayList<>();
+    private static List<SelectedField> selectSchema(StructType schema, String[] requiredFields) {
+        List<NestedField> schemaFields = schema.fields();
+        List<SelectedField> selectedFields = new ArrayList<>();
         for (String requiredField : requiredFields) {
             NestedField field = schema.field(requiredField);
             if (field == null) {
                 throw new IllegalArgumentException("RequiredField " + requiredField + " not found in schema");
             }
-            selectedFields.add(field);
+            int sourceIndex = schemaFields.indexOf(field);
+            if (sourceIndex < 0) {
+                throw new IllegalArgumentException(
+                        "RequiredField " + requiredField + " not found in source schema fields");
+            }
+            selectedFields.add(new SelectedField(sourceIndex, field));
         }
         return selectedFields;
+    }
+
+    private static final class SelectedField {
+        private final int sourceIndex;
+        private final NestedField field;
+
+        private SelectedField(int sourceIndex, NestedField field) {
+            this.sourceIndex = sourceIndex;
+            this.field = field;
+        }
     }
 
     private static ColumnType[] parseRequiredTypes(String[] typeStrings, String[] requiredFields) {

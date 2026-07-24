@@ -155,6 +155,18 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     DCHECK(_query_mem_tracker != nullptr);
 }
 
+RuntimeState::RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals)
+        : _profile("<unnamed>"),
+          _load_channel_profile("<unnamed>"),
+          _obj_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _per_fragment_instance_idx(0) {
+    Status status = init(TUniqueId(), query_options, query_globals, nullptr);
+    _exec_env = ExecEnv::GetInstance();
+    init_mem_trackers("<unnamed>");
+    DCHECK(status.ok());
+}
+
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),

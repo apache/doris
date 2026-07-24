@@ -20,16 +20,20 @@ package org.apache.doris.datasource.iceberg.source;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.thrift.TFileFormatType;
 
 import lombok.Data;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 @Data
 public class IcebergSplit extends FileSplit {
+    private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
 
     // Doris will convert the schema in FileSystem to achieve the function of natively reading files.
     // For example, s3a:// will be converted to s3://.
@@ -49,6 +53,16 @@ public class IcebergSplit extends FileSplit {
     private String partitionDataJson = null;
     private Long firstRowId = null;
     private Long lastUpdatedSequenceNumber = null;
+    private String serializedSplit;
+    // maybe mixed file format type in one table. so need record it for every split
+    private FileFormat splitFileFormat;
+    private boolean positionDeleteSystemTableSplit = false;
+    private TFileFormatType positionDeleteFileFormat;
+    private int positionDeleteContent;
+    private String positionDeleteOriginalPath;
+    private String positionDeleteReferencedDataFilePath;
+    private Long positionDeleteContentOffset;
+    private Long positionDeleteContentSizeInBytes;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -65,5 +79,23 @@ public class IcebergSplit extends FileSplit {
         this.deleteFiles = deleteFiles;
         this.deleteFileFilters = deleteFileFilters;
         this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
+    }
+
+    public static IcebergSplit newSysTableSplit(String serializedSplit, long rowCount) {
+        IcebergSplit split = new IcebergSplit(DUMMY_PATH, 0, 0, 0, null, null,
+                Collections.emptyMap(),
+                Collections.emptyList(), DUMMY_PATH.toStorageLocation().toString());
+        split.setSerializedSplit(serializedSplit);
+        split.setSelfSplitWeight(Math.max(rowCount, 1L));
+        return split;
+    }
+
+    public static IcebergSplit newPositionDeleteSysTableSplit(LocationPath file, long start, long length,
+            long fileLength, Map<StorageProperties.Type, StorageProperties> config, String originalPath) {
+        IcebergSplit split = new IcebergSplit(file, start, length, fileLength, null, null, config,
+                Collections.emptyList(), originalPath);
+        split.setPositionDeleteSystemTableSplit(true);
+        split.setSelfSplitWeight(Math.max(length, 1L));
+        return split;
     }
 }

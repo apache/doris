@@ -59,11 +59,13 @@ TColumnAccessPath meta_access_path() {
 
 format::ColumnDefinition field(int32_t id, std::string name, DataTypePtr type,
                                std::vector<format::ColumnDefinition> children = {},
-                               std::vector<std::string> aliases = {}) {
+                               std::vector<std::string> aliases = {},
+                               bool has_name_mapping = false) {
     return {
             .identifier = Field::create_field<TYPE_INT>(id),
             .name = std::move(name),
             .name_mapping = std::move(aliases),
+            .has_name_mapping = has_name_mapping,
             .type = std::move(type),
             .children = std::move(children),
     };
@@ -167,7 +169,7 @@ TEST(AccessPathParserTest, StructAccessPathMatrix) {
             .type = struct_type,
             .children =
                     {
-                            field(101, "a", int_type),
+                            field(101, "a", int_type, {}, {}, true),
                             field(205, "b", int_type, {}, {"old_b"}),
                     },
     };
@@ -202,10 +204,20 @@ TEST(AccessPathParserTest, StructAccessPathMatrix) {
     {
         auto column = root_column(100, "s", struct_type);
         auto status = AccessPathParser::build_nested_children(
+                &column, std::vector<TColumnAccessPath> {data_access_path({"s", "a"})}, &schema);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(column.children.size(), 1);
+        expect_child(column.children[0], 101, "a");
+        EXPECT_TRUE(column.children[0].has_name_mapping);
+    }
+    {
+        auto column = root_column(100, "s", struct_type);
+        auto status = AccessPathParser::build_nested_children(
                 &column, std::vector<TColumnAccessPath> {data_access_path({"s"})}, &schema);
         ASSERT_TRUE(status.ok()) << status;
         ASSERT_EQ(column.children.size(), 2);
         expect_child(column.children[0], 101, "a");
+        EXPECT_TRUE(column.children[0].has_name_mapping);
         expect_child(column.children[1], 205, "b");
     }
 
@@ -216,6 +228,52 @@ TEST(AccessPathParserTest, StructAccessPathMatrix) {
                 &schema);
         EXPECT_FALSE(status.ok()) << invalid_child;
     }
+}
+
+TEST(AccessPathParserTest, CurrentStructNameTakesPriorityOverHistoricalAlias) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                        Strings {"renamed_b", "b"});
+    format::ColumnDefinition schema {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = struct_type,
+            .children =
+                    {
+                            field(1, "renamed_b", int_type, {}, {"b"}, true),
+                            field(2, "b", int_type, {}, {}, true),
+                    },
+    };
+
+    auto column = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &column, std::vector<TColumnAccessPath> {data_access_path({"s", "b"})}, &schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(column.children.size(), 1);
+    expect_child(column.children[0], 2, "b");
+}
+
+TEST(AccessPathParserTest, LegacyPlanRetainsOrderedStructNameAndAliasLookup) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, int_type},
+                                                        Strings {"renamed_b", "b"});
+    format::ColumnDefinition schema {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = struct_type,
+            .children =
+                    {
+                            field(1, "renamed_b", int_type, {}, {"b"}, true),
+                            field(2, "b", int_type, {}, {}, true),
+                    },
+    };
+
+    auto column = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &column, std::vector<TColumnAccessPath> {data_access_path({"s", "b"})}, &schema, false);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(column.children.size(), 1);
+    expect_child(column.children[0], 1, "renamed_b");
 }
 
 // Scenario: array access paths must pass through the "*" element token, then reuse struct child
@@ -235,7 +293,7 @@ TEST(AccessPathParserTest, ArrayAccessPathMatrix) {
                             field(201, "element", element_type,
                                   {
                                           field(202, "item", string_type, {}, {"old_item"}),
-                                          field(203, "quantity", int_type),
+                                          field(203, "quantity", int_type, {}, {}, true),
                                   }),
                     },
     };
@@ -257,6 +315,18 @@ TEST(AccessPathParserTest, ArrayAccessPathMatrix) {
     {
         auto column = root_column(200, "items", array_type);
         auto status = AccessPathParser::build_nested_children(
+                &column,
+                std::vector<TColumnAccessPath> {data_access_path({"items", "*", "quantity"})},
+                &schema);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(column.children.size(), 1);
+        ASSERT_EQ(column.children[0].children.size(), 1);
+        expect_child(column.children[0].children[0], 203, "quantity");
+        EXPECT_TRUE(column.children[0].children[0].has_name_mapping);
+    }
+    {
+        auto column = root_column(200, "items", array_type);
+        auto status = AccessPathParser::build_nested_children(
                 &column, std::vector<TColumnAccessPath> {data_access_path({"items"})}, &schema);
         ASSERT_TRUE(status.ok()) << status;
         ASSERT_EQ(column.children.size(), 1);
@@ -264,6 +334,7 @@ TEST(AccessPathParserTest, ArrayAccessPathMatrix) {
         ASSERT_EQ(column.children[0].children.size(), 2);
         expect_child(column.children[0].children[0], 202, "item");
         expect_child(column.children[0].children[1], 203, "quantity");
+        EXPECT_TRUE(column.children[0].children[1].has_name_mapping);
     }
 
     for (const auto& invalid_path : std::vector<std::vector<std::string>> {
@@ -293,7 +364,7 @@ TEST(AccessPathParserTest, MapAccessPathMatrix) {
                             field(302, "value", value_type,
                                   {
                                           field(303, "full_name", string_type, {}, {"name"}),
-                                          field(304, "age", int_type),
+                                          field(304, "age", int_type, {}, {}, true),
                                           field(305, "gender", string_type),
                                   }),
                     },
@@ -329,6 +400,7 @@ TEST(AccessPathParserTest, MapAccessPathMatrix) {
         expect_child(column.children[1], 302, "value");
         ASSERT_EQ(column.children[1].children.size(), 1);
         expect_child(column.children[1].children[0], 304, "age");
+        EXPECT_TRUE(column.children[1].children[0].has_name_mapping);
     }
     {
         auto column = root_column(300, "m", map_type);
@@ -357,6 +429,9 @@ TEST(AccessPathParserTest, MapAccessPathMatrix) {
         ASSERT_TRUE(status.ok()) << status;
         ASSERT_EQ(column.children.size(), 2);
         ASSERT_EQ(column.children[1].children.size(), 3);
+        const auto* age = find_child_by_name(column.children[1], "age");
+        ASSERT_NE(age, nullptr);
+        EXPECT_TRUE(age->has_name_mapping);
     }
 
     for (const auto& invalid_path : std::vector<std::vector<std::string>> {
@@ -366,6 +441,23 @@ TEST(AccessPathParserTest, MapAccessPathMatrix) {
                 &column, std::vector<TColumnAccessPath> {data_access_path(invalid_path)}, &schema);
         EXPECT_FALSE(status.ok()) << invalid_path.back();
     }
+}
+
+TEST(AccessPathParserTest, PreservesNestedInitialDefaultMetadata) {
+    auto binary_type = std::make_shared<DataTypeString>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {binary_type}, Strings {"data"});
+    auto defaulted_child = field(101, "data", binary_type);
+    defaulted_child.initial_default_value = "AAEC/w==";
+    defaulted_child.initial_default_value_is_base64 = true;
+    auto schema = field(100, "s", struct_type, {defaulted_child});
+
+    auto column = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &column, std::vector<TColumnAccessPath> {data_access_path({"s", "data"})}, &schema);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(column.children.size(), 1);
+    EXPECT_EQ(column.children[0].initial_default_value, std::optional<std::string>("AAEC/w=="));
+    EXPECT_TRUE(column.children[0].initial_default_value_is_base64);
 }
 
 } // namespace doris

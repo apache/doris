@@ -94,6 +94,57 @@ final class CdcClientWriteHarness implements AutoCloseable {
             String offset,
             String targetDb,
             MockDorisServer mock) {
+        return mysqlCompatible(
+                jobId,
+                "MYSQL",
+                host,
+                port,
+                user,
+                password,
+                database,
+                includeTables,
+                offset,
+                targetDb,
+                mock);
+    }
+
+    static CdcClientWriteHarness oceanbase(
+            String jobId,
+            String host,
+            int port,
+            String user,
+            String password,
+            String database,
+            String includeTables,
+            String offset,
+            String targetDb,
+            MockDorisServer mock) {
+        return mysqlCompatible(
+                jobId,
+                "OCEANBASE",
+                host,
+                port,
+                user,
+                password,
+                database,
+                includeTables,
+                offset,
+                targetDb,
+                mock);
+    }
+
+    private static CdcClientWriteHarness mysqlCompatible(
+            String jobId,
+            String dataSource,
+            String host,
+            int port,
+            String user,
+            String password,
+            String database,
+            String includeTables,
+            String offset,
+            String targetDb,
+            MockDorisServer mock) {
         Map<String, String> config = new HashMap<>();
         config.put(
                 DataSourceConfigKeys.JDBC_URL,
@@ -108,7 +159,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         // Point cdc_client's stream-load at the mock BE.
         Env.getCurrentEnv().setBackendHttpPort(mock.port());
         Env.getCurrentEnv().setClusterToken("test");
-        return new CdcClientWriteHarness(jobId, "MYSQL", config, targetDb, mock);
+        return new CdcClientWriteHarness(jobId, dataSource, config, targetDb, mock);
     }
 
     static CdcClientWriteHarness postgres(

@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "format/table/deletion_vector.h"
 #include "io/io_common.h"
 #include "roaring/roaring64map.hh"
 
@@ -50,6 +51,9 @@ struct IcebergDeleteFileReaderOptions {
     io::IOContext* io_ctx = nullptr;
     FileMetaCache* meta_cache = nullptr;
     const std::string* fs_name = nullptr;
+    // Optional per-DV attribution. The reader still merges these values into io_ctx so the
+    // scanner-wide File Cache profile remains complete.
+    io::FileCacheStatistics* deletion_vector_file_cache_stats = nullptr;
     size_t batch_size = 102400;
 };
 
@@ -67,12 +71,21 @@ TFileRangeDesc build_iceberg_delete_file_range(const std::string& path);
 
 bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file);
 
+std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
+                                                    const TIcebergDeleteFileDesc& delete_file);
+
+Status validate_iceberg_deletion_vector_descriptor(const TIcebergDeleteFileDesc& delete_file,
+                                                   size_t& bytes_read);
+
+Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                             DeletionVector* rows_to_delete);
+
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,
                                          IcebergPositionDeleteVisitor* visitor);
 
 Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
                                     const IcebergDeleteFileReaderOptions& options,
-                                    roaring::Roaring64Map* rows_to_delete);
+                                    DeletionVector* rows_to_delete);
 
 } // namespace doris

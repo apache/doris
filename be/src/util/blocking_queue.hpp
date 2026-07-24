@@ -30,6 +30,10 @@
 #include "common/logging.h"
 #include "util/stopwatch.hpp"
 
+#ifdef BE_TEST
+#include "cpp/sync_point.h"
+#endif
+
 namespace doris {
 #include "common/compile_check_begin.h"
 // Fixed capacity FIFO queue, where both BlockingGet and BlockingPut operations block
@@ -57,21 +61,26 @@ public:
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
+#ifdef BE_TEST
+        TEST_SYNC_POINT("BlockingQueue::controlled_blocking_get::after_lock");
+#endif
         while (!(_shutdown || !_list.empty())) {
             ++_get_waiting;
-            if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(cv_wait_timeout_ms)) ==
-                std::cv_status::timeout) {
-                _get_waiting--;
-            }
+#ifdef BE_TEST
+            TEST_SYNC_POINT("BlockingQueue::controlled_blocking_get::before_wait");
+#endif
+            _get_cv.wait_for(unique_lock, std::chrono::milliseconds(cv_wait_timeout_ms));
+            DCHECK_GT(_get_waiting, 0);
+            --_get_waiting;
         }
         _total_get_wait_time += timer.elapsed_time();
 
         if (!_list.empty()) {
             *out = _list.front();
             _list.pop_front();
-            if (_put_waiting > 0) {
-                --_put_waiting;
-                unique_lock.unlock();
+            const bool has_put_waiter = _put_waiting > 0;
+            unique_lock.unlock();
+            if (has_put_waiter) {
                 _put_cv.notify_one();
             }
             return true;
@@ -94,10 +103,12 @@ public:
         std::unique_lock<std::mutex> unique_lock(_lock);
         while (!(_shutdown || _list.size() < _max_elements)) {
             ++_put_waiting;
-            if (_put_cv.wait_for(unique_lock, std::chrono::milliseconds(cv_wait_timeout_ms)) ==
-                std::cv_status::timeout) {
-                _put_waiting--;
-            }
+#ifdef BE_TEST
+            TEST_SYNC_POINT("BlockingQueue::controlled_blocking_put::before_wait");
+#endif
+            _put_cv.wait_for(unique_lock, std::chrono::milliseconds(cv_wait_timeout_ms));
+            DCHECK_GT(_put_waiting, 0);
+            --_put_waiting;
         }
         _total_put_wait_time += timer.elapsed_time();
 
@@ -106,9 +117,9 @@ public:
         }
 
         _list.push_back(val);
-        if (_get_waiting > 0) {
-            --_get_waiting;
-            unique_lock.unlock();
+        const bool has_get_waiter = _get_waiting > 0;
+        unique_lock.unlock();
+        if (has_get_waiter) {
             _get_cv.notify_one();
         }
         return true;
@@ -116,13 +127,12 @@ public:
 
     // Return false if queue full or has been shutdown.
     bool try_put(const T& val) {
-        if (_shutdown || _list.size() >= _max_elements) {
-            return false;
-        }
-
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
+#ifdef BE_TEST
+        TEST_SYNC_POINT("BlockingQueue::try_put::after_lock");
+#endif
         _total_put_wait_time += timer.elapsed_time();
 
         if (_shutdown || _list.size() >= _max_elements) {
@@ -130,9 +140,9 @@ public:
         }
 
         _list.push_back(val);
-        if (_get_waiting > 0) {
-            --_get_waiting;
-            unique_lock.unlock();
+        const bool has_get_waiter = _get_waiting > 0;
+        unique_lock.unlock();
+        if (has_get_waiter) {
             _get_cv.notify_one();
         }
         return true;
@@ -156,6 +166,18 @@ public:
 
     uint32_t get_capacity() const { return _max_elements; }
 
+#ifdef BE_TEST
+    size_t get_waiting_count_for_test() const {
+        std::lock_guard<std::mutex> guard(_lock);
+        return _get_waiting;
+    }
+
+    size_t put_waiting_count_for_test() const {
+        std::lock_guard<std::mutex> guard(_lock);
+        return _put_waiting;
+    }
+#endif
+
     // Returns the total amount of time threads have blocked in BlockingGet.
     uint64_t total_get_wait_time() const { return _total_get_wait_time; }
 
@@ -168,11 +190,14 @@ private:
     const int _max_elements;
     std::condition_variable _get_cv; // 'get' callers wait on this
     std::condition_variable _put_cv; // 'put' callers wait on this
-    // _lock guards access to _list, total_get_wait_time, and total_put_wait_time
+    // _lock guards access to _shutdown, _get_waiting, _put_waiting, _list, total_get_wait_time, and total_put_wait_time
     mutable std::mutex _lock;
     std::list<T> _list;
     std::atomic<uint64_t> _total_get_wait_time;
     std::atomic<uint64_t> _total_put_wait_time;
+    // Number of threads currently inside the corresponding wait_for() call. The waiter that
+    // increments a counter is also responsible for decrementing it after every wakeup reason.
+    // Notifiers only inspect these counters and never consume a waiter's registration.
     size_t _get_waiting;
     size_t _put_waiting;
 };

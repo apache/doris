@@ -31,6 +31,10 @@ std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     output_stats->num_io_bytes_read_from_cache += _statistics->num_io_bytes_read_from_cache;
     output_stats->num_io_bytes_read_from_remote += _statistics->num_io_bytes_read_from_remote;
     output_stats->num_io_bytes_read_from_peer += _statistics->num_io_bytes_read_from_peer;
+    output_stats->inverted_index_bytes_read_from_remote +=
+            _statistics->inverted_index_bytes_read_from_remote;
+    output_stats->segment_footer_index_bytes_read_from_remote +=
+            _statistics->segment_footer_index_bytes_read_from_remote;
     return output_stats;
 }
 
@@ -45,6 +49,10 @@ void FileCacheMetrics::update(FileCacheStatistics* input_stats) {
     _statistics->num_io_bytes_read_from_cache += input_stats->bytes_read_from_local;
     _statistics->num_io_bytes_read_from_remote += input_stats->bytes_read_from_remote;
     _statistics->num_io_bytes_read_from_peer += input_stats->bytes_read_from_peer;
+    _statistics->inverted_index_bytes_read_from_remote +=
+            input_stats->inverted_index_bytes_read_from_remote;
+    _statistics->segment_footer_index_bytes_read_from_remote +=
+            input_stats->segment_footer_index_bytes_read_from_remote;
 }
 
 void FileCacheMetrics::register_entity() {
@@ -63,6 +71,10 @@ void FileCacheMetrics::update_metrics_callback() {
     DorisMetrics::instance()->num_io_bytes_read_total->set_value(
             stats->num_io_bytes_read_from_cache + stats->num_io_bytes_read_from_remote +
             stats->num_io_bytes_read_from_peer);
+    DorisMetrics::instance()->inverted_index_bytes_read_from_remote->set_value(
+            stats->inverted_index_bytes_read_from_remote);
+    DorisMetrics::instance()->segment_footer_index_bytes_read_from_remote->set_value(
+            stats->segment_footer_index_bytes_read_from_remote);
 }
 
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
@@ -112,9 +124,11 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     return diff;
 }
 
-FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
+FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
+                                                   const std::string& parent_counter)
+        : _profile(profile) {
     static const char* cache_profile = "FileCache";
-    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
+    total_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, cache_profile, parent_counter.c_str(), 2);
     num_local_io_total =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
     num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
@@ -188,6 +202,12 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
 }
 
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
+    // These are the outer cache-path phases. Their sum keeps the group timer actionable instead of
+    // displaying zero while individual cache IO and coordination timers are non-zero.
+    COUNTER_UPDATE(total_time, statistics->local_io_timer + statistics->remote_io_timer +
+                                       statistics->peer_io_timer + statistics->remote_wait_timer +
+                                       statistics->write_cache_io_timer +
+                                       statistics->cache_get_or_set_timer);
     COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
     COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
     COUNTER_UPDATE(num_peer_io_total, statistics->num_peer_io_total);

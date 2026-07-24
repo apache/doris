@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.hive_text_complex_type_delimiter3`(
+drop table if exists `multi_catalog.hive_text_complex_type_delimiter3`;
+
+create table `multi_catalog.hive_text_complex_type_delimiter3`(
   `id` int, 
   `column1` map<int,struct<a:int,b:int,c:array<map<string,array<array<array<array<struct<aa:int,bb:string,cc:boolean>>>>>>>>>, 
   `column2` array<struct<a:int,b:array<map<string,map<int,map<string,array<struct<aaa:struct<aa:int,bb:string,cc:boolean>,bbb:boolean,ccc:string,ddd:date>>>>>>,c:int>>, 
@@ -22,5 +24,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/hive_text_complex_type_delimiter3'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1693390056');
-
-msck repair table hive_text_complex_type_delimiter3;

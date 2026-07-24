@@ -70,6 +70,11 @@ public:
                                           IColumn& target_col) const;
     Status read_column_from_decoded_values(IColumn& column,
                                            const DecodedColumnView& view) const override;
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override;
+    Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                   const ParquetDecodeContext& context) const override;
     int get_scale() const override { return _scale; }
 
 protected:

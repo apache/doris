@@ -79,7 +79,7 @@ bool has_name_mapping(const ColumnDefinition& column, const std::string& name) {
 
 class HiveV2ReaderTest : public testing::Test {
 public:
-    HiveV2ReaderTest() : profile("hive_v2_reader_test") { state.set_query_options(query_options); }
+    HiveV2ReaderTest() : state(query_options, query_globals), profile("hive_v2_reader_test") {}
 
 protected:
     TQueryOptions query_options;

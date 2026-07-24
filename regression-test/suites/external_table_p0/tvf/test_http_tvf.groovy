@@ -144,9 +144,11 @@ suite("test_http_tvf", "p2") {
     String httpServerHost = context.config.otherConfigs.get("httpTvfHost")
     if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
         httpServerHost = context.config.otherConfigs.get("externalEnvIp")
-    }
-    if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
-        httpServerHost = InetAddress.getLocalHost().getHostAddress()
+        if (httpServerHost == null || httpServerHost.trim().isEmpty()
+                || InetAddress.getByName(httpServerHost).isLoopbackAddress()
+                || InetAddress.getByName(httpServerHost).isAnyLocalAddress()) {
+            httpServerHost = InetAddress.getLocalHost().getHostAddress()
+        }
     }
     String httpBaseUrl = "http://${httpServerHost}:${httpServer.address.port}"
     def httpUrl = { String relativePath -> "${httpBaseUrl}/${relativePath}" }

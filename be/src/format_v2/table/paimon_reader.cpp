@@ -23,9 +23,9 @@
 #include <utility>
 
 #include "exprs/vexpr_context.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/deletion_vector_reader.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -33,12 +33,19 @@
 namespace doris::format::paimon {
 
 Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
-    _split_schema_id = -1;
-    const auto& paimon_params = options.current_range.table_format_params.paimon_params;
-    if (paimon_params.__isset.schema_id) {
-        _split_schema_id = paimon_params.schema_id;
+    {
+        // Derived schema selection is additive to, not nested around, the common base timers.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        _split_schema_id = -1;
+        const auto& paimon_params = options.current_range.table_format_params.paimon_params;
+        if (paimon_params.__isset.schema_id) {
+            _split_schema_id = paimon_params.schema_id;
+        }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -75,11 +82,13 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
         return Status::OK();
     }
     const auto& deletion_file = table_desc.deletion_file;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
 
     desc->key = build_paimon_deletion_vector_cache_key(deletion_file);
     desc->path = deletion_file.path;
     desc->start_offset = deletion_file.offset;
-    desc->size = deletion_file.length + 4;
+    desc->size = static_cast<int64_t>(bytes_read);
     desc->file_size = -1;
     desc->format = DeleteFileDesc::Format::PAIMON;
     *has_delete_file = true;
@@ -91,6 +100,8 @@ Status PaimonHybridReader::init(format::TableReadOptions&& options) {
 }
 
 Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options) {
+    // Child initialization uses the scanner profile too; hybrid dispatch must not nest the same
+    // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->prepare_split(options);
@@ -104,6 +115,11 @@ Status PaimonHybridReader::get_block(Block* block, bool* eos) {
 bool PaimonHybridReader::current_split_pruned() const {
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->current_split_pruned();
+}
+
+bool PaimonHybridReader::current_split_uses_metadata_count() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->current_split_uses_metadata_count();
 }
 
 Status PaimonHybridReader::abort_split() {
@@ -136,11 +152,47 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     }
 }
 
+Status PaimonHybridReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
+    // The wrapper snapshot initializes future children, while every existing child needs the same
+    // late RF immediately so active and later reused splits keep identical predicate ownership.
+    const size_t owned_count =
+            _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
+    RETURN_IF_ERROR(format::TableReader::append_conjuncts(conjuncts));
+    if (_native_reader != nullptr) {
+        RETURN_IF_ERROR(_native_reader->append_conjuncts_with_ownership(conjuncts, owned_count));
+    }
+    if (_jni_reader != nullptr) {
+        RETURN_IF_ERROR(_jni_reader->append_conjuncts_with_ownership(conjuncts, owned_count));
+    }
+    return Status::OK();
+}
+
+const format::MaterializedBlockStats& PaimonHybridReader::last_materialized_block_stats() const {
+    // FileScannerV2 budgets cooperative work from the child that actually materialized the block.
+    return _current_split_reader != nullptr ? _current_split_reader->last_materialized_block_stats()
+                                            : format::TableReader::last_materialized_block_stats();
+}
+
+int64_t PaimonHybridReader::condition_cache_hit_count() const {
+    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // returning only the active child would make FileScannerV2's monotonic delta go backwards.
+    return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+}
+
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
         if (_jni_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_jni_reader_factory) {
+                _jni_reader = _test_jni_reader_factory();
+            } else {
+                _jni_reader = std::make_unique<format::paimon::PaimonJniReader>();
+            }
+#else
             _jni_reader = std::make_unique<format::paimon::PaimonJniReader>();
+#endif
             RETURN_IF_ERROR(_init_child_reader(_jni_reader.get(), format::FileFormat::JNI));
         }
         _current_split_reader = _jni_reader.get();
@@ -151,7 +203,15 @@ Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadO
         DCHECK(file_format == format::FileFormat::PARQUET ||
                file_format == format::FileFormat::ORC);
         if (_native_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_native_reader_factory) {
+                _native_reader = _test_native_reader_factory();
+            } else {
+                _native_reader = format::paimon::PaimonReader::create_unique();
+            }
+#else
             _native_reader = format::paimon::PaimonReader::create_unique();
+#endif
             RETURN_IF_ERROR(_init_child_reader(_native_reader.get(), file_format));
         }
         _current_split_reader = _native_reader.get();
@@ -167,12 +227,14 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
     RETURN_IF_ERROR(reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(conjuncts),
+            .table_reader_owned_conjunct_count = _table_reader_owned_conjunct_count,
             .format = file_format,
             .scan_params = _scan_params,
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
+            .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal

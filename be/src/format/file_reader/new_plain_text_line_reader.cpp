@@ -45,7 +45,6 @@
 // leave these 2 size small for debugging
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
     if (_skip_utf8_bom && !_first_record_prefix_checked && _idx == 0) {
         constexpr uint8_t UTF8_BOM[] = {0xEF, 0xBB, 0xBF};
@@ -54,8 +53,12 @@ const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, con
         if (std::memcmp(start, UTF8_BOM, prefix_size) != 0) {
             _first_record_prefix_checked = true;
         } else if (length < UTF8_BOM_SIZE) {
+            // The input buffer can end inside the BOM. Wait for the remaining prefix bytes instead
+            // of feeding a partial BOM into START, which would permanently select NORMAL state.
             return nullptr;
         } else {
+            // Keep offsets relative to the original buffer. CsvReader removes these three bytes
+            // from the returned line and shifts separator positions by the same amount.
             _idx = UTF8_BOM_SIZE;
             _first_record_prefix_checked = true;
         }
@@ -64,7 +67,10 @@ const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, con
     // causing parse column separator error.
     if (_state.curr_state == ReaderState::NORMAL ||
         _state.curr_state == ReaderState::MATCH_ENCLOSE) {
-        _idx -= std::min(_column_sep_len - 1, _idx);
+        const size_t last_column_sep_end =
+                _column_sep_positions.empty() ? 0 : _column_sep_positions.back() + _column_sep_len;
+        DORIS_CHECK_LE(last_column_sep_end, _idx);
+        _idx -= std::min(_column_sep_len - 1, _idx - last_column_sep_end);
     }
     _total_len = length;
     size_t bound = update_reading_bound(start);
@@ -148,7 +154,8 @@ void EncloseCsvLineReaderCtx::_on_start(const uint8_t* start, size_t& len) {
 
 void EncloseCsvLineReaderCtx::_on_normal(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    size_t curr_len = len - _idx;
+    const size_t field_search_bound = _result == nullptr ? len : _result - start;
+    const size_t curr_len = field_search_bound - _idx;
     const uint8_t* col_sep_pos =
             find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 
@@ -204,7 +211,8 @@ void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t
 
 void EncloseCsvLineReaderCtx::_on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    size_t curr_len = len - _idx;
+    const size_t field_search_bound = _result == nullptr ? len : _result - start;
+    const size_t curr_len = field_search_bound - _idx;
     const uint8_t* delim_pos =
             find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 
@@ -541,5 +549,4 @@ void NewPlainTextLineReader::_collect_profile_before_close() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris
