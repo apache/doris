@@ -84,14 +84,15 @@
   - 起因：`#65473`/`6e521aa64b2`（2026-07-16）把 hms 翻为 live 但没更新这批 class 注释。**纯 doc，运行时无害**。
 - **依赖**：无。可任何时候随手做（甚至可并进 WS-HUDI 的 hudi 部分）。
 
-### [ ] WS-P2 — 热点触发的收尾（记录，勿抢跑）
+### [ ] WS-P2 — 各连接器常数倍/一致性收尾（⚠ paimon/jdbc/hive 三项经 owner 2026-07-24 **排期为下一 session**，非"等热点"）
 - **权威**：报告 §5.2 + §7 + §9。
 - **条目**：
   - **PA-1**（paimon，P2/CPU）：`listPartitionNames/Values` 绕过 `partitionViewCache` → 路由进去；仅省 CPU 重渲染（底层远程已被 SDK partitionCache 挡）。见 [`connectors/paimon.md`](./connectors/paimon.md)。
   - **HP-1/HP-2**（jdbc，P2）：`HP-1` scan 期 `getColumnHandles` 冗余远程取列；`HP-2` 写路径 `buildInsertSql` 新建实例绕开 funnel（正确性中立，BE 逐行 auto-commit）。见 [`connectors/jdbc.md`](./connectors/jdbc.md)。
   - **TRINO-H1/H2/H3**（trino，P2 / **仅 CPU 清理**）：cold 3x `getTableHandle` / 2N `getColumnMetadata` / 2x `applyFilter`。**禁加 L1 缓存**（反指，见下）。见 [`connectors/trino.md`](./connectors/trino.md)。
-  - **hive 写后读一致性**（P2，仅 hive）：Doris 对 hive 走粗 REFRESH+TTL，存在 TTL 有界的 read-your-write 窗口 → 给 `CachingHmsClient` 加写路径失效，或写后读走 live/bypass。优先级低（TTL 有界）。
-- **依赖**：按真实热点 profile 触发，不预抢。
+  - **hive 写后读一致性**（P2，仅 hive）：Doris 对 hive 走粗 REFRESH+TTL，存在 TTL 有界的 read-your-write 窗口 → 给 `CachingHmsClient` 加写路径失效，或写后读走 live/bypass。
+- **排期（owner 2026-07-24）**：**paimon（PA-1）/ jdbc（HP-1·2）/ hive 写后读三项 = 下一 session 正式工作项**（就做，非等热点）；trino（TRINO-H1/2/3）纯 CPU 去重暂不排期（未点名 + 受"禁加 L1 缓存"硬约束）。
+- **⚠ owner 定调（推翻此前"仅热点触发/勿抢跑"）**：**本地 CPU（重复渲染 / 重复解析 / 重复对象构造）同样是真实性能开销**——"底层远程已被缓存挡住、只省 CPU"**不再是延后理由**（PA-1 由此从"仅热点触发"上调为排期项）。见记忆 [`perf-local-cpu-not-only-remote-matters`]。
 
 ---
 

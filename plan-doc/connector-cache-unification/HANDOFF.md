@@ -23,14 +23,24 @@
 
 # 🆕 下一步（覆盖区）
 
-## 当前状态（2026-07-23，设计定稿、owner 已确认）
+## 🎯 下一 session 议程（owner 2026-07-24 指定 — 就做这三项，非"等热点触发"）
+
+按 P2 收尾里 owner 点名的三项，逐项立项（各自兄弟空间 `plan-doc/perf-hotpath-<c>/`，镜像 iceberg 布局，或就近做）；**动码前按 HEAD 重侦察**（信 grep 不信行号）、复核真实乘数、守铁律 A（fe-core 0 行）：
+
+1. **paimon 分区列举去重**：`listPartitionNames`/`listPartitionValues` 绕过了 `partitionViewCache` → 路由进去。底层远程已被 paimon SDK 的 partitionCache 挡住，**这里省的是每次把分区重新渲染成结果对象的本地 CPU**（不是远程 IO）。权威见 [`connectors/paimon.md`](./connectors/paimon.md)。
+2. **jdbc 两处**：① 读——scan 期 `getColumnHandles` 冗余远程取列，而昂贵元数据（schema/列/行数）已被 fe-core 跨查询缓存前置 → 复用、别再取一次；② 写——`buildInsertSql` 新建实例绕开统一 metadata funnel（正确性中立，BE 逐行 auto-commit）→ 走统一入口。权威见 [`connectors/jdbc.md`](./connectors/jdbc.md)。
+3. **hive 写后读一致性**：Doris 对 hive 走粗 REFRESH+TTL → 存在 TTL 有界的 read-your-write 旧读窗口（刚写完立刻读可能读到写前元数据）。修法 = 给 `CachingHmsClient` 加写路径失效，或"写后立即读"走 live/bypass。权威见 [`connectors/hive.md`](./connectors/hive.md)。
+
+**⚠ owner 定调（2026-07-24）：性能不只看远程往返——大量本地 CPU（重复渲染 / 重复解析 / 重复对象构造）同样是真实性能开销。故"远程已被缓存挡住、只省 CPU"不再是延后理由**（推翻此前把 paimon 等 CPU-only 项归为"仅热点触发"的判断）。这三项即下一 session 的正式工作项。（trino 的纯 CPU 去重同理是真收益，但本次 owner 未点名、且受"禁加缓存"硬约束，暂不排期。）参见记忆 `perf-local-cpu-not-only-remote-matters`。
+
+## 当前状态（历史，2026-07-23 快照 — 以上「议程」为准；round-1 + 门禁移除 + 注释清理均已完成）
 
 - **调研 + 设计均完成；owner 4 决策已签字 + 设计后二次确认**（[`tasklist.md`](./tasklist.md) §0）。
 - **设计定稿** → [`designs/foundation-design-FINAL.md`](./designs/foundation-design-FINAL.md)（配 `foundation-design-draft.md` + `review-1..3.md`）。11-agent 只读设计调研 + 3 路对抗评审，全程逐符号核对 HEAD。
 - **底座 PR-0/1/2 已落地（下方「进行中」为准）；连接器消费 PR-3~7 + e2e 未跑。** 设计里 `file:line` 是 2026-07-23 HEAD 侦察快照，动码前须按 HEAD 重侦察。
 - **核心结论**：走"先建底座"，但**底座几乎现成** → 整套 A/B/C + hudi/mc/es 消费 **全程 0 行 fe-core 改动**（D4 原"提炼进 fe-core"被侦察推翻：per-statement memo 底座已在 `fe-connector-api`，owner 二次确认不动 fe-core；iceberg 本轮就改挂）。
 
-## ⚠️ 进行中：底座 PR-0/1/2 + ttl 去重 + hudi/maxcompute/**es round-1 全部完成**（2026-07-23/24）→ 三个 P1 连接器收尾（hudi/mc/es）已落地；下一步 = **P2 backlog（热点触发）/ 门禁通用化 / 陈旧注释清理 / 各连接器 e2e 统一补**；动每个文件前先按 HEAD 重侦察
+## ⚠️ 进行中：底座 PR-0/1/2 + ttl 去重 + hudi/maxcompute/**es round-1 全部完成**（2026-07-23/24）→ 三个 P1 连接器收尾（hudi/mc/es）已落地；下一步见顶部「🎯 下一 session 议程」（paimon 分区列举去重 / jdbc 两处 / hive 写后读一致性）；门禁通用化已改为**删门禁+ATTN**、陈旧注释清理**已完成**；各连接器 e2e 待集群；动每个文件前先按 HEAD 重侦察
 
 **maxcompute（WS-MC）round-1 完成**（commit `58daadd10e0`，见 `plan-doc/perf-hotpath-maxcompute/`）：per-statement `Map<(db,table),handle>`（CHM）present-only memo，收冗余 ODPS `exists()` k×→1× + Table reload 每表 1×；0 fe-core；120 测试绿 + 两处变异 + 净室复审（concurrency 经 verify REFUTED）。
 
