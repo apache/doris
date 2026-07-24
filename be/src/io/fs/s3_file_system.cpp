@@ -130,6 +130,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
 }
 
 std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
+    std::shared_lock lock(_mtx);
     return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
 }
 
