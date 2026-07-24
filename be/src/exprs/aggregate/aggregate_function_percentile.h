@@ -86,7 +86,7 @@ struct PercentileApproxState {
             //The compression parameter setting range is [2048, 10000].
             //If the value of compression parameter is not specified set, or is outside the range of [2048, 10000],
             //will use the default value of 10000
-            if (compression < 2048 || compression > 10000) {
+            if (!std::isfinite(compression) || compression < 2048 || compression > 10000) {
                 compression = 10000;
             }
             digest = TDigest::create_unique(compression);
@@ -326,6 +326,241 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.get_data().push_back(this->data(place).get());
+    }
+};
+
+struct PercentileApproxArrayState {
+    void init(const PaddedPODArray<Float64>& quantiles, const NullMap& null_map, size_t start,
+              size_t size, float compression = 10000) {
+        if (init_flag) {
+            return;
+        }
+
+        if (!std::isfinite(compression) || compression < 2048 || compression > 10000) {
+            compression = 10000;
+        }
+        compressions = compression;
+        levels.quantiles.resize(size);
+        levels.permutation.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            if (null_map[start + i]) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "percentile_approx_array quantile should not be null");
+            }
+            check_quantile(quantiles[start + i]);
+            levels.quantiles[i] = quantiles[start + i];
+            levels.permutation[i] = i;
+        }
+        if (!levels.empty()) {
+            digest = TDigest::create_unique(compressions);
+        }
+        init_flag = true;
+    }
+
+    void add_range(const Float64* values, size_t size) {
+        if (levels.empty()) {
+            return;
+        }
+        for (size_t i = 0; i < size; ++i) {
+            digest->add(static_cast<float>(values[i]));
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        buf.write_binary(init_flag);
+        if (!init_flag) {
+            return;
+        }
+
+        levels.write(buf);
+        buf.write_binary(compressions);
+        if (levels.empty()) {
+            return;
+        }
+        uint32_t serialize_size = digest->serialized_size();
+        std::string result(serialize_size, '0');
+        DCHECK(digest.get() != nullptr);
+        digest->serialize(reinterpret_cast<uint8_t*>(result.data()));
+        buf.write_binary(result);
+    }
+
+    void read(BufferReadable& buf) {
+        reset();
+        buf.read_binary(init_flag);
+        if (!init_flag) {
+            return;
+        }
+
+        levels.read(buf);
+        buf.read_binary(compressions);
+        if (levels.empty()) {
+            return;
+        }
+        std::string str;
+        buf.read_binary(str);
+        digest = TDigest::create_unique(compressions);
+        digest->unserialize(reinterpret_cast<const uint8_t*>(str.data()));
+    }
+
+    void merge(const PercentileApproxArrayState& rhs) {
+        if (!rhs.init_flag) {
+            return;
+        }
+
+        if (!init_flag) {
+            levels.merge(rhs.levels);
+            compressions = rhs.compressions;
+            if (!levels.empty()) {
+                digest = TDigest::create_unique(compressions);
+            }
+            init_flag = true;
+        } else {
+            if (compressions != rhs.compressions || levels.quantiles != rhs.levels.quantiles) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "percentile_approx_array aggregate states have incompatible quantiles "
+                        "or compression");
+            }
+            levels.merge(rhs.levels);
+        }
+        if (!levels.empty()) {
+            digest->merge(rhs.digest.get());
+        }
+    }
+
+    void reset() {
+        init_flag = false;
+        levels.clear();
+        digest.reset();
+        compressions = 10000;
+    }
+
+    void insert_result_into(IColumn& to) const {
+        auto& column_data = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data();
+        if (!init_flag || levels.empty()) {
+            return;
+        }
+
+        const size_t old_size = column_data.size();
+        const size_t size = levels.quantiles.size();
+        column_data.resize(old_size + size);
+        digest->quantiles(levels.quantiles.data(), levels.get_permutation().data(), size,
+                          column_data.data() + old_size);
+    }
+
+    bool init_flag = false;
+    PercentileLevels levels;
+    std::unique_ptr<TDigest> digest;
+    float compressions = 10000;
+};
+
+template <bool has_compression>
+class AggregateFunctionPercentileApproxArray final
+        : public IAggregateFunctionDataHelper<
+                  PercentileApproxArrayState,
+                  AggregateFunctionPercentileApproxArray<has_compression>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
+public:
+    using Base =
+            IAggregateFunctionDataHelper<PercentileApproxArrayState,
+                                         AggregateFunctionPercentileApproxArray<has_compression>>;
+
+    AggregateFunctionPercentileApproxArray(const DataTypes& argument_types_)
+            : Base(argument_types_) {}
+
+    String get_name() const override { return "percentile_approx_array"; }
+
+    DataTypePtr get_return_type() const override {
+        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
+    }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        const auto& sources =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        _add_values(this->data(place), &sources.get_data()[row_num], 1, columns,
+                    cast_set<size_t>(row_num));
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena&) const override {
+        const auto& sources =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        DCHECK_EQ(sources.get_data().size(), batch_size);
+        _add_values(this->data(place), sources.get_data().data(), batch_size, columns, 0);
+    }
+
+    void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
+                         const IColumn** columns, Arena&, bool has_null) override {
+        const auto& sources =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        DCHECK(!has_null);
+        _add_values(this->data(place), sources.get_data().data() + batch_begin,
+                    batch_end - batch_begin + 1, columns, batch_begin);
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnFloat64>(columns[0]);
+        check_percentile_array_column_type(*this, *columns[1], 1);
+        if constexpr (has_compression) {
+            this->template check_argument_column_type<ColumnFloat64>(columns[2]);
+        }
+    }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
+        this->data(place).merge(this->data(rhs));
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        this->data(place).write(buf);
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena&) const override {
+        this->data(place).read(buf);
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
+        auto& to_nested_col = to_arr.get_data();
+        if (is_column_nullable(to_nested_col)) {
+            auto* col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            this->data(place).insert_result_into(col_null->get_nested_column());
+            col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
+        } else {
+            this->data(place).insert_result_into(to_nested_col);
+        }
+        to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+private:
+    void _add_values(PercentileApproxArrayState& state, const Float64* values, size_t value_size,
+                     const IColumn** columns, size_t quantile_row) const {
+        const auto& quantile_array =
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        const auto& offsets = quantile_array.get_offsets();
+        const auto& nullable_quantiles =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                        quantile_array.get_data());
+        const auto& quantiles = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
+                                        nullable_quantiles.get_nested_column())
+                                        .get_data();
+        const auto& null_map = nullable_quantiles.get_null_map_data();
+        const size_t start = quantile_row == 0 ? 0 : offsets[quantile_row - 1];
+        const size_t quantile_size = offsets[quantile_row] - start;
+
+        float compression = 10000;
+        if constexpr (has_compression) {
+            const auto& compression_column =
+                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
+            compression = static_cast<float>(compression_column.get_element(0));
+        }
+        state.init(quantiles, null_map, start, quantile_size, compression);
+        state.add_range(values, value_size);
     }
 };
 
