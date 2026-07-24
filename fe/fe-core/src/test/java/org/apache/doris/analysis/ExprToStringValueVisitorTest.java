@@ -538,6 +538,31 @@ public class ExprToStringValueVisitorTest {
         Assertions.assertEquals("{\"Bob\", 25}", result);
     }
 
+    @Test
+    public void testStructTimeStampTzStreamLoadHistoricalOffset() throws Exception {
+        // Regression: STRUCT children in stream-load must preserve the
+        // forStreamLoad flag so that TIMESTAMPTZ renders in UTC format;
+        // otherwise the query branch emits historical offsets with seconds
+        // (e.g. Asia/Shanghai +08:05:43) which BE's parser rejects.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            DateLiteral tsTz = DateLiteralUtils.createDateLiteral(
+                    "1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            StructType structType = new StructType(
+                    new StructField("ts", ScalarType.createTimeStampTzType(0)));
+            StructLiteral s = new StructLiteral(structType, tsTz);
+            FormatOptions opts = FormatOptions.getDefault();
+            String result = V.visitStructLiteral(s, StringValueContext.forStreamLoad(opts));
+            // Nested TIMESTAMPTZ must be UTC, not with +08:05:43.
+            Assertions.assertEquals("{\"1900-01-01 00:00:00+00:00\"}", result);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     // ======================== Default visitor (unoverridden Expr) ========================
 
     @Test
@@ -577,8 +602,10 @@ public class ExprToStringValueVisitorTest {
     public void testAsQueryComplexType() {
         StringValueContext streamCtx = StringValueContext.forStreamLoad(FormatOptions.getDefault());
         StringValueContext queryComplex = streamCtx.asQueryComplexType();
-        // asQueryComplexType: forces query mode + complex type
-        Assertions.assertFalse(queryComplex.isForStreamLoad());
+        // asQueryComplexType: forces complex type but preserves forStreamLoad
+        // so nested TIMESTAMPTZ renders in UTC format (BE parser rejects
+        // historical offsets with seconds like +08:05:43).
+        Assertions.assertTrue(queryComplex.isForStreamLoad());
         Assertions.assertTrue(queryComplex.isInComplexType());
     }
 
