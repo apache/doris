@@ -152,6 +152,8 @@ suite("test_http_tvf", "p2") {
     }
     String httpBaseUrl = "http://${httpServerHost}:${httpServer.address.port}"
     def httpUrl = { String relativePath -> "${httpBaseUrl}/${relativePath}" }
+    def stableRemoteDataUrl =
+            "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/external_table_p0/tvf/huggingface"
     logger.info("Start local HTTP server for http tvf test: ${httpBaseUrl}, root: ${dataRoot}")
 
     try {
@@ -319,11 +321,12 @@ suite("test_http_tvf", "p2") {
         ) order by id;
     """
 
-    // hf
+    // Stable mirrors of the HuggingFace fixtures. Keep the regression independent
+    // from public HuggingFace availability and mutable dataset branches.
     qt_sql15 """
         select count(*) from
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/prompts.csv",
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
             "format" = "csv"
         );
     """
@@ -331,7 +334,7 @@ suite("test_http_tvf", "p2") {
     qt_sql16 """
         select count(*) from
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
             "format" = "csv"
         );
     """
@@ -339,16 +342,15 @@ suite("test_http_tvf", "p2") {
     qt_sql17 """
         desc function
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
             "format" = "csv"
         );
     """
 
-    // branch
     qt_sql18 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@script/dataset_infos.json",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/script/dataset_infos.json",
             "format" = "json"
         );
     """
@@ -356,16 +358,15 @@ suite("test_http_tvf", "p2") {
     qt_sql19 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/plain_text/test-00000-of-00001.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
 
-    // wildcard
     qt_sql20 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/*/test-00000-of-00001.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
@@ -373,7 +374,7 @@ suite("test_http_tvf", "p2") {
     qt_sql21 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/*/*.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/train-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
@@ -381,7 +382,7 @@ suite("test_http_tvf", "p2") {
     qt_sql21 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/**/test-00000-of-0000[1].parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
