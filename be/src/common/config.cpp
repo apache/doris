@@ -1632,6 +1632,12 @@ DEFINE_mBool(enable_segment_prefetch_verbose_log, "false");
 DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
 DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
 
+// The max thread num of the InternalRowIdFetch thread pool, which executes
+// parallel rowid fetch tasks of TopN lazy materialization phase 2 for internal tables.
+DEFINE_mInt32(internal_rowid_fetch_threads, "16");
+// The max number of concurrent rowid fetch tasks of a single request.
+DEFINE_mInt32(internal_rowid_fetch_max_concurrent, "16");
+
 DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
 // Enable segment file cache block prefetch for query
 DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
