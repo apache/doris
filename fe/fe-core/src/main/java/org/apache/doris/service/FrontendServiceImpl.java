@@ -754,7 +754,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setComment(table.getComment());
+                            // TABLE_COMMENT is a required Thrift field, so it must always be
+                            // set — but for some external tables (e.g. Iceberg since #64263)
+                            // getComment() loads the full table metadata from the remote
+                            // catalog. Only pay that lookup when the scan actually projects
+                            // TABLE_COMMENT, same as the other pruned status columns.
+                            status.setComment(needTableStatusColumn(requiredColumns, "TABLE_COMMENT")
+                                    ? table.getComment()
+                                    : "");
                             if (needTableStatusColumn(requiredColumns, "ENGINE")) {
                                 status.setEngine(table.getEngine());
                             }
