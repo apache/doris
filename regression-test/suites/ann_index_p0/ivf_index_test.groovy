@@ -84,15 +84,17 @@ suite ("ivf_index_test") {
     DISTRIBUTED BY HASH(id) BUCKETS 1
     PROPERTIES ("replication_num" = "1");
     """
-    test {
-        // not enough training points
-        sql """
-        INSERT INTO tbl_ann_l2 VALUES
-        (1, [1.0, 2.0, 3.0]),
-        (2, [0.5, 2.1, 2.9]);
-        """
-        exception """exception occurred during training"""
-    }
+    // Fewer rows than nlist: FAISS k-means cannot train the IVF index (it needs
+    // at least nlist points), so ANN index build is skipped for this segment and
+    // the load succeeds instead of failing. Queries fall back to brute-force
+    // search on segments without an ANN index.
+    sql """
+    INSERT INTO tbl_ann_l2 VALUES
+    (1, [1.0, 2.0, 3.0]),
+    (2, [0.5, 2.1, 2.9]);
+    """
+    sql "select * from tbl_ann_l2 order by id;"
+    sql "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2 order by dist limit 2;"
 
     sql "drop table if exists tbl_ann_ip"
     sql """
