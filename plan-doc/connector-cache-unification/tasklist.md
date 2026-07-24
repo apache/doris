@@ -35,7 +35,7 @@
 |---|---|---|---|---|---|---|
 | **WS-HUDI** | **P1 旗舰** | HD-P01/02/03/04/05 | 缓存最薄连接器：metaClient 每 pass 重建 ~5x、schema 3x、裸 `ThriftHmsClient` → 每语句投影 memo + HMS 缓存（fresh 拆分+REFRESH）| `plan-doc/perf-hotpath-hudi/` | D1 | ✅ round-1 完成：文档 + HMS缓存(183绿) + 旗舰memo(两块独立 per-statement memo，commit `26690775c81`)；round-2 延后(跨查询缓存 H04 等) |
 | **WS-MC** | P1（小） | MC-1（+MC-2） | 每次 handle 解析冗余 ODPS `tables().exists()` 远程探测 → metadata 内 `Map<(db,table),Handle>` + 去冗余探测 | `plan-doc/perf-hotpath-maxcompute/` | D1 | ✅ round-1 完成 commit `58daadd10e0`（per-statement CHM handle memo，present-only；120 测试绿 + 两处变异验证 + 净室复审；e2e 待集群） |
-| **WS-ES** | P1（小） | ES-F1/F2（+ES-F3） | `fetchMetadataState` 2x/查询 + mapping 重取 2x → per-scan hoist + mapping/field-context 承载决策 | `plan-doc/perf-hotpath-es/` | D1 | ⏳ |
+| **WS-ES** | P1（小） | ES-F1/F2（+ES-F3） | `fetchMetadataState` 2x/查询 + mapping 重取 2x → per-scan hoist + mapping/field-context 承载决策 | `plan-doc/perf-hotpath-es/` | D1 | ✅ round-1 完成（owner 拍板"三件全做"）commits `7d74ba1161b`（per-scan hoist + schema memo）+ `7466b354901`（cross-path mapping via 每语句作用域，0 fe-core）；每语句 getMapping/shard/node 各→1；94 测试绿 + 变异 + 净室复审；e2e 待集群 |
 | **WS-DOC** | 低（doc-only） | 陈旧注释一批 | 修 `ConnectorPartitionViewCache` "no consumers yet" + hive/hudi/mc 的 "dormant / 未在 SPI_READY_TYPES / never called" 陈旧注释 | `plan-doc/cleanup-stale-connector-docs/`（或随手做） | — | ⏳ |
 | **WS-P2** | P2（可延后） | PA-1 · HP-1/HP-2 · TRINO-H1/H2/H3 · hive 写后读一致性 | 各连接器常数倍/CPU/一致性收尾，按热点 profile 触发 | `plan-doc/perf-hotpath-backlog-p2/` | 热点触发 | ⏳ |
 
@@ -65,7 +65,7 @@
 - **约束**：连接器侧改动；无 authz（静态 AK/SK 单身份）、无写事务共享需求（`MaxComputeConnectorTransaction` 非-MVCC）。
 - **依赖**：D1。可与 WS-ES 并行。
 
-### [ ] WS-ES — P1 小（ES-F1/F2，+ES-F3）
+### [x] WS-ES — P1 小（ES-F1/F2/F3）✅ round-1 完成 commits `7d74ba1161b` + `7466b354901`（详见 `plan-doc/perf-hotpath-es/`）
 - **权威**：报告 §5.1 + §9；[`connectors/es.md`](./connectors/es.md)；JSON es 节（含 ES-F2 的 ADJUSTED 更正）。
 - **交付概要**：
   - `ES-F1`：per-scan hoist `EsMetadataState`（`fetchMetadataState` 每查询 2 次 → 1 次），provider 已是每 scan-node 单例，加 `(index,columnNames)` 字段 memo，零 staleness（同语句）。

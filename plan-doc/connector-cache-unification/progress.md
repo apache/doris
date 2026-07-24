@@ -104,3 +104,19 @@
 - **净室对抗复审**（4 lens + 2 verify workflow）：parity **PARITY_HOLDS**、staleness **PARITY_HOLDS**；concurrency CONCERN（共享 Table 并发首次 reload）经 verify **REFUTED**——off-thread scan 任务用 scan-node ctor 一次解析的 `currentHandle`、**不调** getTableHandle，共享 Table 是 baseline 既有属性，memo 反而让单线程分析先暖 schema、**降** reload 争用；test-quality CONCERN（无跨-db 用例，db-blind key 变异能漏网）经 verify **CONFIRMED_REAL** → **已补**跨-db 守门用例并变异验证。
 - **未做/延后**：PERF-MC02 陈旧注释（doc-only，随手/并 WS-DOC）、PERF-MC03 可选跨查询 `Table` 缓存（热点触发）。**e2e 需集群本地未跑**（异构 + 独立 max_compute catalog 的 SELECT/分区裁剪/写路径解析计数），留标注。
 - **下一步**：WS-ES（es 连接器 `fetchMetadataState` per-scan hoist 2×→1× + raw mapping 承载决策；**shard routing 绝不 cross-query 缓存**）。
+
+---
+
+## 2026-07-24 (4) — WS-ES es round-1 三件全做（commits `7d74ba1161b` F1+F3、`7466b354901` F2）
+
+> owner 拍板"三件全做"。详见兄弟空间 `plan-doc/perf-hotpath-es/`。至此三个 P1 连接器（hudi/mc/es）round-1 全部收尾。
+
+- **病灶**：es 一条过滤 SELECT 约 `~4× getMapping + 2× search_shards + 2× _nodes` 远程往返（多为冗余）；连接器无扫描元数据缓存。**硬约束**：分片路由/节点拓扑绝不跨查询缓存（ES rebalance）。
+- **做了什么**（三件，按新鲜度分层；**0 fe-core**）：
+  1. **per-scan hoist**（ES-F1，`EsScanPlanProvider`）：memo `EsMetadataState` 标量字段（guard on (index,columns)，**plain**——ES 从不进 batch mode 故单线程），`planScan`/`buildScanNodeProperties` 共用一次 fetch。分片随 provider per-scan 新鲜。
+  2. **per-statement schema memo**（ES-F3，`EsConnectorMetadata`）：`Map<index,ConnectorTableSchema>`（CHM）`computeIfAbsent`，`getColumnHandles→getTableSchema` 折叠。镜像 maxcompute。
+  3. **cross-path mapping**（ES-F2，走"每语句共享作用域"=owner 选的乙案）：`fe-connector-api` 加命名空间 `ES_INDEX_MAPPING`（iceberg/hudi 既定模式），`EsStatementScope` 把**原始 mapping 字符串**存每语句 `ConnectorStatementScope`；schema 路径 + `EsMetadataFetcher.fetchMapping` 两路共享、各自派生产物；session 穿到 fetcher/provider。**只共享原始 mapping；分片/节点绝不入作用域**。（甲案=塞 schema 缓存须改 fe-core 是坑；丙案=延后；owner 选乙。）
+- **总账**：每语句 `~4×/2×/2×` → **1× getMapping + 1× search_shards + 1× _nodes**。`git diff fe/fe-core` 空。
+- **验证**：全 `Es*` **94 测试绿** + checkstyle 0；`EsScanPlanProviderTest` 12 例。**Rule 9 变异三处**（去 F1 store / F3 clear / F2 绕作用域 → 各对应门禁红、其余绿）。**净室 4-lens + verify**：parity/concurrency（schemaMemo↔scope 嵌套 computeIfAbsent 不同 map 无重入）/freshness 全 `PARITY_HOLDS`；唯一 CONFIRMED = "无门禁钉分片不入作用域" → **补 `ShardRoutingNeverSharedViaScope`**（两 provider 共享 live scope → shard/node 各 2、mapping 1）；nits（List.equals 顺序、死代码 threading）评估接受。
+- **未做/延后**：ES-F4（`existIndex` `_mapping` GET 去重，低优先）；死代码 `EsConnectorMetadata.fetchMetadataState` 清理（保留）。**e2e 需集群本地未跑**，留标注。
+- **下一步（伞形）**：三个 P1 连接器收尾完毕 → P2 backlog（热点触发）+ PR-7 门禁通用化（独立）+ WS-DOC 陈旧注释 + 各连接器 e2e 统一补。
