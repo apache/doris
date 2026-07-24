@@ -13,8 +13,10 @@ Adding a field with a default initially records the same value in both propertie
 update changes only `write-default`. Doris must therefore keep the two concepts separate instead
 of representing both as one generic column default.
 
-The feature is split into three reviewable pull requests. The pull requests are intentionally
-ordered read first, write second, and metadata authoring last.
+The implementation has three ordered phases: read `initial-default`, consume `write-default`, and
+author/evolve default metadata. The current pull request combines the first two execution phases so
+that Doris can both read old files and write new rows with the correct defaults. Metadata authoring
+remains a later pull request.
 
 ## Spark-Iceberg reference model
 
@@ -43,11 +45,11 @@ This is intentionally different from feeding metadata text to the SQL parser. In
 strings containing quotes, binary zero bytes, decimals, dates, and timestamps retain their typed
 value rather than being reinterpreted as SQL syntax.
 
-## PR roadmap
+## Implementation roadmap
 
-### PR1: read `initial-default`
+### Phase 1: read `initial-default`
 
-PR1 adds read support for every Iceberg type already mapped by Doris. It does not add any new
+The read phase adds support for every Iceberg type already mapped by Doris. It does not add any new
 Iceberg-to-Doris type mapping.
 
 The reader selects defaults from the schema bound to the query:
@@ -64,9 +66,10 @@ can update `table.schema()` without creating a snapshot.
 FE transports default metadata recursively by Iceberg field ID through the existing external
 schema Thrift structure. The metadata includes the serialized value, a lossless Base64 marker for
 UUID/FIXED/BINARY, and the Iceberg optional/required flag. Nested defaults do not depend on
-`Column.defaultValue`. PR1 deliberately leaves that generic Doris field unset for Iceberg schema
-columns so existing INSERT/MERGE code cannot mistake `initial-default` for `write-default` before
-PR2 adds a schema-pinned write-default path.
+`Column.defaultValue`. The read phase deliberately leaves that generic Doris field unset for
+Iceberg schema columns so existing INSERT/MERGE code cannot mistake `initial-default` for
+`write-default`. The write phase uses a separate schema-pinned write-default path in the same pull
+request.
 
 File Scanner V1 and File Scanner V2 consume the same metadata contract but implement missing-field
 materialization independently:
@@ -106,22 +109,23 @@ consume the current write default. Regression tests force all four paths:
 - File Scanner V2 with Parquet
 - File Scanner V2 with ORC
 
-The type matrix is exactly the set already supported before PR1: BOOLEAN, INTEGER, LONG, FLOAT,
+The type matrix is exactly the set already supported before this change: BOOLEAN, INTEGER, LONG, FLOAT,
 DOUBLE, DECIMAL, DATE, TIMESTAMP with and without zone, STRING, UUID, FIXED, BINARY, and their
 existing ARRAY/MAP/STRUCT compositions. TIME, TIMESTAMP_NANO, VARIANT, and any other currently
 unsupported mapping remain out of scope.
 
-PR1 verifies predicates for fields absent from old files in forced-path regression tests. Focused
-V1 and V2 BE tests verify equality-delete keys, including a key that is retained only in schema
-history after being dropped. Iceberg 1.10.1 cannot plan that dropped-key sequence end to end; its
-planner fix is upstream Iceberg #15268, so PR1 does not broaden scope with an Iceberg dependency
-upgrade. Binary-like defaults are checked byte-for-byte, and regression output is generated only by
-the Doris regression test runner.
+The read phase verifies predicates for fields absent from old files in forced-path regression
+tests. Focused V1 and V2 BE tests verify equality-delete keys, including a key that is retained only
+in schema history after being dropped. Iceberg 1.10.1 cannot plan that dropped-key sequence end to
+end; its planner fix is upstream Iceberg #15268, so this change does not broaden scope with an
+Iceberg dependency upgrade. Binary-like defaults are checked byte-for-byte, and regression output
+is generated only by the Doris regression test runner.
 
-### PR2: consume `write-default`
+### Phase 2: consume `write-default`
 
-PR2 adds write-time consumption without changing Iceberg default metadata. It introduces a
-statement-scoped, field-ID keyed context pinned to the target schema ID and format version.
+The write phase adds write-time consumption without changing Iceberg default metadata. It
+introduces a statement-scoped, field-ID keyed context pinned to the target schema ID and format
+version.
 
 The following write paths consume the current `write-default`:
 
@@ -135,11 +139,11 @@ Explicit NULL and explicit values are never replaced. UPDATE and MERGE UPDATE pr
 existing semantics. Analyzer projection and the schema sent to the Iceberg sink must use the same
 schema ID; schema skew fails before data is dispatched.
 
-PR2 does not add CREATE/ALTER syntax and does not author or evolve default metadata.
+The write phase does not add CREATE/ALTER syntax and does not author or evolve default metadata.
 
-### PR3: author and evolve default metadata
+### Later PR: author and evolve default metadata
 
-PR3 adds DDL support after the read and write execution paths are stable:
+The later PR adds DDL support after the read and write execution paths are stable:
 
 - CREATE COLUMN DEFAULT records the appropriate initial write default for a new table schema.
 - ADD COLUMN DEFAULT records equal `initial-default` and `write-default` values.
@@ -149,12 +153,12 @@ PR3 adds DDL support after the read and write execution paths are stable:
 
 DDL validates the Iceberg format version, converts Doris constant expressions to typed Iceberg
 literals, and exposes current write defaults through user-visible schema output. Nested ALTER
-syntax is not expanded beyond syntax Doris already supports when PR3 is implemented.
+syntax is not expanded beyond syntax Doris already supports when the later DDL PR is implemented.
 
-## PR1 acceptance criteria
+## Read-path acceptance criteria
 
-1. Every Iceberg type mapped by Doris before PR1 has an `initial-default` read test, and the mapping
-   switch itself is unchanged.
+1. Every Iceberg type mapped by Doris before this change has an `initial-default` read test, and the
+   mapping switch itself is unchanged.
 2. Struct children, list-element struct children, and map-value struct children receive defaults by
    field ID in both scanners; focused tests also cover `{}` struct, list, and map default decoding.
 3. Parent NULL values and explicitly stored child NULL values remain NULL.
@@ -166,8 +170,27 @@ syntax is not expanded beyond syntax Doris already supports when PR3 is implemen
 7. V1 and V2 each pass independent unit tests and forced-path regression tests.
 8. Regression predicates and focused V1/V2 equality-delete tests agree with the value materialized
    for an absent field; dropped equality-key metadata is recovered from schema history.
-9. PR1 contains no write-default consumption, DDL implementation, writer change, dependency
-   upgrade, or new type mapping.
+9. The read implementation never consumes `write-default` and never stores either Iceberg default
+   in generic `Column.defaultValue`. DDL implementation, dependency upgrades, and new type mappings
+   remain out of scope.
+
+## Write-path acceptance criteria
+
+1. Omitted INSERT columns, explicit `DEFAULT`, reordered/multi-row VALUES, supported
+   `DEFAULT(column)`, and MERGE `NOT MATCHED INSERT` consume the current typed `write-default`.
+2. Explicit NULL and explicit values are never replaced. UPDATE, MERGE UPDATE, and rewrite paths
+   preserve their existing semantics.
+3. A statement uses one field-ID keyed Iceberg write context. Analyzer projections, the sink schema
+   JSON, branch selection, and transaction preflight are pinned to the same schema ID.
+4. Schema skew is rejected before data dispatch; Doris never combines defaults from one schema with
+   a writer schema loaded later.
+5. FE constructs typed primitive and complex literals directly from Iceberg values. It does not
+   serialize defaults to SQL and reparse them, and BE does not independently choose write defaults.
+6. Every Iceberg type already mapped by Doris has write-default coverage, including recursive
+   ARRAY/MAP/STRUCT, binary-like values, Parquet, and ORC.
+7. Spark-Iceberg Docker authors and verifies real V3 metadata. Doris performs omitted/default
+   writes, and both Doris and Spark verify the physical results because Spark-Iceberg 1.10.1 does
+   not itself implement partial-INSERT write-default consumption.
 
 ## Review gate
 
