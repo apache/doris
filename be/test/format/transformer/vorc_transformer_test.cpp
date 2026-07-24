@@ -104,4 +104,36 @@ TEST_F(VOrcTransformerTest, CollectsBoundsForTopLevelFieldAfterStruct) {
     EXPECT_EQ("hello", stats.upper_bounds.at(3));
 }
 
+TEST_F(VOrcTransformerTest, IcebergBinaryTypesOverrideLegacyStringCarrier) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "uuid_col", "required": false, "type": "uuid"},
+            {"id": 2, "name": "fixed_col", "required": false, "type": "fixed[4]"},
+            {"id": 3, "name": "binary_col", "required": false, "type": "binary"}
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    const auto& fields = schema->root_struct().fields();
+
+    RuntimeState state;
+    VExprContextSPtrs output_exprs;
+    VOrcTransformer transformer(&state, nullptr, output_exprs, "", {}, false,
+                                TFileCompressType::PLAIN, schema.get(), _fs);
+    auto string_type = std::make_shared<DataTypeString>();
+
+    auto uuid_type = transformer._build_orc_type(string_type, fields.data());
+    EXPECT_EQ(orc::BINARY, uuid_type->getKind());
+    EXPECT_EQ("UUID", uuid_type->getAttributeValue("iceberg.binary-type"));
+
+    auto fixed_type = transformer._build_orc_type(string_type, fields.data() + 1);
+    EXPECT_EQ(orc::BINARY, fixed_type->getKind());
+    EXPECT_EQ("FIXED", fixed_type->getAttributeValue("iceberg.binary-type"));
+    EXPECT_EQ("4", fixed_type->getAttributeValue("iceberg.length"));
+
+    auto binary_type = transformer._build_orc_type(string_type, fields.data() + 2);
+    EXPECT_EQ(orc::BINARY, binary_type->getKind());
+    EXPECT_EQ("BINARY", binary_type->getAttributeValue("iceberg.binary-type"));
+}
+
 } // namespace doris

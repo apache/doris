@@ -328,6 +328,42 @@ public class IcebergTransactionTest {
         return new IcebergTransaction(ops);
     }
 
+    @Test
+    public void testSchemaSkewFailsBeforeOpeningInsertOrMergeTransaction() {
+        Schema pinnedSchema = new Schema(90,
+                Collections.singletonList(Types.NestedField.optional(
+                        1, "id", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(91,
+                Collections.singletonList(Types.NestedField.optional(
+                        1, "id", Types.IntegerType.get())));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(currentSchema);
+        Mockito.when(table.properties()).thenReturn(
+                Collections.singletonMap(org.apache.iceberg.TableProperties.FORMAT_VERSION, "3"));
+
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn("schema_skew_table");
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(
+                IcebergWriteSchemaContext.forSchema(pinnedSchema, 3, true, true)));
+
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            mockedStatic.when(() -> IcebergUtils.getFormatVersion(table)).thenReturn(3);
+
+            UserException insertException = Assert.assertThrows(UserException.class,
+                    () -> getTxn().beginInsert(dorisTable, Optional.of(insertContext)));
+            Assert.assertTrue(insertException.getMessage().contains("retry the statement"));
+
+            UserException mergeException = Assert.assertThrows(UserException.class,
+                    () -> getTxn().beginMerge(dorisTable, Optional.of(insertContext)));
+            Assert.assertTrue(mergeException.getMessage().contains("retry the statement"));
+            Mockito.verify(table, Mockito.never()).newTransaction();
+        }
+    }
+
     private void checkSnapshotAddProperties(Map<String, String> props,
                                             String addRecords,
                                             String addFileCnt,

@@ -20,6 +20,7 @@
 #include <gen_cpp/ExternalTableSchema_types.h>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -74,18 +75,6 @@ bool orc_children_all_have_field_ids(const orc::Type* type, const std::string& a
         }
     }
     return true;
-}
-
-std::optional<TableSchemaChangeHelper::InitialDefaultValue> initial_default_value(
-        const schema::external::TField& field) {
-    if (!field.__isset.initial_default_value) {
-        return std::nullopt;
-    }
-    return TableSchemaChangeHelper::InitialDefaultValue {
-            .value = field.initial_default_value,
-            .is_base64 = field.__isset.initial_default_value_is_base64 &&
-                         field.initial_default_value_is_base64,
-    };
 }
 
 bool find_file_field_idx_by_name_mapping(
@@ -573,7 +562,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
             struct_node->add_children(table_column_name,
                                       parquet_fields_schema[file_column_idx].name, field_node);
         } else {
-            struct_node->add_not_exist_children(table_column_name);
+            struct_node->add_not_exist_children(table_column_name, table_field.field_ptr);
         }
     }
 
@@ -659,8 +648,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
                                                     exist_field_id));
                 struct_node->add_children(table_column_name, file_field.name, field_node);
             } else {
-                struct_node->add_not_exist_children(table_column_name,
-                                                    initial_default_value(*table_field.field_ptr));
+                struct_node->add_not_exist_children(table_column_name, table_field.field_ptr);
             }
         }
         node = struct_node;
@@ -730,10 +718,9 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
         }
 
         if (!matched) {
-            struct_node->add_not_exist_children(
-                    table_column_name, use_current_iceberg_semantics
-                                               ? initial_default_value(*table_field.field_ptr)
-                                               : std::nullopt);
+            struct_node->add_not_exist_children(table_column_name, use_current_iceberg_semantics
+                                                                           ? table_field.field_ptr
+                                                                           : nullptr);
             continue;
         }
 
@@ -856,9 +843,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_nam
 
             if (!matched) {
                 struct_node->add_not_exist_children(
-                        table_column_name, use_current_iceberg_semantics
-                                                   ? initial_default_value(*table_field.field_ptr)
-                                                   : std::nullopt);
+                        table_column_name,
+                        use_current_iceberg_semantics ? table_field.field_ptr : nullptr);
                 continue;
             }
 
@@ -909,7 +895,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
             struct_node->add_children(table_column_name, orc_root->getFieldName(file_field_idx),
                                       field_node);
         } else {
-            struct_node->add_not_exist_children(table_column_name);
+            struct_node->add_not_exist_children(table_column_name, table_field.field_ptr);
         }
     }
     node = struct_node;
@@ -1044,10 +1030,9 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_ma
         }
 
         if (!matched) {
-            struct_node->add_not_exist_children(
-                    table_column_name, use_current_iceberg_semantics
-                                               ? initial_default_value(*table_field.field_ptr)
-                                               : std::nullopt);
+            struct_node->add_not_exist_children(table_column_name, use_current_iceberg_semantics
+                                                                           ? table_field.field_ptr
+                                                                           : nullptr);
             continue;
         }
 

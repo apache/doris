@@ -112,7 +112,7 @@ public class IcebergMergeExecutorTest {
         executor.txnId = 11L;
         executor.beforeExec();
 
-        Mockito.verify(transaction).beginMerge(table);
+        Mockito.verify(transaction).beginMerge(table, java.util.Optional.empty());
         ArgumentCaptor<Map<String, List<DeleteFile>>> deleteFilesCaptor = ArgumentCaptor.forClass(Map.class);
         Mockito.verify(transaction).setRewrittenDeleteFilesByReferencedDataFile(deleteFilesCaptor.capture());
         Assertions.assertSame(deleteFile, deleteFilesCaptor.getValue().get(referencedDataFile).get(0));

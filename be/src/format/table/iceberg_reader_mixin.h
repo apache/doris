@@ -39,13 +39,14 @@
 #include "core/data_type/primitive_type.h"
 #include "format/generic_reader.h"
 #include "format/table/equality_delete.h"
+#include "format/table/iceberg_default_value.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
-#include "util/url_coding.h"
+#include "util/string_util.h"
 
 namespace doris {
 class TIcebergDeleteFileDesc;
@@ -155,40 +156,54 @@ public:
         return _materialize_missing_equality_delete_columns(block, rows);
     }
 
+    const std::vector<int32_t>& TEST_expand_col_field_ids() const { return _expand_col_field_ids; }
+
 protected:
     // ---- Hook implementations ----
-
-    Status on_fill_missing_columns(Block* block, size_t rows,
-                                   const std::vector<std::string>& cols) override {
-        if (!supports_iceberg_scan_semantics_v1(&this->get_scan_params())) {
-            return BaseReader::on_fill_missing_columns(block, rows, cols);
-        }
-        std::vector<std::string> generic_columns;
-        for (const auto& name : cols) {
-            const auto* field = _find_current_schema_field(name);
-            if (field == nullptr || !field->__isset.initial_default_value) {
-                generic_columns.push_back(name);
-                continue;
-            }
-            if (!this->col_name_to_block_idx_ref()->contains(name)) {
-                return Status::InternalError("Missing column: {} not found in block {}", name,
-                                             block->dump_structure());
-            }
-            const auto position = this->col_name_to_block_idx_ref()->at(name);
-            ColumnPtr value;
-            RETURN_IF_ERROR(_build_owned_initial_default_column(
-                    *field, block->get_by_position(position).type, rows, &value));
-            // Iceberg metadata is authoritative for pre-add rows; a generic FE expression may be
-            // the Base64 carrier rather than the logical BINARY/FIXED/UUID value.
-            block->get_by_position(position).column = value->convert_to_full_column_if_const();
-        }
-        return BaseReader::on_fill_missing_columns(block, rows, generic_columns);
-    }
 
     // Called before reading a block: expand block for equality delete columns + detect row_id
     Status on_before_read_block(Block* block) override {
         RETURN_IF_ERROR(_expand_block_if_need(block));
         return Status::OK();
+    }
+
+    // Iceberg initial defaults belong to the table schema, not to the generic FE slot default.
+    // V1 keeps master's primitive-default behavior; V2 also materializes missing optional/required
+    // fields and complex defaults through the recursive Iceberg schema metadata.
+    Status on_fill_missing_columns(Block* block, size_t rows,
+                                   const std::vector<std::string>& cols) override {
+        if (!supports_iceberg_scan_semantics_v1(&this->get_scan_params())) {
+            return BaseReader::on_fill_missing_columns(block, rows, cols);
+        }
+        const bool use_v2_semantics = supports_iceberg_scan_semantics_v2(&this->get_scan_params());
+        std::vector<std::string> base_reader_columns;
+        for (const auto& col_name : cols) {
+            const auto* field = _find_current_schema_field(col_name);
+            if (field == nullptr || (!use_v2_semantics && !field->__isset.initial_default_value)) {
+                base_reader_columns.push_back(col_name);
+                continue;
+            }
+
+            DORIS_CHECK(this->_fill_col_name_to_block_idx != nullptr);
+            const auto position = this->_fill_col_name_to_block_idx->find(col_name);
+            if (position == this->_fill_col_name_to_block_idx->end()) {
+                return Status::InternalError("Missing column: {} not found in block {}", col_name,
+                                             block->dump_structure());
+            }
+            DORIS_CHECK(position->second < block->columns());
+
+            auto default_value = _missing_initial_default_values.find(col_name);
+            if (default_value == _missing_initial_default_values.end()) {
+                ColumnPtr value;
+                RETURN_IF_ERROR(iceberg::create_initial_default_column(
+                        *field, block->get_by_position(position->second).type, &value));
+                default_value =
+                        _missing_initial_default_values.emplace(col_name, std::move(value)).first;
+            }
+            block->get_by_position(position->second).column =
+                    iceberg::repeat_initial_default_column(default_value->second, rows);
+        }
+        return BaseReader::on_fill_missing_columns(block, rows, base_reader_columns);
     }
 
     /// Fill Iceberg $row_id synthesized column. Registered as handler during init.
@@ -300,10 +315,7 @@ protected:
     Status _shrink_block_if_need(Block* block);
     const schema::external::TStructField* _current_schema_root() const;
     const schema::external::TField* _find_current_schema_field(const std::string& name) const;
-    const schema::external::TField* _find_current_schema_field(int32_t field_id) const;
-    Status _build_owned_initial_default_column(const schema::external::TField& field,
-                                               const DataTypePtr& type, size_t rows,
-                                               ColumnPtr* column) const;
+    const schema::external::TField* _find_schema_field(int32_t field_id) const;
     Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                     const DataTypePtr& delete_key_type);
     Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
@@ -409,7 +421,9 @@ protected:
     const std::vector<int64_t>* _iceberg_delete_rows = nullptr;
     const DeletionVector* _iceberg_deletion_vector = nullptr;
     std::vector<std::string> _expand_col_names;
+    std::vector<int32_t> _expand_col_field_ids;
     std::vector<ColumnWithTypeAndName> _expand_columns;
+    std::unordered_map<std::string, ColumnPtr> _missing_initial_default_values;
     std::unordered_map<std::string, ColumnPtr> _missing_equality_delete_values;
     std::vector<std::string> _all_required_col_names;
     Fileformat _file_format = Fileformat::NONE;
@@ -578,6 +592,7 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
                 if (!_id_to_block_column_name.contains(field_id)) {
                     _id_to_block_column_name.emplace(field_id, delete_file_field.name);
                     _expand_col_names.emplace_back(delete_file_field.name);
+                    _expand_col_field_ids.emplace_back(field_id);
                     _expand_columns.emplace_back(
                             make_nullable(delete_file_field.data_type)->create_column(),
                             make_nullable(delete_file_field.data_type), delete_file_field.name);
@@ -612,6 +627,7 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
                     if (!_id_to_block_column_name.contains(field_id)) {
                         _id_to_block_column_name.emplace(field_id, equality_delete_col_names[idx]);
                         _expand_col_names.emplace_back(equality_delete_col_names[idx]);
+                        _expand_col_field_ids.emplace_back(field_id);
                         _expand_columns.emplace_back(
                                 make_nullable(equality_delete_col_types[idx])->create_column(),
                                 make_nullable(equality_delete_col_types[idx]),
@@ -728,108 +744,72 @@ const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_sc
     }
     const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
         return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
-               field_ptr.field_ptr->__isset.name && field_ptr.field_ptr->name == name;
+               field_ptr.field_ptr->__isset.name && iequal(field_ptr.field_ptr->name, name);
     });
     return field == root->fields.end() ? nullptr : field->field_ptr.get();
 }
 
 template <typename BaseReader>
-const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_current_schema_field(
+const schema::external::TField* IcebergReaderMixin<BaseReader>::_find_schema_field(
         int32_t field_id) const {
-    const auto* root = _current_schema_root();
-    if (root == nullptr) {
+    const auto find_in_root =
+            [field_id](
+                    const schema::external::TStructField* root) -> const schema::external::TField* {
+        if (root == nullptr) {
+            return static_cast<const schema::external::TField*>(nullptr);
+        }
+        const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
+            return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+                   field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id;
+        });
+        return field == root->fields.end() ? nullptr : field->field_ptr.get();
+    };
+
+    if (const auto* field = find_in_root(_current_schema_root()); field != nullptr) {
+        return field;
+    }
+
+    // Equality deletes remain applicable after their key is dropped from the current schema.
+    // FE can retain that field's metadata in history_schema_info; field IDs are stable, so recover
+    // the original initial-default/required semantics from any historical schema that contains it.
+    const auto& scan_params = this->get_scan_params();
+    if (!scan_params.__isset.history_schema_info) {
         return nullptr;
     }
-    const auto field = std::ranges::find_if(root->fields, [&](const auto& field_ptr) {
-        return field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
-               field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id;
-    });
-    return field == root->fields.end() ? nullptr : field->field_ptr.get();
-}
-
-template <typename BaseReader>
-Status IcebergReaderMixin<BaseReader>::_build_owned_initial_default_column(
-        const schema::external::TField& field, const DataTypePtr& type, size_t rows,
-        ColumnPtr* column) const {
-    DORIS_CHECK(type != nullptr);
-    DORIS_CHECK(column != nullptr);
-    DORIS_CHECK(field.__isset.initial_default_value);
-    const auto nested_type = remove_nullable(type);
-    const bool is_base64 =
-            (field.__isset.initial_default_value_is_base64 &&
-             field.initial_default_value_is_base64) ||
-            (field.__isset.type && thrift_to_type(field.type.type) == TYPE_VARBINARY);
-    Field value;
-    if (is_base64) {
-        std::string decoded;
-        if (!base64_decode(field.initial_default_value, &decoded)) {
-            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
-                                           field.name);
+    for (const auto& schema : scan_params.history_schema_info) {
+        if (!schema.__isset.root_field) {
+            continue;
         }
-        if (nested_type->get_primitive_type() == TYPE_VARBINARY) {
-            value = Field::create_field<TYPE_VARBINARY>(StringView(decoded));
-        } else {
-            DORIS_CHECK(is_string_type(nested_type->get_primitive_type()));
-            value = Field::create_field<TYPE_STRING>(decoded);
+        if (const auto* field = find_in_root(&schema.root_field); field != nullptr) {
+            return field;
         }
-        // Variable-width Fields borrow decoded. Materialize before it leaves scope so every V1
-        // missing-column and equality-delete boundary keeps UUID/FIXED payloads alive.
-        *column = type->create_column_const(rows, value);
-        return Status::OK();
     }
-    RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(field.initial_default_value, value));
-    *column = type->create_column_const(rows, value);
-    return Status::OK();
+    return nullptr;
 }
 
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
         int32_t field_id, const std::string& name, const DataTypePtr& delete_key_type) {
     DORIS_CHECK(delete_key_type != nullptr);
-    const schema::external::TField* table_field = nullptr;
-    const auto& scan_params = this->get_scan_params();
-    const schema::external::TSchema* current_schema = nullptr;
-    if (scan_params.__isset.history_schema_info && !scan_params.history_schema_info.empty()) {
-        current_schema = &scan_params.history_schema_info.front();
-    }
-    if (current_schema != nullptr && scan_params.__isset.current_schema_id) {
-        const auto schema_it = std::ranges::find_if(
-                scan_params.history_schema_info, [&](const schema::external::TSchema& schema) {
-                    return schema.__isset.schema_id &&
-                           schema.schema_id == scan_params.current_schema_id;
-                });
-        if (schema_it != scan_params.history_schema_info.end()) {
-            current_schema = &*schema_it;
-        } else {
-            current_schema = nullptr;
-        }
-    }
-    if (current_schema != nullptr && current_schema->__isset.root_field) {
-        for (const auto& field_ptr : current_schema->root_field.fields) {
-            if (field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
-                field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id) {
-                table_field = field_ptr.field_ptr.get();
-                break;
-            }
-        }
-    }
+    const auto* table_field = _find_schema_field(field_id);
     if (table_field == nullptr) {
-        // A projected descriptor from an older FE may omit a hidden equality key. Without the
-        // current Iceberg field metadata BE cannot distinguish a true NULL initial default from a
-        // non-NULL default, so continuing would risk silently keeping or deleting wrong rows.
+        // Without field-id-bound current or historical metadata BE cannot distinguish a true NULL
+        // initial default from a non-NULL default, so continuing would risk silently keeping or
+        // deleting wrong rows.
         return Status::InternalError(
                 "Missing Iceberg schema metadata for equality-delete field id {}", field_id);
     }
 
-    ColumnPtr value_column;
-    if (table_field->__isset.initial_default_value) {
-        RETURN_IF_ERROR(_build_owned_initial_default_column(*table_field, delete_key_type, 1,
-                                                            &value_column));
+    ColumnPtr default_column;
+    if (!supports_iceberg_scan_semantics_v2(&this->get_scan_params()) &&
+        !table_field->__isset.initial_default_value) {
+        default_column = delete_key_type->create_column_const(1, Field());
     } else {
-        value_column = delete_key_type->create_column_const(1, Field());
+        RETURN_IF_ERROR(iceberg::create_initial_default_column(*table_field, delete_key_type,
+                                                               &default_column));
     }
     const bool inserted =
-            _missing_equality_delete_values.emplace(name, std::move(value_column)).second;
+            _missing_equality_delete_values.emplace(name, std::move(default_column)).second;
     DORIS_CHECK(inserted);
     this->register_synthesized_column_handler(
             name, [this, name](Block* block, size_t rows) -> Status {
@@ -852,8 +832,8 @@ Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_colu
                 [&](const ColumnWithTypeAndName& col) { return col.name == name; });
         DORIS_CHECK(expand_col != _expand_columns.end());
         (*this->col_name_to_block_idx_ref())[name] = block->columns();
-        block->insert({value->clone_resized(rows)->convert_to_full_column_if_const(),
-                       expand_col->type, name});
+        block->insert(
+                {iceberg::repeat_initial_default_column(value, rows), expand_col->type, name});
         return Status::OK();
     }
     const auto position = this->col_name_to_block_idx_ref()->at(name);
@@ -862,8 +842,7 @@ Status IcebergReaderMixin<BaseReader>::_materialize_missing_equality_delete_colu
     // MultiEqualityDelete hashes each key column directly. Materialize the repeated default so
     // every key has the batch row count; a ColumnConst keeps only one nested value and therefore
     // cannot participate in the row-wise multi-column hash contract.
-    block->get_by_position(position).column =
-            value->clone_resized(rows)->convert_to_full_column_if_const();
+    block->get_by_position(position).column = iceberg::repeat_initial_default_column(value, rows);
     return Status::OK();
 }
 

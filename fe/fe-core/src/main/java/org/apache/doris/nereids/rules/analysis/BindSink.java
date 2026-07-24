@@ -42,6 +42,7 @@ import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
@@ -374,6 +375,15 @@ public class BindSink implements AnalysisRuleFactory {
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, boundSink.getTargetTable().getFullSchema(), Optional.empty());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
+            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -389,7 +399,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
-        for (Column column : boundSink.getTargetTable().getFullSchema()) {
+        for (Column column : targetSchema) {
             if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
@@ -457,6 +467,13 @@ public class BindSink implements AnalysisRuleFactory {
                     } else {
                         continue;
                     }
+                } else if (icebergWriteSchemaContext.isPresent()) {
+                    Expression defaultExpression = icebergWriteSchemaContext.get().resolveWriteDefault(column);
+                    Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                            defaultExpression, DataType.fromCatalogType(column.getType())), column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
                 } else if (column.getDefaultValue() == null) {
                     // throw exception if explicitly use Default value but no default value present
                     // insert into table t values(DEFAULT)
@@ -730,6 +747,10 @@ public class BindSink implements AnalysisRuleFactory {
         IcebergExternalDatabase database = pair.first;
         IcebergExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
+        Optional<IcebergWriteSchemaContext> writeSchemaContext = sink.getWriteSchemaContext();
+        List<Column> pinnedColumns = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getColumns)
+                .orElseGet(() -> table.getBaseSchema(true));
 
         // Get static partition columns if present
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
@@ -755,14 +776,16 @@ public class BindSink implements AnalysisRuleFactory {
                         .filter(col -> col.isVisible() || IcebergUtils.isIcebergRowLineageColumn(col))
                         .collect(ImmutableList.toImmutableList());
             } else {
-                bindColumns = table.getBaseSchema(true).stream()
+                bindColumns = pinnedColumns.stream()
                         .filter(col -> !staticPartitionColNames.contains(col.getName()))
                         .filter(Column::isVisible)
                         .collect(ImmutableList.toImmutableList());
             }
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
+                Column column = pinnedColumns.stream()
+                        .filter(candidate -> candidate.nameEquals(cn, false))
+                        .findFirst().orElse(null);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
@@ -785,6 +808,7 @@ public class BindSink implements AnalysisRuleFactory {
                 sink.getDMLCommandType(),
                 Optional.empty(),
                 Optional.empty(),
+                writeSchemaContext,
                 child);
 
         // Check column count: SELECT columns should match bindColumns (excluding static
@@ -794,8 +818,13 @@ public class BindSink implements AnalysisRuleFactory {
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
 
+        List<Column> insertSchema = sink.isRewrite()
+                ? table.getFullSchema()
+                : writeSchemaContext.map(IcebergWriteSchemaContext::getColumns)
+                        .orElseGet(() -> table.getFullSchema().stream()
+                                .filter(Column::isVisible).collect(Collectors.toList()));
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
+                boundSink, child, insertSchema, writeSchemaContext);
 
         // For static partition columns, add constant expressions from PARTITION clause
         // This ensures partition column values are written to the data file
@@ -803,7 +832,9 @@ public class BindSink implements AnalysisRuleFactory {
             for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                 String colName = entry.getKey();
                 Expression valueExpr = entry.getValue();
-                Column column = table.getColumn(colName);
+                Column column = insertSchema.stream()
+                        .filter(candidate -> candidate.nameEquals(colName, false))
+                        .findFirst().orElse(null);
                 if (column != null) {
                     // Cast the literal to the correct column type
                     Expression castExpr = TypeCoercionUtils.castIfNotSameType(
@@ -813,12 +844,6 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
 
-        List<Column> insertSchema = table.getFullSchema();
-        if (!sink.isRewrite()) {
-            insertSchema = insertSchema.stream()
-                    .filter(Column::isVisible)
-                    .collect(Collectors.toList());
-        }
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(insertSchema, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }

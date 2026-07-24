@@ -38,40 +38,11 @@
 #include "format/parquet/level_decoder.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_profile.h"
-#include "util/url_coding.h"
 
 namespace doris {
-static Status build_initial_default_column(
-        const std::optional<TableSchemaChangeHelper::InitialDefaultValue>& metadata,
-        const DataTypePtr& type, size_t rows, ColumnPtr* column) {
-    DORIS_CHECK(column != nullptr);
-    if (!metadata.has_value()) {
-        *column = nullptr;
-        return Status::OK();
-    }
-    const auto nested_type = remove_nullable(type);
-    Field value;
-    if (metadata->is_base64 || nested_type->get_primitive_type() == TYPE_VARBINARY) {
-        std::string decoded;
-        if (!base64_decode(metadata->value, &decoded)) {
-            return Status::InvalidArgument("Invalid Base64 Iceberg nested initial default");
-        }
-        value = nested_type->get_primitive_type() == TYPE_VARBINARY
-                        ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
-                        : Field::create_field<TYPE_STRING>(decoded);
-        // StringView borrows decoded for payloads longer than 12 bytes. Build the owning column
-        // before the decode buffer leaves scope (UUID/FIXED defaults routinely exceed that size).
-        *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
-        return Status::OK();
-    } else {
-        RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(metadata->value, value));
-    }
-    *column = type->create_column_const(rows, value)->convert_to_full_column_if_const();
-    return Status::OK();
-}
-
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
                                  const std::vector<level_t>& def_levels) {
@@ -814,6 +785,7 @@ Status StructColumnReader::init(
         FieldSchema* field) {
     _field_schema = field;
     _child_readers = std::move(child_readers);
+    _nested_initial_default_values.clear();
     return Status::OK();
 }
 Status StructColumnReader::read_column_data(
@@ -1020,21 +992,19 @@ Status StructColumnReader::read_column_data(
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = doris_struct_type->get_element(idx);
-        auto mutable_field = IColumn::mutate(std::move(doris_field));
-        ColumnPtr initial_default;
-        RETURN_IF_ERROR(build_initial_default_column(
-                root_node->children_initial_default_value(doris_struct_type->get_element_name(idx)),
-                doris_type, missing_column_sz, &initial_default));
-        if (initial_default.get() != nullptr) {
-            // Iceberg initial defaults are logical row values, including for nested fields absent
-            // from the physical file; append them instead of the type's generic NULL/default.
-            mutable_field->insert_range_from(*initial_default, 0, missing_column_sz);
+        const auto& doris_name = doris_struct_type->get_element_name(idx);
+        const auto* iceberg_field = root_node->get_missing_column_field(doris_name);
+        if (iceberg_field != nullptr) {
+            RETURN_IF_ERROR(
+                    iceberg::append_initial_default(*iceberg_field, doris_type, missing_column_sz,
+                                                    &_nested_initial_default_values, &doris_field));
         } else {
             DCHECK(doris_type->is_nullable());
-            static_cast<ColumnNullable*>(mutable_field.get())
-                    ->insert_many_defaults(missing_column_sz);
+            doris_field = IColumn::mutate(std::move(doris_field));
+            auto mutable_column = doris_field->assert_mutable();
+            auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
+            nullable_column->insert_many_defaults(missing_column_sz);
         }
-        doris_field = std::move(mutable_field);
     }
 
     if (null_map_ptr != nullptr) {

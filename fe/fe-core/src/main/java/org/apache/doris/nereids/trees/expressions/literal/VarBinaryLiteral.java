@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarBinaryType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.io.BaseEncoding;
 
 import java.util.Arrays;
@@ -46,6 +47,13 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
 
     public VarBinaryLiteral(byte[] byteValues) {
         super(VarBinaryType.INSTANCE);
+        this.byteValues = byteValues;
+    }
+
+    public VarBinaryLiteral(DataType dataType, byte[] byteValues) {
+        super(dataType);
+        Preconditions.checkArgument(dataType instanceof VarBinaryType,
+                "VarBinaryLiteral data type should be VarBinaryType, but is %s", dataType);
         this.byteValues = byteValues;
     }
 
@@ -87,7 +95,10 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     @Override
     public LiteralExpr toLegacyLiteral() {
         try {
-            return new org.apache.doris.analysis.VarBinaryLiteral(byteValues);
+            org.apache.doris.analysis.VarBinaryLiteral literal
+                    = new org.apache.doris.analysis.VarBinaryLiteral(byteValues);
+            literal.setType(dataType.toCatalogDataType());
+            return literal;
         } catch (Exception e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("Invalid VarBinary format.");
         }

@@ -22,7 +22,9 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
@@ -57,6 +59,34 @@ public class IcebergMergeSinkTest {
         Assertions.assertTrue(thriftSink.getSchemaJson().contains(
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
         Assertions.assertEquals(1, thriftSink.getRewritableDeleteFileSetsSize());
+    }
+
+    @Test
+    public void testTableAndMergeSinksUseExactPinnedSchemaJson() throws Exception {
+        Schema pinnedSchema = new Schema(70,
+                Collections.singletonList(Types.NestedField.required(
+                        1, "pinned_id", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(71,
+                Collections.singletonList(Types.NestedField.required(
+                        1, "current_id", Types.IntegerType.get())));
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                pinnedSchema, 3, true, true);
+        IcebergExternalTable table = mockIcebergExternalTable(
+                3, currentSchema, Collections.emptyMap());
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+
+        IcebergTableSink tableSink = new IcebergTableSink(table, Optional.of(context));
+        tableSink.bindDataSink(Optional.of(insertContext));
+        Assertions.assertEquals(context.getSchemaJson(),
+                tableSink.tDataSink.getIcebergTableSink().getSchemaJson());
+
+        IcebergMergeSink mergeSink = new IcebergMergeSink(
+                table, new DeleteCommandContext(), Optional.of(context));
+        mergeSink.bindDataSink(Optional.of(insertContext));
+        Assertions.assertEquals(context.getMergeSchemaJson(),
+                mergeSink.tDataSink.getIcebergMergeSink().getSchemaJson());
+        Assertions.assertNotEquals(currentSchema.asStruct(), context.getSchema().asStruct());
     }
 
     @Test

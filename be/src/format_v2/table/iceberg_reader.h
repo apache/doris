@@ -52,10 +52,15 @@ public:
     Status init(format::TableReadOptions&& options) override {
         RETURN_IF_ERROR(format::TableReader::init(std::move(options)));
         _mapper_options.mode = format::TableColumnMappingMode::BY_FIELD_ID;
+        _mapper_options.reject_missing_required_field =
+                supports_iceberg_scan_semantics_v2(_scan_params);
         return Status::OK();
     }
 
     Status prepare_split(const format::SplitReadOptions& options) override;
+    Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
+                                     format::ProjectedColumnBuildContext* context,
+                                     format::ColumnDefinition* column) const override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
         const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
@@ -128,9 +133,10 @@ private:
     // params. DeleteVector and position delete files use the common DeleteRows path in TableReader.
     Status _append_equality_delete_predicates(format::FileScanRequest* request);
     const format::ColumnDefinition* _find_equality_delete_data_field(
-            const EqualityDeleteFilter& filter, size_t key_idx) const;
-    std::optional<format::ColumnDefinition> _find_equality_delete_table_field(
-            const EqualityDeleteFilter& filter, size_t key_idx) const;
+            const EqualityDeleteFilter& filter, size_t key_idx,
+            const format::ColumnDefinition* table_field) const;
+    Status _find_equality_delete_table_field(const EqualityDeleteFilter& filter, size_t key_idx,
+                                             format::ColumnDefinition* table_field) const;
     void _append_equality_delete_row_count_carrier(format::FileScanRequest* request);
     std::string _delete_file_cache_key(const char* prefix, const std::string& path) const;
 

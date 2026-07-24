@@ -44,6 +44,7 @@
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -56,6 +57,8 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/expr/cast.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -732,6 +735,73 @@ void write_map_struct_parquet_file(const std::string& file_path) {
                                                       writer_builder.build()));
 }
 
+void write_nullable_nested_struct_parquet_file(const std::string& file_path) {
+    const auto struct_type = arrow::struct_({arrow::field("a", arrow::int32(), false)});
+
+    arrow::StructBuilder struct_builder(
+            struct_type, arrow::default_memory_pool(),
+            {std::make_shared<arrow::Int32Builder>(arrow::default_memory_pool())});
+    auto* struct_a_builder = assert_cast<arrow::Int32Builder*>(struct_builder.field_builder(0));
+    EXPECT_TRUE(struct_builder.AppendNull().ok());
+    EXPECT_TRUE(struct_builder.Append().ok());
+    EXPECT_TRUE(struct_a_builder->Append(2).ok());
+    EXPECT_TRUE(struct_builder.Append().ok());
+    EXPECT_TRUE(struct_a_builder->Append(3).ok());
+
+    auto list_element_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
+                    std::make_shared<arrow::Int32Builder>(arrow::default_memory_pool())});
+    const auto list_type = arrow::list(arrow::field("element", struct_type, true));
+    arrow::ListBuilder list_builder(arrow::default_memory_pool(), list_element_builder, list_type);
+    auto* list_a_builder =
+            assert_cast<arrow::Int32Builder*>(list_element_builder->field_builder(0));
+    EXPECT_TRUE(list_builder.Append().ok());
+    EXPECT_TRUE(list_element_builder->AppendNull().ok());
+    EXPECT_TRUE(list_element_builder->Append().ok());
+    EXPECT_TRUE(list_a_builder->Append(11).ok());
+    EXPECT_TRUE(list_builder.AppendNull().ok());
+    EXPECT_TRUE(list_builder.AppendEmptyValue().ok());
+
+    auto map_key_builder = std::make_shared<arrow::Int32Builder>();
+    auto map_value_builder = std::make_shared<arrow::StructBuilder>(
+            struct_type, arrow::default_memory_pool(),
+            std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
+                    std::make_shared<arrow::Int32Builder>(arrow::default_memory_pool())});
+    const auto map_type = arrow::map(arrow::int32(), arrow::field("value", struct_type, true));
+    arrow::MapBuilder map_builder(arrow::default_memory_pool(), map_key_builder, map_value_builder,
+                                  map_type);
+    auto* map_a_builder = assert_cast<arrow::Int32Builder*>(map_value_builder->field_builder(0));
+    EXPECT_TRUE(map_builder.Append().ok());
+    EXPECT_TRUE(map_key_builder->Append(1).ok());
+    EXPECT_TRUE(map_value_builder->AppendNull().ok());
+    EXPECT_TRUE(map_key_builder->Append(2).ok());
+    EXPECT_TRUE(map_value_builder->Append().ok());
+    EXPECT_TRUE(map_a_builder->Append(21).ok());
+    EXPECT_TRUE(map_builder.AppendNull().ok());
+    EXPECT_TRUE(map_builder.AppendEmptyValue().ok());
+
+    auto schema = arrow::schema({
+            arrow::field("s", struct_type, true),
+            arrow::field("xs", list_type, true),
+            arrow::field("kv", map_type, true),
+    });
+    auto table =
+            arrow::Table::Make(schema, {finish_array(&struct_builder), finish_array(&list_builder),
+                                        finish_array(&map_builder)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 3,
+                                                      writer_builder.build()));
+}
+
 void write_int_pair_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
                                  const std::vector<int32_t>& scores,
                                  const std::vector<std::string>& values,
@@ -972,6 +1042,7 @@ public:
 class TableReaderCastTestHelper final : public TableReader {
 public:
     using TableReader::_cast_column_to_type;
+    using TableReader::_materialize_mapping_column;
 };
 
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
@@ -2373,7 +2444,7 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
     binary_field.field_ptr->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
     binary_field.field_ptr->__set_initial_default_value_is_base64(true);
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(1);
     scan_params.__set_history_schema_info({external_schema(1, {binary_field})});
 
@@ -2386,7 +2457,7 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
             Field::create_field<TYPE_VARBINARY>(StringView("Ej5FZ+ibEtOkVkJmFBdAAA=="))));
     ProjectedColumnBuildContext context {.scan_params = &scan_params};
     TFileScanSlotInfo slot_info;
-    TableReader annotation_reader;
+    iceberg::IcebergTableReader annotation_reader;
     ASSERT_TRUE(
             annotation_reader.annotate_projected_column(slot_info, &context, &binary_column).ok());
     ASSERT_TRUE(binary_column.initial_default_value.has_value());
@@ -2629,6 +2700,130 @@ TEST(TableReaderTest, ComplexRematerializeCastsNonNullableScalarChildWithNullabl
     EXPECT_FALSE(result_nullable.is_null_at(1));
     EXPECT_EQ(child_values.get_element(0), 10);
     EXPECT_EQ(child_values.get_element(1), 20);
+}
+
+TEST(TableReaderTest, ScalarCastUsesRuntimeNullableDateTimeColumnShape) {
+    const auto file_type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto table_type = make_nullable(file_type);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto nested = file_type->create_column();
+    nested->insert_default();
+    auto null_map = ColumnUInt8::create(1, 0);
+    Block block;
+    block.insert({ColumnNullable::create(std::move(nested), std::move(null_map)),
+                  make_nullable(file_type), "event_time"});
+
+    auto cast_expr = Cast::create_shared(table_type);
+    cast_expr->add_child(VSlotRef::create_shared(0, 0, -1, file_type, "event_time"));
+    ColumnMapping mapping;
+    mapping.global_index = GlobalIndex(0);
+    mapping.table_column_name = "event_time";
+    mapping.file_local_id = 0;
+    mapping.file_column_name = "event_time";
+    mapping.file_type = file_type;
+    mapping.table_type = table_type;
+    mapping.projection = VExprContext::create_shared(std::move(cast_expr));
+    mapping.is_trivial = false;
+    RowDescriptor row_desc;
+    ASSERT_TRUE(mapping.projection->prepare(&state, row_desc).ok());
+    ASSERT_TRUE(mapping.projection->open(&state).ok());
+
+    ColumnPtr result;
+    const auto status = reader._materialize_mapping_column(mapping, &block, 1, &result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(result.get(), nullptr);
+    EXPECT_TRUE(result->is_nullable());
+    EXPECT_EQ(result->size(), 1);
+}
+
+TEST(TableReaderTest, ScalarCastHandlesNullableRuntimeColumnForRequiredDateTime) {
+    const auto table_type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto file_type = table_type;
+    const auto runtime_type = make_nullable(file_type);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto nested = table_type->create_column();
+    nested->insert_default();
+    auto null_map = ColumnUInt8::create(1, 0);
+    Block block;
+    block.insert({ColumnNullable::create(std::move(nested), std::move(null_map)), runtime_type,
+                  "event_time"});
+
+    auto cast_expr = Cast::create_shared(table_type);
+    cast_expr->add_child(VSlotRef::create_shared(0, 0, -1, file_type, "event_time"));
+    ColumnMapping mapping;
+    mapping.global_index = GlobalIndex(0);
+    mapping.table_column_name = "event_time";
+    mapping.file_local_id = 0;
+    mapping.file_column_name = "event_time";
+    mapping.file_type = file_type;
+    mapping.table_type = table_type;
+    mapping.projection = VExprContext::create_shared(std::move(cast_expr));
+    mapping.is_trivial = false;
+    RowDescriptor row_desc;
+    ASSERT_TRUE(mapping.projection->prepare(&state, row_desc).ok());
+    ASSERT_TRUE(mapping.projection->open(&state).ok());
+
+    ColumnPtr result;
+    const auto status = reader._materialize_mapping_column(mapping, &block, 1, &result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(result.get(), nullptr);
+    EXPECT_FALSE(result->is_nullable());
+    EXPECT_EQ(result->size(), 1);
+}
+
+TEST(TableReaderTest, ScalarCastPromotesRequiredTargetForNullableRuntimeColumn) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto table_type = std::make_shared<DataTypeInt64>();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto values = ColumnInt32::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    ColumnPtr result = ColumnNullable::create(std::move(values), ColumnUInt8::create(2, 0));
+    const auto status =
+            reader._cast_column_to_type(&result, file_type, table_type, "required_value");
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    const auto& nested_result =
+            assert_cast<const ColumnInt64&>(nullable_result.get_nested_column());
+    EXPECT_EQ(nested_result.get_element(0), 10);
+    EXPECT_EQ(nested_result.get_element(1), 20);
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {
@@ -4691,6 +4886,10 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
     auto missing_child = make_table_column(99, "missing_child", varbinary_type);
     missing_child.initial_default_value = "Ej5FZ+ibEtOkVkJmFBdAAA==";
     missing_child.initial_default_value_is_base64 = true;
+    missing_child.default_expr = VExprContext::create_shared(VLiteral::create_shared(
+            missing_child.type,
+            Field::create_field<TYPE_VARBINARY>(StringView(
+                    "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16))));
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, varbinary_type},
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
@@ -4729,6 +4928,126 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
             expect_not_null_nullable_nested_column(struct_result.get_column(1)));
     EXPECT_EQ(defaults.get_data_at(0).to_string(),
               std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, NestedMissingChildDefaultPreservesStructListAndMapNulls) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_nested_missing_child_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_nullable_nested_struct_parquet_file(file_path);
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto raw_struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                                  Strings {"a", "added"});
+    const auto add_default = [](ColumnDefinition* column, const std::string& value) {
+        DORIS_CHECK(column != nullptr);
+        column->default_expr = VExprContext::create_shared(
+                VLiteral::create_shared(column->type, Field::create_field<TYPE_STRING>(value)));
+    };
+
+    auto struct_a = make_table_column(0, "a", int_type);
+    auto struct_added = make_table_column(1, "added", string_type);
+    add_default(&struct_added, "struct-default");
+    auto struct_column = make_table_column(10, "s", raw_struct_type);
+    struct_column.children = {struct_a, struct_added};
+
+    auto element_a = make_table_column(0, "a", int_type);
+    auto element_added = make_table_column(1, "added", string_type);
+    add_default(&element_added, "list-default");
+    auto element = make_table_column(0, "element", raw_struct_type);
+    element.children = {element_a, element_added};
+    auto list_column =
+            make_table_column(11, "xs", std::make_shared<DataTypeArray>(raw_struct_type));
+    list_column.children = {element};
+
+    auto value_a = make_table_column(0, "a", int_type);
+    auto value_added = make_table_column(1, "added", string_type);
+    add_default(&value_added, "map-default");
+    auto value = make_table_column(1, "value", raw_struct_type);
+    value.children = {value_a, value_added};
+    auto map_column =
+            make_table_column(12, "kv", std::make_shared<DataTypeMap>(int_type, raw_struct_type));
+    map_column.children = {value};
+
+    std::vector<ColumnDefinition> projected_columns = {struct_column, list_column, map_column};
+    set_name_identifiers(&projected_columns);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+
+    const auto struct_full = block.get_by_position(0).column->convert_to_full_column_if_const();
+    const auto& nullable_struct = assert_cast<const ColumnNullable&>(*struct_full);
+    EXPECT_TRUE(nullable_struct.is_null_at(0));
+    EXPECT_FALSE(nullable_struct.is_null_at(1));
+    EXPECT_FALSE(nullable_struct.is_null_at(2));
+    const auto& struct_result =
+            assert_cast<const ColumnStruct&>(nullable_struct.get_nested_column());
+    ASSERT_EQ(struct_result.get_columns().size(), 2);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(struct_result.get_column(1).get_data_at(row).to_string(), "struct-default");
+    }
+
+    const auto list_full = block.get_by_position(1).column->convert_to_full_column_if_const();
+    const auto& nullable_list = assert_cast<const ColumnNullable&>(*list_full);
+    EXPECT_FALSE(nullable_list.is_null_at(0));
+    EXPECT_TRUE(nullable_list.is_null_at(1));
+    EXPECT_FALSE(nullable_list.is_null_at(2));
+    const auto& list_result = assert_cast<const ColumnArray&>(nullable_list.get_nested_column());
+    EXPECT_EQ(list_result.get_offsets()[0], 2);
+    EXPECT_EQ(list_result.get_offsets()[1], 2);
+    EXPECT_EQ(list_result.get_offsets()[2], 2);
+    const auto& nullable_elements = assert_cast<const ColumnNullable&>(list_result.get_data());
+    ASSERT_EQ(nullable_elements.size(), 2);
+    EXPECT_TRUE(nullable_elements.is_null_at(0));
+    EXPECT_FALSE(nullable_elements.is_null_at(1));
+    const auto& element_result =
+            assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
+    ASSERT_EQ(element_result.get_columns().size(), 2);
+    EXPECT_EQ(element_result.get_column(1).get_data_at(0).to_string(), "list-default");
+    EXPECT_EQ(element_result.get_column(1).get_data_at(1).to_string(), "list-default");
+
+    const auto map_full = block.get_by_position(2).column->convert_to_full_column_if_const();
+    const auto& nullable_map = assert_cast<const ColumnNullable&>(*map_full);
+    EXPECT_FALSE(nullable_map.is_null_at(0));
+    EXPECT_TRUE(nullable_map.is_null_at(1));
+    EXPECT_FALSE(nullable_map.is_null_at(2));
+    const auto& map_result = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
+    EXPECT_EQ(map_result.get_offsets()[0], 2);
+    EXPECT_EQ(map_result.get_offsets()[1], 2);
+    EXPECT_EQ(map_result.get_offsets()[2], 2);
+    const auto& nullable_values = assert_cast<const ColumnNullable&>(map_result.get_values());
+    ASSERT_EQ(nullable_values.size(), 2);
+    EXPECT_TRUE(nullable_values.is_null_at(0));
+    EXPECT_FALSE(nullable_values.is_null_at(1));
+    const auto& value_result =
+            assert_cast<const ColumnStruct&>(nullable_values.get_nested_column());
+    ASSERT_EQ(value_result.get_columns().size(), 2);
+    EXPECT_EQ(value_result.get_column(1).get_data_at(0).to_string(), "map-default");
+    EXPECT_EQ(value_result.get_column(1).get_data_at(1).to_string(), "map-default");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

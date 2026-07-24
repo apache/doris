@@ -32,6 +32,7 @@ import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -323,7 +324,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testParseSchemaPreservesInitialDefault() {
+    public void testInitialDefaultsStaySeparateFromDorisColumnDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
                         .withId(1)
@@ -353,15 +354,58 @@ public class IcebergUtilsTest {
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
-        Assert.assertEquals("7", columns.get(0).getDefaultValue());
-        Assert.assertEquals("2024-01-01 00:00:00.123456", columns.get(1).getDefaultValue());
-        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", columns.get(2).getDefaultValue());
-        Assert.assertEquals("AAEC/w==", columns.get(3).getDefaultValue());
+        for (Column column : columns) {
+            Assert.assertNull(column.getDefaultValue());
+        }
+
+        Map<Integer, String> serializedDefaults =
+                IcebergUtils.getSerializedInitialDefaults(schema, false);
+        Assert.assertEquals("7", serializedDefaults.get(1));
+        Assert.assertEquals("2024-01-01 00:00:00.123456", serializedDefaults.get(2));
+        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", serializedDefaults.get(3));
+        Assert.assertEquals("AAEC/w==", serializedDefaults.get(4));
+        Assert.assertEquals("AwIBAA==", serializedDefaults.get(5));
 
         Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
         Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
         Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
         Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
+    }
+
+    @Test
+    public void testParseSchemaPreservesNestedInitialDefaultsAndRequiredness() {
+        Types.NestedField nestedInt = Types.NestedField.required("nested_int")
+                .withId(2)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(17)
+                .build();
+        Types.NestedField nestedBinary = Types.NestedField.optional("nested_binary")
+                .withId(3)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build();
+        Types.NestedField nestedUuidWithoutDefault = Types.NestedField.optional("nested_uuid")
+                .withId(4)
+                .ofType(Types.UUIDType.get())
+                .build();
+        Schema schema = new Schema(Types.NestedField.required("payload")
+                .withId(1)
+                .ofType(Types.StructType.of(nestedInt, nestedBinary, nestedUuidWithoutDefault))
+                .build());
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+        Assert.assertFalse(columns.get(0).isAllowNull());
+        Assert.assertFalse(columns.get(0).getChildren().get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(1).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(2).isAllowNull());
+
+        Map<Integer, String> defaults = IcebergUtils.getSerializedInitialDefaults(schema, false);
+        Assert.assertEquals("17", defaults.get(2));
+        Assert.assertEquals("AAEC/w==", defaults.get(3));
+        Assert.assertFalse(defaults.containsKey(4));
+        Assert.assertEquals(Collections.singleton(3),
+                IcebergUtils.getBase64EncodedInitialDefaults(schema).keySet());
+        Assert.assertEquals(ImmutableSet.of(3, 4), IcebergUtils.getBinaryLikeFieldIds(schema));
     }
 
     @Test
@@ -375,7 +419,8 @@ public class IcebergUtilsTest {
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
-        Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
+        Assert.assertNull(columns.get(0).getChildren().get(0).getDefaultValue());
+        Assert.assertEquals("7", IcebergUtils.getSerializedInitialDefaults(schema, false).get(11));
     }
 
     @Test
