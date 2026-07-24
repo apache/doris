@@ -573,6 +573,84 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         checkPartTableSinkPlan(schema, partTargetTable, physicalOverwriteSink2);
     }
 
+    @Test
+    public void testInsertStaticPartitionPlanSql() throws Exception {
+        switchHive();
+        useDatabase(mockedDbName);
+        String insertTable = "static_partition_insert_table";
+        createTargetTable(insertTable);
+
+        List<Column> schema = new ArrayList<Column>() {
+            {
+                add(new Column("col1", PrimitiveType.INT));
+                add(new Column("pt1", PrimitiveType.VARCHAR));
+                add(new Column("pt2", PrimitiveType.STRING));
+                add(new Column("pt3", PrimitiveType.DATE));
+            }
+        };
+        Set<String> parts = new HashSet<String>() {
+            {
+                add("pt1");
+                add("pt2");
+                add("pt3");
+            }
+        };
+        mockTargetTable(schema, parts);
+        String partTargetTable = "part_" + insertTable;
+
+        String insertSql = "INSERT INTO " + partTargetTable
+                + " PARTITION(PT1='v1', pt2='v2', PT3='2020-03-13') SELECT 1";
+        PhysicalPlan physicalSink = getPhysicalPlan(insertSql,
+                new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), false);
+        checkPartTableSinkPlan(schema, partTargetTable, physicalSink);
+
+        String insertOverwriteSql = "INSERT OVERWRITE TABLE " + partTargetTable
+                + " PARTITION(PT1='v1', PT2='v2', PT3='2020-03-13') SELECT 1";
+        PhysicalPlan physicalOverwriteSink = getPhysicalPlan(insertOverwriteSql,
+                new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), true);
+        checkPartTableSinkPlan(schema, partTargetTable, physicalOverwriteSink);
+    }
+
+    @Test
+    public void testInsertStaticPartitionErrorSql() throws Exception {
+        switchHive();
+        useDatabase(mockedDbName);
+        String insertTable = "static_partition_error_table";
+        createTargetTable(insertTable);
+
+        List<Column> schema = new ArrayList<Column>() {
+            {
+                add(new Column("col1", PrimitiveType.INT));
+                add(new Column("pt1", PrimitiveType.VARCHAR));
+                add(new Column("pt2", PrimitiveType.STRING));
+                add(new Column("pt3", PrimitiveType.DATE));
+            }
+        };
+        Set<String> parts = new HashSet<String>() {
+            {
+                add("pt1");
+                add("pt2");
+                add("pt3");
+            }
+        };
+        mockTargetTable(schema, parts);
+        String partTargetTable = "part_" + insertTable;
+
+        String nonLiteralPartitionSql = "INSERT INTO " + partTargetTable
+                + " PARTITION(pt1=concat('v', '1'), pt2='v2', pt3='2020-03-13') SELECT 1";
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "must be a literal",
+                () -> getPhysicalPlan(nonLiteralPartitionSql,
+                        new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), false));
+
+        String duplicateStaticPartitionSql = "INSERT INTO " + partTargetTable
+                + " (col1, pt1) PARTITION(PT1='v1', pt2='v2', pt3='2020-03-13') SELECT 1, 'dup'";
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "is a static partition column",
+                () -> getPhysicalPlan(duplicateStaticPartitionSql,
+                        new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), false));
+    }
+
     private static void checkUnpartTableSinkPlan(List<Column> schema, String unPartTargetTable, PhysicalPlan physicalSink) {
         Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
         // check exchange
