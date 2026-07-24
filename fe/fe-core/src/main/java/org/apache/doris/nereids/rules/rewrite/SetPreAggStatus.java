@@ -94,8 +94,22 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
         private Map<Slot, Expression> replaceMap = new HashMap<>();
 
-        private void setReplaceMap(Map<Slot, Expression> replaceMap) {
-            this.replaceMap = replaceMap;
+        private void setReplaceMap(Map<Slot, Expression> newReplaceMap) {
+            // merge instead of replace: sibling projects under a join share one
+            // PreAggInfoContext, and a full replacement would lose mappings from
+            // the sibling. merge keeps all entries; new entries shadow old ones
+            // by putAll semantics so a chain of projects still resolves correctly.
+            //
+            // Before merging, resolve the new aliases' producers through the
+            // existing replaceMap so that upper-layer aliases reference base table
+            // columns directly instead of intermediate computed aliases.
+            Map<Slot, Expression> merged = new HashMap<>(this.replaceMap);
+            for (Map.Entry<Slot, Expression> entry : newReplaceMap.entrySet()) {
+                Expression resolvedProducer = ExpressionUtils.replace(
+                        entry.getValue(), this.replaceMap);
+                merged.put(entry.getKey(), resolvedProducer);
+            }
+            this.replaceMap = merged;
         }
 
         private void addRelationId(RelationId id) {
@@ -349,9 +363,25 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                         }
                     } else if (splitSlots.second.isEmpty()) {
                         // only key slots
-                        preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
+                        // Volatile expressions (e.g., random()) must be rejected here:
+                        // with pre-agg ON they would be evaluated per partial row instead of
+                        // per merged logical row, changing DISTINCT/MAX/MIN semantics.
+                        if (aggFunc.containsVolatileExpression()) {
+                            preAggStatus = PreAggStatus.off(
+                                    String.format("can't turn preAgg on for aggregate function %s", aggFunc));
+                        } else {
+                            preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
+                        }
                     } else {
-                        preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
+                        // checkAggWithKeyAndValueSlots only inspects child(0) for IF/CaseWhen patterns.
+                        // For multi-argument aggregate functions, child(0) inspection is insufficient
+                        // as later arguments may contain value columns that are not validated.
+                        if (aggFunc.children().size() > 1) {
+                            preAggStatus = PreAggStatus.off(
+                                    String.format("can't turn preAgg on for aggregate function %s", aggFunc));
+                        } else {
+                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
+                        }
                     }
                 }
                 if (preAggStatus.isOff()) {
@@ -417,6 +447,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             if (!keySlots.containsAll(inputSlots)) {
                 return PreAggStatus
                         .off(String.format("some columns in condition %s is not key.", conditionExps));
+            }
+
+            // step 3: reject volatile expressions in conditions — they would be evaluated
+            // per partial row with pre-agg ON, changing the aggregation result.
+            if (conditionExps.stream().anyMatch(Expression::containsVolatileExpression)) {
+                return PreAggStatus.off(
+                        String.format("condition %s contains volatile expression, "
+                                + "can't turn preAgg on for aggregate function %s",
+                                conditionExps, aggFunc));
             }
 
             return KeyAndValueSlotsAggChecker.INSTANCE.check(aggFunc, returnExps);

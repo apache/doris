@@ -359,4 +359,89 @@ suite("set_preagg") {
         sql("""select count(distinct k6, k5) from preagg_t1;""")
         contains "(preagg_t1), PREAGGREGATION: ON"
     }
+
+    // Negative: count(DISTINCT IF(...), value_col) — checkAggWithKeyAndValueSlots
+    // only inspects child(0) (the IF). Without a multi-arg guard, it would
+    // miss v7 in child(1) and incorrectly return ON.
+    explain {
+        sql("""
+            select count(distinct if(k6 > 0, k5, 0), v7) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""
+            select count(distinct case when k6 > 0 then k5 else 0 end, v7) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: count(DISTINCT key + random()) — volatile in the expression
+    // argument. With pre-agg ON, random() would be evaluated per partial row
+    // instead of per merged logical row, changing the distinct count.
+    explain {
+        sql("""select count(distinct k6 + random()) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // max/min(key + random()) have the same volatile concern.
+    explain {
+        sql("""select max(k6 + random()) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""select min(k6 + random()) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Volatile in an IF condition inside a mixed-key-value aggregate.
+    // The condition k6 + random() > 0 uses only key input slots but is
+    // volatile, so pre-agg must be OFF.
+    explain {
+        sql("""
+            select sum(if(k6 + random() > 0, v7, 0)) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Positive: two-project join where both aliases resolve to key-only
+    // expressions. With merge+resolve, x = k5 + 1 resolves fully to base
+    // key columns, so pre-agg can be ON for both scans.
+    explain {
+        sql("""
+            select count(distinct a)
+            from (
+                select l.k1 + l.x as a
+                from (
+                    select t1.k1, t1.k5 + 1 as x from preagg_t1 t1
+                ) l
+                inner join (
+                    select abs(t2.k1) as rk from preagg_t2 t2
+                ) r on l.k1 = r.rk
+            ) t;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+    }
+
+    // Negative: two-project join; x carries v7 + 1 (a value column). Even
+    // with merge+resolve, the fully resolved expression contains v7 so
+    // pre-agg is correctly OFF.
+    explain {
+        sql("""
+            select count(distinct a)
+            from (
+                select l.k1 + l.x as a
+                from (
+                    select t1.k1, t1.v7 + 1 as x from preagg_t1 t1
+                ) l
+                inner join (
+                    select abs(t2.k1) as rk from preagg_t2 t2
+                ) r on l.k1 = r.rk
+            ) t;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
 }
