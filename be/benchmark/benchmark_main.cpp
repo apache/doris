@@ -45,6 +45,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_string.h"
 #include "parquet/benchmark_parquet_decoder.hpp"
+#include "parquet/benchmark_parquet_kernels.hpp"
 #include "parquet/benchmark_parquet_reader.hpp"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"

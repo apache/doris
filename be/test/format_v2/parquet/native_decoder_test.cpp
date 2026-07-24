@@ -1269,12 +1269,14 @@ TEST(ParquetV2NativeDecoderTest, DictionaryMaterializationUsesCacheAwareExecutio
         ParquetMaterializationState state;
         state.typed_dictionary = ColumnInt32::create();
         assert_cast<ColumnInt32&>(*state.typed_dictionary).get_data() = {10, 20, 30, 40};
-        ScriptedDictionaryMaterializationSource source({3, 0, 2, 1, 3}, prefer_indices);
+        const std::vector<uint32_t> ids {3, 0, 2, 1, 3, 1, 0, 2, 3, 3, 1};
+        ScriptedDictionaryMaterializationSource source(ids, prefer_indices);
         auto output = ColumnInt32::create();
 
-        const auto status = state.materialize_dictionary(*output, source, 5);
+        const auto status = state.materialize_dictionary(*output, source, ids.size());
         EXPECT_TRUE(status.ok()) << status;
-        EXPECT_EQ(output->get_data(), (ColumnInt32::Container {40, 10, 30, 20, 40}));
+        EXPECT_EQ(output->get_data(),
+                  (ColumnInt32::Container {40, 10, 30, 20, 40, 20, 10, 30, 40, 40, 20}));
         EXPECT_EQ(state.dictionary_materialization_strategy, expected_strategy);
         EXPECT_EQ(source.direct_batches, expected_direct_batches);
         EXPECT_EQ(source.index_batches, expected_index_batches);
