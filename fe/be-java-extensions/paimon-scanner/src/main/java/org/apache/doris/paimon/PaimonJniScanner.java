@@ -24,7 +24,6 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
@@ -69,14 +68,14 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
-    static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.jni.enable_file_reader_async";
-    static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
     private final String paimonSplit;
     private final String paimonPredicate;
+    private final String tableCacheKey;
     private Table table;
+    private PaimonTableCache.TableCacheEntry tableCacheEntry;
     private RecordReader<InternalRow> reader;
     private IOManager ioManager;
     private String ioManagerTempDirs;
@@ -110,6 +109,9 @@ public class PaimonJniScanner extends JniScanner {
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
+        tableCacheKey = params.get("serialized_table_cache_key");
+        Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
+                "Missing required Paimon scanner parameter: serialized_table_cache_key");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
@@ -132,8 +134,7 @@ public class PaimonJniScanner extends JniScanner {
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
-                initTable();
-                initReader();
+                initTableAndReader();
                 return null;
             });
             resetDatetimeV2Precision();
@@ -337,6 +338,7 @@ public class PaimonJniScanner extends JniScanner {
                 }
             }
         } finally {
+            releaseCachedTable();
             markScannerClosedForMetrics();
         }
         if (exception != null) {
@@ -571,10 +573,36 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
-        table = table.copy(buildTableOptions(table.options()));
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
+        }
+    }
+
+    private void initTableAndReader() throws IOException {
+        PaimonTableCache.TableCacheEntry cachedEntry = PaimonTableCache.acquire(tableCacheKey);
+        if (cachedEntry != null) {
+            // get from cache
+            tableCacheEntry = cachedEntry;
+            table = cachedEntry.table();
+            paimonAllFieldNames = cachedEntry.fieldNames();
+            initReader();
+            return;
+        }
+        // no cache deserialize by self
+        initTable();
+        initReader();
+        PaimonTableCache.TableCacheEntry candidate =
+                new PaimonTableCache.TableCacheEntry(table, paimonAllFieldNames);
+        if (PaimonTableCache.publish(tableCacheKey, candidate)) {
+            tableCacheEntry = candidate;
+        }
+    }
+
+    private void releaseCachedTable() {
+        if (tableCacheEntry != null) {
+            PaimonTableCache.release(tableCacheKey, tableCacheEntry);
+            tableCacheEntry = null;
         }
     }
 
@@ -585,12 +613,4 @@ public class PaimonJniScanner extends JniScanner {
         return value.split(delimiter);
     }
 
-    private Map<String, String> buildTableOptions(Map<String, String> tableOptions) {
-        Map<String, String> options = new HashMap<>(tableOptions);
-        options.put(CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize));
-        if (Boolean.parseBoolean(params.getOrDefault(DORIS_ENABLE_FILE_READER_ASYNC, "true")) == false) {
-            options.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), MAX_ASYNC_READ_THRESHOLD);
-        }
-        return options;
-    }
 }

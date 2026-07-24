@@ -80,6 +80,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -106,6 +107,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
+    private final String serializedTableCacheKey = UUID.randomUUID().toString();
 
     // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
@@ -441,7 +443,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             selectedFileNum = distinctFilePaths.size();
         }
 
-        getSerializedTable().ifPresent(params::setSerializedTable);
+        setSerializedTableParams();
 
         if (executor != null) {
             executor.getSummaryProfile().setCreateScanRangeFinishTime();
@@ -453,6 +455,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                     scanRangeLocations.size(), (System.currentTimeMillis() - start));
         }
+    }
+
+    protected void setSerializedTableParams() {
+        getSerializedTable().ifPresent(serializedTable -> {
+            params.setSerializedTable(serializedTable);
+            params.setSerializedTableCacheKey(serializedTableCacheKey);
+        });
     }
 
     private TScanRangeLocations splitToScanRange(

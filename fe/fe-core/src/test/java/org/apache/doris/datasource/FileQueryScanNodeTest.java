@@ -44,6 +44,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class FileQueryScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -62,6 +63,7 @@ public class FileQueryScanNodeTest {
 
     private static class TestFileQueryScanNode extends FileQueryScanNode {
         private TableIf targetTable;
+        private String serializedTable;
 
         TestFileQueryScanNode(SessionVariable sv) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", ScanContext.EMPTY, false, sv);
@@ -73,6 +75,20 @@ public class FileQueryScanNodeTest {
 
         void setTargetTable(TableIf targetTable) {
             this.targetTable = targetTable;
+        }
+
+        void setSerializedTable(String serializedTable) {
+            this.serializedTable = serializedTable;
+        }
+
+        void populateSerializedTableParams(TFileScanRangeParams params) {
+            this.params = params;
+            setSerializedTableParams();
+        }
+
+        @Override
+        protected Optional<String> getSerializedTable() {
+            return Optional.ofNullable(serializedTable);
         }
 
         @Override
@@ -127,6 +143,30 @@ public class FileQueryScanNodeTest {
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testSerializedTableCacheKeyIsStableWithinScanNode() {
+        SessionVariable sv = new SessionVariable();
+        TestFileQueryScanNode firstNode = new TestFileQueryScanNode(sv);
+        firstNode.setSerializedTable("serialized-table");
+        TFileScanRangeParams firstParams = new TFileScanRangeParams();
+        firstNode.populateSerializedTableParams(firstParams);
+
+        TFileScanRangeParams repeatedParams = new TFileScanRangeParams();
+        firstNode.populateSerializedTableParams(repeatedParams);
+
+        TestFileQueryScanNode secondNode = new TestFileQueryScanNode(sv);
+        secondNode.setSerializedTable("serialized-table");
+        TFileScanRangeParams secondParams = new TFileScanRangeParams();
+        secondNode.populateSerializedTableParams(secondParams);
+
+        Assert.assertEquals("serialized-table", firstParams.getSerializedTable());
+        Assert.assertFalse(firstParams.getSerializedTableCacheKey().isEmpty());
+        Assert.assertEquals(firstParams.getSerializedTableCacheKey(),
+                repeatedParams.getSerializedTableCacheKey());
+        Assert.assertNotEquals(firstParams.getSerializedTableCacheKey(),
+                secondParams.getSerializedTableCacheKey());
     }
 
     @Test

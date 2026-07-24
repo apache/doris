@@ -81,6 +81,21 @@ TEST(PaimonJniReaderTest, UsesScanLevelPredicateBeforeLegacySplitPredicate) {
     EXPECT_EQ(params["paimon_predicate"], "scan-predicate");
 }
 
+TEST(PaimonJniReaderTest, ForwardsSerializedTableCacheKey) {
+    auto range = make_paimon_jni_range();
+    range.table_format_params.paimon_params.__set_paimon_predicate("serialized-predicate");
+
+    auto scan_params = make_scan_params();
+    scan_params.__set_serialized_table_cache_key("table-cache-key");
+
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["serialized_table_cache_key"], "table-cache-key");
+}
+
 TEST(PaimonJniReaderTest, FallsBackToLegacySplitPredicateWhenScanPredicateIsMissing) {
     auto range = make_paimon_jni_range();
     range.table_format_params.paimon_params.__set_paimon_predicate("legacy-predicate");
