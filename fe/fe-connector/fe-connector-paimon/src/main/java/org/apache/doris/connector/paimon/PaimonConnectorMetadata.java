@@ -101,9 +101,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // owning PaimonConnector; null = no cross-query derived layer (the convenience/test ctors used by ~15
     // existing direct-construction tests pass null). Layered ABOVE the raw remote catalogOps.listPartitions
     // call: a hit skips both the derived-view BUILD (collectPartitions) and the remote round-trip, keyed by
-    // (db, table, snapshotId, schemaId). Consumed only by listPartitions -- paimon does not override
-    // getMvccPartitionView (see ConnectorMetadata's default), so the generic MTMV model already uses
-    // listPartitions for its LIST/timestamp partition view; there is no second hook to wrap.
+    // (db, table, snapshotId, schemaId). Consumed by all three partition-enumeration hooks (listPartitions,
+    // listPartitionNames, listPartitionValues) via the shared cachedPartitions collector -- paimon does not
+    // override getMvccPartitionView (see ConnectorMetadata's default), so the generic MTMV model already uses
+    // listPartitions for its LIST/timestamp partition view.
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
     public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
@@ -1059,7 +1060,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
-        List<ConnectorPartitionInfo> partitions = collectPartitions((PaimonTableHandle) handle);
+        List<ConnectorPartitionInfo> partitions = cachedPartitions((PaimonTableHandle) handle);
         List<String> names = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             names.add(partition.getPartitionName());
@@ -1073,23 +1074,39 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * pushing predicates into the Paimon catalog, and this preserves that behavior (mirrors
      * {@code MaxComputeConnectorMetadata}).
      *
-     * <p>PERF-06 cache A: the BUILT {@code List<ConnectorPartitionInfo>} is memoized across queries in
-     * {@link #partitionViewCache}, keyed by {@code (db, table, snapshotId, schemaId)} (see
-     * {@link #partitionViewCacheKey}) — a hit skips both {@link #collectPartitions} and the remote
-     * {@code catalogOps.listPartitions} round-trip. The cache is BYPASSED (compute directly, never populated)
-     * when: {@code partitionViewCache} is {@code null} (the convenience/test ctors); {@code filter} is present
-     * (not the pruning path, and not keyed by filter); or the handle is unpartitioned (mirrors
-     * {@link #collectPartitions}'s own empty-partitionKeys short-circuit, so an unpartitioned table never
-     * touches {@link #latestSnapshotCache} either — preserving the "no seam call" contract the unpartitioned
-     * path already guarantees).
+     * <p>A present {@code filter} BYPASSES the derived cache (computes directly, never populates) — it is
+     * not the pruning path and not keyed by filter. Every other case routes through {@link #cachedPartitions},
+     * the shared cache-aware collector this hook shares with {@link #listPartitionNames} and
+     * {@link #listPartitionValues}.
      */
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (filter.isPresent()) {
+            return collectPartitions(paimonHandle);
+        }
+        return cachedPartitions(paimonHandle);
+    }
+
+    /**
+     * Shared cache-aware partition collector backing the no-filter path of {@link #listPartitions},
+     * plus {@link #listPartitionNames} and {@link #listPartitionValues}. Returns the BUILT
+     * {@code List<ConnectorPartitionInfo>} from {@link #partitionViewCache} (PERF-06 cache A), keyed by
+     * {@code (db, table, snapshotId, schemaId)} (see {@link #partitionViewCacheKey}) — a hit skips both
+     * {@link #collectPartitions} and the remote {@code catalogOps.listPartitions} round-trip, so repeated
+     * SHOW PARTITIONS / {@code partition_values()} / pruning over the same {@code (db, table, snapshotId)}
+     * render the list once.
+     *
+     * <p>The cache is BYPASSED (compute directly via {@link #collectPartitions}, never populated) when
+     * {@code partitionViewCache} is {@code null} (the convenience/test ctors) or the handle is unpartitioned
+     * (mirrors {@link #collectPartitions}'s own empty-partitionKeys short-circuit, so an unpartitioned table
+     * never touches {@link #latestSnapshotCache} either — preserving the "no seam call" contract the
+     * unpartitioned path already guarantees).
+     */
+    private List<ConnectorPartitionInfo> cachedPartitions(PaimonTableHandle paimonHandle) {
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
-        if (partitionViewCache == null || filter.isPresent()
-                || partitionKeys == null || partitionKeys.isEmpty()) {
+        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()) {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
@@ -1128,7 +1145,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<List<String>> listPartitionValues(ConnectorSession session,
             ConnectorTableHandle handle, List<String> partitionColumns) {
-        List<ConnectorPartitionInfo> partitions = collectPartitions((PaimonTableHandle) handle);
+        List<ConnectorPartitionInfo> partitions = cachedPartitions((PaimonTableHandle) handle);
         List<List<String>> result = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             Map<String, String> rawValues = partition.getPartitionValues();
@@ -1144,8 +1161,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Shared partition collector backing {@link #listPartitionNames}, {@link #listPartitions} and
-     * {@link #listPartitionValues}. Replicates the fe-core display-name logic
+     * Shared (uncached) partition collector behind {@link #cachedPartitions} — the underlying compute for
+     * {@link #listPartitionNames}, {@link #listPartitions} and {@link #listPartitionValues}, also reached
+     * directly on the filter / unpartitioned / null-cache bypass. Replicates the fe-core display-name logic
      * ({@code PaimonUtil.generatePartitionInfo} + {@code isLegacyPartitionName}) so the rendered
      * partition names stay byte-identical to fe-core — including #65904, which drives value order from
      * the partition columns and escapes path-special characters in the name via the Paimon SDK.

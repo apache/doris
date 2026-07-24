@@ -135,8 +135,9 @@ public class PaimonConnector implements Connector {
     // see PaimonConnectorMetadata#collectPartitions) keyed by (db, table, snapshotId, schemaId), so a repeated
     // query on a partitioned table skips the derived rebuild AND the remote catalog round-trip. ONE typed field
     // (unlike iceberg's two): paimon does not override getMvccPartitionView, so the generic MTMV model falls
-    // back to its default listPartitions/LIST/timestamp path for paimon -- listPartitions is the only
-    // enumeration hook to wrap. Unlike iceberg, paimon has NO session=user / per-user credential-isolation
+    // back to its default listPartitions/LIST/timestamp path for paimon -- all three partition-enumeration
+    // hooks (listPartitions/Names/Values) share it via PaimonConnectorMetadata#cachedPartitions. Unlike
+    // iceberg, paimon has NO session=user / per-user credential-isolation
     // cache-disabling convention (a paimon catalog authenticates at catalog-creation time -- Kerberos UGI /
     // HMS principal -- not per-query session identity), so this is constructed unconditionally: never null on
     // a live connector (only PaimonConnectorMetadata's convenience/test constructors pass null).
