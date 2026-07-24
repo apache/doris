@@ -59,6 +59,13 @@ import java.util.stream.Stream;
 public class Utils {
     public static final boolean enableAssert;
 
+    /**
+     * Check whether two objects are non-null and have the same concrete class.
+     */
+    public static boolean isSameClass(Object left, Object right) {
+        return left != null && right != null && left.getClass() == right.getClass();
+    }
+
     static {
         boolean enabled = false;
         // if run jvm with -ea or -enableassertions, the assert statement will be executed
