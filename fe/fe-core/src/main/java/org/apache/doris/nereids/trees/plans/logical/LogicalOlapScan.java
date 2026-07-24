@@ -1022,6 +1022,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        LogicalOlapScan that = (LogicalOlapScan) other;
+        return selectedIndexId == that.selectedIndexId
+                && indexSelected == that.indexSelected
+                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
+                && Objects.equals(manuallySpecifiedPartitions, that.manuallySpecifiedPartitions)
+                && Objects.equals(selectedTabletIds, that.selectedTabletIds)
+                && Objects.equals(manuallySpecifiedTabletIds, that.manuallySpecifiedTabletIds)
+                && Objects.equals(tableSample, that.tableSample);
+    }
+
+    @Override
     public boolean supportPruneNestedColumn() {
         return true;
     }

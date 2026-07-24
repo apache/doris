@@ -71,6 +71,11 @@ public class LogicalTestScan extends LogicalCatalogRelation {
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        return Utils.isSameClass(this, other);
+    }
+
+    @Override
     public LogicalTestScan withRelationId(RelationId relationId) {
         throw new RuntimeException("should not call LogicalTestScan's withRelationId method");
     }

@@ -1,0 +1,387 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hudi.source.IncrementalRelation;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+class PullUpJoinFromUnionAllTest {
+
+    @Test
+    void comparatorRejectsDifferentProjectOutputSizes() {
+        LogicalOlapScan smallScan = newScan(1, "common_small");
+        LogicalOlapScan largeScan = newScan(1, "common_large");
+        LogicalProject<LogicalOlapScan> smallProject = project(selectSlots(smallScan.getOutput(), 0), smallScan);
+        LogicalProject<LogicalOlapScan> largeProject = project(selectSlots(largeScan.getOutput(), 0, 1), largeScan);
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(largeProject, smallProject));
+    }
+
+    @Test
+    void comparatorRejectsDifferentFilterChildOutputSizes() {
+        LogicalFilter<LogicalOlapScan> smallFilter = filter(newCachedOutputScan(1, "common_filter", 0));
+        LogicalFilter<LogicalOlapScan> largeFilter = filter(newCachedOutputScan(1, "common_filter", 0, 1));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(largeFilter, smallFilter));
+    }
+
+    @Test
+    void comparatorRejectsDifferentMaterializedIndexSelections() {
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        LogicalOlapScan baseScan = newScanWithExtraIndex(11, "common_index", 101);
+        LogicalOlapScan indexScan = baseScan.withMaterializedIndexSelected(101);
+
+        Assertions.assertFalse(comparator.isLogicalEqual(baseScan, indexScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentSelectedPartitions() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(12L);
+        Mockito.when(table.getName()).thenReturn("common_partition");
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        Mockito.when(table.getPartition(1L)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.getPartition(2L)).thenReturn(Mockito.mock(Partition.class));
+
+        LogicalOlapScan firstPartitionScan = newPartitionedScan(table)
+                .withSelectedPartitionIds(ImmutableList.of(1L));
+        LogicalOlapScan secondPartitionScan = newPartitionedScan(table)
+                .withSelectedPartitionIds(ImmutableList.of(2L));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(firstPartitionScan, secondPartitionScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentHudiIncrementalRelations() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(18L);
+        Mockito.when(table.getName()).thenReturn("common_hudi");
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+
+        IncrementalRelation relation = Mockito.mock(IncrementalRelation.class);
+        IncrementalRelation differentRelation = Mockito.mock(IncrementalRelation.class);
+        LogicalHudiScan scan = newHudiScan(table, relation);
+        LogicalHudiScan sameRelationScan = newHudiScan(table, relation);
+        LogicalHudiScan differentRelationScan = newHudiScan(table, differentRelation);
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertTrue(comparator.isLogicalEqual(scan, sameRelationScan));
+        Assertions.assertFalse(comparator.isLogicalEqual(scan, differentRelationScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentTableSamples() {
+        LogicalOlapScan sampleOneScan = newScanWithTableSample(43, "common_sample",
+                new org.apache.doris.nereids.trees.TableSample(10, true, 0));
+        LogicalOlapScan sampleTwoScan = newScanWithTableSample(43, "common_sample",
+                new org.apache.doris.nereids.trees.TableSample(20, true, 0));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(sampleOneScan, sampleTwoScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentFileScanSnapshots() {
+        LogicalFileScan versionOneScan = newFileScan(17L, TableSnapshot.versionOf("1"));
+        LogicalFileScan versionTwoScan = newFileScan(17L, TableSnapshot.versionOf("2"));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(versionOneScan, versionTwoScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentSchemaScanConjuncts() {
+        LogicalSchemaScan baseScan = newSchemaScan(16, "schema_common");
+        LogicalSchemaScan filteredScan = baseScan.withFrontendConjuncts(Optional.of("ctl"),
+                Optional.of("db"), Optional.of("tbl"),
+                ImmutableList.of(new EqualTo(baseScan.getOutput().get(0), baseScan.getOutput().get(1))));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(baseScan, filteredScan));
+    }
+
+    @Test
+    void comparatorAcceptsSameOdbcScanWithDifferentRelationIds() {
+        LogicalOdbcScan left = newOdbcScan(18L, "odbc_common");
+        LogicalOdbcScan right = left.withRelationId(PlanConstructor.getNextRelationId());
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertTrue(comparator.isLogicalEqual(left, right));
+    }
+
+    @Test
+    void comparatorAcceptsSameTestScan() {
+        LogicalTestScan left = newTestScan(19L, "test_common");
+        LogicalTestScan right = newTestScan(19L, "test_common");
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertTrue(comparator.isLogicalEqual(left, right));
+    }
+
+    @Test
+    void comparatorAcceptsSameScanWithDifferentRelationIds() {
+        LogicalOlapScan left = newScan(13, "common_relation_id");
+        LogicalOlapScan right = left.withRelationId(PlanConstructor.getNextRelationId());
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertTrue(comparator.isLogicalEqual(left, right));
+    }
+
+    @Test
+    void ruleSkipsJoinChildrenWithDifferentFilteredCommonSideOutputs() {
+        LogicalOlapScan commonSmallScan = newScan(10, "common_small");
+        LogicalOlapScan commonLargeScan = newScan(10, "common_large");
+        LogicalFilter<LogicalOlapScan> commonSmall = filter(commonSmallScan.withCachedOutput(
+                selectSlotsAsSlots(commonSmallScan.getOutput(), 0)));
+        LogicalFilter<LogicalOlapScan> commonLarge = filter(commonLargeScan.withCachedOutput(
+                selectSlotsAsSlots(commonLargeScan.getOutput(), 0, 1)));
+        LogicalOlapScan otherLeft = newScan(20, "other_left");
+        LogicalOlapScan otherRight = newScan(30, "other_right");
+
+        LogicalProject<Plan> unionChild1 = outputProject(
+                join(commonSmall, otherLeft),
+                "x", commonSmall.getOutput().get(0),
+                "y", otherLeft.getOutput().get(1));
+        LogicalProject<Plan> unionChild2 = outputProject(
+                join(commonLarge, otherRight),
+                "x", commonLarge.getOutput().get(0),
+                "y", otherRight.getOutput().get(1));
+
+        LogicalUnion union = union(unionChild1, unionChild2);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), union)
+                .applyTopDown(new PullUpJoinFromUnionAll())
+                .getPlan();
+
+        Assertions.assertInstanceOf(LogicalUnion.class, rewritten);
+        LogicalUnion rewrittenUnion = (LogicalUnion) rewritten;
+        Assertions.assertEquals(2, rewrittenUnion.children().size());
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenUnion.child(0));
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenUnion.child(1));
+    }
+
+    @Test
+    void ruleSkipsJoinChildrenWithDifferentCommonSideTabletScopes() {
+        LogicalOlapScan commonLeft = newScan(40, "common_tablet").withSelectedTabletIds(ImmutableList.of(1L));
+        LogicalOlapScan commonRight = newScan(40, "common_tablet").withSelectedTabletIds(ImmutableList.of(2L));
+        LogicalOlapScan otherLeft = newScan(41, "other_left_tablet");
+        LogicalOlapScan otherRight = newScan(42, "other_right_tablet");
+
+        LogicalProject<Plan> unionChild1 = outputProject(
+                join(commonLeft, otherLeft),
+                "x", commonLeft.getOutput().get(0),
+                "y", otherLeft.getOutput().get(1));
+        LogicalProject<Plan> unionChild2 = outputProject(
+                join(commonRight, otherRight),
+                "x", commonRight.getOutput().get(0),
+                "y", otherRight.getOutput().get(1));
+
+        LogicalUnion union = union(unionChild1, unionChild2);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), union)
+                .applyTopDown(new PullUpJoinFromUnionAll())
+                .getPlan();
+
+        Assertions.assertInstanceOf(LogicalUnion.class, rewritten);
+    }
+
+    private static LogicalOlapScan newScan(long tableId, String tableName) {
+        return PlanConstructor.newLogicalOlapScan(tableId, tableName, 0);
+    }
+
+    private static LogicalOlapScan newPartitionedScan(OlapTable table) {
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
+    }
+
+    private static LogicalHudiScan newHudiScan(ExternalTable table, IncrementalRelation incrementalRelation) {
+        return new TestLogicalHudiScan(PlanConstructor.getNextRelationId(), table, incrementalRelation);
+    }
+
+    private static LogicalOlapScan newScanWithTableSample(long tableId, String tableName,
+            org.apache.doris.nereids.trees.TableSample tableSample) {
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.newOlapTable(tableId, tableName, 0), ImmutableList.of("db"),
+                ImmutableList.of(), ImmutableList.of(), Optional.of(tableSample), ImmutableList.of());
+    }
+
+    private static LogicalFileScan newFileScan(long tableId, TableSnapshot snapshot) {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getName()).thenReturn("ext_common");
+        Mockito.when(table.initSelectedPartitions(Mockito.any()))
+                .thenReturn(LogicalFileScan.SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        return new LogicalFileScan(new RelationId(1), table, Collections.singletonList("db"),
+                Collections.emptyList(), Optional.empty(), Optional.of(snapshot), Optional.empty(), Optional.empty());
+    }
+
+    private static LogicalSchemaScan newSchemaScan(long tableId, String tableName) {
+        return new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.newOlapTable(tableId, tableName, 0), ImmutableList.of("db"));
+    }
+
+    private static LogicalOdbcScan newOdbcScan(long tableId, String tableName) {
+        OdbcTable table = Mockito.mock(OdbcTable.class);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        return new LogicalOdbcScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"));
+    }
+
+    private static LogicalTestScan newTestScan(long tableId, String tableName) {
+        return new LogicalTestScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.newOlapTable(tableId, tableName, 0), ImmutableList.of("db"));
+    }
+
+    private static LogicalOlapScan newScanWithExtraIndex(long tableId, String tableName, long indexId) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0, KeysType.DUP_KEYS);
+        table.setIndexMeta(indexId, tableName + "_mv", table.getFullSchema(),
+                0, 0, (short) 0, org.apache.doris.thrift.TStorageType.COLUMN, KeysType.DUP_KEYS);
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"));
+    }
+
+    private static LogicalOlapScan newCachedOutputScan(long tableId, String tableName, int... indexes) {
+        LogicalOlapScan scan = newScan(tableId, tableName);
+        return scan.withCachedOutput(selectSlotsAsSlots(scan.getOutput(), indexes));
+    }
+
+    private static LogicalFilter<LogicalOlapScan> filter(LogicalOlapScan child) {
+        return new LogicalFilter<>(ImmutableSet.of(new EqualTo(child.getOutput().get(0), child.getOutput().get(0))),
+                child);
+    }
+
+    private static LogicalJoin<Plan, LogicalOlapScan> join(Plan commonSide,
+            LogicalOlapScan otherSide) {
+        Expression joinCondition = new EqualTo(commonSide.getOutput().get(0), otherSide.getOutput().get(0));
+        return new LogicalJoin<>(JoinType.INNER_JOIN, ImmutableList.of(joinCondition), ImmutableList.of(),
+                commonSide, otherSide, null);
+    }
+
+    private static LogicalProject<Plan> outputProject(Plan child, String leftAlias, Slot leftSlot,
+            String rightAlias, Slot rightSlot) {
+        return new LogicalProject<>(ImmutableList.of(
+                new Alias(leftSlot, leftAlias),
+                new Alias(rightSlot, rightAlias)), child);
+    }
+
+    private static LogicalUnion union(LogicalProject<Plan> left, LogicalProject<Plan> right) {
+        ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builder();
+        for (Slot slot : left.getOutput()) {
+            outputs.add(new SlotReference(slot.getName(), slot.getDataType(), slot.nullable()));
+        }
+        return new LogicalUnion(Qualifier.ALL, outputs.build(), ImmutableList.of(
+                toSlotReferences(left.getOutput()),
+                toSlotReferences(right.getOutput())), ImmutableList.of(), false, ImmutableList.of(left, right));
+    }
+
+    private static LogicalProject<LogicalOlapScan> project(List<NamedExpression> outputs, LogicalOlapScan child) {
+        return new LogicalProject<>(outputs, child);
+    }
+
+    private static List<NamedExpression> selectSlots(List<Slot> output, int... indexes) {
+        ImmutableList.Builder<NamedExpression> selected = ImmutableList.builder();
+        for (int index : indexes) {
+            selected.add(output.get(index));
+        }
+        return selected.build();
+    }
+
+    private static List<Slot> selectSlotsAsSlots(List<Slot> output, int... indexes) {
+        ImmutableList.Builder<Slot> selected = ImmutableList.builder();
+        for (int index : indexes) {
+            selected.add(output.get(index));
+        }
+        return selected.build();
+    }
+
+    private static List<SlotReference> toSlotReferences(List<Slot> slots) {
+        ImmutableList.Builder<SlotReference> references = ImmutableList.builder();
+        for (Slot slot : slots) {
+            references.add((SlotReference) slot);
+        }
+        return references.build();
+    }
+
+    private static class TestLogicalHudiScan extends LogicalHudiScan {
+        private TestLogicalHudiScan(RelationId id, ExternalTable table, IncrementalRelation incrementalRelation) {
+            super(id, table, ImmutableList.of("db"), LogicalFileScan.SelectedPartitions.NOT_PRUNED,
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(incrementalRelation),
+                    ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
+        }
+    }
+}
