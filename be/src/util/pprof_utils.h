@@ -44,6 +44,9 @@ public:
     static Status get_readable_profile(const std::string& file_or_content, bool is_file,
                                        std::stringstream* output);
 
+    /// generate svg output by `pprof --svg doris_be profile`.
+    static Status get_svg_profile(const std::string& profile_file, std::string* output);
+
     /// generat flame graph of CPU profile of BE process.
     /// flame_graph_tool_dir is the dir will FlameGraph installed.
     /// if succeed, return return generated svg file path in "svg_file".

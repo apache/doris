@@ -157,33 +157,14 @@ void ProfileAction::handle(HttpRequest* req) {
     }
 
     const std::string& type_str = req->param("type");
-    if (type_str != "flamegraph") {
-        // use pprof the sample the CPU
-        std::ostringstream tmp_prof_file_name;
-        tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." << getpid() << "."
-                           << rand();
-        ProfilerStart(tmp_prof_file_name.str().c_str());
-        sleep(seconds);
-        ProfilerStop();
+    std::ostringstream tmp_prof_file_name;
+    tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." << getpid() << "."
+                       << rand();
+    ProfilerStart(tmp_prof_file_name.str().c_str());
+    sleep(seconds);
+    ProfilerStop();
 
-        if (type_str != "text") {
-            // return raw content via http response directly
-            std::ifstream prof_file(tmp_prof_file_name.str().c_str(), std::ios::in);
-            std::stringstream ss;
-            if (!prof_file.is_open()) {
-                ss << "Unable to open cpu profile: " << tmp_prof_file_name.str();
-                std::string str = ss.str();
-                HttpChannel::send_reply(req, str);
-                return;
-            }
-            ss << prof_file.rdbuf();
-            prof_file.close();
-            std::string str = ss.str();
-            HttpChannel::send_reply(req, str);
-            return;
-        }
-
-        // text type. we will return readable content via http response
+    if (type_str == "text") {
         std::stringstream readable_res;
         Status st = PprofUtils::get_readable_profile(tmp_prof_file_name.str(), true, &readable_res);
         if (!st.ok()) {
@@ -191,18 +172,28 @@ void ProfileAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, readable_res.str());
         }
-    } else {
-        // generate flamegraph
+    } else if (type_str == "flamegraph") {
         std::string svg_file_content;
-        std::string flamegraph_install_dir =
-                std::string(std::getenv("DORIS_HOME")) + "/tools/FlameGraph/";
-        Status st = PprofUtils::generate_flamegraph(seconds, flamegraph_install_dir, false,
-                                                    &svg_file_content);
+        Status st = PprofUtils::get_svg_profile(tmp_prof_file_name.str(), &svg_file_content);
         if (!st.ok()) {
             HttpChannel::send_reply(req, st.to_string());
         } else {
             HttpChannel::send_reply(req, svg_file_content);
         }
+    } else {
+        std::ifstream prof_file(tmp_prof_file_name.str().c_str(), std::ios::in);
+        std::stringstream ss;
+        if (!prof_file.is_open()) {
+            ss << "Unable to open cpu profile: " << tmp_prof_file_name.str();
+            std::string str = ss.str();
+            HttpChannel::send_reply(req, str);
+            return;
+        }
+        ss << prof_file.rdbuf();
+        prof_file.close();
+        static_cast<void>(io::global_local_filesystem()->delete_file(tmp_prof_file_name.str()));
+        std::string str = ss.str();
+        HttpChannel::send_reply(req, str);
     }
 #endif
 }
