@@ -44,8 +44,7 @@ public class KillCommandTest {
         mockExecutor = Mockito.mock(StmtExecutor.class);
         mockOriginStmt = Mockito.mock(OriginStatement.class);
 
-        // Setup the getOriginStmt method to return our mock
-        Mockito.when(mockExecutor.getOriginStmt()).thenReturn(null);
+        Mockito.when(mockExecutor.getOriginStmt()).thenReturn(mockOriginStmt);
     }
 
     /**
@@ -53,42 +52,33 @@ public class KillCommandTest {
      */
     @Test
     public void testKillConnectionWithNegativeConnectionId() {
-        // Create command with a negative connection ID
         KillConnectionCommand command = new KillConnectionCommand(-1);
 
-        // Verify the expected exception is thrown
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class,
                 () -> command.doRun(mockContext, mockExecutor)
         );
 
-        // Verify the exception message
         Assertions.assertTrue(exception.getMessage().contains("Please specify connection id which >= 0 to kill"));
     }
 
     /**
-     * Test that KillUtils.kill is called and leads to calling KillUtils.killByConnectionId.
+     * Test that KillConnectionCommand passes the origin stmt to KillUtils.kill.
      */
     @Test
     public void testKillConnectionCallsKillByConnectionId() throws Exception {
-        // Set up a valid connection ID
         final int connectionId = 123;
-
-        // Create a command with the valid connection ID
         KillConnectionCommand command = new KillConnectionCommand(connectionId);
 
-        // Use Mockito's static mocking to intercept KillUtils methods
         try (MockedStatic<KillUtils> mockedKillUtils = Mockito.mockStatic(KillUtils.class)) {
-            // Execute the command
             command.doRun(mockContext, mockExecutor);
 
-            // Verify KillUtils.kill was called with correct parameters
             mockedKillUtils.verify(() -> KillUtils.kill(
                     Mockito.eq(mockContext),
                     Mockito.eq(true),
                     Mockito.isNull(),
                     Mockito.eq(connectionId),
-                    Mockito.isNull()
+                    Mockito.eq(mockOriginStmt)
                 )
             );
         }
@@ -99,36 +89,29 @@ public class KillCommandTest {
      */
     @Test
     public void testKillConnectionChainToKillByConnectionId() throws Exception {
-        // Set up a valid connection ID
         final int connectionId = 123;
-
-        // Create a command with the valid connection ID
         KillConnectionCommand command = new KillConnectionCommand(connectionId);
 
-        // Track whether killByConnectionId was called
         final boolean[] killByConnectionIdCalled = {false};
 
-        // Use Mockito's static mocking to intercept KillUtils methods
         try (MockedStatic<KillUtils> mockedKillUtils = Mockito.mockStatic(KillUtils.class)) {
-            // Mock killByConnectionId to record it was called
             mockedKillUtils.when(() -> KillUtils.killByConnectionId(
                     Mockito.any(ConnectContext.class),
                     Mockito.anyBoolean(),
-                    Mockito.anyInt()
+                    Mockito.anyInt(),
+                    Mockito.any()
             )).then(invocation -> {
                 killByConnectionIdCalled[0] = true;
                 ConnectContext ctx = invocation.getArgument(0);
                 boolean killConn = invocation.getArgument(1);
                 int connId = invocation.getArgument(2);
 
-                // Verify correct parameters
                 Assertions.assertSame(mockContext, ctx);
                 Assertions.assertTrue(killConn);
                 Assertions.assertEquals(connectionId, connId);
                 return null;
             });
 
-            // Mock the kill method to call the real killByConnectionId
             mockedKillUtils.when(() -> KillUtils.kill(
                     Mockito.any(ConnectContext.class),
                     Mockito.anyBoolean(),
@@ -139,17 +122,16 @@ public class KillCommandTest {
                 ConnectContext ctx = invocation.getArgument(0);
                 boolean killConn = invocation.getArgument(1);
                 int connId = invocation.getArgument(3);
+                OriginStatement stmt = invocation.getArgument(4);
 
                 if (killConn) {
-                    KillUtils.killByConnectionId(ctx, killConn, connId);
+                    KillUtils.killByConnectionId(ctx, killConn, connId, stmt);
                 }
                 return null;
             });
 
-            // Execute the command
             command.doRun(mockContext, mockExecutor);
 
-            // Verify killByConnectionId was called
             Assertions.assertTrue(killByConnectionIdCalled[0], "KillUtils.killByConnectionId should have been called");
         }
     }
@@ -159,16 +141,13 @@ public class KillCommandTest {
      */
     @Test
     public void testKillQueryWithEmptyParameters() {
-        // Create command with empty queryId and negative connectionId
         KillQueryCommand command = new KillQueryCommand(null, -1);
 
-        // Verify the expected exception is thrown
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class,
                 () -> command.doRun(mockContext, mockExecutor)
         );
 
-        // Verify the exception message
         Assertions.assertTrue(exception.getMessage().contains(
                 "Please specify a non empty query id or connection id which >= 0 to kill"));
     }
@@ -178,18 +157,12 @@ public class KillCommandTest {
      */
     @Test
     public void testKillQueryWithQueryId() throws Exception {
-        // Set up a valid query ID
         final String queryId = "test_query_id";
-
-        // Create a command with the valid query ID
         KillQueryCommand command = new KillQueryCommand(queryId, -1);
 
-        // Track whether killQueryByQueryId was called
         final boolean[] killQueryByQueryIdCalled = {false};
 
-        // Use Mockito's static mocking to intercept KillUtils methods
         try (MockedStatic<KillUtils> mockedKillUtils = Mockito.mockStatic(KillUtils.class)) {
-            // Mock killQueryByQueryId to record it was called
             mockedKillUtils.when(() -> KillUtils.killQueryByQueryId(
                     Mockito.any(ConnectContext.class),
                     Mockito.anyString(),
@@ -199,13 +172,11 @@ public class KillCommandTest {
                 ConnectContext ctx = invocation.getArgument(0);
                 String qId = invocation.getArgument(1);
 
-                // Verify correct parameters
                 Assertions.assertSame(mockContext, ctx);
                 Assertions.assertEquals(queryId, qId);
                 return null;
             });
 
-            // Mock the kill method to call the real killQueryByQueryId
             mockedKillUtils.when(() -> KillUtils.kill(
                     Mockito.any(ConnectContext.class),
                     Mockito.anyBoolean(),
@@ -224,19 +195,16 @@ public class KillCommandTest {
                 return null;
             });
 
-            // Execute the command
             command.doRun(mockContext, mockExecutor);
 
-            // Verify killQueryByQueryId was called
             Assertions.assertTrue(killQueryByQueryIdCalled[0], "KillUtils.killQueryByQueryId should have been called");
 
-            // Verify KillUtils.kill was called with correct parameters
             mockedKillUtils.verify(() -> KillUtils.kill(
                     Mockito.eq(mockContext),
                     Mockito.eq(false),
                     Mockito.eq(queryId),
                     Mockito.eq(-1),
-                    Mockito.isNull()
+                    Mockito.eq(mockOriginStmt)
                 )
             );
         }
@@ -247,36 +215,29 @@ public class KillCommandTest {
      */
     @Test
     public void testKillQueryWithConnectionId() throws Exception {
-        // Set up a valid connection ID
         final int connectionId = 123;
-
-        // Create a command with null queryId and valid connectionId
         KillQueryCommand command = new KillQueryCommand(null, connectionId);
 
-        // Track whether killByConnectionId was called
         final boolean[] killByConnectionIdCalled = {false};
 
-        // Use Mockito's static mocking to intercept KillUtils methods
         try (MockedStatic<KillUtils> mockedKillUtils = Mockito.mockStatic(KillUtils.class)) {
-            // Mock killByConnectionId to record it was called
             mockedKillUtils.when(() -> KillUtils.killByConnectionId(
                     Mockito.any(ConnectContext.class),
                     Mockito.anyBoolean(),
-                    Mockito.anyInt()
+                    Mockito.anyInt(),
+                    Mockito.any()
             )).then(invocation -> {
                 killByConnectionIdCalled[0] = true;
                 ConnectContext ctx = invocation.getArgument(0);
                 boolean killConn = invocation.getArgument(1);
                 int connId = invocation.getArgument(2);
 
-                // Verify correct parameters
                 Assertions.assertSame(mockContext, ctx);
                 Assertions.assertFalse(killConn);
                 Assertions.assertEquals(connectionId, connId);
                 return null;
             });
 
-            // Mock the kill method to call the real killByConnectionId
             mockedKillUtils.when(() -> KillUtils.kill(
                     Mockito.any(ConnectContext.class),
                     Mockito.anyBoolean(),
@@ -288,26 +249,24 @@ public class KillCommandTest {
                 boolean killConn = invocation.getArgument(1);
                 String qId = invocation.getArgument(2);
                 int connId = invocation.getArgument(3);
+                OriginStatement stmt = invocation.getArgument(4);
 
                 if (!killConn && qId == null) {
-                    KillUtils.killByConnectionId(ctx, killConn, connId);
+                    KillUtils.killByConnectionId(ctx, killConn, connId, stmt);
                 }
                 return null;
             });
 
-            // Execute the command
             command.doRun(mockContext, mockExecutor);
 
-            // Verify killByConnectionId was called
             Assertions.assertTrue(killByConnectionIdCalled[0], "KillUtils.killByConnectionId should have been called");
 
-            // Verify KillUtils.kill was called with correct parameters
             mockedKillUtils.verify(() -> KillUtils.kill(
                     Mockito.eq(mockContext),
                     Mockito.eq(false),
                     Mockito.isNull(),
                     Mockito.eq(connectionId),
-                    Mockito.isNull()
+                    Mockito.eq(mockOriginStmt)
                 )
             );
         }
