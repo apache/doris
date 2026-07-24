@@ -18,10 +18,17 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
+
+#include "cpp/sync_point.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -151,6 +158,80 @@ TEST_F(FragmentMgrCrossClusterCancelTest, CancelWorkerInvalidQueryDetectionSkips
                                            running_queries_on_all_fes, running_fes, ts);
     EXPECT_TRUE(queries_lost_coordinator.empty());
     EXPECT_TRUE(queries_pipeline_task_leak.empty());
+}
+
+// Regression test for the lock scope in FragmentMgr::dump_pipeline_tasks().
+//
+// Pipeline contexts are stored in a sharded map. Diagnostic formatting may wait for
+// fragment-local locks, so it must happen after the corresponding map shard lock is released.
+// Otherwise, a slow diagnostic dump can block fragment lookup, insertion, and removal on the
+// same shard and eventually cause unrelated fragment RPCs to time out.
+//
+// The test reproduces that ordering deterministically:
+// 1. Insert one pipeline context into the map.
+// 2. Start dump_pipeline_tasks() and pause it after the context snapshot has been collected,
+//    immediately before formatting begins.
+// 3. While formatting is paused, look up the same key so the lookup targets the same shard.
+// 4. Verify that the lookup completes without waiting for diagnostic formatting to resume.
+//
+// If formatting is moved back inside ConcurrentContextMap::apply(), the pause in step 2 occurs
+// while the shard lock is held and the lookup in step 3 cannot complete within the timeout.
+TEST_F(FragmentMgrCrossClusterCancelTest, DumpPipelineTasksReleasesMapLockBeforeFormatting) {
+    TUniqueId query_id;
+    query_id.__set_hi(5);
+    query_id.__set_lo(6);
+    TNetworkAddress fe_address;
+    fe_address.hostname = "127.0.0.1";
+    fe_address.port = 9030;
+    auto query_ctx =
+            QueryContext::create(query_id, &_exec_env, _make_min_query_options(789), fe_address,
+                                 true, fe_address, QuerySource::INTERNAL_FRONTEND);
+
+    TPipelineFragmentParams params;
+    params.__set_fragment_id(7);
+    auto context = std::make_shared<PipelineFragmentContext>(
+            query_id, params, query_ctx, &_exec_env, [](RuntimeState*, Status*) {});
+    const auto key = std::make_pair(query_id, 7);
+    // The dump and the concurrent lookup below use this exact key, guaranteeing that they
+    // access the same map shard.
+    _exec_env.fragment_mgr()->_pipeline_map.insert(key, context);
+
+    // Pause the dump at the boundary under test: all context shared_ptrs have been copied and
+    // the map lock should have been released, but no potentially blocking formatting has run.
+    std::promise<void> snapshot_reached_promise;
+    auto snapshot_reached = snapshot_reached_promise.get_future();
+    std::promise<void> release_snapshot_promise;
+    auto release_snapshot = release_snapshot_promise.get_future();
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "FragmentMgr::dump_pipeline_tasks.before_format_context",
+            [&](auto&&) {
+                snapshot_reached_promise.set_value();
+                release_snapshot.wait();
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer disable_sync_point {[&]() { sync_point->disable_processing(); }};
+
+    auto dump_result = std::async(
+            std::launch::async, [&]() { return _exec_env.fragment_mgr()->dump_pipeline_tasks(); });
+    EXPECT_EQ(snapshot_reached.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+    // A same-shard lookup must remain available even though diagnostic formatting is paused.
+    auto find_result = std::async(std::launch::async, [&]() {
+        return _exec_env.fragment_mgr()->_pipeline_map.find(key);
+    });
+    const auto find_status = find_result.wait_for(std::chrono::seconds(1));
+
+    // Always unblock the dump before checking expectations so a failed lookup assertion cannot
+    // leave the asynchronous dump waiting on the test and make the test process hang.
+    release_snapshot_promise.set_value();
+
+    EXPECT_EQ(find_status, std::future_status::ready);
+    EXPECT_EQ(find_result.get(), context);
+    EXPECT_EQ(dump_result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_NE(dump_result.get().find("QueryId: 5-6"), std::string::npos);
 }
 
 TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryContextRef) {
