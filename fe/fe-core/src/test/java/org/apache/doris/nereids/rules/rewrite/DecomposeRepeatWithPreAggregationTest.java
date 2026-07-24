@@ -371,19 +371,20 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 ImmutableList.of(a),
                 ImmutableList.of()
         );
+        SlotReference groupingId = new SlotReference("grouping_id", IntegerType.INSTANCE);
         LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
                 groupingSets,
                 (List) ImmutableList.of(a, b),
-                new SlotReference("grouping_id", IntegerType.INSTANCE),
+                groupingId,
                 RepeatType.GROUPING_SETS,
                 emptyRelation);
         LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(
-                ImmutableList.of(a, b),
-                ImmutableList.of(a, b, sumAlias),
+                ImmutableList.of(a, b, groupingId),
+                ImmutableList.of(a, b, sumAlias, groupingId),
                 repeat);
 
         LogicalProject<Plan> project = new LogicalProject<>(
-                ImmutableList.of(a, b, sumAlias.toSlot()),
+                ImmutableList.of(a, b, sumAlias.toSlot(), groupingId),
                 aggregate);
         LogicalCTEConsumer consumer = new LogicalCTEConsumer(
                 org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator.newRelationId(),
@@ -392,6 +393,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         LogicalUnion result = (LogicalUnion) method.invoke(rule, project, consumer, aggregate);
         Assertions.assertNotNull(result);
         Assertions.assertEquals(2, result.children().size());
+        Assertions.assertTrue(result.getOutputSet().contains(groupingId));
         Assertions.assertTrue(aggregate.getOutputSet().containsAll(result.getOutputSet()));
     }
 
@@ -443,6 +445,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 LogicalRepeat.class,
                 org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
                 List.class,
+                List.class,
                 Map.class,
                 List.class);
         method.setAccessible(true);
@@ -484,11 +487,14 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 new CTEId(1), "", new LogicalCTEProducer<>(new CTEId(1), emptyRelation));
         List<NamedExpression> groupingFunctionSlots = new ArrayList<>();
         LogicalRepeat<Plan> result = (LogicalRepeat<Plan>) method.invoke(rule,
-                originalRepeat, consumer, newGroupingSets, producerToConsumerSlotMap, groupingFunctionSlots);
+                originalRepeat, consumer, newGroupingSets, ImmutableList.of(1L, 3L),
+                producerToConsumerSlotMap, groupingFunctionSlots);
 
         Assertions.assertNotNull(result);
         Assertions.assertEquals(2, result.getGroupingSets().size());
         Assertions.assertTrue(groupingFunctionSlots.isEmpty());
+        Assertions.assertEquals(ImmutableList.of(1L, 3L), result.getGroupingIdValues().get());
+        Assertions.assertFalse(result.getGroupingId().get().nullable());
     }
 
     @Test

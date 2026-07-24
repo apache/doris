@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.plans.algebra;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
@@ -202,5 +204,23 @@ public class RepeatTest {
         Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(4, 3)), result.get(0));
         // (id) -> index {0} -> slot id {3}
         Assertions.assertEquals(Sets.newLinkedHashSet(ImmutableList.of(3)), result.get(1));
+    }
+
+    @Test
+    public void testComputeGroupingFunctionsValuesUsePrecomputedGroupingIds() {
+        List<List<Expression>> groupingSets = ImmutableList.of(
+                ImmutableList.of(id),
+                ImmutableList.of()
+        );
+        Repeat<Plan> repeat = new LogicalRepeat<>(
+                groupingSets,
+                ImmutableList.of(id),
+                new SlotReference("GROUPING_ID", BigIntType.INSTANCE),
+                ImmutableList.of(1L, 3L),
+                RepeatType.GROUPING_SETS,
+                scan
+        );
+
+        Assertions.assertEquals(ImmutableList.of(1L, 3L), repeat.computeGroupingFunctionsValues().get(0));
     }
 }
