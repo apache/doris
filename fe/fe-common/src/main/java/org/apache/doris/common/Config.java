@@ -2888,8 +2888,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Default storage format of inverted index, the default value is V3."})
+    @ConfField(mutable = true, masterOnly = true,
+            callback = ConfigBase.RejectDeprecatedV1Handler.class,
+            description = {"Default storage format of inverted index, the default value is V3."})
     public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {

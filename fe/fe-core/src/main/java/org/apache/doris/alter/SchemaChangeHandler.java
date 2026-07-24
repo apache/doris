@@ -3278,6 +3278,13 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
+        if (indexDef.getIndexType() == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+            throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
+                    + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
+                    + " recreate the table with inverted_index_storage_format = V2.");
+        }
+
         for (String col : indexDef.getColumnNames()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {

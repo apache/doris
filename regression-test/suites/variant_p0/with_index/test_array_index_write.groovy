@@ -27,10 +27,7 @@ suite("test_array_index_write", "nonConcurrent"){
                                 
             stmt += strTmp
             stmt = stmt.substring(0, stmt.length()-2)
-            def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-            if (isCloudMode()) {
-                storageFormat = "V2";
-            }
+            def storageFormat = "V2"
             stmt += ") \nENGINE=OLAP\n" +
                         "DUPLICATE KEY(`k1`)\n" +
                         "COMMENT 'OLAP'\n" +

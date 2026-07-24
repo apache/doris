@@ -64,7 +64,7 @@ suite ("multi_slot") {
       "is_being_synced" = "false",
       "storage_medium" = "hdd",
       "storage_format" = "V2",
-      "inverted_index_storage_format" = "V1",
+      "inverted_index_storage_format" = "V2",
       "light_schema_change" = "true",
       "disable_auto_compaction" = "false",
       "replication_num" = "1"

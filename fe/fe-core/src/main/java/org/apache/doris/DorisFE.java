@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterGuardFactory;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
@@ -149,6 +150,13 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
+            // inverted_index_storage_format's runtime callback (RejectDeprecatedV1Handler) is not
+            // invoked while parsing fe.conf/fe_custom.conf, so validate the loaded value here,
+            // after both files are loaded and merged, to reject a "V1" left over in the config
+            // files at startup.
+            new ConfigBase.RejectStartupInvertedIndexV1Handler().handle(
+                    Config.class.getField("inverted_index_storage_format"),
+                    Config.inverted_index_storage_format);
 
             // The command line value overrides fe.conf, so this can only run once Config is loaded.
             resolveLocalResourceGroup(commandLine);

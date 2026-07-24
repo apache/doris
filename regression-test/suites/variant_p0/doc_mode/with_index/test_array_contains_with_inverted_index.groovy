@@ -27,10 +27,7 @@ suite("array_contains_with_index_doc_value", "p0") {
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     sql """ set default_variant_enable_doc_mode = true """
     // create 1 replica table
-    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-    if (storageFormat == "V1" && isCloudMode()) {
-        return;
-    }
+    def storageFormat = "V2"
     sql """
 	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
