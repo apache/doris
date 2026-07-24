@@ -84,6 +84,28 @@ suite("test_search_score_cache", "p0") {
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_inverted_index_query_cache = true """
 
+    test {
+        sql """
+            SELECT id, score() AS s
+            FROM ${tableName}
+            WHERE search('NESTED(v, host:apple)')
+            ORDER BY s DESC
+            LIMIT 10
+        """
+        exception "score() is not supported with a NESTED search clause"
+    }
+
+    test {
+        sql """
+            SELECT id
+            FROM ${tableName}
+            WHERE search('NESTED(v, host:apple)')
+            ORDER BY score() DESC
+            LIMIT 10
+        """
+        exception "score() is not supported with a NESTED search clause"
+    }
+
     // SEARCH DSL + score() must execute scorers even when the DSL bitmap cache is warm.
     assertStablePositiveScoreQuery(
         "search_dsl_score",

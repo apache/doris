@@ -49,6 +49,23 @@ public class SearchExpression extends Expression {
         return qsPlan;
     }
 
+    /**
+     * Returns whether this search expression contains a NESTED clause.
+     *
+     * <p>Multi-field expansion can wrap a valid top-level NESTED query in a boolean root, so this
+     * check must inspect the entire parsed tree.</p>
+     */
+    public boolean containsNestedQuery() {
+        return containsNestedQuery(qsPlan.getRoot());
+    }
+
+    private boolean containsNestedQuery(SearchDslParser.QsNode node) {
+        if (node.getType() == SearchDslParser.QsClauseType.NESTED) {
+            return true;
+        }
+        return node.getChildren().stream().anyMatch(this::containsNestedQuery);
+    }
+
     public List<Expression> getSlotChildren() {
         return children();
     }
