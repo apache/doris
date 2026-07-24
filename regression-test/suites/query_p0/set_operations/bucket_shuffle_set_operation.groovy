@@ -439,4 +439,198 @@ suite("bucket_shuffle_set_operation") {
             assertTrue(checked)
         }
     }
+
+    // A bucket-shuffled UNION ALL feeding an analytic window that partitions by the union's
+    // distribution key. Both branches have to be placed on local tasks by the same bucket
+    // function; if one keeps its bucket placement while the other is re-partitioned by the
+    // execution hash, a partition is split across tasks and the window returns per-task
+    // partial counts. The cross join branch contributes two rows per id and is the larger
+    // side, so it becomes the bucket-shuffle basic child and the plain scan is shuffled onto
+    // it. Every id must therefore see exactly 3 rows.
+    sql "drop table if exists bucket_shuffle_set_operation_win"
+    sql """create table bucket_shuffle_set_operation_win(id int)
+            distributed by hash(id) buckets 10 properties('replication_num'='1')"""
+    sql """insert into bucket_shuffle_set_operation_win select number from numbers("number" = "40")"""
+    sql "drop table if exists bucket_shuffle_set_operation_win2"
+    sql """create table bucket_shuffle_set_operation_win2(id int)
+            distributed by hash(id) buckets 10 properties('replication_num'='1')"""
+    sql "insert into bucket_shuffle_set_operation_win2 values (1), (2)"
+    // Pin the statistics. The bucket-shuffle basic child is chosen by row count, so on freshly
+    // loaded tables whose statistics have not been reported yet the optimizer can pick a different
+    // distribution and the case would stop exercising the bucket-shuffle path it is meant to cover.
+    sql "analyze table bucket_shuffle_set_operation_win with sync"
+    sql "analyze table bucket_shuffle_set_operation_win2 with sync"
+
+    order_qt_bucket_shuffle_union_analytic_partition """
+        select cnt, count(*) as rows_with_cnt
+        from (
+            select count(*) over (partition by id order by id) cnt
+            from (
+                select id from bucket_shuffle_set_operation_win
+                union all
+                select l.id from bucket_shuffle_set_operation_win l
+                    cross join bucket_shuffle_set_operation_win2 r
+            ) t
+        ) x
+        group by cnt"""
+
+    // ------------------------------------------------------------------------------------------
+    // Distribution matrix: union / intersect / except crossed with every distribution the
+    // regulator can pick for a set operation — unaligned, execution hash, bucket shuffle with the
+    // basic child on either side, and tables in a colocate group. Whichever distribution is
+    // chosen, the result has to be the same, which is what each case asserts.
+    //
+    // Only results are checked, deliberately. Plan shapes here depend on the backend count, the
+    // core count and the fuzzy session variables the pipeline injects, so a golden shape would
+    // report environment differences as failures. The distribution each case is meant to exercise
+    // is described in the comments and was verified while writing them.
+    //
+    // Which child becomes the basic one (keeps its buckets while the others are bucket-shuffled
+    // onto it) follows the row count: ChildrenPropertiesRegulator picks the largest natural /
+    // storage-bucketed child. The direction is therefore controlled by which side holds the larger
+    // table. The analyze statements are load bearing for that: without pinned statistics the
+    // branches can report the same estimated row count, the search for the largest child falls back
+    // to "first child wins", and a case stops exercising the distribution it was written for
+    // depending on statistics reporting timing.
+    //
+    // Union is a plain concatenation, so it only constrains its children when something downstream
+    // depends on the distribution. The union cases therefore run under an analytic window
+    // partitioned by the set operation key: the small table contributes one row per id and the
+    // large one contributes two, so every id must report exactly 3. If the branches are placed by
+    // different hash functions a partition splits across local tasks and the window reports 1 and
+    // 2 instead. Intersect and except require hash distribution on their own, so they are checked
+    // directly — misalignment makes them drop matches.
+    sql "drop table if exists bucket_shuffle_set_operation_matrix_small"
+    sql """create table bucket_shuffle_set_operation_matrix_small(id int, value int)
+            distributed by hash(id) buckets 10 properties('replication_num'='1')"""
+    sql """insert into bucket_shuffle_set_operation_matrix_small
+            select number, number from numbers("number" = "40")"""
+
+    sql "drop table if exists bucket_shuffle_set_operation_matrix_large"
+    sql """create table bucket_shuffle_set_operation_matrix_large(id int, value int)
+            distributed by hash(id) buckets 10 properties('replication_num'='1')"""
+    sql """insert into bucket_shuffle_set_operation_matrix_large
+            select number, number from numbers("number" = "40")"""
+    sql """insert into bucket_shuffle_set_operation_matrix_large
+            select number, number from numbers("number" = "40")"""
+
+    // Tables in the same colocate group. A set operation does not get a colocate-specific plan:
+    // the regulator still elects one basic child and bucket-shuffles the others onto it, so these
+    // cases document that colocate group membership does not remove the shuffle.
+    sql "drop table if exists bucket_shuffle_set_operation_co_small"
+    sql """create table bucket_shuffle_set_operation_co_small(id int, value int)
+            distributed by hash(id) buckets 10
+            properties('replication_num'='1', 'colocate_with'='bucket_shuffle_set_operation_cg')"""
+    sql """insert into bucket_shuffle_set_operation_co_small
+            select number, number from numbers("number" = "40")"""
+    sql "drop table if exists bucket_shuffle_set_operation_co_large"
+    sql """create table bucket_shuffle_set_operation_co_large(id int, value int)
+            distributed by hash(id) buckets 10
+            properties('replication_num'='1', 'colocate_with'='bucket_shuffle_set_operation_cg')"""
+    sql """insert into bucket_shuffle_set_operation_co_large
+            select number, number from numbers("number" = "40")"""
+    sql """insert into bucket_shuffle_set_operation_co_large
+            select number, number from numbers("number" = "40")"""
+
+    // more rows than matrix_small but covering only the lower half of its ids, so it can be the
+    // larger (basic) side of an except while still leaving rows in the result
+    sql "drop table if exists bucket_shuffle_set_operation_matrix_dense"
+    sql """create table bucket_shuffle_set_operation_matrix_dense(id int, value int)
+            distributed by hash(id) buckets 10 properties('replication_num'='1')"""
+    4.times {
+        sql """insert into bucket_shuffle_set_operation_matrix_dense
+                select number, number from numbers("number" = "20")"""
+    }
+
+    sql "analyze table bucket_shuffle_set_operation_matrix_small with sync"
+    sql "analyze table bucket_shuffle_set_operation_matrix_large with sync"
+    sql "analyze table bucket_shuffle_set_operation_matrix_dense with sync"
+    sql "analyze table bucket_shuffle_set_operation_co_small with sync"
+    sql "analyze table bucket_shuffle_set_operation_co_large with sync"
+
+    // wraps a union in the analytic window described above
+    def unionUnderWindow = { String branches ->
+        """select cnt, count(*) as rows_with_cnt
+           from (select count(*) over (partition by id order by id) cnt from ($branches) t) x
+           group by cnt"""
+    }
+
+    // --- union -------------------------------------------------------------------------------
+
+    // nothing downstream depends on the distribution: the branches are left where they are
+    order_qt_matrix_union_unaligned """
+        select id from bucket_shuffle_set_operation_matrix_small
+        union all
+        select id from bucket_shuffle_set_operation_matrix_large"""
+
+    // the set operation key is not the bucket key, so no child is storage bucketed and every
+    // branch arrives through a global hash exchange
+    order_qt_matrix_union_execution_hash unionUnderWindow("""
+        select value as id from bucket_shuffle_set_operation_matrix_small
+        union all
+        select value as id from bucket_shuffle_set_operation_matrix_large""")
+
+    order_qt_matrix_union_bucket_shuffle_basic_right unionUnderWindow("""
+        select id from bucket_shuffle_set_operation_matrix_small
+        union all
+        select id from bucket_shuffle_set_operation_matrix_large""")
+
+    order_qt_matrix_union_bucket_shuffle_basic_left unionUnderWindow("""
+        select id from bucket_shuffle_set_operation_matrix_large
+        union all
+        select id from bucket_shuffle_set_operation_matrix_small""")
+
+    order_qt_matrix_union_colocate_group unionUnderWindow("""
+        select id from bucket_shuffle_set_operation_co_small
+        union all
+        select id from bucket_shuffle_set_operation_co_large""")
+
+    // --- intersect ---------------------------------------------------------------------------
+
+    order_qt_matrix_intersect_execution_hash """
+        select value from bucket_shuffle_set_operation_matrix_small
+        intersect
+        select value from bucket_shuffle_set_operation_matrix_large"""
+
+    order_qt_matrix_intersect_bucket_shuffle_basic_right """
+        select id from bucket_shuffle_set_operation_matrix_small
+        intersect
+        select id from bucket_shuffle_set_operation_matrix_large"""
+
+    // Same intersect with the branches written the other way round. Intersect children are
+    // canonicalized, so this plans the same way as the case above: the basic child follows the row
+    // count, not the position in the query.
+    order_qt_matrix_intersect_bucket_shuffle_sql_order_ignored """
+        select id from bucket_shuffle_set_operation_matrix_large
+        intersect
+        select id from bucket_shuffle_set_operation_matrix_small"""
+
+    order_qt_matrix_intersect_colocate_group """
+        select id from bucket_shuffle_set_operation_co_small
+        intersect
+        select id from bucket_shuffle_set_operation_co_large"""
+
+    // --- except ------------------------------------------------------------------------------
+
+    order_qt_matrix_except_execution_hash """
+        select value from bucket_shuffle_set_operation_matrix_small
+        except
+        select value from bucket_shuffle_set_operation_matrix_large where value < 10"""
+
+    // right side holds more rows, so it is the basic child and the left branch is shuffled onto it
+    order_qt_matrix_except_bucket_shuffle_basic_right """
+        select id from bucket_shuffle_set_operation_matrix_small
+        except
+        select id from bucket_shuffle_set_operation_matrix_dense"""
+
+    // left side holds more rows, so the shuffle goes the other way
+    order_qt_matrix_except_bucket_shuffle_basic_left """
+        select id from bucket_shuffle_set_operation_matrix_large
+        except
+        select id from bucket_shuffle_set_operation_matrix_small where id < 10"""
+
+    order_qt_matrix_except_colocate_group """
+        select id from bucket_shuffle_set_operation_co_small
+        except
+        select id from bucket_shuffle_set_operation_co_large where id < 10"""
 }

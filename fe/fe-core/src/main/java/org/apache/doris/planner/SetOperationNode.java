@@ -208,44 +208,63 @@ public abstract class SetOperationNode extends PlanNode {
             PlanNode parent, LocalExchangeTypeRequire parentRequire) {
         LocalExchangeTypeRequire requireChild;
         LocalExchangeType outputType;
-        if (this instanceof UnionNode) {
-            // Propagate parent's hash requirement to children ONLY when a downstream operator
-            // requires shuffle for correctness (not just performance optimization). Matches BE's
-            // UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
-            // _followed_by_shuffled_operator=true. The flag is propagated by enforceRequire
-            // from operators with requiresShuffleForCorrectness()=true (finalize agg, hash join,
-            // intersect/except) through hash/noop links.
-            // See PlanNode.requiresShuffleForCorrectness() for a chain-propagation example.
-            boolean canPropagateHash = translatorContext.hasShuffleForCorrectnessAncestor(this);
-            requireChild = canPropagateHash ? parentRequire.autoRequireHash() : LocalExchangeTypeRequire.noRequire();
-            outputType = canPropagateHash
-                    ? AddLocalExchange.resolveExchangeType(requireChild)
-                    : LocalExchangeType.NOOP;
+
+        // One derivation for union / intersect / except. Only two things differ between them, and
+        // both are carried by the conditions below instead of by separate per-operation paths:
+        //
+        //   1. whether the children have to be aligned at all — intersect/except compare rows
+        //      across branches so they always do (requiresShuffleForCorrectness() = true), while a
+        //      union is a plain concatenation that only does when a downstream operator depends on
+        //      the hash distribution. That mirrors BE's UnionSinkOperatorX, which returns
+        //      GLOBAL_HASH(_distribute_exprs) only when _followed_by_shuffled_operator=true; the
+        //      flag reaches us through enforceRequire. See PlanNode.requiresShuffleForCorrectness()
+        //      for a chain-propagation example.
+        //   2. what to require when the children are not bucket aligned — a union imposes nothing
+        //      of its own and relays its parent's requirement; intersect/except impose GLOBAL.
+        //
+        // The bucket-aligned case is deliberately a single branch shared by all three: it is the
+        // one rule that must hold for every set operation, and giving each operation its own copy
+        // is how union came to be left out of it.
+        boolean needAlignedChildren = requiresShuffleForCorrectness()
+                || translatorContext.hasShuffleForCorrectnessAncestor(this);
+
+        if (!needAlignedChildren) {
+            // Union whose distribution nobody depends on: constrain nothing.
+            requireChild = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (AddLocalExchange.isColocated(this) || isBucketShuffle()) {
+            // COLOCATE / BUCKET_SHUFFLE: every child is distributed by the basic child's storage
+            // bucket function (basic side scans buckets directly, other sides come from
+            // bucket-shuffle exchanges), so all children must stay aligned by that bucket function
+            // locally. requireBucketHash keeps bucket-distributed children as-is and re-aligns a
+            // serial (NOOP-claim) child with a BUCKET_HASH_SHUFFLE local exchange — same pattern as
+            // HashJoinNode's colocate/bucket-shuffle branch.
+            //
+            // A generic requireHash() cannot express this: satisfy() accepts BUCKET_HASH_SHUFFLE,
+            // LOCAL_ and GLOBAL_EXECUTION_HASH_SHUFFLE interchangeably and is evaluated per child,
+            // so children may settle on *different* hash functions and still each report the
+            // require as met. A child arriving on a bucket-shuffle exchange then keeps its
+            // bucket->instance placement while a child that provides no hash gets a freshly
+            // inserted LOCAL_EXECUTION_HASH_SHUFFLE, and the same key lands on two different local
+            // tasks — whoever asked for the shuffle (an analytic PARTITION BY on the set operation
+            // key, or the intersect/except itself) then sees a split partition.
+            requireChild = LocalExchangeTypeRequire.requireBucketHash();
+            outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+        } else if (this instanceof UnionNode) {
+            // Union has no requirement of its own: forward the parent's and report the resolved
+            // type upward.
+            requireChild = parentRequire.autoRequireHash();
+            outputType = AddLocalExchange.resolveExchangeType(requireChild);
         } else {
-            // Intersect / Except
-            if (AddLocalExchange.isColocated(this) || isBucketShuffle()) {
-                // COLOCATE / BUCKET_SHUFFLE: every child is distributed by the basic child's
-                // storage bucket function (basic side scans buckets directly, other sides come
-                // from bucket-shuffle exchanges), so all children must stay aligned by that
-                // bucket function locally. requireBucketHash keeps bucket-distributed children
-                // as-is and re-aligns a serial (NOOP-claim) child with a BUCKET_HASH_SHUFFLE
-                // local exchange — same pattern as HashJoinNode's colocate/bucket-shuffle
-                // branch. An execution-hash require here would locally re-partition one side
-                // by a different hash function and break build/probe alignment.
-                requireChild = LocalExchangeTypeRequire.requireBucketHash();
-                outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
-            } else {
-                // PARTITIONED intersect/except: all children enter via global hash
-                // exchange. Require GLOBAL so any inserted exchange matches the
-                // cross-fragment instance mapping (same fix as HashJoinNode DORIS-26101).
-                // Exception: serial source → fall back to LOCAL (DORIS-26120).
-                boolean serialSource = fragment != null
-                        && fragment.useSerialSource(translatorContext.getConnectContext());
-                requireChild = serialSource
-                        ? LocalExchangeTypeRequire.requireHash()
-                        : LocalExchangeTypeRequire.requireGlobalExecutionHash();
-                outputType = AddLocalExchange.resolveExchangeType(requireChild);
-            }
+            // PARTITIONED intersect/except: all children enter via global hash exchange. Require
+            // GLOBAL so any inserted exchange matches the cross-fragment instance mapping (same
+            // reason as HashJoinNode). Exception: serial source → fall back to LOCAL.
+            boolean serialSource = fragment != null
+                    && fragment.useSerialSource(translatorContext.getConnectContext());
+            requireChild = serialSource
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : LocalExchangeTypeRequire.requireGlobalExecutionHash();
+            outputType = AddLocalExchange.resolveExchangeType(requireChild);
         }
 
         ArrayList<PlanNode> newChildren = Lists.newArrayList();
