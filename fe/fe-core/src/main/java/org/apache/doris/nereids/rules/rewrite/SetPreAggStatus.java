@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -91,6 +92,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         private List<Expression> groupingScalarFunctionExpresssions = new ArrayList<>();
         private Set<AggregateFunction> aggregateFunctions = new HashSet<>();
         private Set<RelationId> olapScanIds = new HashSet<>();
+        private boolean hasUnresolvedExpression = false;
 
         private Map<Slot, Expression> replaceMap = new HashMap<>();
 
@@ -98,18 +100,37 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             // merge instead of replace: sibling projects under a join share one
             // PreAggInfoContext, and a full replacement would lose mappings from
             // the sibling. merge keeps all entries; new entries shadow old ones
-            // by putAll semantics so a chain of projects still resolves correctly.
+            // so a chain of projects still resolves correctly.
             //
             // Before merging, resolve the new aliases' producers through the
             // existing replaceMap so that upper-layer aliases reference base table
             // columns directly instead of intermediate computed aliases.
-            Map<Slot, Expression> merged = new HashMap<>(this.replaceMap);
-            for (Map.Entry<Slot, Expression> entry : newReplaceMap.entrySet()) {
-                Expression resolvedProducer = ExpressionUtils.replace(
-                        entry.getValue(), this.replaceMap);
-                merged.put(entry.getKey(), resolvedProducer);
+            // Resolve only the new entries into a small temp map against the
+            // unchanged old map, then putAll them to keep accumulation linear.
+            if (newReplaceMap.isEmpty()) {
+                return;
             }
-            this.replaceMap = merged;
+            Map<Slot, Expression> resolved = new HashMap<>(
+                    com.google.common.collect.Maps.newHashMapWithExpectedSize(
+                            newReplaceMap.size()));
+            for (Map.Entry<Slot, Expression> entry : newReplaceMap.entrySet()) {
+                Expression resolvedProducer;
+                try {
+                    resolvedProducer = ExpressionUtils.replace(
+                            entry.getValue(), this.replaceMap);
+                } catch (AnalysisException e) {
+                    if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                        // Eager composition hit the depth/width limit (e.g. deep
+                        // xN = x(N-1) + x(N-1) chains expand width exponentially).
+                        // Keep the raw producer so the query still plans.
+                        resolvedProducer = entry.getValue();
+                    } else {
+                        throw e;
+                    }
+                }
+                resolved.put(entry.getKey(), resolvedProducer);
+            }
+            this.replaceMap.putAll(resolved);
         }
 
         private void addRelationId(RelationId id) {
@@ -118,18 +139,45 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
         private void addJoinInfo(LogicalJoin logicalJoin) {
             joinConjuncts.addAll(logicalJoin.getExpressions());
-            joinConjuncts = Lists.newArrayList(ExpressionUtils.replace(joinConjuncts, replaceMap));
+            try {
+                joinConjuncts = Lists.newArrayList(
+                        ExpressionUtils.replace(joinConjuncts, replaceMap));
+            } catch (AnalysisException e) {
+                if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                    hasUnresolvedExpression = true;
+                } else {
+                    throw e;
+                }
+            }
         }
 
         private void addFilterConjuncts(List<Expression> conjuncts) {
             filterConjuncts.addAll(conjuncts);
-            filterConjuncts = Lists.newArrayList(ExpressionUtils.replace(filterConjuncts, replaceMap));
+            try {
+                filterConjuncts = Lists.newArrayList(
+                        ExpressionUtils.replace(filterConjuncts, replaceMap));
+            } catch (AnalysisException e) {
+                if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                    hasUnresolvedExpression = true;
+                } else {
+                    throw e;
+                }
+            }
         }
 
         private void addGroupByExpresssions(List<Expression> expressions) {
             groupByExpresssions.addAll(expressions);
             groupByExpresssions.removeAll(groupingScalarFunctionExpresssions);
-            groupByExpresssions = Lists.newArrayList(ExpressionUtils.replace(groupByExpresssions, replaceMap));
+            try {
+                groupByExpresssions = Lists.newArrayList(
+                        ExpressionUtils.replace(groupByExpresssions, replaceMap));
+            } catch (AnalysisException e) {
+                if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                    hasUnresolvedExpression = true;
+                } else {
+                    throw e;
+                }
+            }
         }
 
         private void addGroupingScalarFunctionExpresssions(List<Expression> expressions) {
@@ -144,8 +192,17 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             aggregateFunctions.addAll(functions);
             Set<AggregateFunction> newAggregateFunctions = Sets.newHashSet();
             for (AggregateFunction aggregateFunction : aggregateFunctions) {
-                newAggregateFunctions
-                        .add((AggregateFunction) ExpressionUtils.replace(aggregateFunction, replaceMap));
+                try {
+                    newAggregateFunctions
+                            .add((AggregateFunction) ExpressionUtils.replace(
+                                    aggregateFunction, replaceMap));
+                } catch (AnalysisException e) {
+                    if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                        hasUnresolvedExpression = true;
+                    } else {
+                        throw e;
+                    }
+                }
             }
             aggregateFunctions = newAggregateFunctions;
         }
@@ -279,6 +336,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         }
 
         private PreAggStatus createPreAggStatus(LogicalOlapScan logicalOlapScan, PreAggInfoContext context) {
+            if (context.hasUnresolvedExpression) {
+                return PreAggStatus.off("Expression exceeds limit, can't determine preAgg status.");
+            }
             List<Expression> filterConjuncts = context.filterConjuncts;
             List<Expression> joinConjuncts = context.joinConjuncts;
             Set<AggregateFunction> aggregateFuncs = context.aggregateFunctions;
@@ -308,6 +368,41 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 return PreAggStatus.off(String.format("Join conjuncts %s contains non-key column %s",
                         joinConjuncts, joinInputSlots));
             }
+
+            // Row-stability check: volatile expressions evaluated per partial row
+            // produce different results than per merged logical row, even when
+            // their input slots are all key columns or empty. Check centrally
+            // before per-scan candidate filtering so the guard also covers
+            // other-table aggregates, slot-less filters, joins, and grouping.
+            for (AggregateFunction aggFunc : aggregateFuncs) {
+                if (aggFunc.containsVolatileExpression()) {
+                    return PreAggStatus.off(
+                            String.format("aggregate function %s contains volatile expression",
+                                    aggFunc));
+                }
+            }
+            for (Expression conjunct : filterConjuncts) {
+                if (conjunct.containsVolatileExpression()) {
+                    return PreAggStatus.off(
+                            String.format("filter conjunct %s contains volatile expression",
+                                    conjunct));
+                }
+            }
+            for (Expression conjunct : joinConjuncts) {
+                if (conjunct.containsVolatileExpression()) {
+                    return PreAggStatus.off(
+                            String.format("join conjunct %s contains volatile expression",
+                                    conjunct));
+                }
+            }
+            for (Expression expr : groupingExprs) {
+                if (expr.containsVolatileExpression()) {
+                    return PreAggStatus.off(
+                            String.format("grouping expression %s contains volatile expression",
+                                    expr));
+                }
+            }
+
             Set<AggregateFunction> candidateAggFuncs = Sets.newHashSet();
             for (AggregateFunction aggregateFunction : aggregateFuncs) {
                 if (!Sets.intersection(aggregateFunction.getInputSlots(), outputSlots).isEmpty()) {
@@ -329,18 +424,19 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 return !aggregateFuncs.isEmpty() || !groupingExprs.isEmpty() ? PreAggStatus.on()
                         : PreAggStatus.off("No aggregate on scan.");
             } else {
-                return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots);
+                return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots, outputSlots);
             }
         }
 
         private PreAggStatus checkAggregateFunctions(Set<AggregateFunction> aggregateFuncs,
-                Set<Slot> groupingExprsInputSlots) {
+                Set<Slot> groupingExprsInputSlots, Set<Slot> outputSlots) {
             if (aggregateFuncs.isEmpty() && groupingExprsInputSlots.isEmpty()) {
                 return PreAggStatus.off("No aggregate on scan.");
             }
             PreAggStatus preAggStatus = PreAggStatus.on();
             for (AggregateFunction aggFunc : aggregateFuncs) {
-                Set<Slot> aggSlots = aggFunc.getInputSlots();
+                Set<Slot> aggSlots = Sets.intersection(
+                        aggFunc.getInputSlots(), outputSlots);
                 if (aggSlots.isEmpty()) {
                     preAggStatus = PreAggStatus.off(
                             String.format("can't turn preAgg on for aggregate function %s", aggFunc));
@@ -363,15 +459,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                         }
                     } else if (splitSlots.second.isEmpty()) {
                         // only key slots
-                        // Volatile expressions (e.g., random()) must be rejected here:
-                        // with pre-agg ON they would be evaluated per partial row instead of
-                        // per merged logical row, changing DISTINCT/MAX/MIN semantics.
-                        if (aggFunc.containsVolatileExpression()) {
-                            preAggStatus = PreAggStatus.off(
-                                    String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                        } else {
-                            preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
-                        }
+                        preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
                     } else {
                         // checkAggWithKeyAndValueSlots only inspects child(0) for IF/CaseWhen patterns.
                         // For multi-argument aggregate functions, child(0) inspection is insufficient
@@ -447,15 +535,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             if (!keySlots.containsAll(inputSlots)) {
                 return PreAggStatus
                         .off(String.format("some columns in condition %s is not key.", conditionExps));
-            }
-
-            // step 3: reject volatile expressions in conditions — they would be evaluated
-            // per partial row with pre-agg ON, changing the aggregation result.
-            if (conditionExps.stream().anyMatch(Expression::containsVolatileExpression)) {
-                return PreAggStatus.off(
-                        String.format("condition %s contains volatile expression, "
-                                + "can't turn preAgg on for aggregate function %s",
-                                conditionExps, aggFunc));
             }
 
             return KeyAndValueSlotsAggChecker.INSTANCE.check(aggFunc, returnExps);
