@@ -496,13 +496,16 @@ public:
               _light_work_pool(4, 32, "load_stream_test_light") {}
 
     void close_load(MockSinkClient& client, const std::vector<PTabletID>& tablets_to_commit = {},
-                    uint32_t sender_id = NORMAL_SENDER_ID) {
+                    uint32_t sender_id = NORMAL_SENDER_ID, int num_incremental_streams = 0) {
         butil::IOBuf append_buf;
         PStreamHeader header;
         header.mutable_load_id()->set_hi(1);
         header.mutable_load_id()->set_lo(1);
         header.set_opcode(PStreamHeader::CLOSE_LOAD);
         header.set_src_id(sender_id);
+        if (num_incremental_streams > 0) {
+            header.set_num_incremental_streams(num_incremental_streams);
+        }
         for (const auto& tablet : tablets_to_commit) {
             *header.add_tablets() = tablet;
         }
@@ -1355,6 +1358,64 @@ TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {
         auto written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, i + 3);
         EXPECT_EQ(written_data, segment_data[sender_id * 3 + i]);
     }
+}
+
+// Verify the latch drain prevents stream leaks: 3 distinct senders each
+// send one incremental CLOSE_LOAD.  The debug point delays the first 2
+// (non-last) streams while the 3rd sets the _all_close_load_received
+// latch and drains _eos_sent_stream_ids.  On the FIXED code the delayed
+// streams also drain themselves when they resume, so all 3 streams are
+// properly closed and LoadStream is cleaned up.
+//
+// Three distinct MockSinkClient connections are required because a single
+// connection shares one source entry; after the first CLOSE_LOAD consumes
+// that entry the remaining messages are rejected as "no open stream".
+TEST_F(LoadStreamMgrTest, incremental_close_race_orhpans_streams) {
+    constexpr int kStreams = 3;
+    MockSinkClient clients[kStreams];
+
+    // Open three independent senders; each advertises kStreams so that
+    // _total_streams == kStreams and add_source tracks every sender.
+    for (int i = 0; i < kStreams; i++) {
+        auto st = clients[i].connect_stream(NORMAL_SENDER_ID + i, kStreams);
+        ASSERT_TRUE(st.ok());
+    }
+    reset_response_stat();
+
+    PTabletID tablet;
+    tablet.set_partition_id(NORMAL_PARTITION_ID);
+    tablet.set_index_id(NORMAL_INDEX_ID);
+    tablet.set_tablet_id(NORMAL_TABLET_ID);
+
+    // Enable the debug point: non-last incremental streams sleep 3s.
+    auto debug_point_name = std::string("LoadStream.close_load.delay_incremental_register");
+    bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    auto* debug_points = DebugPoints::instance();
+    debug_points->add(debug_point_name);
+    ASSERT_TRUE(debug_points->is_enable(debug_point_name)) << "debug point was not registered!";
+
+    // Send one incremental CLOSE_LOAD from each sender.  The last one
+    // makes _close_load_cnt == _total_streams (all_received).
+    for (int i = 0; i < kStreams; i++) {
+        close_load(clients[i], {tablet}, NORMAL_SENDER_ID + i, 1);
+    }
+
+    // At least one EOS response confirms the load ran.
+    wait_for_ack(1);
+    EXPECT_GE(g_response_stat.num, 1);
+
+    // Let the delayed streams wake up (3s sleep + small margin).
+    bthread_usleep(4 * 1000 * 1000);
+
+    // On the fixed code the latch drains all delayed streams, so no
+    // orphan remains and LoadStream is properly destroyed.
+    auto remaining = _load_stream_mgr->get_load_stream_num();
+    EXPECT_EQ(remaining, 0) << "stream leak detected! LoadStream should be cleaned up. "
+                            << "remaining=" << remaining;
+
+    debug_points->remove(debug_point_name);
+    config::enable_debug_points = saved_debug_points;
 }
 
 } // namespace doris
