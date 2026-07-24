@@ -152,6 +152,33 @@ suite("paimon_system_table", "p0,external") {
                         """
 
         // 2.6 system table supports dynamic scan options but not time travel
+        List<List<Object>> filesAtSnapshotResult = sql """
+                SELECT partition,
+                       bucket,
+                       file_path,
+                       file_format,
+                       schema_id,
+                       level,
+                       record_count,
+                       file_size_in_bytes,
+                       min_sequence_number,
+                       max_sequence_number,
+                       creation_time
+                FROM ${tableName}\$files
+                /*+ OPTIONS('scan.snapshot-id'='${direct_query_snapshot_id}') */
+                """
+        assertTrue(filesAtSnapshotResult.size() > 0,
+                "Files system table should return data for snapshot ${direct_query_snapshot_id}")
+
+        long invalidSnapshotId = res1.collect { ((Number) it[0]).longValue() }.max() + 1L
+        test {
+            sql """
+                    select * from ${tableName}\$files
+                    /*+ OPTIONS('scan.snapshot-id'='${invalidSnapshotId}') */
+                    """
+            exception "Specified parameter scan.snapshot-id"
+        }
+
         List<List<Object>> incrementalSystemTableResult = sql """
                 select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)
                 """

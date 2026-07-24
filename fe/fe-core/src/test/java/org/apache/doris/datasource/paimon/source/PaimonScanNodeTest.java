@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
@@ -522,6 +523,33 @@ public class PaimonScanNodeTest {
                     + e.getTargetException().getMessage());
         }
         Mockito.verify(baseTable).copy(expectedOptions);
+    }
+
+    @Test
+    public void testSystemTablePassesDynamicOptionsToPaimonTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table baseTable = Mockito.mock(Table.class);
+        Table copiedTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        node.setSource(source);
+
+        Map<String, String> options = ImmutableMap.of(
+                "scan.snapshot-id", "12345",
+                "scan.mode", "from-snapshot");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS, options, Collections.emptyList()));
+        Mockito.when(baseTable.copy(options)).thenReturn(copiedTable);
+
+        try {
+            Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.fail("Paimon system table should accept dynamic options, but got: "
+                    + e.getTargetException().getMessage());
+        }
+        Mockito.verify(baseTable).copy(options);
     }
 
     @Test
