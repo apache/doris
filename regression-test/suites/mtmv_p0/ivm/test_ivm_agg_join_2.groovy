@@ -398,4 +398,78 @@ suite("test_ivm_agg_join_2") {
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p10_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p10_mv")
     order_qt_p10_complete2 """SELECT grp, cnt, total FROM ivm_aj2_p10_mv"""
+
+    // =========================================================
+    // Part 11: Aggregate join with aliases and deltas from both inputs
+    // =========================================================
+    sql """drop materialized view if exists ivm_aj2_p11_mv;"""
+    sql """drop table if exists ivm_aj2_p11_left;"""
+    sql """drop table if exists ivm_aj2_p11_right;"""
+
+    sql """
+        CREATE TABLE ivm_aj2_p11_left (
+            left_id INT,
+            group_key VARCHAR(32),
+            amount INT
+        )
+        UNIQUE KEY(left_id)
+        DISTRIBUTED BY HASH(left_id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """
+        CREATE TABLE ivm_aj2_p11_right (
+            right_id INT,
+            left_id_ref INT,
+            bonus INT
+        )
+        UNIQUE KEY(right_id)
+        DISTRIBUTED BY HASH(right_id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """INSERT INTO ivm_aj2_p11_left VALUES (1, 'A', 10);"""
+    sql """INSERT INTO ivm_aj2_p11_right VALUES (1, 1, 100);"""
+
+    sql """
+        CREATE MATERIALIZED VIEW ivm_aj2_p11_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT l.group_key AS group_key,
+               COUNT(*) AS cnt,
+               SUM(l.amount + r.bonus) AS total
+        FROM (
+            SELECT left_id, group_key, amount
+            FROM ivm_aj2_p11_left
+        ) l
+        INNER JOIN (
+            SELECT right_id, left_id_ref, bonus
+            FROM ivm_aj2_p11_right
+        ) r
+            ON l.left_id = r.left_id_ref
+        GROUP BY l.group_key;
+    """
+
+    sql """REFRESH MATERIALIZED VIEW ivm_aj2_p11_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_aj2_p11_mv")
+    order_qt_p11_initial_incr """SELECT group_key, cnt, total FROM ivm_aj2_p11_mv"""
+
+    // Both branches have pending deltas when the aggregate is rewritten.
+    sql """INSERT INTO ivm_aj2_p11_left VALUES (2, 'A', 20);"""
+    sql """INSERT INTO ivm_aj2_p11_right VALUES (2, 2, 200);"""
+    sql """REFRESH MATERIALIZED VIEW ivm_aj2_p11_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_aj2_p11_mv")
+    order_qt_p11_incr """SELECT group_key, cnt, total FROM ivm_aj2_p11_mv"""
 }

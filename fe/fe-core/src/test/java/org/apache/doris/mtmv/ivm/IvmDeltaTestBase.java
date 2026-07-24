@@ -78,6 +78,7 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.HashMap;
@@ -90,6 +91,11 @@ abstract class IvmDeltaTestBase {
 
     static {
         FeConstants.runningUnitTest = true;
+    }
+
+    @AfterEach
+    void clearConnectContext() {
+        ConnectContext.remove();
     }
 
     protected LogicalOlapScan buildScan() {
@@ -249,7 +255,10 @@ abstract class IvmDeltaTestBase {
     }
 
     protected PlanBundle normalizeAggPlan(LogicalAggregate<? extends Plan> agg) {
-        ConnectContext connectContext = newConnectContext();
+        return normalizeAggPlan(agg, newConnectContext());
+    }
+
+    protected PlanBundle normalizeAggPlan(LogicalAggregate<? extends Plan> agg, ConnectContext connectContext) {
         JobContext jobContext = newJobContextForRoot(agg, connectContext);
         Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(agg, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
