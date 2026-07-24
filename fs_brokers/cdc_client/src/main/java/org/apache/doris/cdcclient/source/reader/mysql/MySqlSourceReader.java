@@ -92,6 +92,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static io.debezium.connector.mysql.MySqlStreamingChangeEventSource.EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT;
 import static org.apache.doris.cdcclient.common.Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.is13Timestamp;
 import static org.apache.doris.cdcclient.utils.ConfigUtil.isJson;
@@ -139,6 +140,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public MySqlSourceReader() {
         this.serializer = new MySqlDebeziumJsonDeserializer();
         this.snapshotReaderContexts = new CopyOnWriteArrayList<>();
+    }
+
+    /** Whether server heartbeat events should be excluded from the restart event count. */
+    protected boolean excludeHeartbeatFromEventCount() {
+        return false;
     }
 
     @Override
@@ -995,6 +1001,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         dbzProps.setProperty(
                 MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
                 DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+        dbzProps.setProperty(
+                EXCLUDE_HEARTBEAT_FROM_EVENT_COUNT,
+                Boolean.toString(excludeHeartbeatFromEventCount()));
 
         if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
             String normalized =

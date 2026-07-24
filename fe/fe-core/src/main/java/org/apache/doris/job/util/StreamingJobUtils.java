@@ -359,7 +359,7 @@ public class StreamingJobUtils {
      * <p>Returns a {@link LinkedHashMap} whose key is the <b>source</b> (upstream) table name and
      * whose value is the corresponding {@link CreateTableCommand} that creates the Doris target
      * table (which may have a different name when {@code table.<src>.target_table} is configured).
-     * Callers must use the map key as the PG/MySQL source table identifier for CDC monitoring and
+     * Callers must use the map key as the upstream source table identifier for CDC monitoring and
      * the {@link CreateTableCommand} value for the actual DDL execution.
      */
     public static LinkedHashMap<String, CreateTableCommand> generateCreateTableCmds(String targetDb,
@@ -520,14 +520,6 @@ public class StreamingJobUtils {
         return columns;
     }
 
-    /**
-     * The remoteDB implementation differs for each data source;
-     * refer to the hierarchical mapping in the JDBC catalog.
-     */
-    /**
-     * Populate default resource names into properties, then validate. No-op for sources that
-     * don't need it. Mutates properties: callers should expect default values to be inserted.
-     */
     public static void resolveAndValidateSource(DataSourceType sourceType,
                                                 Map<String, String> properties,
                                                 String jobId,
@@ -591,10 +583,15 @@ public class StreamingJobUtils {
         }
     }
 
+    /**
+     * The remoteDB implementation differs for each data source;
+     * refer to the hierarchical mapping in the JDBC catalog.
+     */
     public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
         String remoteDb = null;
         switch (sourceType) {
             case MYSQL:
+            case OCEANBASE:
                 remoteDb = properties.get(DataSourceConfigKeys.DATABASE);
                 Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "database is required");
                 break;
