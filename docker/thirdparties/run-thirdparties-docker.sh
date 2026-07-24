@@ -1644,7 +1644,8 @@ start_polaris() {
     register_stack_metadata "polaris" "${POLARIS_DIR}/docker-compose.yaml" ""
     compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" up -d --wait --remove-orphans
+        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" up -d --wait --remove-orphans polaris
+        compose_cmd "${POLARIS_DIR}/docker-compose.yaml" "" run --rm --no-deps polaris-init
     fi
 }
 
