@@ -3190,6 +3190,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return tableProperty.getInvertedIndexFileStorageFormat();
     }
 
+    public TInvertedIndexFileStorageFormat getEffectiveInvertedIndexFileStorageFormat() {
+        if (tableProperty == null) {
+            return TInvertedIndexFileStorageFormat.V1;
+        }
+        TInvertedIndexFileStorageFormat storageFormat = getInvertedIndexFileStorageFormat();
+        return storageFormat == TInvertedIndexFileStorageFormat.DEFAULT
+                ? TInvertedIndexFileStorageFormat.V1 : storageFormat;
+    }
+
     public TCompressionType getCompressionType() {
         if (tableProperty == null) {
             return TCompressionType.LZ4F;

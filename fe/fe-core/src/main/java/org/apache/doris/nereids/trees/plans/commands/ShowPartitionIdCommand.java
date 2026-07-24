@@ -69,6 +69,7 @@ public class ShowPartitionIdCommand extends ShowCommand {
         builder.addColumn(new Column("PartitionName", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DbId", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("TableId", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("InvertedIndexStorageFormat", ScalarType.createVarchar(30)));
         return builder.build();
     }
 
@@ -86,7 +87,8 @@ public class ShowPartitionIdCommand extends ShowCommand {
                 if (tbl instanceof OlapTable) {
                     tbl.readLock();
                     try {
-                        Partition partition = ((OlapTable) tbl).getPartition(partitionId);
+                        OlapTable olapTable = (OlapTable) tbl;
+                        Partition partition = olapTable.getPartition(partitionId);
                         if (partition != null) {
                             List<String> row = new ArrayList<>();
                             row.add(database.getFullName());
@@ -101,6 +103,7 @@ public class ShowPartitionIdCommand extends ShowCommand {
                             row.add(partition.getName());
                             row.add(String.valueOf(database.getId()));
                             row.add(String.valueOf(tbl.getId()));
+                            row.add(olapTable.getEffectiveInvertedIndexFileStorageFormat().name());
                             rows.add(row);
                             break;
                         }
