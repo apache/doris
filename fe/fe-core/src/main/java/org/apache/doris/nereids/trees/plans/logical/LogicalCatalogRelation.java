@@ -234,7 +234,17 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                 slotSet.add(slotRef);
             }
         }
-        return slotSet.build();
+        ImmutableSet<SlotReference> result = slotSet.build();
+        // Only propagate a declared constraint when ALL of its columns are
+        // present in the output.  A partial match (e.g. UNIQUE(a,b) on a
+        // rollup that outputs only column a) would falsely claim that the
+        // available columns are unique by themselves, enabling the WinMagic
+        // window rewrite to produce wrong aggregate results when rows with
+        // distinct b values share the same a value.
+        if (result.size() != columns.size()) {
+            return ImmutableSet.of();
+        }
+        return result;
     }
 
     @Override
