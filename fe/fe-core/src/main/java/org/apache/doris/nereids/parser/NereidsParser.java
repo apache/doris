@@ -345,36 +345,25 @@ public class NereidsParser {
                         Function<DorisParser, ParserRuleContext> parseFunction) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, parseFunction);
-        Map<Integer, ParserRuleContext> selectHintMap =
-                getHintMap(sql, tokenStream, DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder(selectHintMap)
+                    ? new LogicalPlanBuilder(getHintMap(sql, tokenStream, DorisParser::selectHint))
                     : logicalPlanBuilder;
-        realLogicalPlanBuilder.setTableHintMap(getTableHintMap(tokenStream, selectHintMap));
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
-    /** Parse a statement while retaining hints used to reconstruct a CREATE VIEW definition. */
     public LogicalPlan parseForCreateView(String sql) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
-        Map<Integer, ParserRuleContext> selectHintMap =
-                getHintMap(sql, tokenStream, DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
-                selectHintMap);
-        realLogicalPlanBuilder.setTableHintMap(getTableHintMap(tokenStream, selectHintMap));
+                getHintMap(sql, tokenStream, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
-    /** Parse a statement while retaining the source positions needed for encryption. */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
-        Map<Integer, ParserRuleContext> selectHintMap =
-                getHintMap(sql, tokenStream, DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
-                selectHintMap, indexInSqlToString);
-        realLogicalPlanBuilder.setTableHintMap(getTableHintMap(tokenStream, selectHintMap));
+                getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
@@ -382,11 +371,8 @@ public class NereidsParser {
     public Optional<String> parseForSyncMv(String sql) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
-        Map<Integer, ParserRuleContext> selectHintMap =
-                getHintMap(sql, tokenStream, DorisParser::selectHint);
         LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
-                selectHintMap);
-        logicalPlanBuilderForSyncMv.setTableHintMap(getTableHintMap(tokenStream, selectHintMap));
+                getHintMap(sql, tokenStream, DorisParser::selectHint));
         logicalPlanBuilderForSyncMv.visit(tree);
         return logicalPlanBuilderForSyncMv.getQuerySql();
     }
@@ -411,23 +397,6 @@ public class NereidsParser {
             hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
         }
         return selectHintMap;
-    }
-
-    private static Map<Integer, ParserRuleContext> getTableHintMap(
-            CommonTokenStream tokenStream, Map<Integer, ParserRuleContext> selectHintMap) {
-        Map<Integer, ParserRuleContext> tableHintMap = Maps.newHashMap();
-        Token previousDefaultToken = null;
-        for (Token token : tokenStream.getTokens()) {
-            ParserRuleContext hintContext = selectHintMap.get(token.getStartIndex());
-            if (hintContext != null && previousDefaultToken != null) {
-                // Table hints are hidden tokens, so bind them to the closest visible token on their left.
-                tableHintMap.put(previousDefaultToken.getTokenIndex(), hintContext);
-            }
-            if (token.getChannel() == Token.DEFAULT_CHANNEL && token.getType() != DorisLexer.EOF) {
-                previousDefaultToken = token;
-            }
-        }
-        return tableHintMap;
     }
 
     public static ParserRuleContext toAst(

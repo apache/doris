@@ -166,7 +166,7 @@ suite("paimon_system_table", "p0,external") {
                        max_sequence_number,
                        creation_time
                 FROM ${tableName}\$files
-                /*+ OPTIONS('scan.snapshot-id'='${direct_query_snapshot_id}') */
+                @options('scan.snapshot-id'='${direct_query_snapshot_id}')
                 """
         assertTrue(filesAtSnapshotResult.size() > 0,
                 "Files system table should return data for snapshot ${direct_query_snapshot_id}")
@@ -183,12 +183,12 @@ suite("paimon_system_table", "p0,external") {
                 """
         List<List<Object>> filesAtFirstSnapshot = sql """
                 select file_path from ${multiSnapshotTable}\$files
-                /*+ OPTIONS('scan.snapshot-id'='${firstSnapshotId}') */
+                @options('scan.snapshot-id'='${firstSnapshotId}')
                 order by file_path
                 """
         List<List<Object>> filesAtLatestSnapshot = sql """
                 select file_path from ${multiSnapshotTable}\$files
-                /*+ OPTIONS('scan.snapshot-id'='${latestSnapshotId}') */
+                @options('scan.snapshot-id'='${latestSnapshotId}')
                 order by file_path
                 """
         assertTrue(filesAtFirstSnapshot.size() < filesWithoutOptions.size(),

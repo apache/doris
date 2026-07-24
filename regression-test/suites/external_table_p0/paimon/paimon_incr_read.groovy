@@ -43,6 +43,55 @@ suite("test_paimon_incr_read", "p0,external") {
 
         def test_incr_read = { String force ->
             sql """ set force_jni_scanner=${force} """
+
+            // Query-level OPTIONS params apply to ordinary data tables for both native and JNI readers.
+            List<List<Object>> latestRows = sql """
+                    select id, name, age from paimon_incr order by id
+                    """
+            List<List<Object>> snapshot1Rows = sql """
+                    select id, name, age from paimon_incr
+                    @options('scan.snapshot-id'='1')
+                    order by id
+                    """
+            List<List<Object>> snapshot2Rows = sql """
+                    select id, name, age from paimon_incr
+                    @options('scan.snapshot-id'='2')
+                    order by id
+                    """
+            List<List<Object>> latestSnapshotRows = sql """
+                    select id, name, age from paimon_incr
+                    @options('scan.snapshot-id'='3')
+                    order by id
+                    """
+            assertEquals(1, snapshot1Rows.size())
+            assertEquals(2, snapshot2Rows.size())
+            assertEquals(3, latestRows.size())
+            assertEquals(latestRows, latestSnapshotRows)
+
+            // A dynamic option must not leak into the cached table used by the next query.
+            assertEquals(latestRows, sql("select id, name, age from paimon_incr order by id"))
+
+            List<List<Object>> relationScopedRows = sql """
+                    select left_orders.id, right_orders.id
+                    from paimon_incr
+                    @options('scan.snapshot-id'='1') left_orders
+                    join paimon_incr
+                    @options('scan.snapshot-id'='2') right_orders
+                    on left_orders.id = right_orders.id
+                    order by left_orders.id
+                    """
+            assertEquals(1, relationScopedRows.size())
+            assertEquals(1, ((Number) relationScopedRows[0][0]).intValue())
+            assertEquals(1, ((Number) relationScopedRows[0][1]).intValue())
+
+            test {
+                sql """
+                        select * from paimon_incr
+                        @options('scan.snapshot-id'='999999')
+                        """
+                exception "snapshot"
+            }
+
             order_qt_snapshot_incr3  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
             order_qt_snapshot_incr4  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=3)"""
             order_qt_snapshot_incr5  """select * from paimon_incr@incr('startSnapshotId'=2, 'endSnapshotId'=3)"""
@@ -107,5 +156,3 @@ suite("test_paimon_incr_read", "p0,external") {
         // sql """drop catalog if exists ${catalog_name}"""
     }
 }
-
-

@@ -1178,7 +1178,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     });
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
-    private Map<Integer, ParserRuleContext> tableHintMap = ImmutableMap.of();
 
     // recursive cte is in form of union[all], and in visitSetOperation method, we try to reduceToLogicalPlanTree
     // for UNION. We should not do it for recursive cte, so this flag is to indicate if we meet recursive cte
@@ -1186,10 +1185,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
         this.selectHintMap = selectHintMap;
-    }
-
-    void setTableHintMap(Map<Integer, ParserRuleContext> tableHintMap) {
-        this.tableHintMap = ImmutableMap.copyOf(tableHintMap);
     }
 
     private static String requireNonEmptyColumnIdentifier(ParserRuleContext ctx, String identifier) {
@@ -2796,13 +2791,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map, list);
         }
-        TableScanParams optionsParams = visitTableOptionsHint(ctx);
-        if (scanParams != null && optionsParams != null) {
-            throw new AnalysisException("Cannot specify both table scan params and OPTIONS hint");
-        }
-        if (optionsParams != null) {
-            scanParams = optionsParams;
-        }
 
         TableSnapshot tableSnapshot = null;
         if (ctx.tableSnapshot() != null) {
@@ -2825,51 +2813,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             plan = withGenerate(plan, lateralViewContext);
         }
         return plan;
-    }
-
-    private TableScanParams visitTableOptionsHint(TableNameContext ctx) {
-        List<ParserRuleContext> hintContexts = Lists.newArrayList();
-        ParserRuleContext afterTableName =
-                tableHintMap.get(ctx.multipartIdentifier().getStop().getTokenIndex());
-        if (afterTableName != null) {
-            hintContexts.add(afterTableName);
-        }
-        ParserRuleContext afterRelation = tableHintMap.get(ctx.getStop().getTokenIndex());
-        if (afterRelation != null && afterRelation != afterTableName) {
-            hintContexts.add(afterRelation);
-        }
-
-        Map<String, String> options = null;
-        for (ParserRuleContext hintContext : hintContexts) {
-            SelectHintContext selectHintContext = (SelectHintContext) hintContext;
-            for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                if (hintStatement.hintName() == null
-                        || !"options".equalsIgnoreCase(hintStatement.hintName().getText())) {
-                    continue;
-                }
-                if (options != null) {
-                    throw new AnalysisException("Only one OPTIONS hint is allowed for each table");
-                }
-                options = Maps.newLinkedHashMap();
-                for (HintAssignmentContext kv : hintStatement.parameters) {
-                    if (kv.key == null || (kv.constantValue == null && kv.identifierValue == null)) {
-                        throw new AnalysisException("OPTIONS hint requires key-value assignments");
-                    }
-                    String key = visitIdentifierOrText(kv.key);
-                    String value;
-                    if (kv.constantValue != null) {
-                        Literal literal = (Literal) visit(kv.constantValue);
-                        value = literal.toLegacyLiteral().getStringValue();
-                    } else {
-                        value = kv.identifierValue.getText();
-                    }
-                    options.put(key, value);
-                }
-            }
-        }
-        return options == null
-                ? null
-                : new TableScanParams(TableScanParams.OPTIONS, options, ImmutableList.of());
     }
 
     public static String stripQuotes(String str) {
