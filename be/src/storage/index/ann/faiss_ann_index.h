@@ -62,10 +62,11 @@ struct FaissBuildParameter {
     };
 
     enum class Quantizer {
-        FLAT, ///< Flat (exact) quantizer
-        SQ4,  ///< Scalar quantization with 4 bits
-        SQ8,  ///< Scalar quantization with 8 bits
-        PQ,   ///< Product quantization
+        FLAT,   ///< Flat (exact) quantizer
+        SQ4,    ///< Scalar quantization with 4 bits
+        SQ8,    ///< Scalar quantization with 8 bits
+        PQ,     ///< Product quantization
+        RABITQ, ///< RaBitQ quantization
     };
 
     /**
@@ -113,6 +114,8 @@ struct FaissBuildParameter {
             return Quantizer::SQ8;
         } else if (type == "pq") {
             return Quantizer::PQ;
+        } else if (type == "rabitq") {
+            return Quantizer::RABITQ;
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Unsupported quantizer type: {}", type);
