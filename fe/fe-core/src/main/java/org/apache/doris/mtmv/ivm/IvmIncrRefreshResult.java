@@ -20,23 +20,23 @@ package org.apache.doris.mtmv.ivm;
 import java.util.Objects;
 
 /** Result of one FE-side incremental refresh attempt. */
-public class IvmRefreshResult {
+public class IvmIncrRefreshResult {
     private final boolean success;
     private final IvmFailureReason failureReason;
     private final String detailMessage;
 
-    private IvmRefreshResult(boolean success, IvmFailureReason failureReason, String detailMessage) {
+    private IvmIncrRefreshResult(boolean success, IvmFailureReason failureReason, String detailMessage) {
         this.success = success;
         this.failureReason = failureReason;
         this.detailMessage = detailMessage;
     }
 
-    public static IvmRefreshResult success() {
-        return new IvmRefreshResult(true, null, null);
+    public static IvmIncrRefreshResult success() {
+        return new IvmIncrRefreshResult(true, null, null);
     }
 
-    public static IvmRefreshResult fallback(IvmFailureReason failureReason, String detailMessage) {
-        return new IvmRefreshResult(false,
+    public static IvmIncrRefreshResult fallback(IvmFailureReason failureReason, String detailMessage) {
+        return new IvmIncrRefreshResult(false,
                 Objects.requireNonNull(failureReason, "failureReason can not be null"),
                 detailMessage == null ? failureReason.name() : detailMessage);
     }
@@ -56,9 +56,9 @@ public class IvmRefreshResult {
     @Override
     public String toString() {
         if (success) {
-            return "IvmRefreshResult{success=true}";
+            return "IvmIncrRefreshResult{success=true}";
         }
-        return "IvmRefreshResult{"
+        return "IvmIncrRefreshResult{"
                 + "success=false"
                 + ", failureReason=" + failureReason
                 + ", detailMessage='" + detailMessage + '\''

@@ -30,12 +30,21 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Statement-level input for internal IVM rewrite flows.
+ * Statement-level input for all internal IVM rewrite flows.
+ *
+ * <p>The context is installed on the statement and selects which IVM path is active:
+ * normalize when an IVM materialized view is analyzed, incremental when an incremental
+ * refresh plan is generated, and full when a complete refresh plan uses IVM stream scans.
+ * It contains rewrite configuration only; per-statement rewrite artifacts are stored in
+ * {@link IvmRewriteResult}.
  */
 public class IvmRewriteContext {
     public enum Mode {
+        /** Normalize the materialized-view query and collect its IVM layout metadata. */
         NORMALIZE,
+        /** Rewrite the normalized query into an incremental refresh delta plan. */
         INCREMENTAL,
+        /** Rewrite a complete refresh plan with the IVM full-refresh stream semantics. */
         FULL
     }
 

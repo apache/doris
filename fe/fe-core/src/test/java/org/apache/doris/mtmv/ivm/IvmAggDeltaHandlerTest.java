@@ -72,7 +72,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
                 bundle.normalizedPlan, bundle.rewriteResult,
                 IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
         Assertions.assertNotNull(rewritten);
-        InsertIntoTableCommand command = new IvmRefreshManager()
+        InsertIntoTableCommand command = new IvmIncrRefreshManager()
                 .buildInsertCommand((LogicalPlan) rewritten, mtmv);
         UnboundTableSink<?> sink = getSink(command);
         return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
@@ -439,13 +439,13 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testAggMissingRewriteResultThrows() {
         LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
         MTMV mtmv = buildMtmvFromPlan(agg.getOutput());
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null, false);
+        IvmIncrRefreshContext ctx = new IvmIncrRefreshContext(mtmv, new ConnectContext(), null, false);
         IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0),
                 agg.child(0).getOutput().get(0), agg.child(0).getOutput().get(1), 0);
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor() {
             @Override
             public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan,
-                    IvmRefreshContext ignored) {
+                    IvmIncrRefreshContext ignored) {
                 return Optional.of(childResult);
             }
         };
@@ -462,13 +462,13 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor() {
             @Override
             public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan,
-                    IvmRefreshContext ignored) {
+                    IvmIncrRefreshContext ignored) {
                 return Optional.empty();
             }
         };
 
         Assertions.assertFalse(new IvmAggDeltaHandler().rewriteAggregate(agg, visitor,
-                new IvmRefreshContext(buildMtmvFromPlan(agg.getOutput()), new ConnectContext(), null, false)).isPresent());
+                new IvmIncrRefreshContext(buildMtmvFromPlan(agg.getOutput()), new ConnectContext(), null, false)).isPresent());
     }
 
     @Test

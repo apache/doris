@@ -32,7 +32,7 @@ import java.util.Optional;
  * Mutable state owned by one recursive delta rewrite.
  *
  * <p>It deliberately is not the visitor context: visitor callbacks still receive the immutable
- * {@link IvmRefreshContext}. The state only carries scan-local rewrite data and the deterministic
+ * {@link IvmIncrRefreshContext}. The state only carries scan-local rewrite data and the deterministic
  * left-to-right delta scan index.
  */
 class IvmDeltaRewriteState {
