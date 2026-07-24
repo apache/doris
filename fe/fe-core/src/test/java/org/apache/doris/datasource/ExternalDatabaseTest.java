@@ -167,6 +167,135 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testHotNamedLookupDoesNotRestoreIdAfterUnregister() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch valueObserved = new CountDownLatch(1);
+        CountDownLatch releaseAction = new CountDownLatch(1);
+        try {
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 240L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable table = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(table);
+
+            MetaCacheEntry<String, TestExternalTable> objectEntry =
+                    new MetaCacheEntry<String, TestExternalTable>(
+                            "table_hot_lookup_race",
+                            ignored -> table,
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false) {
+                        @Override
+                        protected void beforeCurrentValueActionForTest(String key, TestExternalTable value) {
+                            valueObserved.countDown();
+                            awaitLatch(releaseAction);
+                        }
+                    };
+            objectEntry.put(table.getName(), table);
+            setTablesEntryForTest(db, objectEntry);
+            extractTableIdToName(db).clear();
+
+            Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
+            Assertions.assertTrue(valueObserved.await(3L, TimeUnit.SECONDS));
+            db.unregisterTable(table.getName());
+            releaseAction.countDown();
+
+            Assertions.assertSame(table, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(objectEntry.getIfPresent(table.getName()));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
+        } finally {
+            releaseAction.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHotNamedLookupSkipsLockWhenIdAlreadyMapped() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger actionInvocations = new AtomicInteger();
+        try {
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 242L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable table = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(table);
+
+            MetaCacheEntry<String, TestExternalTable> objectEntry =
+                    new MetaCacheEntry<String, TestExternalTable>(
+                            "table_skip_lock_when_mapped",
+                            ignored -> table,
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false) {
+                        @Override
+                        protected void beforeCurrentValueActionForTest(String key, TestExternalTable value) {
+                            actionInvocations.incrementAndGet();
+                        }
+                    };
+            objectEntry.put(table.getName(), table);
+            setTablesEntryForTest(db, objectEntry);
+            extractTableIdToName(db).clear();
+
+            // First lookup: id->name is empty, so the action runs (takes the publication lock) and writes the mapping.
+            TestExternalTable first = db.getTableNullable(table.getName());
+            Assertions.assertSame(table, first);
+            Assertions.assertEquals(1, actionInvocations.get());
+            Assertions.assertEquals(table.getName(), db.getCachedTableNameByIdForTest(table.getId()));
+
+            // Second lookup: id->name is already consistent, so the action is skipped (no publication lock).
+            TestExternalTable second = db.getTableNullable(table.getName());
+            Assertions.assertSame(table, second);
+            Assertions.assertEquals(1, actionInvocations.get());
+            Assertions.assertEquals(table.getName(), db.getCachedTableNameByIdForTest(table.getId()));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRejectedNamedMissLoadDoesNotRestoreIdAfterUnregister() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 241L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable table = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(table);
+
+            MetaCacheEntry<String, TestExternalTable> objectEntry = new MetaCacheEntry<>(
+                    "table_miss_load_race",
+                    ignored -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return table;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            setTablesEntryForTest(db, objectEntry);
+            extractTableIdToName(db).clear();
+
+            Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            db.unregisterTable(table.getName());
+            releaseLoader.countDown();
+
+            Assertions.assertSame(table, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(objectEntry.getIfPresent(table.getName()));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testGetTableNullableUpdatesIdMapWithActualTableId() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 300L, "db1", "db1");
@@ -177,6 +306,72 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
         Assertions.assertNotNull(table);
         Assertions.assertEquals("tbl_base", db.getCachedTableNameByIdForTest(table.getId()));
+    }
+
+    @Test
+    public void testDisabledObjectCacheKeepsNamedLookupIdNavigation() {
+        long originalTtl = Config.external_cache_expire_time_seconds_after_access;
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 0L;
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 310L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            TestExternalTable table = db.getTableNullable("tbl_base");
+
+            Assertions.assertNotNull(table);
+            Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
+            Assertions.assertEquals("tbl_base", db.getCachedTableNameByIdForTest(table.getId()));
+            Assertions.assertNotNull(db.getTableNullable(table.getId()));
+            Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
+        } finally {
+            Config.external_cache_expire_time_seconds_after_access = originalTtl;
+        }
+    }
+
+    @Test
+    public void testDisabledObjectCacheLookupDoesNotRestoreIdAfterUnregister() throws Exception {
+        long originalTtl = Config.external_cache_expire_time_seconds_after_access;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 0L;
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 311L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable table = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(table);
+
+            MetaCacheEntry<String, TestExternalTable> disabledEntry = new MetaCacheEntry<>(
+                    "table_disabled_lookup_race",
+                    ignored -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return table;
+                    },
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            setTablesEntryForTest(db, disabledEntry);
+            extractTableIdToName(db).clear();
+
+            Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            db.unregisterTable(table.getName());
+            releaseLoader.countDown();
+
+            Assertions.assertSame(table, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(disabledEntry.getIfPresent(table.getName()));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
+            Assertions.assertNull(db.getCachedTableForTest(table.getName()));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Config.external_cache_expire_time_seconds_after_access = originalTtl;
+        }
     }
 
     @Test
@@ -590,6 +785,13 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
         tablesField.setAccessible(true);
         return (MetaCacheEntry<String, TestExternalTable>) tablesField.get(db);
+    }
+
+    private void setTablesEntryForTest(InspectableDatabase db,
+            MetaCacheEntry<String, TestExternalTable> tablesEntry) throws Exception {
+        Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
+        tablesField.setAccessible(true);
+        tablesField.set(db, tablesEntry);
     }
 
     @SuppressWarnings("unchecked")

@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -185,12 +186,39 @@ public class MetaCacheEntry<K, V> {
     }
 
     public V get(K key) {
-        return getWithManualLoad(key, this::applyDefaultLoader);
+        return getWithManualLoad(key, this::applyDefaultLoader, null, null);
     }
 
     public V get(K key, Function<K, V> missLoader) {
         Function<K, V> loadFunction = Objects.requireNonNull(missLoader, "missLoader can not be null");
-        return getWithManualLoad(key, loadFunction);
+        return getWithManualLoad(key, loadFunction, null, null);
+    }
+
+    /**
+     * Get the current value and run a short local action under the same per-key publication protocol.
+     *
+     * <p>For an enabled entry, the action only runs when a hot value is still current or a miss load is accepted for
+     * publication. For a disabled entry, the value is not cached, but the action still runs when no invalidation
+     * occurred during the load. A generation-rejected load may still be returned to its caller, but never runs the
+     * action.
+     */
+    public V getAndRunIfCurrent(K key, BiConsumer<K, V> currentValueAction) {
+        return getAndRunIfCurrent(key, (ignored, value) -> true, currentValueAction);
+    }
+
+    /**
+     * Get the current value and conditionally run a short local action under the per-key publication protocol.
+     *
+     * <p>A hot value returns without entering the publication lock when {@code actionRequired} is false. When the
+     * action is required, both the value identity and the condition are re-checked under the lock before running it.
+     */
+    public V getAndRunIfCurrent(K key, BiPredicate<K, V> actionRequired,
+            BiConsumer<K, V> currentValueAction) {
+        BiPredicate<K, V> required = Objects.requireNonNull(
+                actionRequired, "actionRequired can not be null");
+        BiConsumer<K, V> action = Objects.requireNonNull(
+                currentValueAction, "currentValueAction can not be null");
+        return getWithManualLoad(key, this::applyDefaultLoader, required, action);
     }
 
     public V getIfPresent(K key) {
@@ -242,13 +270,45 @@ public class MetaCacheEntry<K, V> {
         }
     }
 
-    public void invalidateKey(K key) {
+    /**
+     * Compute the cached value and update related local state in one per-key publication window.
+     *
+     * <p>The action always runs, including when the cache is disabled or the remapping function keeps a cold key
+     * absent. This allows callers to maintain lightweight auxiliary indexes without warming the object entry.
+     */
+    public V computeAndRun(K key, BiFunction<K, V, V> remappingFunction, Runnable afterMutation) {
         Objects.requireNonNull(key, "key can not be null");
+        Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
+        Runnable action = Objects.requireNonNull(afterMutation, "afterMutation can not be null");
+        synchronized (publishLock(key)) {
+            bumpGeneration(key);
+            beforePublicMutationWriteForTest(key);
+            V value = effectiveEnabled ? data.asMap().compute(key, remappingFunction) : null;
+            action.run();
+            return value;
+        }
+    }
+
+    public void invalidateKey(K key) {
+        invalidateKeyAndRun(key, () -> {
+        });
+    }
+
+    /**
+     * Invalidate one cached key and update related local state in the same publication window.
+     *
+     * <p>The action runs even if the object entry is already absent or disabled because auxiliary indexes may
+     * intentionally outlive object-cache eviction.
+     */
+    public void invalidateKeyAndRun(K key, Runnable afterInvalidation) {
+        Objects.requireNonNull(key, "key can not be null");
+        Runnable action = Objects.requireNonNull(afterInvalidation, "afterInvalidation can not be null");
         synchronized (publishLock(key)) {
             bumpGeneration(key);
             if (data.asMap().remove(key) != null) {
                 invalidateCount.incrementAndGet();
             }
+            action.run();
         }
     }
 
@@ -304,14 +364,37 @@ public class MetaCacheEntry<K, V> {
     }
 
     // Execute slow miss loads outside Caffeine's sync load path and suppress stale write-back after invalidation.
-    private V getWithManualLoad(K key, Function<K, V> loadFunction) {
+    private V getWithManualLoad(K key, Function<K, V> loadFunction,
+            @Nullable BiPredicate<K, V> currentValueActionRequired,
+            @Nullable BiConsumer<K, V> currentValueAction) {
         if (!effectiveEnabled) {
-            // Bypass cache entirely when the entry is disabled so manual miss load does not relax disable semantics.
-            return loadAndTrack(key, loadFunction);
+            if (currentValueAction == null) {
+                // Preserve the ordinary disabled-entry path without adding publication coordination.
+                return loadAndTrack(key, loadFunction);
+            }
+            // Bypass object publication when disabled, but still fence an auxiliary-index update against invalidation.
+            long generation;
+            synchronized (publishLock(key)) {
+                generation = generationOf(key);
+            }
+            V loaded = loadAndTrack(key, loadFunction);
+            if (loaded == null) {
+                return loaded;
+            }
+            beforeCurrentValueActionForTest(key, loaded);
+            synchronized (publishLock(key)) {
+                if (generation == generationOf(key)
+                        && currentValueActionRequired.test(key, loaded)) {
+                    currentValueAction.accept(key, loaded);
+                }
+            }
+            return loaded;
         }
 
         V value = data.getIfPresent(key);
         if (value != null) {
+            runCurrentValueActionIfPresent(
+                    key, value, currentValueActionRequired, currentValueAction);
             return value;
         }
 
@@ -320,6 +403,8 @@ public class MetaCacheEntry<K, V> {
         synchronized (loadLock(key)) {
             value = data.asMap().get(key);
             if (value != null) {
+                runCurrentValueActionIfPresent(
+                        key, value, currentValueActionRequired, currentValueAction);
                 return value;
             }
 
@@ -329,6 +414,10 @@ public class MetaCacheEntry<K, V> {
             synchronized (publishLock(key)) {
                 value = data.asMap().get(key);
                 if (value != null) {
+                    if (currentValueAction != null
+                            && currentValueActionRequired.test(key, value)) {
+                        currentValueAction.accept(key, value);
+                    }
                     return value;
                 }
                 generation = generationOf(key);
@@ -349,9 +438,30 @@ public class MetaCacheEntry<K, V> {
                 // outside publishLock while this thread is publishing a loaded value.
                 if (generation != generationOf(key)) {
                     removeLoadedValueWithoutGenerationBump(key, loaded);
+                } else if (currentValueAction != null
+                        && currentValueActionRequired.test(key, loaded)) {
+                    currentValueAction.accept(key, loaded);
                 }
             }
             return loaded;
+        }
+    }
+
+    private void runCurrentValueActionIfPresent(K key, V value,
+            @Nullable BiPredicate<K, V> currentValueActionRequired,
+            @Nullable BiConsumer<K, V> currentValueAction) {
+        if (currentValueAction == null) {
+            return;
+        }
+        if (!currentValueActionRequired.test(key, value)) {
+            return;
+        }
+        beforeCurrentValueActionForTest(key, value);
+        synchronized (publishLock(key)) {
+            if (data.asMap().get(key) == value
+                    && currentValueActionRequired.test(key, value)) {
+                currentValueAction.accept(key, value);
+            }
         }
     }
 
@@ -440,6 +550,10 @@ public class MetaCacheEntry<K, V> {
     }
 
     void beforePublicMutationWriteForTest(K key) {
+    }
+
+    // Let tests pause after a hot value is observed but before its related local state is published.
+    protected void beforeCurrentValueActionForTest(K key, V value) {
     }
 
     private V loadFromDefaultLoader(K key) {
