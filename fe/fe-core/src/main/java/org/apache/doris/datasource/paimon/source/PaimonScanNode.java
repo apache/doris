@@ -919,7 +919,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         TableScanParams theScanParams = getScanParams();
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
             if (theScanParams != null && !theScanParams.incrementalRead() && !theScanParams.isOptions()) {
-                throw new UserException("Paimon system tables only support incremental scan params or OPTIONS hints.");
+                throw new UserException("Paimon system tables only support INCR or OPTIONS scan params.");
             }
             if (getQueryTableSnapshot() != null) {
                 throw new UserException("Paimon system tables do not support time travel.");
