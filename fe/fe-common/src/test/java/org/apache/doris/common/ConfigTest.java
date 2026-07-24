@@ -21,6 +21,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -97,5 +98,25 @@ public class ConfigTest {
         ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "a,b,c");
         ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "");
         Assert.assertEquals("array length should be 0", 0, Config.s3_load_endpoint_white_list.length);
+    }
+
+    @Test
+    public void testInvalidS3ClientHttpScheme() throws Exception {
+        String originalScheme = Config.s3_client_http_scheme;
+        Path tempFile = Files.createTempFile("fe_invalid_s3_scheme_", ".conf");
+        try {
+            Files.write(tempFile, "s3_client_http_scheme = ftp".getBytes(StandardCharsets.UTF_8));
+            Config config = new Config();
+            try {
+                config.init(tempFile.toAbsolutePath().toString());
+                Assert.fail("Expected invalid s3_client_http_scheme to fail FE configuration initialization");
+            } catch (IllegalArgumentException e) {
+                Assert.assertEquals("Invalid s3_client_http_scheme: ftp, only http and https are supported",
+                        e.getMessage());
+            }
+        } finally {
+            Config.s3_client_http_scheme = originalScheme;
+            Files.deleteIfExists(tempFile);
+        }
     }
 }

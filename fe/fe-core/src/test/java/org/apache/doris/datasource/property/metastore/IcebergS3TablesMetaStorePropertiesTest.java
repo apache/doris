@@ -54,7 +54,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
     public void s3FileIOCredentialPropertiesUseSharedS3Properties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.region", "us-east-1");
-        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        props.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
         props.put("s3.access_key", "AKID");
         props.put("s3.secret_key", "SECRET");
         props.put("s3.session_token", "TOKEN");

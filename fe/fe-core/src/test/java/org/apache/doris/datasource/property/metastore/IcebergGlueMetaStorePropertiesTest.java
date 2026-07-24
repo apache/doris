@@ -57,7 +57,7 @@ public class IcebergGlueMetaStorePropertiesTest {
                 "glue.endpoint", "https://glue.us-west-2.amazonaws.com",
                 "warehouse", "s3://my-bucket/warehouse",
                 "s3.region", "us-west-2",
-                "s3.endpoint", "https://s3.us-west-2.amazonaws.com"
+                "s3.endpoint", "s3.us-west-2.amazonaws.com"
         );
         IcebergGlueMetaStoreProperties properties = (IcebergGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
         Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageProperties.createAll(baseProps));

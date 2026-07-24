@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
@@ -102,14 +103,7 @@ public class S3Resource extends Resource {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
 
-        // the endpoint for ping need add uri scheme.
-        String pingEndpoint = properties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://") && !pingEndpoint.startsWith("https://")) {
-            pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
-            properties.put(S3Properties.ENDPOINT, pingEndpoint);
-            properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
-        }
-        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
+        String region = S3Properties.getRegionOfEndpoint(properties.get(S3Properties.ENDPOINT));
         properties.putIfAbsent(S3Properties.REGION, region);
 
         if (needCheck) {
@@ -284,7 +278,7 @@ public class S3Resource extends Resource {
         String token = properties.getOrDefault(S3Properties.SESSION_TOKEN,
                 this.properties.get(S3Properties.SESSION_TOKEN));
         String endpoint = properties.getOrDefault(S3Properties.ENDPOINT, this.properties.get(S3Properties.ENDPOINT));
-        String pingEndpoint = "http://" + endpoint;
+        String pingEndpoint = S3Util.buildEndpointUrl(endpoint);
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
         return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
@@ -328,4 +322,3 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
-

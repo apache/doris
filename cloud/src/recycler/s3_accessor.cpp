@@ -428,9 +428,7 @@ int S3Accessor::init() {
                                                     config::instance_recycler_worker_pool_size),
                                              (long)aws_config.maxConnections);
 
-        if (config::s3_client_http_scheme == "http") {
-            aws_config.scheme = Aws::Http::Scheme::HTTP;
-        }
+        set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
         // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry, /*retry_slow_down=*/false);

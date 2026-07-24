@@ -17,12 +17,14 @@
 
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
+#include <aws/core/client/ClientConfiguration.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <gtest/gtest.h>
 
 #include <cstdlib>
 #include <vector>
 
+#include "cpp/aws_common.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -121,6 +123,32 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     config::aws_credentials_provider_version = "v2";
 }
 
+TEST_F(S3ClientFactoryTest, SetS3ClientDefaultHttpScheme) {
+    S3ClientFactory::instance();
+    Aws::Client::ClientConfiguration client_config;
+    client_config.endpointOverride = "example.com:9000";
+
+    set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+
+    client_config.endpointOverride = "http://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTP;
+    set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "http://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    client_config.endpointOverride = "https://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTPS;
+    set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+}
+
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
     std::map<std::string, std::string> properties {
             {"AWS_ENDPOINT", "s3.us-west-2.amazonaws.com"},
@@ -133,6 +161,7 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
 
     S3Conf s3_conf;
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
+    ASSERT_EQ(s3_conf.client_conf.endpoint, properties.at("AWS_ENDPOINT"));
     ASSERT_EQ(s3_conf.client_conf.cred_provider_type, CredProviderType::Default);
 
     properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "WEB_IDENTITY";

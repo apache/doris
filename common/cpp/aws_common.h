@@ -21,23 +21,31 @@
 
 #include <filesystem>
 
+namespace Aws::Client {
+struct ClientConfiguration;
+}
+
 namespace doris {
-    //AWS Credentials Provider Type
-    enum class CredProviderType {
-        Default = 0,
-        Simple = 1,
-        InstanceProfile = 2,
-        Env = 3,
-        SystemProperties = 4,
-        WebIdentity = 5,
-        Container = 6,
-        Anonymous = 7
-    };
+//AWS Credentials Provider Type
+enum class CredProviderType {
+    Default = 0,
+    Simple = 1,
+    InstanceProfile = 2,
+    Env = 3,
+    SystemProperties = 4,
+    WebIdentity = 5,
+    Container = 6,
+    Anonymous = 7
+};
 
-    CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
+CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
 
-    CredProviderType cred_provider_type_from_string(const std::string& type);
+CredProviderType cred_provider_type_from_string(const std::string& type);
 
-    std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
+std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
 
-    } // namespace doris
+// Configures the default S3 client transport scheme for endpoints without an explicit scheme.
+void set_s3_client_default_http_scheme(Aws::Client::ClientConfiguration& client_config,
+                                       const std::string& scheme);
+
+} // namespace doris
