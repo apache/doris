@@ -542,11 +542,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (finalName == null) {
             return null;
         }
-        T table = tables.get(finalName);
-        if (table != null) {
-            tableIdToName.put(table.getId(), finalName);
-        }
-        return table;
+        return tables.getAndRunIfCurrent(
+                finalName,
+                (localTableName, table) -> !localTableName.equals(tableIdToName.get(table.getId())),
+                (localTableName, table) -> tableIdToName.put(table.getId(), localTableName));
     }
 
     // User-session paths resolve table names directly from the remote source and intentionally skip shared caches.
@@ -708,10 +707,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             tableNames.compute("", (ignored, current) ->
                     current == null ? null : current.withName(remoteTableName, localTableName));
         }
-        if (forceUpdateCacheState || tables.getIfPresent(localTableName) != null) {
-            tables.put(localTableName, table);
-        }
-        tableIdToName.put(table.getId(), localTableName);
+        tables.computeAndRun(
+                localTableName,
+                (ignored, current) -> forceUpdateCacheState || current != null ? table : null,
+                () -> tableIdToName.put(table.getId(), localTableName));
     }
 
     protected void invalidateTableCache(String localTableName) {
@@ -721,9 +720,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     current == null ? null : current.withoutLocalName(localTableName));
         }
         if (tables != null) {
-            tables.invalidateKey(localTableName);
+            tables.invalidateKeyAndRun(
+                    localTableName,
+                    () -> tableIdToName.entrySet().removeIf(
+                            entry -> entry.getValue().equals(localTableName)));
+        } else {
+            tableIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localTableName));
         }
-        tableIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localTableName));
     }
 
     private void invalidateAllTableCache() {
@@ -846,8 +849,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void addTableForTest(T tbl) {
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
-        tables.put(tbl.getName(), tbl);
-        tableIdToName.put(tbl.getId(), tbl.getName());
+        tables.computeAndRun(
+                tbl.getName(),
+                (ignored, current) -> tbl,
+                () -> tableIdToName.put(tbl.getId(), tbl.getName()));
     }
 
     /**

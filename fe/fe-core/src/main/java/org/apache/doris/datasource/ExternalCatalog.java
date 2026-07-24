@@ -772,11 +772,10 @@ public abstract class ExternalCatalog
             dbName = localDbName;
         }
 
-        ExternalDatabase<? extends ExternalTable> db = databases.get(dbName);
-        if (db != null) {
-            dbIdToName.put(db.getId(), dbName);
-        }
-        return db;
+        return databases.getAndRunIfCurrent(
+                dbName,
+                (localDbName, db) -> !localDbName.equals(dbIdToName.get(db.getId())),
+                (localDbName, db) -> dbIdToName.put(db.getId(), localDbName));
     }
 
     @Nullable
@@ -1037,8 +1036,10 @@ public abstract class ExternalCatalog
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
-        databases.put(db.getFullName(), db);
-        dbIdToName.put(db.getId(), db.getFullName());
+        databases.computeAndRun(
+                db.getFullName(),
+                (ignored, current) -> db,
+                () -> dbIdToName.put(db.getId(), db.getFullName()));
     }
 
     /**
@@ -1401,10 +1402,10 @@ public abstract class ExternalCatalog
             databaseNames.compute("", (ignored, current) ->
                     current == null ? null : current.withName(remoteDbName, localDbName));
         }
-        if (forceUpdateCacheState || databases.getIfPresent(localDbName) != null) {
-            databases.put(localDbName, db);
-        }
-        dbIdToName.put(dbId, localDbName);
+        databases.computeAndRun(
+                localDbName,
+                (ignored, current) -> forceUpdateCacheState || current != null ? db : null,
+                () -> dbIdToName.put(dbId, localDbName));
     }
 
     protected void invalidateDatabaseCache(String localDbName) {
@@ -1414,9 +1415,12 @@ public abstract class ExternalCatalog
                     current == null ? null : current.withoutLocalName(localDbName));
         }
         if (databases != null) {
-            databases.invalidateKey(localDbName);
+            databases.invalidateKeyAndRun(
+                    localDbName,
+                    () -> dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName)));
+        } else {
+            dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName));
         }
-        dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName));
     }
 
     private void invalidateDatabaseNamesOnly() {

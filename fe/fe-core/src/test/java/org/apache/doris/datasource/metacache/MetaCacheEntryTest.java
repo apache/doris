@@ -428,6 +428,200 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testHotValueActionDoesNotRunAfterInvalidate() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch valueObserved = new CountDownLatch(1);
+        CountDownLatch releaseAction = new CountDownLatch(1);
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    String::length,
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false) {
+                @Override
+                protected void beforeCurrentValueActionForTest(String key, Integer value) {
+                    valueObserved.countDown();
+                    awaitLatch(releaseAction);
+                }
+            };
+            AtomicInteger actionCounter = new AtomicInteger();
+            entry.put("k", 1);
+
+            Future<Integer> lookup = queryExecutor.submit(
+                    () -> entry.getAndRunIfCurrent("k", (key, value) -> actionCounter.incrementAndGet()));
+            Assert.assertTrue(valueObserved.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseAction.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), lookup.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(0, actionCounter.get());
+            Assert.assertNull(entry.getIfPresent("k"));
+        } finally {
+            releaseAction.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHotValueSkipsPublicationProtocolWhenActionIsNotRequired() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger protocolCounter = new AtomicInteger();
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    String::length,
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false) {
+                @Override
+                protected void beforeCurrentValueActionForTest(String key, Integer value) {
+                    protocolCounter.incrementAndGet();
+                }
+            };
+            AtomicInteger actionCounter = new AtomicInteger();
+            entry.put("k", 1);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.getAndRunIfCurrent(
+                    "k",
+                    (key, value) -> false,
+                    (key, value) -> actionCounter.incrementAndGet()));
+            Assert.assertEquals(0, protocolCounter.get());
+            Assert.assertEquals(0, actionCounter.get());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRejectedMissLoadDoesNotRunCurrentValueAction() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return 1;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            AtomicInteger actionCounter = new AtomicInteger();
+
+            Future<Integer> lookup = queryExecutor.submit(
+                    () -> entry.getAndRunIfCurrent("k", (key, value) -> actionCounter.incrementAndGet()));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), lookup.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(0, actionCounter.get());
+            Assert.assertNull(entry.getIfPresent("k"));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDisabledEntryRunsCurrentValueActionWithoutCaching() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    String::length,
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            AtomicInteger actionValue = new AtomicInteger();
+
+            Assert.assertEquals(Integer.valueOf(3),
+                    entry.getAndRunIfCurrent("key", (key, value) -> actionValue.set(value)));
+            Assert.assertEquals(3, actionValue.get());
+            Assert.assertNull(entry.getIfPresent("key"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDisabledEntryDoesNotRunActionAfterConcurrentInvalidate() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return 1;
+                    },
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            AtomicInteger actionCounter = new AtomicInteger();
+
+            Future<Integer> lookup = queryExecutor.submit(
+                    () -> entry.getAndRunIfCurrent("k", (key, value) -> actionCounter.incrementAndGet()));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), lookup.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(0, actionCounter.get());
+            Assert.assertNull(entry.getIfPresent("k"));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testComputeAndInvalidateActionsRunForColdAndDisabledEntries() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger enabledActions = new AtomicInteger();
+            MetaCacheEntry<String, Integer> enabledEntry = new MetaCacheEntry<>(
+                    "enabled",
+                    String::length,
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            enabledEntry.computeAndRun(
+                    "cold",
+                    (key, current) -> current == null ? null : 1,
+                    enabledActions::incrementAndGet);
+            enabledEntry.invalidateKeyAndRun("cold", enabledActions::incrementAndGet);
+            Assert.assertEquals(2, enabledActions.get());
+            Assert.assertNull(enabledEntry.getIfPresent("cold"));
+
+            AtomicInteger disabledActions = new AtomicInteger();
+            MetaCacheEntry<String, Integer> disabledEntry = new MetaCacheEntry<>(
+                    "disabled",
+                    String::length,
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            disabledEntry.computeAndRun("k", (key, current) -> 1, disabledActions::incrementAndGet);
+            disabledEntry.invalidateKeyAndRun("k", disabledActions::incrementAndGet);
+            Assert.assertEquals(2, disabledActions.get());
+            Assert.assertNull(disabledEntry.getIfPresent("k"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testManualMissLoadAllowsNullWithoutCaching() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {

@@ -541,6 +541,136 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testHotNamedDatabaseLookupDoesNotRestoreIdAfterUnregister() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch valueObserved = new CountDownLatch(1);
+        CountDownLatch releaseAction = new CountDownLatch(1);
+        try {
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+            Assertions.assertNotNull(db);
+
+            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
+                    new MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
+                            "database_hot_lookup_race",
+                            ignored -> db,
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false) {
+                        @Override
+                        protected void beforeCurrentValueActionForTest(
+                                String key, ExternalDatabase<? extends ExternalTable> value) {
+                            valueObserved.countDown();
+                            awaitLatch(releaseAction);
+                        }
+                    };
+            objectEntry.put(db.getFullName(), db);
+            catalog.setDatabasesEntryForTest(objectEntry);
+            catalog.clearDatabaseIdNamesForTest();
+
+            Future<ExternalDatabase<? extends ExternalTable>> lookup =
+                    queryExecutor.submit(() -> catalog.getDbNullable(db.getFullName()));
+            Assertions.assertTrue(valueObserved.await(3L, TimeUnit.SECONDS));
+            catalog.unregisterDatabase(db.getFullName());
+            releaseAction.countDown();
+
+            Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(objectEntry.getIfPresent(db.getFullName()));
+            Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+        } finally {
+            releaseAction.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testHotNamedDatabaseLookupSkipsLockWhenIdAlreadyMapped() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger actionInvocations = new AtomicInteger();
+        try {
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+            Assertions.assertNotNull(db);
+
+            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry =
+                    new MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>>(
+                            "database_skip_lock_when_mapped",
+                            ignored -> db,
+                            CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                            refreshExecutor,
+                            false) {
+                        @Override
+                        protected void beforeCurrentValueActionForTest(
+                                String key, ExternalDatabase<? extends ExternalTable> value) {
+                            actionInvocations.incrementAndGet();
+                        }
+                    };
+            objectEntry.put(db.getFullName(), db);
+            catalog.setDatabasesEntryForTest(objectEntry);
+            catalog.clearDatabaseIdNamesForTest();
+
+            // First lookup: id->name is empty, so the action runs (takes the publication lock) and writes the mapping.
+            ExternalDatabase<? extends ExternalTable> first = catalog.getDbNullable(db.getFullName());
+            Assertions.assertSame(db, first);
+            Assertions.assertEquals(1, actionInvocations.get());
+            Assertions.assertEquals(db.getFullName(), catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+
+            // Second lookup: id->name is already consistent, so the action is skipped (no publication lock).
+            ExternalDatabase<? extends ExternalTable> second = catalog.getDbNullable(db.getFullName());
+            Assertions.assertSame(db, second);
+            Assertions.assertEquals(1, actionInvocations.get());
+            Assertions.assertEquals(db.getFullName(), catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRejectedNamedDatabaseLoadDoesNotRestoreIdAfterUnregister() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+            Assertions.assertNotNull(db);
+
+            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry = new MetaCacheEntry<>(
+                    "database_miss_load_race",
+                    ignored -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return db;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            catalog.setDatabasesEntryForTest(objectEntry);
+            catalog.clearDatabaseIdNamesForTest();
+
+            Future<ExternalDatabase<? extends ExternalTable>> lookup =
+                    queryExecutor.submit(() -> catalog.getDbNullable(db.getFullName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            catalog.unregisterDatabase(db.getFullName());
+            releaseLoader.countDown();
+
+            Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(objectEntry.getIfPresent(db.getFullName()));
+            Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testGetDbNullableByIdLoadsColdObjectEntry() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
@@ -555,6 +685,71 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertNotNull(loadedDb);
         Assertions.assertEquals(dbId, loadedDb.getId());
         Assertions.assertSame(loadedDb, catalog.getCachedDatabaseForTest("db_by_id"));
+    }
+
+    @Test
+    public void testDisabledObjectCacheKeepsNamedDatabaseLookupIdNavigation() {
+        long originalTtl = Config.external_cache_expire_time_seconds_after_access;
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 0L;
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+
+            Assertions.assertNotNull(db);
+            Assertions.assertNull(catalog.getCachedDatabaseForTest("db_by_id"));
+            Assertions.assertEquals("db_by_id", catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+            Assertions.assertNotNull(catalog.getDbNullable(db.getId()));
+            Assertions.assertNull(catalog.getCachedDatabaseForTest("db_by_id"));
+        } finally {
+            Config.external_cache_expire_time_seconds_after_access = originalTtl;
+        }
+    }
+
+    @Test
+    public void testDisabledObjectCacheLookupDoesNotRestoreDatabaseIdAfterUnregister() throws Exception {
+        long originalTtl = Config.external_cache_expire_time_seconds_after_access;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 0L;
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+            Assertions.assertNotNull(db);
+
+            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledEntry = new MetaCacheEntry<>(
+                    "database_disabled_lookup_race",
+                    ignored -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return db;
+                    },
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false);
+            catalog.setDatabasesEntryForTest(disabledEntry);
+            catalog.clearDatabaseIdNamesForTest();
+
+            Future<ExternalDatabase<? extends ExternalTable>> lookup =
+                    queryExecutor.submit(() -> catalog.getDbNullable(db.getFullName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            catalog.unregisterDatabase(db.getFullName());
+            releaseLoader.countDown();
+
+            Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(disabledEntry.getIfPresent(db.getFullName()));
+            Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+            Assertions.assertNull(catalog.getCachedDatabaseForTest(db.getFullName()));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Config.external_cache_expire_time_seconds_after_access = originalTtl;
+        }
     }
 
     @Test
@@ -1136,6 +1331,15 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         void setDatabaseNamesEntryForTest(MetaCacheEntry<String, NameCacheValue> namesEntry) {
             databaseNames = namesEntry;
+        }
+
+        void setDatabasesEntryForTest(
+                MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databasesEntry) {
+            databases = databasesEntry;
+        }
+
+        void clearDatabaseIdNamesForTest() {
+            dbIdToName.clear();
         }
 
         NameCacheValue getCachedDatabaseNamesForTest() {
