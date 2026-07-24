@@ -16,6 +16,8 @@
 // under the License.
 
 import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.admin.DeleteTopicsOptions
+import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -292,6 +294,158 @@ suite("test_routine_load_alter","p0") {
         } finally {
             sql "stop routine load for ${jobName}"
             sql "truncate table ${tableName}"
+        }
+
+        // Test target-only switching and reject a target incompatible with the existing load description.
+        def srcTableName = "test_routine_load_alter_src"
+        def dstTableName = "test_routine_load_alter_dst"
+        def invalidDstTableName = "test_routine_load_alter_invalid_dst"
+        def alterTargetTopic = "test_routine_load_alter_target_table_${System.currentTimeMillis()}"
+        def alterTargetJob = "test_alter_target_table_${System.currentTimeMillis()}"
+        def alterTopicProducer = null
+        def alterTopicAdmin = null
+        def waitForRows = { String targetTable, long expectedRows ->
+            long actualRows = 0
+            for (int attempt = 0; attempt < 120; attempt++) {
+                def countResult = sql "select count(*) from ${targetTable}"
+                actualRows = (countResult[0][0] as Number).longValue()
+                if (actualRows >= expectedRows) {
+                    return actualRows
+                }
+                sleep(1000)
+            }
+            assertTrue(false, "timeout waiting for ${expectedRows} rows in ${targetTable}; actual=${actualRows}")
+        }
+        try {
+            sql "DROP TABLE IF EXISTS ${srcTableName}"
+            sql "DROP TABLE IF EXISTS ${dstTableName}"
+            sql "DROP TABLE IF EXISTS ${invalidDstTableName}"
+            for (String targetTable in [srcTableName, dstTableName]) {
+                sql """
+                    CREATE TABLE ${targetTable} (
+                        `k1` int NULL,
+                        `k2` string NULL,
+                        `v1` date NULL,
+                        `v2` string NULL,
+                        `v3` datetime NULL,
+                        `v4` string NULL
+                    ) ENGINE=OLAP
+                    DUPLICATE KEY(`k1`)
+                    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                    PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+                """
+            }
+            sql """
+                CREATE TABLE ${invalidDstTableName} (
+                    `k1` int NULL,
+                    `k2` string NULL,
+                    `v1` date NULL,
+                    `v2` string NULL,
+                    `v3` datetime NULL,
+                    `v4` string NULL,
+                    `required_col` int NOT NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+            """
+
+            def topicProps = new Properties()
+            topicProps.put("bootstrap.servers", kafka_broker.toString())
+            alterTopicAdmin = AdminClient.create(topicProps)
+            alterTopicAdmin.createTopics([new NewTopic(alterTargetTopic, 1, (short) 1)]).all().get()
+
+            def producerProps = new Properties()
+            producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka_broker.toString())
+            producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                    "org.apache.kafka.common.serialization.StringSerializer")
+            producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                    "org.apache.kafka.common.serialization.StringSerializer")
+            producerProps.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")
+            producerProps.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+            alterTopicProducer = new KafkaProducer<>(producerProps)
+
+            new File("${context.file.parent}/data/test_routine_load_alter.csv").readLines().each { line ->
+                alterTopicProducer.send(new ProducerRecord<>(alterTargetTopic, null, line)).get()
+            }
+            alterTopicProducer.flush()
+
+            sql """
+                CREATE ROUTINE LOAD ${alterTargetJob} ON ${srcTableName}
+                COLUMNS TERMINATED BY ",",
+                COLUMNS(k1, k2, v1, v2, v3, v4)
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${alterTargetTopic}",
+                    "kafka_partitions" = "0",
+                    "kafka_offsets" = "OFFSET_BEGINNING"
+                )
+            """
+            assertEquals(3L, waitForRows(srcTableName, 3L))
+
+            sql "PAUSE ROUTINE LOAD FOR ${alterTargetJob}"
+            def showBeforeAlter = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
+            assertEquals(srcTableName, showBeforeAlter[0][6].toString())
+            def progressBeforeAlter = showBeforeAlter[0][15].toString()
+
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${alterTargetJob}
+                    SET TARGET TABLE = "${invalidDstTableName}"
+                """
+                exception "Column has no default value, column=required_col"
+            }
+            def showAfterFailedAlter = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
+            assertEquals(srcTableName, showAfterFailedAlter[0][6].toString())
+            assertEquals(progressBeforeAlter, showAfterFailedAlter[0][15].toString())
+
+            sql """
+                ALTER ROUTINE LOAD FOR ${alterTargetJob}
+                SET TARGET TABLE = "${dstTableName}"
+            """
+            def showAfterAlter = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
+            assertEquals(dstTableName, showAfterAlter[0][6].toString())
+            assertEquals(progressBeforeAlter, showAfterAlter[0][15].toString())
+
+            [
+                "4,eab,2023-07-16,def,2023-07-21:05:48:31,ghi",
+                "5,eab,2023-07-17,def,2023-07-22:05:48:31,ghi",
+                "6,eab,2023-07-18,def,2023-07-23:05:48:31,ghi"
+            ].each { line ->
+                alterTopicProducer.send(new ProducerRecord<>(alterTargetTopic, null, line)).get()
+            }
+            alterTopicProducer.flush()
+            sql "RESUME ROUTINE LOAD FOR ${alterTargetJob}"
+            waitForRows(dstTableName, 3L)
+            sleep(5000)
+
+            qt_sql_alter_target_src "select k1, k2 from ${srcTableName} order by k1"
+            qt_sql_alter_target_dst "select k1, k2 from ${dstTableName} order by k1"
+        } finally {
+            try {
+                sql "STOP ROUTINE LOAD FOR ${alterTargetJob}"
+            } catch (Exception e) {
+                logger.warn("failed to stop alter target routine load: ${e.message}".toString())
+            }
+            if (alterTopicProducer != null) {
+                alterTopicProducer.close()
+            }
+            if (alterTopicAdmin != null) {
+                try {
+                    alterTopicAdmin.deleteTopics([alterTargetTopic.toString()],
+                            new DeleteTopicsOptions().timeoutMs(10000)).all().get()
+                } catch (Exception e) {
+                    logger.warn("failed to delete kafka topic ${alterTargetTopic}: ${e.message}".toString())
+                }
+                alterTopicAdmin.close()
+            }
         }
     }
 }

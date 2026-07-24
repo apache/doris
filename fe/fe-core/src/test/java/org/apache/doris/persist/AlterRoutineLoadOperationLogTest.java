@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
@@ -27,6 +28,8 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -61,7 +64,7 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.analyze();
 
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties, 2000L);
         log.write(out);
         out.flush();
         out.close();
@@ -81,8 +84,24 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
+        Assert.assertEquals(2000L, log2.getTargetTableId());
 
         in.close();
+    }
+
+    @Test
+    public void testDeserializeLogWithoutTargetTableId() throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            Text.writeString(out, "{\"jobId\":1000,\"jobProperties\":{},"
+                    + "\"dataSourceProperties\":null}");
+        }
+
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            AlterRoutineLoadJobOperationLog log = AlterRoutineLoadJobOperationLog.read(in);
+            Assert.assertEquals(1000L, log.getJobId());
+            Assert.assertEquals(0L, log.getTargetTableId());
+        }
     }
 
 

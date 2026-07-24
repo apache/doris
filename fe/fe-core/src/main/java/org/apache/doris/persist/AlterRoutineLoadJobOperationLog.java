@@ -37,12 +37,20 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private Map<String, String> jobProperties;
     @SerializedName(value = "dataSourceProperties")
     private AbstractDataSourceProperties dataSourceProperties;
+    @SerializedName(value = "targetTableId")
+    private long targetTableId;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
+        this(jobId, jobProperties, dataSourceProperties, 0L);
+    }
+
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            AbstractDataSourceProperties dataSourceProperties, long targetTableId) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
+        this.targetTableId = targetTableId;
     }
 
     public long getJobId() {
@@ -55,6 +63,10 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
 
     public AbstractDataSourceProperties getDataSourceProperties() {
         return dataSourceProperties;
+    }
+
+    public long getTargetTableId() {
+        return targetTableId;
     }
 
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {

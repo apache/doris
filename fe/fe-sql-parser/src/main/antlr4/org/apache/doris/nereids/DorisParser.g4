@@ -334,8 +334,11 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
-    | ALTER ROUTINE LOAD FOR name=multipartIdentifier 
-            (loadProperty (COMMA loadProperty)*)?
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier
+            (
+                SET TARGET TABLE EQ targetTable=STRING_LITERAL
+                | loadProperty (COMMA loadProperty)*
+            )?
             properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
@@ -2356,6 +2359,7 @@ nonReserved
     | SUM
     | TABLES
     | TAG
+    | TARGET
     | TASK
     | TASKS
     | TDE

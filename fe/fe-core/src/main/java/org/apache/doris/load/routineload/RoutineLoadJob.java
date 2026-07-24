@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -467,6 +468,27 @@ public abstract class RoutineLoadJob
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
             }
+        }
+    }
+
+    public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
+        if (isMultiTable) {
+            throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
+        }
+        List<ImportColumnDesc> columnsInfo = null;
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+            columnsInfo = new ArrayList<>(columnDescs.descs);
+        }
+        checkMeta(targetTable, new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo,
+                precedingFilter, whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol));
+
+        targetTable.readLock();
+        try {
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable,
+                    toNereidsRoutineLoadTaskInfo());
+            planner.plan(new TUniqueId(0, 0));
+        } finally {
+            targetTable.readUnlock();
         }
     }
 

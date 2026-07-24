@@ -9361,6 +9361,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
+        String targetTableName = ctx.targetTable == null
+                ? null : SqlLiteralUtils.parseStringLiteral(ctx.targetTable.getText());
 
         Map<String, String> properties = new HashMap<>();
         if (ctx.properties != null) {
@@ -9387,7 +9389,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties);
+        return new AlterRoutineLoadCommand(labelNameInfo, targetTableName,
+                loadPropertyMap, properties, dataSourceMapProperties);
     }
 
     @Override

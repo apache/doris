@@ -40,10 +40,13 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 
@@ -57,6 +60,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -235,6 +239,101 @@ public class KafkaRoutineLoadJobTest {
                                     && "PLAIN".equals(properties.get("sasl.mechanism"))),
                     Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))));
         }
+    }
+
+    @Test
+    public void testModifyTargetTableWithJobAndDataSourceProperties() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                101L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        KafkaProgress progress = new KafkaProgress(Maps.newHashMap());
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+
+        Map<String, String> sourceProperties = Maps.newHashMap();
+        sourceProperties.put("property.client.id", "target-switch");
+        KafkaDataSourceProperties dataSourceProperties = new KafkaDataSourceProperties(sourceProperties);
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone("UTC");
+        dataSourceProperties.analyze();
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "10");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.hasTargetTable()).thenReturn(true);
+        Mockito.when(command.getTargetTableId()).thenReturn(202L);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            routineLoadJob.modifyProperties(command);
+        }
+
+        Assert.assertEquals(202L, routineLoadJob.getTableId());
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        Assert.assertEquals(10L, ((Long) Deencapsulation.getField(routineLoadJob, "maxErrorNum")).longValue());
+        Assert.assertEquals("target-switch",
+                routineLoadJob.getCustomProperties().get("property.client.id"));
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+        Assert.assertEquals(202L, logCaptor.getValue().getTargetTableId());
+    }
+
+    @Test
+    public void testModifyTargetTableOnly() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                101L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        KafkaProgress progress = new KafkaProgress(Maps.newHashMap());
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.hasTargetTable()).thenReturn(true);
+        Mockito.when(command.getTargetTableId()).thenReturn(202L);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            routineLoadJob.modifyProperties(command);
+        }
+
+        Assert.assertEquals(202L, routineLoadJob.getTableId());
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+        Assert.assertEquals(202L, logCaptor.getValue().getTargetTableId());
+        Assert.assertTrue(logCaptor.getValue().getJobProperties().isEmpty());
+        Assert.assertNull(logCaptor.getValue().getDataSourceProperties());
+    }
+
+    @Test
+    public void testReplayModifyPropertiesSwitchesTargetTableWithoutResettingProgress() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                101L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<Integer, Long> partitionToOffset = Maps.newHashMap();
+        partitionToOffset.put(1, 123L);
+        KafkaProgress progress = new KafkaProgress(partitionToOffset);
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+
+        routineLoadJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                1L, Maps.newHashMap(), null));
+        Assert.assertEquals(101L, routineLoadJob.getTableId());
+
+        routineLoadJob.replayModifyProperties(new AlterRoutineLoadJobOperationLog(
+                1L, Maps.newHashMap(), null, 202L));
+        Assert.assertEquals(202L, routineLoadJob.getTableId());
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        Assert.assertEquals(Long.valueOf(123L),
+                ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
     }
 
     @Test
