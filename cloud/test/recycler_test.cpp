@@ -8283,20 +8283,24 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
 
     auto txn_kv = mem_txn_kv;
     ASSERT_TRUE(txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
-    make_multiple_txn_info_kvs(txn_kv, 20000, 15000);
-    check_multiple_txn_info_kvs(txn_kv, 20000);
+    make_multiple_txn_info_kvs(txn_kv, 40000, 30000);
+    check_multiple_txn_info_kvs(txn_kv, 40000);
 
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
     };
-    size_t recycle_txn_info_keys_cnt = 0;
-    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
-                      [&](auto&& args) {
-                          auto* recycle_txn_info_keys =
-                                  try_any_cast<std::vector<std::string>*>(args[0]);
-                          recycle_txn_info_keys_cnt += recycle_txn_info_keys->size();
-                      });
+    size_t recycle_txn_keys_cnt = 0;
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_keys_by_label",
+            [&](auto&& args) {
+                auto* recycle_txn_keys_by_label =
+                        try_any_cast<std::unordered_map<std::string, std::vector<std::string>>*>(
+                                args[0]);
+                for (const auto& entry : *recycle_txn_keys_by_label) {
+                    recycle_txn_keys_cnt += entry.second.size();
+                }
+            });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
         *ret = -1;
@@ -8314,7 +8318,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     std::cout << "recycle expired txn label cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
               << "ms" << std::endl;
-    check_multiple_txn_info_kvs(txn_kv, (20000 - recycle_txn_info_keys_cnt));
+    check_multiple_txn_info_kvs(txn_kv, (40000 - recycle_txn_keys_cnt));
 }
 TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     config::label_keep_max_second = 0;
@@ -8465,7 +8469,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     std::cout << "Update label after count: " << update_label_after_count << std::endl;
     std::cout << "Transaction conflict count: " << txn_conflict_count << std::endl;
 
-    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+    EXPECT_EQ(txn_conflict_count, 0) << "txn conflicts should not occur within one label group";
 
     std::unique_ptr<Transaction> verify_txn;
     ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
@@ -8493,7 +8497,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     }
 }
 
-TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
+TEST(RecyclerTest, recycle_txn_label_propagate_delete_error_test) {
     config::label_keep_max_second = 0;
     config::recycle_pool_parallelism = 20;
 
@@ -8639,10 +8643,47 @@ TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
                               std::make_shared<TxnLazyCommitter>(mem_txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
-    // deal with conflict but error during recycle
+    // Propagate a recycle error without relying on an internal label conflict.
     ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
 
-    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+    EXPECT_EQ(txn_conflict_count, 0) << "txn conflicts should not occur within one label group";
+}
+
+TEST(RecyclerTest, recycle_txn_label_retry_after_conflict_test) {
+    config::label_keep_max_second = 0;
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+    make_single_txn_related_kvs(mem_txn_kv, 0, 1);
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> delete_attempt_count {0};
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error",
+                      [&](auto&& args) {
+                          auto* ret = try_any_cast<int*>(args[0]);
+                          const int attempt = delete_attempt_count.fetch_add(1);
+                          *ret = attempt == 0 ? 1 : 0;
+                      });
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    EXPECT_EQ(delete_attempt_count, 2);
+
+    std::unique_ptr<Transaction> verify_txn;
+    ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+    const std::string recycle_key = recycle_txn_key({instance_id, 0, 1000000});
+    std::string recycle_value;
+    EXPECT_EQ(verify_txn->get(recycle_key, &recycle_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(RecyclerTest, recycle_restore_job_complete_state) {
