@@ -169,7 +169,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitMode, olapTable.getGroupCommitMode());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -184,7 +183,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitIntervalMs, olapTable.getGroupCommitIntervalMs());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -199,7 +197,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitDataBytes, olapTable.getGroupCommitDataBytes());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -362,7 +359,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     throw new UserException("enable_mow_light_delete property is "
                             + "not supported for unique merge-on-read table");
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
