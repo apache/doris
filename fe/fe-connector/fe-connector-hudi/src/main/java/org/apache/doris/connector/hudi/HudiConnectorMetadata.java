@@ -645,12 +645,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
-        return collectPartitions((HudiTableHandle) handle);
+        // Query-pruning / MTMV enumeration: read the cache (bypassCache=false).
+        return collectPartitions((HudiTableHandle) handle, false);
     }
 
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
-        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle);
+        // SHOW PARTITIONS / partitions() TVF: list FRESH (bypassCache=true) so a newly hive-synced partition is
+        // visible immediately, not up to a TTL later.
+        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle, true);
         List<String> names = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             names.add(partition.getPartitionName());
@@ -661,7 +664,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<List<String>> listPartitionValues(ConnectorSession session,
             ConnectorTableHandle handle, List<String> partitionColumns) {
-        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle);
+        // partition_values() TVF (user-facing enumeration): list FRESH (bypassCache=true), like listPartitionNames.
+        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle, true);
         List<List<String>> result = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             Map<String, String> rawValues = partition.getPartitionValues();
@@ -684,7 +688,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
      * table). Explicit time-travel (non-latest) partition listing is a later step.
      */
-    private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle) {
+    private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle, boolean bypassCache) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             return Collections.emptyList();
@@ -693,8 +697,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // hive-sync tables register their partitions in HMS: list the names from there (already authed via
             // hmsClient, no metaClient), like legacy. The instant still comes from the timeline. If HMS has none
             // (a hive-sync table not yet synced), fall back to the hudi metadata listing (legacy parity).
-            List<String> hmsNames = hmsClient.listPartitionNames(
-                    handle.getDbName(), handle.getTableName(), -1);
+            // bypassCache selects the freshness contract (mirrors HiveConnectorMetadata.collectPartitionNames):
+            // the SHOW-PARTITIONS / partition_values-TVF path (listPartitionNames / listPartitionValues) lists
+            // FRESH — legacy read the raw pooled client, so an externally hive-synced partition must not stay
+            // invisible until TTL/REFRESH — while the query-pruning / MTMV path (listPartitions) reads the cache.
+            List<String> hmsNames = bypassCache
+                    ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
+                    : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
             if (hmsNames != null && !hmsNames.isEmpty()) {
                 return buildPartitionInfos(hmsNames, partKeyNames, latestInstant(handle));
             }
