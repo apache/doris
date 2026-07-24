@@ -6905,8 +6905,7 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
 
             s3_conf = std::move(*conf);
         } else if (stage_access_type == StagePB::BUCKET_ACL) {
-            auto conf =
-                    S3Conf::from_obj_store_info(object_store_info, true /* skip_aksk */);
+            auto conf = S3Conf::from_obj_store_info(object_store_info, true /* skip_aksk */);
             if (!conf) {
                 return -1;
             }
