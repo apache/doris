@@ -39,6 +39,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/countdown_latch.h"
 #include "util/lru_cache.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -257,6 +258,80 @@ public:
 
     void insert(const CacheKey& key, int64_t version, CacheResult& result,
                 const std::vector<int>& solt_orders, int64_t cache_size, int64_t delta_count = 0);
+
+    // ---- cloud presync single-flight registry (internal to QueryCacheRuntime) ----
+    // Fragment runtimes are private per PipelineFragmentContext, so without this
+    // registry N concurrent identical queries hitting the same stale entry would
+    // each submit the full per-tablet sync fan-out to the (bounded) engine pool:
+    // duplicates waste queue capacity and, during a meta-service brownout, park
+    // workers on the same per-tablet sync lock, denying admission to unrelated
+    // keys. The registry, keyed by (cache_key, version), lets the first arriving
+    // runtime own the fan-out while later identical runtimes wait on the SAME
+    // completion latch under their own deadlines. It lives here because this
+    // cache object is the one BE-global thing every runtime already shares.
+    struct PresyncFlight {
+        // The same shared pieces a private fan-out uses (see
+        // _presync_cloud_delta_tablets); sharing the struct just widens who may
+        // wait on them. Tasks capture the individual shared_ptrs, so the pieces
+        // outlive both the registry entry and every waiter.
+        // Per-slot fallback reason, or nullptr/"" for a synced-OK (or skipped)
+        // tablet. A `const char*` to a static string literal, NEVER an owning
+        // std::string: publishing a slot is then a plain pointer store that cannot
+        // allocate, so it is safe on the bad_alloc unwind path (publish_unsubmitted)
+        // where constructing a std::string could throw again inside a Defer and
+        // std::terminate. The merged tablet-id map materializes the strings once,
+        // after the fan-out latch settles. A plain std::vector; its O(tablets) buffer
+        // is covered by the flight's single lump charge to the query-cache MemTracker
+        // (see make_flight and ~PresyncFlight), not an allocator-aware container, so
+        // nothing in its teardown switches trackers or can throw.
+        std::shared_ptr<std::vector<const char*>> per_range_reason;
+        std::shared_ptr<CountDownLatch> fanout_done;
+        std::shared_ptr<std::vector<std::atomic<bool>>> slot_counted;
+        std::shared_ptr<std::atomic<bool>> abandoned;
+        // The owner's tablet ids in slot order, so the index-aligned slots map
+        // back to tablets by the OWNER's positions, which every waiter shares.
+        // A joining runtime must NOT key the merged reasons off its own
+        // scan-range order: build_cache_key sorts tablet ids, so two runtimes
+        // whose scan ranges differ only in order share a flight, and reading a
+        // slot through the joiner's own positions would misassign the owner's
+        // per-slot reason to the wrong tablet. Written once at creation, read
+        // (never mutated) by every waiter, so no lock is needed. A plain
+        // std::vector whose O(tablets) buffer is covered by the flight's single lump
+        // charge to the query-cache MemTracker (see make_flight and ~PresyncFlight).
+        std::shared_ptr<std::vector<int64_t>> tablet_ids;
+        // This flight's own registry key (cache_key + '@' + version). Stored so
+        // the fan-out's final publisher can reap a drained-but-waiterless flight
+        // by key without capturing the string into every task closure -- see the
+        // reap-on-drain rule below. Written once at creation, then read-only.
+        std::string key;
+        // Slot count, to sanity-check that a joining runtime's scan-range set
+        // matches. cache-key equality implies it (the key embeds the sorted
+        // tablet set), so it is an invariant, DCHECK_EQ'd at the join site.
+        size_t slots = 0;
+        // Interested waiters (owner included), guarded by _presync_flights_lock.
+        // The registry entry is reaped only once the fan-out has DRAINED (latch
+        // at 0): either by the last waiter to leave (its leave_flight Defer) or,
+        // if every waiter left before the fan-out drained (a timed-out tombstone),
+        // by the final task that drives the latch to 0 when it observes zero
+        // waiters. A last leaver that leaves while tasks still run keeps the entry
+        // as a tombstone and sets `abandoned` so not-yet-started tasks skip.
+        int waiters = 0;
+
+        // The query-cache MemTracker and the estimated retained bytes make_flight
+        // charged as one lump for THIS flight (object + all O(tablets) buffers +
+        // control blocks + key). The destructor releases exactly this many bytes off
+        // this tracker, so a flight is charged on creation and refunded on its final
+        // teardown (whether it wins the registry, is dropped as a losing candidate, or
+        // is reaped as a tombstone). release() is a plain atomic op, so the destructor
+        // never allocates and never throws. Null tracker means unaccounted (never armed
+        // -- e.g. an exception before make_flight finished), in which case the refund is
+        // skipped and nothing was consumed.
+        std::shared_ptr<MemTrackerLimiter> mem_tracker;
+        int64_t tracked_bytes = 0;
+        ~PresyncFlight();
+    };
+    std::mutex _presync_flights_lock;
+    std::unordered_map<std::string, std::shared_ptr<PresyncFlight>> _presync_flights;
 };
 
 // The per-fragment-instance decision of how the query cache participates in the
@@ -337,8 +412,13 @@ class QueryCacheRuntime {
 public:
     // `cache` is injectable for tests; production callers pass nullptr and the
     // global instance is used.
-    explicit QueryCacheRuntime(const TQueryCacheParam& param, QueryCache* cache = nullptr)
-            : _param(param), _cache(cache != nullptr ? cache : QueryCache::instance()) {}
+    // Takes the param BY VALUE and moves it into `_param`, so a caller that no
+    // longer needs its copy (the fragment-context gate builds a mutated
+    // `runtime_param` solely to pass here) can `std::move` it in and avoid a second
+    // O(tablets) deep copy of TQueryCacheParam; an lvalue caller (the tests) still
+    // copies exactly once, as before.
+    explicit QueryCacheRuntime(TQueryCacheParam param, QueryCache* cache = nullptr)
+            : _param(std::move(param)), _cache(cache != nullptr ? cache : QueryCache::instance()) {}
 
     QueryCache* cache() const { return _cache; }
 
@@ -346,6 +426,46 @@ public:
     // the query cache. Called while building the operator tree (single
     // threaded, before any local state init), so no locking is needed.
     void disable_for_binlog_scan() { _binlog_scan = true; }
+
+    // BE-side mirror of the FE incremental knob gates (QueryCacheNormalizer.
+    // computeAllowIncremental): freshness tolerance defeats an incremental merge
+    // for every table (the delta capture is version-exact by design, forcing the
+    // un-warmed reads the query chose to skip), and prefer-cached-rowset does so
+    // for every non-merge-on-write index (a MOW read is version-exact regardless
+    // of the knob, see CloudTablet::capture_consistent_versions_unlocked). A
+    // same-version FE already clears allow_incremental in these cases, making
+    // this re-derivation a no-op; it exists for the rolling-upgrade window where
+    // an older FE without the knob gates still sets allow_incremental while a
+    // knob is active. Intent, not correctness: the merged entry such a query
+    // would produce is version-exact either way; the gate preserves the knob's
+    // "skip un-warmed reads" promise. With the optional is_merge_on_write field
+    // absent (that same older FE), prefer suppresses MOW too, the conservative
+    // direction. Pure so the truth table is unit-testable; the caller (the
+    // fragment context, which has the session variables) applies it cloud-only,
+    // since both knobs are inert on local storage.
+    static bool cloud_knobs_suppress_incremental(bool freshness_tolerance_active,
+                                                 bool prefer_cached_rowset_active,
+                                                 bool is_merge_on_write) {
+        return freshness_tolerance_active || (prefer_cached_rowset_active && !is_merge_on_write);
+    }
+
+    // The whole gate as a pure function, so the wiring (cloud-only, gated by the
+    // FE's request and the table type) is unit-testable without standing up a
+    // fragment and constructing operators: returns the effective
+    // allow_incremental. The fragment context passes config::is_cloud_mode() and
+    // its session variables. The gate is a no-op off cloud (the knobs are inert
+    // on local storage) and only ever clears a request, never grants one.
+    static bool gate_allow_incremental_for_cloud_knobs(bool requested_allow_incremental,
+                                                       bool is_merge_on_write, bool cloud_mode,
+                                                       bool freshness_tolerance_active,
+                                                       bool prefer_cached_rowset_active) {
+        if (cloud_mode && requested_allow_incremental &&
+            cloud_knobs_suppress_incremental(freshness_tolerance_active,
+                                             prefer_cached_rowset_active, is_merge_on_write)) {
+            return false;
+        }
+        return requested_allow_incremental;
+    }
 
     // Idempotent: the first call for a given instance (identified by the cache
     // key derived from its scan ranges) makes the decision, later calls return
@@ -361,6 +481,33 @@ public:
         std::lock_guard<std::mutex> lock(_lock);
         _decisions[cache_key] = std::move(decision);
     }
+
+    // Exercise the cloud presync fan-out (a private static) directly, so unit
+    // tests can assert the <= 0 skip-launch and the engine-stopped bail without
+    // standing up a full fragment. The default null cache skips the single-
+    // flight registry (a private, uncoalesced fan-out), which is exactly what
+    // these early-path tests need.
+    static std::unordered_map<int64_t, std::string> presync_cloud_delta_tablets_for_test(
+            const std::vector<TScanRangeParams>& scan_ranges, int64_t current_version,
+            QueryCache* cache = nullptr, const std::string& cache_key = "") {
+        return _presync_cloud_delta_tablets(cache, cache_key, scan_ranges, current_version);
+    }
+
+    // Drives the concurrency-cap counter so a test can simulate the cap being
+    // reached without standing up real concurrent parked waiters.
+    static std::atomic<int>& presync_active_waiters_for_test() { return _presync_active_waiters; }
+
+    // Drives _capture_tablet_delta (a private member) directly so a test can
+    // prove the capture-site get_tablet is cache-only: with no recorded presync
+    // reason but the tablet absent from the cloud tablet cache (evicted after a
+    // successful presync), the classification must fall back WITHOUT reissuing a
+    // synchronous meta-service load on this admission thread.
+    bool capture_tablet_delta_for_test(
+            int64_t tablet_id, int64_t cached_version,
+            const std::unordered_map<int64_t, std::string>& presync_reasons,
+            QueryCacheInstanceDecision* decision) {
+        return _capture_tablet_delta(tablet_id, cached_version, presync_reasons, decision);
+    }
 #endif
 
 private:
@@ -373,10 +520,38 @@ private:
     bool _try_prepare_incremental(const std::vector<TScanRangeParams>& scan_ranges,
                                   QueryCacheInstanceDecision* decision);
 
+    // Cloud only: bring every append-only scanned tablet's local view up to the
+    // queried version in parallel (a fork-join of sync_rowsets, matching the
+    // scan node's own tablet-sync fan-out) before the serial per-tablet capture
+    // below runs, instead of issuing those RPCs one tablet at a time on the
+    // shared prepare thread. This is the single sync per tablet: _capture_
+    // tablet_delta consumes the result here and does not sync again. Concurrent
+    // identical runtimes are coalesced through the cache's single-flight
+    // registry keyed by (cache_key, current_version): the first arrival owns
+    // the fan-out, later ones wait on the same completion latch under their own
+    // deadlines (a null `cache` skips coalescing, test-only). The number of
+    // decisions that may block in the fan-out wait at once is soft-capped
+    // (config::query_cache_max_concurrent_decision_sync) so a meta-service brownout
+    // cannot park the whole light admission pool; a decision arriving over the cap
+    // returns every tablet as "cloud decision sync at capacity" and recomputes in
+    // full. Returns the per-tablet fallback reasons the sync produced (keyed by
+    // tablet id, only failures present): the over-capacity reason above, a cast
+    // failure ("tablet is not a cloud tablet"), a worker-side load failure ("cloud
+    // tablet load failed"), an infrastructure sync failure ("cloud rowset sync
+    // failed"), or a raised exception ("cloud tablet sync raised"). Tablets that are
+    // not append-only are skipped (no wasted RPC); _capture_tablet_delta rejects them
+    // at its own keys-type check.
+    static std::unordered_map<int64_t, std::string> _presync_cloud_delta_tablets(
+            QueryCache* cache, const std::string& cache_key,
+            const std::vector<TScanRangeParams>& scan_ranges, int64_t current_version);
+
     // Validate one tablet for incremental merge and capture its delta read
     // source of (cached_version, current_version]. On any failure records the
-    // fallback reason in the decision and returns false.
+    // fallback reason in the decision and returns false. In cloud mode the view
+    // sync already ran in _presync_cloud_delta_tablets; its per-tablet failure
+    // reasons arrive through presync_reasons.
     bool _capture_tablet_delta(int64_t tablet_id, int64_t cached_version,
+                               const std::unordered_map<int64_t, std::string>& presync_reasons,
                                QueryCacheInstanceDecision* decision);
 
     // Merge-on-write only: true if any delete-bitmap entry stamped with a
@@ -398,6 +573,11 @@ private:
     // Shared by every instance whose cache key cannot be built (see
     // get_or_make_decision): one immutable MISS decision, one log line.
     std::shared_ptr<QueryCacheInstanceDecision> _invalid_decision;
+
+    // BE-global soft cap counter for concurrent decision-sync waiters (see
+    // _presync_cloud_delta_tablets). Static because the bound is process-wide across
+    // every fragment runtime, not per instance.
+    static std::atomic<int> _presync_active_waiters;
 };
 
 } // namespace doris

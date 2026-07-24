@@ -103,6 +103,54 @@ CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
     _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
             std::make_shared<CloudTimeSeriesCumulativeCompactionPolicy>();
     _startup_timepoint = std::chrono::system_clock::now();
+    // Build the dedicated, bounded query-cache delta pre-sync pool up front (see
+    // the member declaration): a decision fan-out must never find it null, and the
+    // destructor's stop() drains it before _meta_mgr/_tablet_mgr die. A build
+    // failure here means the process cannot create threads at startup, already
+    // fatal, so CHECK rather than limp on with a null pool.
+    //
+    // Report a misconfigured sizing loudly instead of silently coercing it: an
+    // operator who set an invalid value must see why the BE refused to start rather
+    // than run with a capacity that differs from the config (invalid state fails, it
+    // never silently continues). A max of >= 1 is required (a zero-width pool can run
+    // nothing) and the queue bound must be non-negative.
+    int32_t qc_sync_threads = config::query_cache_delta_sync_thread;
+    int32_t qc_sync_queue = config::query_cache_delta_sync_max_pending_tasks;
+    CHECK_GE(qc_sync_threads, 1) << "query_cache_delta_sync_thread must be >= 1, got "
+                                 << qc_sync_threads;
+    CHECK_GE(qc_sync_queue, 0) << "query_cache_delta_sync_max_pending_tasks must be >= 0, got "
+                               << qc_sync_queue;
+    // Pre-start all workers here (min == max), at engine construction, OFF the query
+    // admission path. The decision fan-out submits from operator init, which runs on
+    // the bounded light_work_pool, and ThreadPool creates workers synchronously
+    // inside submit_func when the pool is short of the demand (creation can take
+    // hundreds of ms). A lazily grown pool (min = 0) would move that creation latency
+    // onto the query's critical path and, worse, could hand the fan-out a submit that
+    // enqueued a task yet returned an error at zero live threads. A fixed pool sized
+    // up front keeps submit_func pure enqueue (it never creates a thread, so it never
+    // blocks), so the fast-fail budget is spent on the sync RPCs rather than on
+    // spawning threads. The cost is a fixed set of mostly-idle workers on every cloud
+    // BE even when this opt-in feature is unused; that steady footprint is the
+    // deliberate trade for predictable, non-blocking admission.
+    Status qc_pool_st = ThreadPoolBuilder("QueryCacheDeltaSyncThreadPool")
+                                .set_min_threads(qc_sync_threads)
+                                .set_max_threads(qc_sync_threads)
+                                .set_max_queue_size(qc_sync_queue)
+                                .build(&_query_cache_delta_sync_pool);
+    CHECK(qc_pool_st.ok()) << "failed to build QueryCacheDeltaSyncThreadPool: " << qc_pool_st;
+    // A successful build does NOT prove the workers exist: ThreadPool::init()
+    // deliberately ignores per-thread creation failures (a worker can be created
+    // later on submit). Verify the fixed worker set actually started and fail
+    // construction if not, so the fan-out's "submit never creates a thread" property
+    // is a guarantee, not a hope -- without this a startup thread shortage would
+    // silently push synchronous thread creation back onto the query admission path,
+    // exactly the latency this fixed pool exists to avoid. num_threads() counts
+    // started plus pending-start workers, so it equals the request precisely when
+    // every worker was spawned.
+    CHECK_EQ(_query_cache_delta_sync_pool->num_threads(), qc_sync_threads)
+            << "QueryCacheDeltaSyncThreadPool started "
+            << _query_cache_delta_sync_pool->num_threads() << " of " << qc_sync_threads
+            << " workers";
 }
 
 CloudStorageEngine::~CloudStorageEngine() {
@@ -272,6 +320,20 @@ void CloudStorageEngine::stop() {
         if (t) {
             t->join();
         }
+    }
+
+    // Drain the query-cache delta pre-sync fan-out FIRST, before the pools its
+    // sync_rowsets callbacks depend on: a merge-on-write delete-bitmap sync
+    // submits file-read work to _sync_delete_bitmap_thread_pool /
+    // _calc_tablet_delete_bitmap_task_thread_pool and blocks on it. Shutting a
+    // dependency pool down first would discard its queued callbacks and leave a
+    // query-cache worker blocked forever, hanging this drain and BE shutdown.
+    // Draining this pool first lets its in-flight workers finish against the
+    // still-live dependency pools. stop() also runs before any member is
+    // destroyed (~CloudStorageEngine calls it first), so those tasks see live
+    // _meta_mgr/_tablet_mgr as well.
+    if (_query_cache_delta_sync_pool) {
+        _query_cache_delta_sync_pool->shutdown();
     }
 
     if (_base_compaction_thread_pool) {

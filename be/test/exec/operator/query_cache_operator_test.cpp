@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "cloud/config.h"
 #include "core/block/block.h"
 #include "exec/operator/cache_sink_operator.h"
 #include "exec/operator/cache_source_operator.h"
@@ -50,7 +51,11 @@ private:
 };
 
 struct QueryCacheOperatorTest : public ::testing::Test {
+    std::string _saved_deploy_mode;
+    std::string _saved_cloud_unique_id;
     void SetUp() override {
+        _saved_deploy_mode = config::deploy_mode;
+        _saved_cloud_unique_id = config::cloud_unique_id;
         state = std::make_shared<MockRuntimeState>();
         state->_batch_size = 10;
         child_op = std::make_unique<QueryCacheMockChildOperator>();
@@ -77,6 +82,15 @@ struct QueryCacheOperatorTest : public ::testing::Test {
         state.reset();
         source.reset();
         sink.reset();
+        // Restore deploy_mode exception-safely: the cloud write-back tests set it
+        // to "cloud" mid-body; an inline restore would leak "cloud" into a later
+        // test (e.g. test_write_back_kept_on_local_with_freshness_set) if anything
+        // between the set and the restore threw. Restore cloud_unique_id too:
+        // is_cloud_mode() is deploy_mode=="cloud" || !cloud_unique_id.empty(), so
+        // a sibling test that leaves cloud_unique_id set would otherwise flip this
+        // suite's local-mode assumption and fail the local write-back test.
+        config::deploy_mode = _saved_deploy_mode;
+        config::cloud_unique_id = _saved_cloud_unique_id;
     }
     void create_local_state() {
         shared_state = sink->create_shared_state();
@@ -1014,6 +1028,214 @@ TEST_F(QueryCacheOperatorTest, test_failed_final_delta_merge_publishes_nothing) 
     doris::QueryCacheHandle stale_handle;
     EXPECT_TRUE(query_cache->lookup_any_version(cache_key, &stale_handle));
     EXPECT_EQ(stale_handle.get_cache_version(), 100);
+}
+
+TEST_F(QueryCacheOperatorTest, test_freshness_fill_does_not_write_back) {
+    // A cloud query under freshness tolerance may legally read below the
+    // queried version (its version-graph walk halts at the warmed boundary),
+    // yet the entry would be stamped with the queried version; and since the
+    // freshness knobs carry no affectQueryResult annotation, that entry would
+    // share its cache key with freshness-free runs of the same statement,
+    // poisoning their exact hits and incremental merges with the missing tail
+    // rows. So such a query must be a pure cache consumer: the write-back is
+    // suppressed at init, and nothing may land in the cache even after blocks
+    // flow through.
+    config::deploy_mode = "cloud";
+    state->set_query_freshness_tolerance_ms(5000);
+
+    sink = std::make_unique<CacheSinkOperatorX>();
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    source = std::make_unique<CacheSourceOperatorX>(
+            &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
+            std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    create_local_state();
+
+    EXPECT_FALSE(source_local_state->_need_insert_cache);
+    {
+        auto block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5});
+        auto st = sink->sink(state.get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+    {
+        Block block;
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 5);
+        EXPECT_EQ(query_cache->get_element_count(), 0);
+    }
+}
+
+TEST_F(QueryCacheOperatorTest, test_prefer_cached_fill_does_not_write_back) {
+    // Prefer-cached-rowset (cloud) may OVERSHOOT the queried version: unlike
+    // the plain capture, its version-graph walk never clips an edge whose end
+    // lies past the requested window, so a warmed compaction rowset spanning
+    // the queried version drags the read beyond it while the entry would
+    // still be stamped with the queried version. Sharing the cache key with
+    // plain runs (no affectQueryResult annotation), such an entry would serve
+    // ahead-of-version rows on an exact hit and double-count the overshot
+    // range on an incremental merge. So a prefer-cached query must not write
+    // back either.
+    config::deploy_mode = "cloud";
+    state->set_enable_prefer_cached_rowset(true);
+
+    sink = std::make_unique<CacheSinkOperatorX>();
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    source = std::make_unique<CacheSourceOperatorX>(
+            &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
+            std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    create_local_state();
+
+    EXPECT_FALSE(source_local_state->_need_insert_cache);
+    {
+        auto block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5});
+        auto st = sink->sink(state.get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+    {
+        Block block;
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 5);
+        EXPECT_EQ(query_cache->get_element_count(), 0);
+    }
+}
+
+TEST_F(QueryCacheOperatorTest, test_write_back_kept_on_cloud_without_freshness) {
+    // The freshness suppression must not clip an ordinary cloud query: with
+    // the tolerance unset, a cloud MISS still writes its result back.
+    config::deploy_mode = "cloud";
+
+    sink = std::make_unique<CacheSinkOperatorX>();
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    source = std::make_unique<CacheSourceOperatorX>(
+            &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
+            std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    create_local_state();
+
+    EXPECT_TRUE(source_local_state->_need_insert_cache);
+}
+
+TEST_F(QueryCacheOperatorTest, test_write_back_kept_on_local_with_freshness_set) {
+    // Freshness tolerance is inert on local storage (the scan clamps it to
+    // disabled), so a local deployment must keep writing back even when the
+    // session carries a tolerance value: the suppression is cloud-only.
+    state->set_query_freshness_tolerance_ms(5000);
+
+    sink = std::make_unique<CacheSinkOperatorX>();
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    source = std::make_unique<CacheSourceOperatorX>(
+            &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
+            std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    create_local_state();
+
+    EXPECT_TRUE(source_local_state->_need_insert_cache);
+}
+
+TEST_F(QueryCacheOperatorTest, test_prefer_cached_fill_on_cloud_mow_writes_back) {
+    // Prefer-cached-rowset is ignored by cloud storage for a merge-on-write
+    // UNIQUE table (CloudTablet::capture_consistent_versions_unlocked guards the
+    // prefer branch on !enable_unique_key_merge_on_write()), so such a read
+    // still lands on the exact queried version. Its fill is therefore
+    // version-exact and safe to cache; FE reports the table type through
+    // TQueryCacheParam.is_merge_on_write so BE keeps the write-back rather than
+    // suppressing it. Mirrors test_prefer_cached_fill_does_not_write_back with
+    // the MOW flag set: the flag is what flips the outcome.
+    config::deploy_mode = "cloud";
+    state->set_enable_prefer_cached_rowset(true);
+
+    sink = std::make_unique<CacheSinkOperatorX>();
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    cache_param.__set_is_merge_on_write(true);
+    source = std::make_unique<CacheSourceOperatorX>(
+            &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
+            std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    create_local_state();
+
+    EXPECT_TRUE(source_local_state->_need_insert_cache);
+}
+
+TEST_F(QueryCacheOperatorTest, test_freshness_fill_on_cloud_mow_still_suppressed) {
+    // The MOW carve-out is prefer-only: freshness tolerance has no MOW guard on
+    // the storage side (CloudTablet honors it for every table type), so a
+    // freshness read can still stop below or overshoot the queried version even
+    // on a merge-on-write table. Its fill must stay suppressed regardless of the
+    // is_merge_on_write flag -- proving the carve-out did not widen to freshness.
+    config::deploy_mode = "cloud";
+    state->set_query_freshness_tolerance_ms(5000);
+
+    sink = std::make_unique<CacheSinkOperatorX>();
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 1000;
+    cache_param.__set_is_merge_on_write(true);
+    source = std::make_unique<CacheSourceOperatorX>(
+            &pool, /*plan_node_id=*/0, /*operator_id=*/0, cache_param,
+            std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
+    create_local_state();
+
+    EXPECT_FALSE(source_local_state->_need_insert_cache);
 }
 
 } // namespace doris

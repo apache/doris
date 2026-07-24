@@ -668,7 +668,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                   SyncRowsetStats* sync_stats) {
     using namespace std::chrono;
 
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
+    // Forward `options` so a test callback can react to sync_delete_bitmap the
+    // way the real body does below (the delete-bitmap sync is gated on it), i.e.
+    // a mock can drop the bitmap when the flag is false. The pointer is appended
+    // before the macro's own return-value slot, which callbacks read via
+    // args.back(), so existing callbacks that only read args[0]/the ret pair are
+    // unaffected.
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet,
+                                      &options);
     DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
         auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
         auto target_table_id = dp->param<int64_t>("table_id", -1);

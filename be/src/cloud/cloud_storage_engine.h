@@ -176,6 +176,11 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    // Dedicated bounded pool for the query-cache incremental decision's per-tablet
+    // rowset pre-sync. Always non-null (built in the constructor), so callers need
+    // no null check. See the member declaration and cloud/config.h.
+    ThreadPool& query_cache_delta_sync_pool() const { return *_query_cache_delta_sync_pool; }
+
     ThreadPool& warmup_cache_async_thread_pool() const { return *_warmup_cache_async_thread_pool; }
 
     Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
@@ -234,6 +239,16 @@ private:
     std::shared_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    // Dedicated bounded pool for the query-cache incremental decision's per-tablet
+    // rowset pre-sync (QueryCacheRuntime::_presync_cloud_delta_tablets). Built in
+    // the constructor -- not open() -- so a decision fan-out never dereferences a
+    // null pool and unit fixtures that construct the engine without open() have
+    // it; drained in stop() (which the destructor calls first) so every in-flight
+    // task joins before _meta_mgr/_tablet_mgr are torn down. Declared after those
+    // managers so reverse-order member destruction is a second guarantee of the
+    // same ordering. Kept separate from the FE-warmup SyncLoadForTabletsThreadPool
+    // so a meta-service brownout cannot couple the two paths.
+    std::unique_ptr<ThreadPool> _query_cache_delta_sync_pool;
     std::unique_ptr<ThreadPool> _warmup_cache_async_thread_pool;
     std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
 

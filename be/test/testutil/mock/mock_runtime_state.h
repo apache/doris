@@ -69,6 +69,14 @@ public:
 
     void set_enable_strict_cast(bool enable) { _query_options.__set_enable_strict_cast(enable); }
 
+    void set_query_freshness_tolerance_ms(int64_t ms) {
+        _query_options.__set_query_freshness_tolerance_ms(ms);
+    }
+
+    void set_enable_prefer_cached_rowset(bool enable) {
+        _query_options.__set_enable_prefer_cached_rowset(enable);
+    }
+
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }
 
