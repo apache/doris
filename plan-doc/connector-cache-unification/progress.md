@@ -141,3 +141,20 @@
 - **验证**：`grep` 全树无残留 gate 引用；`mvn validate -pl fe-connector` **通过**（同款 import 门禁仍跑）；`checkstyle -pl :fe-connector-iceberg` **0 违规**；行长 ≤112。变更集严格 4 文件（IcebergConnector 注释、pom 去执行、删 2 脚本）。
 - **通用教训（进 memory 候选）**：shell/正则门禁只适合"存在性/前缀"类不变量（对齐 `check-connector-imports`/`check-fecore-metadata-funnel`）；一旦需要理解语言语义（布尔逻辑、多行、字符串），就不是 shell 的活——有运行时行为单测时，"注释警示 + 单测 + 评审"胜过脆弱的静态门禁。
 - **下一步（伞形）**：授权缓存门禁项**关闭**（已删+ATTN）。剩余 = P2 backlog（热点触发）+ WS-DOC 陈旧注释 + 各连接器 e2e 统一补。
+
+---
+
+## 2026-07-24 (6) — WS-DOC 陈旧注释清理：原目标已自动完成，另清 iceberg+maxcompute 写/过程"翻闸前休眠"陈旧注释
+
+> 承 (5) 后做剩余独立项"陈旧注释清理"。动手前按 HEAD 重侦察（信 grep 不信计划快照行号），结论与计划描述不同。
+
+- **侦察结论（关键）**：
+  1. **计划原点名的那批（"HMS 翻 live 后没更新的注释"：hive/hudi/mc 的 "dormant / hms 未进 SPI_READY_TYPES / getTableHandle never called / no consumers yet"）——早已在前几轮（hudi/mc/es round-1 触碰 hms/hive 时）顺手更新**：现在写着 "Live since the hms flip"/"Live since the HMS cutover"，`no consumers yet` javadoc 已消失，`getTableHandle` 有真实调用方（`HiveConnectorMetadata:413/416` 路由兄弟、iceberg 写路径调用）。**计划这一项基本已完成**。
+  2. **另发现一批不同的陈旧注释**（计划未列）：iceberg 写/事务/存储过程一批注释仍写 "iceberg 未进 SPI_READY_TYPES、dormant 直到 P6.6 翻闸"——但**该翻闸 2026-07-05 已完成**（`plan-doc/PROGRESS.md:162`："iceberg 已入 SPI_READY_TYPES，FE 走 SPI 路径"），iceberg 写/DML/存储过程都有回归测试在跑（`iceberg/dml`、`write`、`branch_insert`、`position_delete`…）；maxcompute 写路径注释仍写 "dormant 直到 max_compute cutover"，但 fe-core 有**专给 mc 的写块分配基础设施 + BE→FE 回调 RPC**（`WriteBlockAllocatingTransaction`"only maxcompute today"、`getMaxComputeBlockIdRange`）→ mc 写已 live（owner 确认）。
+  3. **判活/死纪律（避免误判）**：`SPI_READY_TYPES` 成员只让**读** live，**写/过程**各连接器单独接线——故不能一律把 "dormant" 当陈旧。**hudi `IncrementalRelation` 的 "DORMANT" 是真休眠**（增量查询未接进 `HudiScanPlanProvider.planScan`）→ **正确留存不动**。
+- **owner 拍板范围**：清 iceberg + maxcompute（都已确认 live）；hudi 真休眠不动；"翻闸前/后措辞过时但描述正确"的注释本轮不顺（选 A 非 C）。
+- **做了什么**（严格 9 文件、**纯注释、0 代码行**，`git diff` 证每一改动行都是注释）：把 13 处"Gate-closed / dormant / 未进 SPI_READY_TYPES / nothing routes … yet / 直到翻闸"的陈旧前提，逐处改成反映 live 现状（镜像 hive 已有的 "Live since the … cutover" 模板），保留各注释的机制描述；顺带去掉现已完成的未来时任务码前指（T04/T05/T06/P4-T04 "land in later tasks" 等）。
+  - iceberg（6 文件）：`IcebergWritePlanProvider`/`IcebergConnectorTransaction`(×4)/`IcebergRewriteDataFilesAction`/`IcebergExecuteActionFactory`/`IcebergScanPlanProvider`/`IcebergConnectorMetadata`。
+  - maxcompute（3 文件）：`MaxComputeWritePlanProvider`/`MaxComputeConnectorTransaction`/`MaxComputeConnectorMetadata`。
+- **验证**：`checkstyle -pl :fe-connector-iceberg,:fe-connector-maxcompute` **0 违规**；行长全 ≤120；`git diff` 确认**全部改动行都是注释**（非注释改动行 grep 为空）→ 编译/行为零影响。
+- **下一步（伞形）**：剩 P2 backlog（热点触发）+ 各连接器 e2e 统一补（需集群）。

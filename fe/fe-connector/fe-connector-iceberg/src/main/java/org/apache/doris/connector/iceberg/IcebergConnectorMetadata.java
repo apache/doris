@@ -1693,11 +1693,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * per-manager map and {@code GlobalExternalTransactionInfoMgr}) and stamped into the data sink —
      * the BE&rarr;FE report path finds the txn by this id to feed it commit fragments.
      *
-     * <p>Gate-closed / dormant until the P6.6 cutover: nothing routes plugin-driven iceberg writes
-     * through this path yet. The single SDK {@code org.apache.iceberg.Transaction} that backs commit is
-     * opened lazily by the write plan via {@link IcebergConnectorTransaction#beginWrite}; op selection
-     * (T04), the commit-validation suite (T05), the sink (T06), and the {@code supportsInsert/Delete/
-     * Merge} capability declarations (T06/T07) land in later tasks.</p>
+     * <p>Live since the iceberg SPI cutover: plugin-driven iceberg writes route through this path. The
+     * single SDK {@code org.apache.iceberg.Transaction} that backs commit is opened lazily by the write
+     * plan via {@link IcebergConnectorTransaction#beginWrite}; op selection, the commit-validation suite,
+     * the sink, and the {@code supportsInsert/Delete/Merge} capability declarations are all in place.</p>
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {

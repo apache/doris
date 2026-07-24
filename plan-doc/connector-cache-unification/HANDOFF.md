@@ -36,7 +36,7 @@
 
 **es（WS-ES）round-1 完成（owner 拍板"三件全做"）**（commits `7d74ba1161b` + `7466b354901`，见 `plan-doc/perf-hotpath-es/`）：①per-scan hoist（`EsScanPlanProvider` memo `EsMetadataState`，plain 字段——ES 非 batch）②per-statement schema memo（`EsConnectorMetadata` CHM，镜像 mc）③cross-path raw-mapping 经每语句 `ConnectorStatementScope`（新命名空间 `ES_INDEX_MAPPING`，schema/scan 两路共享，**分片/节点绝不入作用域**）。每语句 getMapping/shard/node 各→1；**0 fe-core**；94 测试绿 + 三处变异 + 4-lens 净室（parity/concurrency/freshness HOLD，补 `ShardRoutingNeverSharedViaScope` 钉硬约束）。
 
-**至此三个 P1 连接器（hudi 旗舰 / mc / es）round-1 全部收尾。** 剩余：P2 backlog（paimon PA-1 / jdbc HP-1·2 / trino CPU / hive 写后读，热点触发）、WS-DOC 陈旧注释清理、各连接器 e2e 统一补（需集群）。iceberg 5 缓存全量收敛仍延后（PR-3 已只做安全 ttl 去重）。
+**至此三个 P1 连接器（hudi 旗舰 / mc / es）round-1 全部收尾。** 剩余：P2 backlog（paimon PA-1 / jdbc HP-1·2 / trino CPU / hive 写后读，热点触发）、各连接器 e2e 统一补（需集群）。iceberg 5 缓存全量收敛仍延后（PR-3 已只做安全 ttl 去重）。**WS-DOC 陈旧注释清理已完成**（2026-07-24 (6)：原点名的 HMS-flip 注释早已更新；另清 iceberg+maxcompute 写/过程"翻闸前休眠"陈旧注释 9 文件纯注释；hudi 增量真休眠留存）。
 
 **⚠ 授权缓存门禁项（原 PR-7 门禁通用化）已关闭——不是通用化而是删除（owner 2026-07-24 拍板）。** 尝试把 `check-authz-cache-sharding.sh` 改成"模块内构造点扫描 + 结构化验证置空"，经**两轮对抗净室复审**证伪：shell 无法可靠判断"缓存在每用户模式下是否真置空"（须理解任意 Java 布尔/多行语法——复合 `&&`/`||`、多行 lambda loader、字符串字面量、嵌套三元式；两轮共暴露 10+11 个误报/漏报，误报会挡合法构建、漏报会放走泄漏，每修冒新边界）。而置空正确性**已由运行时 `IcebergConnectorCacheTest` 证明**（比静态检查强），门禁的机器验证是越界。owner 拍板**删掉整个门禁**（`tools/check-authz-cache-sharding.sh` + 自测 + `fe-connector/pom.xml` 执行块），改在 `IcebergConnector.java` 加显式 `ATTN` 注释（讲清 list!=load 风险、每缓存已构造函数置空、新增缓存必须置空且被单测覆盖、无构建门禁靠评审+单测）。落地严格 4 文件、`mvn validate` 过。见 [`progress.md`](./progress.md) "2026-07-24 (5)"。**通用教训**：shell 门禁只配"存在性/前缀"类不变量；要理解语言语义就不是它的活。
 

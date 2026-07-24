@@ -342,10 +342,9 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
      * matches the id registered in the engine transaction registry and stamped
      * into the data sink (see {@link MaxComputeConnectorTransaction}).
      *
-     * <p>Gate-closed / dormant until the {@code max_compute} cutover: nothing
-     * routes plugin-driven MaxCompute writes through this path yet. The ODPS
-     * write session that backs commit / block allocation is created by the write
-     * plan (P4-T04), which binds it via
+     * <p>Live since the MaxCompute cutover: plugin-driven MaxCompute writes route
+     * through this path. The ODPS write session that backs commit / block
+     * allocation is created by the write plan, which binds it via
      * {@link MaxComputeConnectorTransaction#setWriteSession}.</p>
      */
     @Override
