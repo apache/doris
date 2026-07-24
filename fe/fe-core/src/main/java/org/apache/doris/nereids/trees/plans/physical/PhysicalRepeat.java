@@ -191,7 +191,8 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, newOutput, groupingId,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, newOutput,
+                groupingId,
                 Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, child()));
     }
@@ -229,4 +230,5 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
+
 }

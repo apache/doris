@@ -84,6 +84,34 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     /**
+     * Mark dependent IVM MVs as binlog-broken before a base-table metadata data change.
+     * These operations can change visible rows without producing consumable row binlog deltas.
+     */
+    public void markIvmBinlogBroken(BaseTableInfo baseTableInfo, String reason) {
+        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevelAndFromView(baseTableInfo);
+        if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
+            return;
+        }
+        for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
+            MTMV mtmv;
+            try {
+                mtmv = MTMVUtil.getMTMV(mtmvInfo);
+            } catch (AnalysisException e) {
+                LOG.warn("Skip marking IVM binlog broken because dependent MTMV is missing, "
+                        + "baseTable={}, mtmv={}, reason={}", baseTableInfo, mtmvInfo, reason, e);
+                continue;
+            }
+            if (!mtmv.isIvm()) {
+                continue;
+            }
+            if (mtmv.markIvmBinlogBroken()) {
+                LOG.info("Marked IVM binlog broken, baseTable={}, mtmv={}, reason={}",
+                        baseTableInfo, mtmvInfo, reason);
+            }
+        }
+    }
+
+    /**
      * if At least one partition is available, return this mtmv
      *
      * @param candidateMTMVs

@@ -35,6 +35,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -44,9 +45,12 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -56,6 +60,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -87,6 +92,8 @@ public class MTMV extends OlapTable {
     private MTMVPartitionInfo mvPartitionInfo;
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
+    @SerializedName("ii")
+    private IvmInfo ivmInfo;
     // Should update after every fresh, not persist
     // Cache with SessionVarGuardExpr: used when query session variables differ from MV creation variables
     private MTMVCache cacheWithGuard;
@@ -122,6 +129,14 @@ public class MTMV extends OlapTable {
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
+        this.ivmInfo = new IvmInfo();
+        this.ivmInfo.setEnableIvm(params.enableIvm);
+        if (params.enableIvm) {
+            if (params.ivmPlanSignature == null) {
+                throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+            }
+            this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
+        }
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
@@ -207,6 +222,14 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
+    }
+
+    public boolean isIvm() {
+        return getIvmInfo().isEnableIvm();
+    }
+
+    public long getNextRefreshVersion() {
+        return Config.isCloudMode() ? getNextVersion() : getIvmInfo().getRefreshVersion() + 1;
     }
 
     public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
@@ -364,31 +387,15 @@ public class MTMV extends OlapTable {
     }
 
     private Set<TableNameInfo> parseExcludedTriggerTables() {
-        Set<TableNameInfo> res = Sets.newHashSet();
-        if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-            return res;
-        }
-        String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-        for (String alias : split) {
-            res.add(new TableNameInfo(alias));
-        }
-        return res;
+        return MTMVPropertyUtil.parseTableNameInfos(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES));
     }
 
     public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
-        Set<TableNameInfo> res = Sets.newHashSet();
         readMvLock();
         try {
-            String stillRewrittenTables
-                    = mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES);
-            if (StringUtils.isEmpty(stillRewrittenTables)) {
-                return res;
-            }
-            String[] split = stillRewrittenTables.split(",");
-            for (String alias : split) {
-                res.add(new TableNameInfo(alias));
-            }
-            return res;
+            return MTMVPropertyUtil.parseTableNameInfos(
+                    mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES));
         } finally {
             readMvUnlock();
         }
@@ -466,15 +473,74 @@ public class MTMV extends OlapTable {
         return refreshSnapshot;
     }
 
-    public boolean hasCompleteRefreshSnapshot() {
-        Set<String> partitionNames = getPartitionNames();
+    public boolean hasRefreshSnapshot() {
         readMvLock();
         try {
-            // A refresh baseline is complete only when every current MV partition has a snapshot.
-            return refreshSnapshot.getPartitionSnapshots().keySet().containsAll(partitionNames);
+            // IVM only needs to know whether a baseline has ever been built.
+            // A newly added MV partition legitimately has no PCT snapshot yet,
+            // but that must not block row-level incremental refresh.
+            return refreshSnapshot != null && !MapUtils.isEmpty(refreshSnapshot.getPartitionSnapshots());
         } finally {
             readMvUnlock();
         }
+    }
+
+    public IvmInfo getIvmInfo() {
+        writeMvLock();
+        try {
+            if (ivmInfo == null) {
+                ivmInfo = new IvmInfo();
+            }
+            return ivmInfo;
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public void alterIvmInfo(IvmInfo ivmInfo) {
+        writeMvLock();
+        try {
+            this.ivmInfo = ivmInfo;
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public boolean markIvmBinlogBroken() {
+        writeMvLock();
+        try {
+            if (ivmInfo == null) {
+                ivmInfo = new IvmInfo();
+            }
+            ivmInfo.increaseBinlogBrokenGeneration();
+            if (ivmInfo.isBinlogBroken()) {
+                return false;
+            }
+            ivmInfo.setBinlogBroken(true);
+            return true;
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public long getIvmBinlogBrokenGeneration() {
+        readMvLock();
+        try {
+            return ivmInfo == null ? 0 : ivmInfo.getBinlogBrokenGeneration();
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    public List<String> getInsertedColumnNames()  {
+        List<Column> columns = getBaseSchema(true);
+        List<String> columnNames = Lists.newArrayListWithExpectedSize(columns.size());
+        for (Column column : columns) {
+            if (column.isVisible() || IvmUtil.isIvmHiddenColumn(column.getName())) {
+                columnNames.add(column.getName());
+            }
+        }
+        return columnNames;
     }
 
     public long getSchemaChangeVersion() {
@@ -685,6 +751,14 @@ public class MTMV extends OlapTable {
         super.gsonPostProcess();
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();
+        }
+        if (ivmInfo == null) {
+            ivmInfo = new IvmInfo();
+        }
+        if (refreshInfo != null && refreshInfo.getRefreshMethod() == null) {
+            LOG.warn("MTMV {} has unknown refresh method, marking as schema change", name);
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("Unknown refresh method detected during deserialization");
         }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);

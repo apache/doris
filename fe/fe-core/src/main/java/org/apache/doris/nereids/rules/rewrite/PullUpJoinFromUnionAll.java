@@ -577,14 +577,14 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
         }
 
         boolean comparePlan(Plan plan1, Plan plan2) {
+            if (plan1.getOutput().size() != plan2.getOutput().size()) {
+                return false;
+            }
             boolean isEqual = true;
             if (plan1 instanceof LogicalCatalogRelation && plan2 instanceof LogicalCatalogRelation) {
                 isEqual = new TableIdentifier(((LogicalCatalogRelation) plan1).getTable())
                         .equals(new TableIdentifier(((LogicalCatalogRelation) plan2).getTable()));
             } else if (plan1 instanceof LogicalProject && plan2 instanceof LogicalProject) {
-                if (plan1.getOutput().size() != plan2.getOutput().size()) {
-                    isEqual = false;
-                }
                 for (int i = 0; isEqual && i < plan2.getOutput().size(); i++) {
                     Expression expr1 = ((LogicalProject<?>) plan1).getProjects().get(i);
                     Expression expr2 = ((LogicalProject<?>) plan2).getProjects().get(i);

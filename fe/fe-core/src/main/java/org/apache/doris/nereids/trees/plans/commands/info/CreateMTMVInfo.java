@@ -28,7 +28,9 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -39,10 +41,15 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -50,6 +57,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -86,6 +94,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private final Map<String, String> sessionVariables;
+    private boolean enableIvm;
+    private String ivmPlanSignature;
 
     /**
      * constructor for create MTMV
@@ -118,6 +128,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
         this.sessionVariables = sessionVariables;
+        this.enableIvm = isExplicitIncremental();
     }
 
     /**
@@ -145,23 +156,43 @@ public class CreateMTMVInfo extends CreateTableInfo {
             throw new AnalysisException(message);
         }
         analyzeProperties();
-        analyzeQuery(ctx);
-        this.partitionDesc = generatePartitionDesc(ctx);
-        if (distribution == null) {
-            throw new AnalysisException("Create async materialized view should contain distribution desc");
+        if (isAutoRefresh()) {
+            // AUTO probes IVM as an optimization. If IVM analysis cannot support
+            // the query, creation may still succeed as a regular MTMV.
+            analyzeAutoRefreshQuery(ctx);
+        } else {
+            // Explicit INCREMENTAL, including INCREMENTAL FALLBACK, is strict at
+            // create time: FALLBACK only affects refresh execution, not whether
+            // the MV is physically created with IVM metadata.
+            enableIvm = isExplicitIncremental();
+            analyzeQuery(ctx);
         }
+        validateRefreshStrategyForCreate();
+        this.partitionDesc = generatePartitionDesc(ctx);
 
         if (properties == null) {
             properties = Maps.newHashMap();
         }
 
-        CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
-
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
+        KeysType distributionKeysType = isEnableIvm() ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+        boolean userHashDistributionForIvm = isEnableIvm() && distribution != null && distribution.isHash();
+        if (isEnableIvm()) {
+            if (!userHashDistributionForIvm) {
+                distribution = buildIvmRowIdDistribution(distribution);
+            }
+        } else if (distribution == null) {
+            distribution = new DistributionDescriptor(false, false, FeConstants.default_bucket_num, null);
+        }
+
+        properties = CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
         distribution.updateCols(columns.get(0).getName());
-        distribution.validate(columnMap, KeysType.DUP_KEYS);
+        distribution.validate(columnMap, distributionKeysType);
+        if (userHashDistributionForIvm) {
+            validateUserDistributionForIvm(columnMap);
+        }
         refreshInfo.validate();
 
         analyzeProperties();
@@ -171,9 +202,74 @@ public class CreateMTMVInfo extends CreateTableInfo {
         setTableInformation(ctx);
     }
 
+    private void validateUserDistributionForIvm(Map<String, ColumnDefinition> columnMap) {
+        for (String columnName : distribution.getCols()) {
+            ColumnDefinition column = columnMap.get(columnName);
+            if (!column.isVisible()) {
+                throw new AnalysisException("IVM hidden column can not be distribution column: " + columnName);
+            }
+        }
+    }
+
+    /**
+     * Build the physical IVM row-id distribution for omitted or RANDOM user distribution.
+     */
+    private DistributionDescriptor buildIvmRowIdDistribution(DistributionDescriptor sourceDistribution) {
+        boolean isAutoBucket = sourceDistribution == null || sourceDistribution.isAutoBucket();
+        int bucketNum = sourceDistribution == null ? FeConstants.default_bucket_num
+                : sourceDistribution.translateToCatalogStyle().getBuckets();
+        return new DistributionDescriptor(true, isAutoBucket, bucketNum,
+                Lists.newArrayList(Column.IVM_ROW_ID_COL));
+    }
+
+    private void analyzeAutoRefreshQuery(ConnectContext ctx) throws UserException {
+        AnalyzeQueryState origin = AnalyzeQueryState.capture(this);
+        try {
+            enableIvm = true;
+            analyzeQuery(ctx);
+        } catch (AnalysisException e) {
+            // AUTO uses IVM analysis only as a capability probe. Most IVM unsupported cases are reported as
+            // IvmException, but planner/PCT/nullable analysis can also throw a plain AnalysisException after
+            // IVM rewrite changes the plan shape. Treat those as probe failures too: restore the original create
+            // state and retry regular MTMV analysis. If the regular path also fails, that error is still returned
+            // to the user. Explicit INCREMENTAL does not call this helper, so its strict failure semantics remain.
+            LOG.info("AUTO refresh materialized view {} fallback to non-IVM after IVM probe failed: {}",
+                    tableNameInfo.getTbl(), e.getMessage());
+            origin.restore(this);
+            logicalQuery = parseFreshLogicalQuery();
+            resetStatementContext(ctx);
+            enableIvm = false;
+            analyzeQuery(ctx);
+        }
+    }
+
+    private LogicalPlan parseFreshLogicalQuery() {
+        return new NereidsParser().parseQuery(querySql);
+    }
+
+    private void resetStatementContext(ConnectContext ctx) {
+        StatementContext oldStatementContext = ctx.getStatementContext();
+        StatementContext statementContext = new StatementContext(ctx,
+                oldStatementContext == null ? null : oldStatementContext.getOriginStatement());
+        ctx.setStatementContext(statementContext);
+    }
+
     private void rewriteQuerySql(ConnectContext ctx) {
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
-        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+        TreeMap<Pair<Integer, Integer>, String> rewriteMap = ctx.getStatementContext().getIndexInSqlToString();
+        TreeMap<Pair<Integer, Integer>, String> snapshot = new TreeMap<>(rewriteMap);
+        rewriteMap.clear();
+        try {
+            analyzeAndFillRewriteSqlMap(querySql, ctx);
+            querySql = BaseViewInfo.rewriteSql(rewriteMap, querySql);
+            if (isEnableIvm() && !simpleColumnDefinitions.isEmpty()) {
+                querySql = BaseViewInfo.rewriteProjectsToUserDefineAlias(querySql, simpleColumnDefinitions.stream()
+                        .map(SimpleColumnDefinition::getName)
+                        .collect(Collectors.toList()));
+            }
+        } finally {
+            rewriteMap.clear();
+            rewriteMap.putAll(snapshot);
+        }
     }
 
     private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
@@ -213,12 +309,29 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * analyzeQuery
      */
     public void analyzeQuery(ConnectContext ctx) throws UserException {
-        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties, this.querySql,
+        checkUserSpecifiedKeysForIvm();
+        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery);
+                this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.normalize()) : Optional.empty());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
+        this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
+        this.properties = mtmvAnalyzeQueryInfo.getProperties();
+        if (isEnableIvm()) {
+            IvmPlanSignature planSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
+            this.ivmPlanSignature = planSignature.getSha256();
+        } else {
+            this.ivmPlanSignature = null;
+        }
+    }
+
+    private void checkUserSpecifiedKeysForIvm() {
+        if (isEnableIvm() && keys.stream().anyMatch(Column.IVM_ROW_ID_COL::equalsIgnoreCase)) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "Incremental materialized view does not allow specifying the hidden row-id column. "
+                    + "The row-id column is managed by IVM.");
+        }
     }
 
     private List<Column> getPartitionColumn(String partitionColumnName) {
@@ -281,7 +394,15 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setTableName(tableNameInfo.getTbl());
         this.setCtasColumns(ctasColumns.isEmpty() ? null : ctasColumns);
         this.setEngineName(CreateTableInfo.ENGINE_OLAP);
-        this.setKeysType(KeysType.DUP_KEYS);
+        if (isEnableIvm()) {
+            this.setKeysType(KeysType.UNIQUE_KEYS);
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        } else {
+            this.setKeysType(KeysType.DUP_KEYS);
+        }
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());
@@ -306,13 +427,17 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         });
 
+        // CreateMTMVInfo does not run CreateTableInfo.validate(), but an IVM MV
+        // is physically a MOW UNIQUE table. Reuse the ordinary MOW partition
+        // rule so partition columns must be key columns after IVM key rewrite.
+        boolean validateAsMow = isEnableIvm() || isEnableMergeOnWrite();
         getPartitionTableInfo().validatePartitionInfo(
                 getEngineName(),
                 columns,
                 columnMap,
                 properties,
                 ctx,
-                isEnableMergeOnWrite(),
+                validateAsMow,
                 isExternal());
     }
 
@@ -332,11 +457,92 @@ public class CreateMTMVInfo extends CreateTableInfo {
         return relation;
     }
 
+    public boolean isEnableIvm() {
+        return enableIvm;
+    }
+
+    private boolean isExplicitIncremental() {
+        return refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL;
+    }
+
+    private boolean isAutoRefresh() {
+        return refreshInfo.getRefreshMethod() == RefreshMethod.AUTO;
+    }
+
+    private boolean isPartitionsRefresh() {
+        return refreshInfo.getRefreshMethod() == RefreshMethod.PARTITIONS;
+    }
+
+    private void validateRefreshStrategyForCreate() {
+        if (isPartitionsRefresh()
+                && mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            // A persisted PARTITIONS refresh policy must match the MV physical
+            // partition definition. Manual PARTITIONS FALLBACK may recover to
+            // COMPLETE at refresh time, but the default policy should not be
+            // stored on a non-partitioned MV.
+            throw new AnalysisException(
+                    "REFRESH PARTITIONS requires PARTITION BY for materialized view");
+        }
+    }
+
     public MTMVPartitionInfo getMvPartitionInfo() {
         return mvPartitionInfo;
     }
 
+    public String getIvmPlanSignature() {
+        return ivmPlanSignature;
+    }
+
     public Map<String, String> getSessionVariables() {
         return sessionVariables;
+    }
+
+    private static class AnalyzeQueryState {
+        private final Map<String, String> properties;
+        private final List<ColumnDefinition> columns;
+        private final List<String> keys;
+        private final DistributionDescriptor distribution;
+        private final PartitionDesc partitionDesc;
+        private final LogicalPlan logicalQuery;
+        private final MTMVRelation relation;
+        private final MTMVPartitionInfo mvPartitionInfo;
+        private final MTMVPartitionType mvPartitionType;
+        private final Expression mvPartitionExpression;
+        private final boolean enableIvm;
+        private final String ivmPlanSignature;
+
+        private AnalyzeQueryState(CreateMTMVInfo info) {
+            this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
+            this.columns = info.columns;
+            this.keys = Utils.copyRequiredList(info.keys);
+            this.distribution = info.distribution;
+            this.partitionDesc = info.partitionDesc;
+            this.logicalQuery = info.logicalQuery;
+            this.relation = info.relation;
+            this.mvPartitionInfo = info.mvPartitionInfo;
+            this.mvPartitionType = info.mvPartitionDefinition.getPartitionType();
+            this.mvPartitionExpression = info.mvPartitionDefinition.getFunctionCallExpression();
+            this.enableIvm = info.enableIvm;
+            this.ivmPlanSignature = info.ivmPlanSignature;
+        }
+
+        private static AnalyzeQueryState capture(CreateMTMVInfo info) {
+            return new AnalyzeQueryState(info);
+        }
+
+        private void restore(CreateMTMVInfo info) {
+            info.properties = properties == null ? null : Maps.newHashMap(properties);
+            info.columns = columns;
+            info.keys = Utils.copyRequiredList(keys);
+            info.distribution = distribution;
+            info.partitionDesc = partitionDesc;
+            info.logicalQuery = logicalQuery;
+            info.relation = relation;
+            info.mvPartitionInfo = mvPartitionInfo;
+            info.mvPartitionDefinition.setPartitionType(mvPartitionType);
+            info.mvPartitionDefinition.setFunctionCallExpression(mvPartitionExpression);
+            info.enableIvm = enableIvm;
+            info.ivmPlanSignature = ivmPlanSignature;
+        }
     }
 }

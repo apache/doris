@@ -113,7 +113,9 @@ import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
@@ -1040,6 +1042,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime) throws DdlException {
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
+            unprotectDropIvmStreams(db, (MTMV) table, isForceDrop, isReplay);
         }
         if (table instanceof View) {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
@@ -1060,6 +1063,38 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished dropping table[{}] in db[{}] recycleTable cost: {}ms",
                 table.getName(), db.getFullName(), watch.getTime());
         return true;
+    }
+
+    public void unprotectDropIvmStreams(Database db, MTMV mtmv, boolean isForceDrop, boolean isReplay)
+            throws DdlException {
+        MTMVRelation relation = mtmv.getRelation();
+        if (!mtmv.isIvm() || relation == null || relation.getBaseTables() == null) {
+            return;
+        }
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            List<String> baseTableFullQualifiers = baseTableInfo.toList();
+            String streamName = IvmUtil.streamName(mtmv.getId(), baseTableFullQualifiers);
+            TableIf streamTable = db.getTableNullable(streamName);
+            if (streamTable != null) {
+                if (!(streamTable instanceof BaseTableStream)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it is not a stream", streamName);
+                    continue;
+                }
+                if (!IvmUtil.isStreamOwnedBy((BaseTableStream) streamTable, baseTableFullQualifiers)) {
+                    LOG.warn("skip dropping IVM stream candidate {} because it belongs to another base table",
+                            streamName);
+                    continue;
+                }
+                Table stream = (Table) streamTable;
+                stream.writeLock();
+                try {
+                    unprotectDropTable(db, stream, isForceDrop, isReplay, 0L);
+                    LOG.info("dropped stream {} associated with MTMV {}", streamName, mtmv.getName());
+                } finally {
+                    stream.writeUnlock();
+                }
+            }
+        }
     }
 
     private void dropTable(Database db, long tableId, boolean isForceDrop, boolean isReplay,
@@ -1615,7 +1650,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
 
             // get distributionInfo
-            List<Column> baseSchema = olapTable.getBaseSchema();
+            // Use full schema (including hidden columns) so that distribution columns
+            // such as __DORIS_IVM_ROW_ID_COL__ (hidden but used as hash distribution key
+            // for IVM materialized views) can be resolved correctly.
+            List<Column> baseSchema = olapTable.getBaseSchema(true);
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
             if (distributionDesc != null) {
                 distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
@@ -1972,6 +2010,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        if (!isTempPartition) {
+            // Dropping a normal partition removes visible rows through metadata, not row binlog entries.
+            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                    new BaseTableInfo(olapTable), "Base table partition was dropped without row binlog");
+        }
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
     }
 
@@ -2039,6 +2082,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(olapTable), "Base table partition was dropped without row binlog");
                 partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
@@ -3710,6 +3755,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
             }
 
+            if (!origPartitions.isEmpty()) {
+                // Truncate replaces partitions through metadata, so existing row-binlog streams become incomplete.
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(olapTable), "Base table was truncated without row binlog");
+            }
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
@@ -3786,6 +3836,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.writeLock();
         try {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
+            if (!info.getPartitions().isEmpty()) {
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
+                        new BaseTableInfo(olapTable), "Base table was truncated without row binlog");
+            }
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
                                     recyclePartitionParamMap, isForceDrop);
 

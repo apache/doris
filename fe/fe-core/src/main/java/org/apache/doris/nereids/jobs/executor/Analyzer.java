@@ -38,6 +38,9 @@ import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.FillUpQualifyMissingSlot;
 import org.apache.doris.nereids.rules.analysis.HavingToFilter;
+import org.apache.doris.nereids.rules.analysis.IvmFullRefreshMTMV;
+import org.apache.doris.nereids.rules.analysis.IvmIncrRefreshMTMV;
+import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.analysis.LeadingJoin;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
@@ -220,6 +223,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // merge normal filter and hidden column filter
                     new MergeFilters()
             ),
+            custom(RuleType.IVM_NORMALIZE_MTMV, IvmNormalizeMTMV::new),
+            bottomUp(new IvmFullRefreshMTMV()),
+            custom(RuleType.IVM_INCR_REFRESH_MTMV, IvmIncrRefreshMTMV::new),
             // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
             // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
             custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(true))

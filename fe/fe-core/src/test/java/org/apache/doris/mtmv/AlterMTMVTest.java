@@ -17,10 +17,18 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -30,6 +38,11 @@ import java.util.Set;
 
 
 public class AlterMTMVTest extends TestWithFeService {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        Config.enable_table_stream = true;
+    }
 
     @Test
     public void testAlterMTMV() throws Exception {
@@ -97,5 +110,425 @@ public class AlterMTMVTest extends TestWithFeService {
                 alterMv("ALTER MATERIALIZED VIEW Test.mv_case RENAME test.mv_case_new"));
         Assertions.assertEquals("Can not rename materialized view to another database or catalog",
                 renameException.getMessage());
+    }
+
+    // --- P0-3: Block ALTER to/from INCREMENTAL refresh method ---
+
+    @Test
+    public void testAlterFromCompleteToIncrementalRejected() throws Exception {
+        createDatabaseAndUse("alter_test");
+        createTable("CREATE TABLE alter_test.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_complete_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_complete_mv\n"
+                        + " REFRESH INCREMENTAL ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterFromIncrementalToCompleteRejected() throws Exception {
+        createDatabaseAndUse("alter_test2");
+        createTable("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base2");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_incr_mv\n"
+                        + " REFRESH COMPLETE ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER the refresh method of an INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterFromIncrementalToAutoRejected() throws Exception {
+        createDatabaseAndUse("alter_test3");
+        createTable("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv3\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base3");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_incr_mv3\n"
+                        + " REFRESH AUTO ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER the refresh method of an INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterFromCompleteToAutoAllowed() throws Exception {
+        createDatabaseAndUse("alter_test4");
+        createTable("CREATE TABLE alter_test4.alt_base4 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_complete_mv4\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base4");
+        // Should not throw
+        alterMv("ALTER MATERIALIZED VIEW alt_complete_mv4\n"
+                + " REFRESH AUTO ON MANUAL");
+    }
+
+    @Test
+    public void testAlterFromAutoToCompleteAllowed() throws Exception {
+        createDatabaseAndUse("alter_test_auto_complete");
+        createTable("CREATE TABLE alter_test_auto_complete.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_auto_mv_complete\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+        alterMv("ALTER MATERIALIZED VIEW alt_auto_mv_complete\n"
+                + " REFRESH COMPLETE ON MANUAL");
+    }
+
+    @Test
+    public void testAlterFromAutoToIncrementalRejected() throws Exception {
+        createDatabaseAndUse("alter_test5");
+        createTable("CREATE TABLE alter_test5.alt_base5 (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_auto_mv5\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base5");
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_auto_mv5\n"
+                        + " REFRESH INCREMENTAL ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to INCREMENTAL"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterAutoFallbackPersistsFallbackFlag() throws Exception {
+        createDatabaseAndUse("alter_test_auto_fallback");
+        createTable("CREATE TABLE alter_test_auto_fallback.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_auto_fallback_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+
+        alterMv("ALTER MATERIALIZED VIEW alt_auto_fallback_mv REFRESH AUTO FALLBACK ON MANUAL");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_test_auto_fallback").get()
+                .getTableOrMetaException("alt_auto_fallback_mv");
+        Assertions.assertEquals(RefreshMethod.AUTO, mtmv.getRefreshInfo().getRefreshMethod());
+        Assertions.assertTrue(mtmv.getRefreshInfo().allowFallback());
+    }
+
+    @Test
+    public void testAlterNonPartitionMvToPartitionsFallbackRejected() throws Exception {
+        createDatabaseAndUse("alter_test_partitions_fallback");
+        createTable("CREATE TABLE alter_test_partitions_fallback.alt_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW alt_partitions_fallback_mv\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM alt_base");
+
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW alt_partitions_fallback_mv "
+                        + "REFRESH PARTITIONS FALLBACK ON MANUAL"));
+        Assertions.assertTrue(ex.getMessage().contains("Cannot ALTER refresh method to PARTITIONS"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testAlterIvmInfoPersistence() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_ivm_test");
+        createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_alter_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_test").get()
+                .getTableOrMetaException("ivm_alter_mv");
+
+        // Incremental MTMV persists plan signature at create time.
+        IvmInfo initialInfo = mtmv.getIvmInfo();
+        Assertions.assertNotNull(initialInfo.getPlanSignature());
+
+        // Build a modified IvmInfo with planSignature
+        IvmInfo newInfo = new IvmInfo();
+        newInfo.setPlanSignature("sig-1");
+
+        // Persist via alterMTMVIvmInfo
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, newInfo);
+
+        // Verify the MTMV's IvmInfo was updated
+        IvmInfo updatedInfo = mtmv.getIvmInfo();
+        Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
+
+        // Reset it back and verify
+        IvmInfo resetInfo = new IvmInfo();
+        resetInfo.setPlanSignature("sig-2");
+        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, resetInfo);
+
+        IvmInfo finalInfo = mtmv.getIvmInfo();
+        Assertions.assertEquals("sig-2", finalInfo.getPlanSignature());
+    }
+
+    @Test
+    public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
+        createDatabaseAndUse("stream_test");
+        createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM stream_base");
+
+        // Verify the auto-created stream exists
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("stream_test").get()
+                .getTableOrMetaException("stream_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("stream_test");
+        String streamName = ivmStreamName(db, mtmv.getId(), "stream_base");
+        org.apache.doris.catalog.TableIf streamTable = db.getTableOrMetaException(streamName);
+        Assertions.assertNotNull(streamTable, "Stream should be auto-created for IVM base table");
+        Assertions.assertTrue(streamTable instanceof org.apache.doris.catalog.stream.OlapTableStream,
+                "Should be an OlapTableStream");
+    }
+
+    @Test
+    public void testReplaceIvmWithoutSwapRemovesOldStreams() throws Exception {
+        createDatabaseAndUse("ivm_replace_stream_test");
+        createIvmBaseAndMv("ivm_replace_stream_test", "replace_old_base", "replace_old_mv");
+        createIvmBaseAndMv("ivm_replace_stream_test", "replace_new_base", "replace_new_mv");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_replace_stream_test");
+        MTMV oldMtmv = (MTMV) db.getTableOrMetaException("replace_old_mv");
+        MTMV newMtmv = (MTMV) db.getTableOrMetaException("replace_new_mv");
+        String oldStreamName = ivmStreamName(db, oldMtmv.getId(), "replace_old_base");
+        String newStreamName = ivmStreamName(db, newMtmv.getId(), "replace_new_base");
+        long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
+        long newStreamId = db.getTableOrMetaException(newStreamName).getId();
+
+        alterMv("ALTER MATERIALIZED VIEW replace_old_mv REPLACE WITH MATERIALIZED VIEW replace_new_mv "
+                + "PROPERTIES ('swap' = 'false')");
+
+        Assertions.assertNull(db.getTableNullable(oldStreamName));
+        Assertions.assertFalse(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(oldStreamId));
+        Assertions.assertNotNull(db.getTableNullable(newStreamName));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(newStreamId));
+        Assertions.assertEquals(newMtmv.getId(), db.getTableOrMetaException("replace_old_mv").getId());
+        Assertions.assertNull(db.getTableNullable("replace_new_mv"));
+    }
+
+    @Test
+    public void testReplayReplaceIvmWithoutSwapRemovesOldStreams() throws Exception {
+        createDatabaseAndUse("ivm_replay_replace_stream_test");
+        createIvmBaseAndMv("ivm_replay_replace_stream_test", "replay_old_base", "replay_old_mv");
+        createIvmBaseAndMv("ivm_replay_replace_stream_test", "replay_new_base", "replay_new_mv");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_replay_replace_stream_test");
+        MTMV oldMtmv = (MTMV) db.getTableOrMetaException("replay_old_mv");
+        MTMV newMtmv = (MTMV) db.getTableOrMetaException("replay_new_mv");
+        String oldStreamName = ivmStreamName(db, oldMtmv.getId(), "replay_old_base");
+        String newStreamName = ivmStreamName(db, newMtmv.getId(), "replay_new_base");
+        long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
+        long newStreamId = db.getTableOrMetaException(newStreamName).getId();
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), oldMtmv.getId(),
+                oldMtmv.getName(), newMtmv.getId(), newMtmv.getName(), false, true);
+
+        Env.getCurrentEnv().getAlterInstance().replayReplaceTable(log);
+
+        Assertions.assertNull(db.getTableNullable(oldStreamName));
+        Assertions.assertFalse(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(oldStreamId));
+        Assertions.assertNotNull(db.getTableNullable(newStreamName));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(newStreamId));
+    }
+
+    @Test
+    public void testReplaceIvmWithSwapKeepsBothStreams() throws Exception {
+        createDatabaseAndUse("ivm_swap_replace_stream_test");
+        createIvmBaseAndMv("ivm_swap_replace_stream_test", "swap_old_base", "swap_old_mv");
+        createIvmBaseAndMv("ivm_swap_replace_stream_test", "swap_new_base", "swap_new_mv");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("ivm_swap_replace_stream_test");
+        MTMV oldMtmv = (MTMV) db.getTableOrMetaException("swap_old_mv");
+        MTMV newMtmv = (MTMV) db.getTableOrMetaException("swap_new_mv");
+        String oldStreamName = ivmStreamName(db, oldMtmv.getId(), "swap_old_base");
+        String newStreamName = ivmStreamName(db, newMtmv.getId(), "swap_new_base");
+        long oldStreamId = db.getTableOrMetaException(oldStreamName).getId();
+        long newStreamId = db.getTableOrMetaException(newStreamName).getId();
+
+        alterMv("ALTER MATERIALIZED VIEW swap_old_mv REPLACE WITH MATERIALIZED VIEW swap_new_mv "
+                + "PROPERTIES ('swap' = 'true')");
+
+        Assertions.assertNotNull(db.getTableNullable(oldStreamName));
+        Assertions.assertNotNull(db.getTableNullable(newStreamName));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(oldStreamId));
+        Assertions.assertTrue(Env.getCurrentEnv().getTableStreamManager().getTableStreamIds(db)
+                .contains(newStreamId));
+    }
+
+    private void createIvmBaseAndMv(String dbName, String baseTableName, String mvName) throws Exception {
+        createTable("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW " + dbName + "." + mvName + "\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM " + dbName + "." + baseTableName);
+    }
+
+    private String ivmStreamName(Database db, long mvId, String baseTableName) throws Exception {
+        return IvmUtil.streamName(mvId, db.getTableOrMetaException(baseTableName).getFullQualifiers());
+    }
+
+    @Test
+    public void testCreateIncrementalMtmvExcludeTriggerTableSkipsStream() throws Exception {
+        createDatabaseAndUse("stream_excl_test");
+        createTable("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createTable("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW excl_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',\n"
+                + "   'excluded_trigger_tables' = 'excl_base1')\n"
+                + " AS SELECT k1, v1 FROM excl_base1 UNION ALL SELECT k1, v1 FROM excl_base2");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("stream_excl_test").get()
+                .getTableOrMetaException("excl_stream_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("stream_excl_test");
+
+        // excl_base1 is excluded → no stream should be created
+        String excludedStreamName = ivmStreamName(db, mtmv.getId(), "excl_base1");
+        Assertions.assertThrows(Exception.class,
+                () -> Env.getCurrentInternalCatalog()
+                        .getDb("stream_excl_test").get()
+                        .getTableOrMetaException(excludedStreamName),
+                "Excluded table should NOT have a stream auto-created");
+
+        // excl_base2 is NOT excluded → stream should exist
+        String includedStreamName = ivmStreamName(db, mtmv.getId(), "excl_base2");
+        org.apache.doris.catalog.TableIf includedStream = Env.getCurrentInternalCatalog()
+                .getDb("stream_excl_test").get()
+                .getTableOrMetaException(includedStreamName);
+        Assertions.assertNotNull(includedStream, "Non-excluded table should have a stream auto-created");
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerTablesAllowsEquivalentScopeChanges() throws Exception {
+        createDatabaseAndUse("alter_ivm_excluded_trigger_test");
+        createTable("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_excluded_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',"
+                + " 'excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')\n"
+                + " AS SELECT k1, v1 FROM ivm_base");
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_excluded_trigger_test").get()
+                .getTableOrMetaException("ivm_excluded_mv");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_excluded_trigger_test");
+
+        alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
+                + " SET ('excluded_trigger_tables' = 'ivm_base')");
+
+        alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
+                + " SET ('excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')");
+
+        String streamName = ivmStreamName(db, mtmv.getId(), "ivm_base");
+        Assertions.assertFalse(Env.getCurrentInternalCatalog()
+                .getDb("alter_ivm_excluded_trigger_test").get().getTable(streamName).isPresent());
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerKeepsStreamOwnedByAnotherBaseTable() throws Exception {
+        createDatabaseAndUse("alter_ivm_stream_owner_test");
+        createTable("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW owner_mv "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
+                + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT k1, v1 FROM owner_base1");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_stream_owner_test");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("owner_mv");
+        String streamName = ivmStreamName(db, mtmv.getId(), "owner_base1");
+        Env.getCurrentInternalCatalog().dropTableWithoutCheck(
+                db, (Table) db.getTableOrMetaException(streamName), false, true);
+        createTable("CREATE STREAM " + streamName + " ON TABLE owner_base2 "
+                + "PROPERTIES ('type' = 'min_delta', 'show_initial_rows' = 'true')");
+        Table conflictingStream = (Table) db.getTableOrMetaException(streamName);
+
+        alterMv("ALTER MATERIALIZED VIEW owner_mv SET ('excluded_trigger_tables' = 'owner_base1')");
+        Assertions.assertSame(conflictingStream, db.getTableOrMetaException(streamName));
     }
 }

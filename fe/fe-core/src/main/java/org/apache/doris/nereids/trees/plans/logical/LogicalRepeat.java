@@ -228,7 +228,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public LogicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, type, children.get(0)));
+                new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
+                        Optional.empty(), groupingId, withInProjection, type, children.get(0)));
     }
 
     @Override
@@ -243,42 +244,47 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
-                groupingId, withInProjection, type, children.get(0)));
+                new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression,
+                logicalProperties, groupingId, withInProjection, type, children.get(0)));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSets(List<List<Expression>> groupingSets) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, type, child()));
+                new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
+                        Optional.empty(), groupingId, withInProjection, type, child()));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, type, child()));
+                new LogicalRepeat<>(groupingSets, outputExpressionList, Optional.empty(),
+                        Optional.empty(), groupingId, withInProjection, type, child()));
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, newOutput, groupingId, type, child()));
+                new LogicalRepeat<>(groupingSets, newOutput, Optional.empty(),
+                        Optional.empty(), groupingId, withInProjection, type, child()));
     }
 
     public LogicalRepeat<Plan> withNormalizedExpr(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList, SlotReference groupingId, Plan child) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, type, child));
+                new LogicalRepeat<>(groupingSets, outputExpressionList, Optional.empty(),
+                        Optional.empty(), Optional.ofNullable(groupingId), withInProjection, type, child));
     }
 
     public LogicalRepeat<Plan> withAggOutputAndChild(List<NamedExpression> newOutput, Plan child) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, newOutput, groupingId, type, child));
+                new LogicalRepeat<>(groupingSets, newOutput, Optional.empty(),
+                        Optional.empty(), groupingId, withInProjection, type, child));
     }
 
     public LogicalRepeat<CHILD_TYPE> withInProjection(boolean withInProjection) {
         return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, outputExpressions,
-                Optional.empty(), Optional.empty(), groupingId, withInProjection, type, child()));
+                new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
+                        Optional.empty(), groupingId, withInProjection, type, child()));
     }
 
     @Override

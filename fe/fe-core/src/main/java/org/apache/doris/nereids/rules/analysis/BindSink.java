@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -45,6 +46,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -192,9 +194,11 @@ public class BindSink implements AnalysisRuleFactory {
         boolean needExtraSeqCol = isPartialUpdate && !childHasSeqCol && table.hasSequenceCol()
                 && table.getSequenceMapCol() != null
                 && sink.getColNames().contains(table.getSequenceMapCol());
+        Set<String> missingIvmHiddenColumns = getMissingIvmHiddenColumns(table, sink.getColNames(), child);
         // 1. bind target columns: from sink's column names to target tables' Columns
         Pair<List<Column>, Integer> bindColumnsResult =
                 bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol,
+                        missingIvmHiddenColumns,
                         sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT, isDeletePartialUpdate);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
@@ -263,7 +267,7 @@ public class BindSink implements AnalysisRuleFactory {
                 // 1. it's a load job with `partial_columns=true`
                 // 2. UPDATE and DELETE, planner will automatically add these hidden columns
                 // 3. session value `require_sequence_in_insert` is false
-                if (!haveInputSeqCol && !isPartialUpdate && (
+                if (!haveInputSeqCol && !isIncrementalIvmTable(table) && !isPartialUpdate && (
                         boundSink.getDmlCommandType() != DMLCommandType.UPDATE
                                 && boundSink.getDmlCommandType() != DMLCommandType.DELETE) && (
                         boundSink.getDmlCommandType() != DMLCommandType.INSERT
@@ -280,7 +284,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(
-                ctx, table, isPartialUpdate, isDeletePartialUpdate, boundSink, child);
+                ctx, table, isPartialUpdate, isDeletePartialUpdate, boundSink, child, missingIvmHiddenColumns);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(
                 table.getFullSchema(), child, columnToOutput);
         List<Column> columns = new ArrayList<>(table.getFullSchema().size());
@@ -373,14 +377,12 @@ public class BindSink implements AnalysisRuleFactory {
     private static Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
-            LogicalTableSink<?> boundSink, LogicalPlan child) {
+            LogicalTableSink<?> boundSink, LogicalPlan child, Set<String> missingIvmHiddenColumns) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
-        Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
-        for (int i = 0; i < child.getOutput().size(); ++i) {
-            columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
-        }
+        Map<Column, NamedExpression> columnToChildOutput = getColumnToChildOutput(boundSink, child,
+                missingIvmHiddenColumns);
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<String, NamedExpression> columnToReplaced = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
@@ -433,6 +435,17 @@ public class BindSink implements AnalysisRuleFactory {
                         columnToReplaced.put(column.getName(), seqColumn.toSlot());
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
+                } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
+                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName()), column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
+                } else if (missingIvmHiddenColumns.contains(column.getName())) {
+                    Alias output = new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())),
+                            column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
                 } else if (isPartialUpdate) {
                     // If the current load is a partial update, the values of unmentioned
                     // columns will be filled in SegmentWriter. And the output of sink node
@@ -579,6 +592,34 @@ public class BindSink implements AnalysisRuleFactory {
         return columnToOutput;
     }
 
+    private static Map<Column, NamedExpression> getColumnToChildOutput(LogicalTableSink<?> boundSink, LogicalPlan child,
+            Set<String> missingIvmHiddenColumns) {
+        Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
+        if (missingIvmHiddenColumns.isEmpty()) {
+            for (int i = 0; i < child.getOutput().size(); ++i) {
+                columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
+            }
+            return columnToChildOutput;
+        }
+
+        int childIdx = 0;
+        for (Column column : boundSink.getCols()) {
+            if (childIdx >= child.getOutput().size()) {
+                break;
+            }
+            if (missingIvmHiddenColumns.contains(column.getName())) {
+                continue;
+            }
+            NamedExpression childOutput = child.getOutput().get(childIdx);
+            columnToChildOutput.put(column, childOutput);
+            childIdx++;
+        }
+        if (childIdx != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        return columnToChildOutput;
+    }
+
     private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
         UnboundBlackholeSink<?> sink = ctx.root;
         LogicalPlan child = ((LogicalPlan) sink.child());
@@ -719,7 +760,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
+                boundSink, child, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
@@ -795,7 +836,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
+                boundSink, child, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
 
         // For static partition columns, add constant expressions from PARTITION clause
         // This ensures partition column values are written to the data file
@@ -920,7 +961,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
+                boundSink, child, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
@@ -1146,7 +1187,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     // bindTargetColumns means bind sink node's target columns' names to target table's columns
     private Pair<List<Column>, Integer> bindTargetColumns(OlapTable table, List<String> colsName,
-            boolean childHasSeqCol, boolean needExtraSeqCol, boolean isGroupCommit, boolean isDeletePartialUpdate) {
+            boolean childHasSeqCol, boolean needExtraSeqCol, Set<String> missingIvmHiddenColumns,
+            boolean isGroupCommit, boolean isDeletePartialUpdate) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         if (colsName.isEmpty()) {
             // ATTN: group commit without column list should return all base index column
@@ -1155,7 +1197,7 @@ public class BindSink implements AnalysisRuleFactory {
                     .filter(c -> isGroupCommit || validColumn(c, childHasSeqCol))
                     .collect(ImmutableList.toImmutableList()), 0);
         } else {
-            int extraColumnsNum = (needExtraSeqCol ? 1 : 0);
+            int extraColumnsNum = (needExtraSeqCol ? 1 : 0) + missingIvmHiddenColumns.size();
             List<String> processedColsName = Lists.newArrayList(colsName);
             for (Column col : table.getFullSchema()) {
                 if (col.hasOnUpdateDefaultValue()) {
@@ -1190,6 +1232,23 @@ public class BindSink implements AnalysisRuleFactory {
     private boolean validColumn(Column column, boolean isNeedSequenceCol) {
         return (column.isVisible() || (isNeedSequenceCol && column.isSequenceColumn()))
                 && !column.isMaterializedViewColumn();
+    }
+
+    private static boolean isIncrementalIvmTable(TableIf table) {
+        return table instanceof MTMV && ((MTMV) table).isIvm();
+    }
+
+    private Set<String> getMissingIvmHiddenColumns(OlapTable table, List<String> sinkColumns, LogicalPlan child) {
+        if (!isIncrementalIvmTable(table)) {
+            return Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        }
+        Set<String> childOutputNames = child.getOutput().stream()
+                .map(NamedExpression::getName)
+                .collect(Collectors.toCollection(() -> Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER)));
+        return sinkColumns.stream()
+                .filter(IvmUtil::isIvmHiddenColumn)
+                .filter(columnName -> !childOutputNames.contains(columnName))
+                .collect(Collectors.toCollection(() -> Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER)));
     }
 
     private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {

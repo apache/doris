@@ -20,12 +20,16 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -36,6 +40,8 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -45,6 +51,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -175,6 +182,14 @@ public class MTMVTest {
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
         Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
+                " ctl1.db1.t1 , db2.t2, ,  t3  ");
+        excludedTriggerTables = mtmv.getExcludedTriggerTables();
+        Assert.assertEquals(3, excludedTriggerTables.size());
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo("ctl1", "db1", "t1")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, "db2", "t2")));
+        Assert.assertTrue(excludedTriggerTables.contains(new TableNameInfo(null, null, "t3")));
     }
 
     @Test
@@ -283,6 +298,23 @@ public class MTMVTest {
     }
 
     @Test
+    public void testHasRefreshSnapshotAllowsIncompletePartitionSnapshot() {
+        MTMV mtmv = new MTMV();
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv", Lists.newArrayList(new Column("k1", PrimitiveType.INT, true)),
+                0, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
+        mtmv.setPartitionInfo(partitionInfo);
+        mtmv.addPartition(new Partition(1L, "p1", new MaterializedIndex(), null));
+        mtmv.addPartition(new Partition(2L, "p2", new MaterializedIndex(), null));
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        Assert.assertTrue(mtmv.hasRefreshSnapshot());
+    }
+
+    @Test
     public void testAlterStatus() {
         MTMV mtmv = new MTMV();
         MTMVStatus status = new MTMVStatus();
@@ -302,5 +334,62 @@ public class MTMVTest {
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
         Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
         Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+    }
+
+    @Test
+    public void testUnknownRefreshMethodMarksSchemaChangeAfterDeserialize() {
+        MTMV mtmv = buildSerializableMTMV();
+        String json = GsonUtils.GSON.toJson(mtmv).replace("\"rm\":\"COMPLETE\"", "\"rm\":\"UNKNOWN\"");
+
+        MTMV restored = GsonUtils.GSON.fromJson(json, MTMV.class);
+
+        Assert.assertNull(restored.getRefreshInfo().getRefreshMethod());
+        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, restored.getStatus().getState());
+        Assert.assertEquals("Unknown refresh method detected during deserialization",
+                restored.getStatus().getSchemaChangeDetail());
+    }
+
+    private MTMV buildSerializableMTMV() {
+        MTMV mtmv = new MTMV();
+        mtmv.setId(1L);
+        mtmv.setQualifiedDbName("db1");
+        mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
+        mtmv.setQuerySql("select k1 from t1");
+        mtmv.setStatus(new MTMVStatus(MTMVRefreshState.SUCCESS));
+        mtmv.getStatus().setState(MTMVState.NORMAL);
+        mtmv.setJobInfo(new MTMVJobInfo("job1"));
+        mtmv.setMvProperties(Maps.newHashMap());
+        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
+                Sets.newHashSet()));
+        mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
+        mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
+
+        List<Column> schema = Lists.newArrayList(new Column("k1", PrimitiveType.INT, true));
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv1", schema, 0, 0, (short) 1, TStorageType.COLUMN,
+                KeysType.DUP_KEYS);
+        mtmv.setPartitionInfo(new SinglePartitionInfo());
+        return mtmv;
+    }
+
+    @Test
+    public void testGetInsertedColumnNamesIncludesAllIvmHiddenColumns() {
+        MTMV mtmv = new MTMV();
+        List<Column> schema = Lists.newArrayList(
+                new Column(Column.IVM_ROW_ID_COL, PrimitiveType.LARGEINT, false),
+                new Column(Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__", PrimitiveType.BIGINT, false),
+                new Column("k1", PrimitiveType.INT, true),
+                new Column("hidden", ScalarType.createType(PrimitiveType.INT), false, null,
+                        false, "comment", false, Column.COLUMN_UNIQUE_ID_INIT_VALUE)
+        );
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv", schema, 0, 0, (short) 1, TStorageType.COLUMN, org.apache.doris.catalog.KeysType.DUP_KEYS);
+
+        List<String> insertedColumnNames = mtmv.getInsertedColumnNames();
+
+        Assert.assertEquals(Lists.newArrayList(
+                Column.IVM_ROW_ID_COL,
+                Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__",
+                "k1"), insertedColumnNames);
     }
 }

@@ -1,0 +1,206 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv.ivm;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.qe.ConnectContext;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
+
+public class IvmIncrRefreshManagerTest {
+
+    @Test
+    public void testRefreshContextRejectsNulls() {
+        MTMV mtmv = mockMtmv();
+        Assertions.assertThrows(NullPointerException.class,
+                () -> new IvmIncrRefreshContext(null, new ConnectContext(), null, false));
+        Assertions.assertThrows(NullPointerException.class,
+                () -> new IvmIncrRefreshContext(mtmv, null, null, false));
+    }
+
+    @Test
+    public void testManagerReturnsSuccessForEmptyBundles() throws Exception {
+        MTMV mtmv = mockMtmv();
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertFalse(manager.executeCalled);
+    }
+
+    @Test
+    public void testManagerExecutesBundles() throws Exception {
+        MTMV mtmv = mockMtmv();
+        Command cmd = Mockito.mock(Command.class);
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertTrue(manager.executeCalled);
+    }
+
+    @Test
+    public void testBuildInsertCommandUsesInsertedColumnNamesForIvmSink() {
+        MTMV mtmv = mockMtmv();
+        List<String> insertedColumns = List.of("k1", Column.IVM_ROW_ID_COL);
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(insertedColumns);
+        Mockito.when(mtmv.getQuerySql()).thenReturn("select 1 as k1, 2 as " + Column.IVM_ROW_ID_COL);
+
+        IvmIncrRefreshManager manager = new IvmIncrRefreshManager();
+        InsertIntoTableCommand command = manager.buildInsertCommand(mtmv);
+
+        Assertions.assertInstanceOf(UnboundTableSink.class, command.getLogicalQuery());
+        UnboundTableSink<?> sink = (UnboundTableSink<?>) command.getLogicalQuery();
+        Assertions.assertEquals(insertedColumns, sink.getColNames());
+    }
+
+    @Test
+    public void testManagerPropagatesUnknownExecutorFailure() throws Exception {
+        MTMV mtmv = mockMtmv();
+        Command cmd = Mockito.mock(Command.class);
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
+        manager.throwOnExecute = true;
+
+        Assertions.assertThrows(RuntimeException.class, () -> manager.doRefresh(manager.context));
+        Assertions.assertTrue(manager.executeCalled);
+    }
+
+    @Test
+    public void testManagerReturnsFallbackWithKnownExecutionFailureReason() throws Exception {
+        assertKnownExecutionFailureFallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT,
+                IvmFailureClassifier.MIN_MAX_BOUNDARY_MSG_PREFIX + ": deleted row may be current MIN value");
+        assertKnownExecutionFailureFallback(IvmFailureReason.BITMAP_AGG_DELETE,
+                IvmFailureClassifier.BITMAP_AGG_DELETE_MSG_PREFIX);
+        assertKnownExecutionFailureFallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
+                IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX);
+    }
+
+    @Test
+    public void testManagerReturnsBinlogNotEnabledFallbackOnIvmException() throws Exception {
+        MTMV mtmv = mockMtmv();
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
+        manager.throwBinlogNotEnabledOnAnalyze = true;
+
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, result.getFailureReason());
+        Assertions.assertTrue(result.getDetailMessage().contains("no_binlog"));
+        Assertions.assertFalse(manager.executeCalled);
+    }
+
+    @Test
+    public void testManagerReturnsPlanSignatureMismatchFallback() throws Exception {
+        MTMV mtmv = mockMtmv();
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
+        manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
+
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, result.getFailureReason());
+    }
+
+    @Test
+    public void testManagerReturnsIvmExceptionFailureReasonWhenAnalyzeFails() throws Exception {
+        MTMV mtmv = mockMtmv();
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
+        manager.throwIvmExceptionOnAnalyze = true;
+
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.AGG_UNSUPPORTED, result.getFailureReason());
+        Assertions.assertTrue(result.getDetailMessage().contains("unsupported aggregate"));
+        Assertions.assertFalse(manager.executeCalled);
+    }
+
+    private void assertKnownExecutionFailureFallback(IvmFailureReason expectedReason, String detail) throws Exception {
+        MTMV mtmv = mockMtmv();
+        Command cmd = Mockito.mock(Command.class);
+        TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
+        manager.failureMessage = detail;
+
+        IvmIncrRefreshResult result = manager.doRefresh(manager.context);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(expectedReason, result.getFailureReason());
+        Assertions.assertTrue(manager.executeCalled);
+    }
+
+    private static IvmIncrRefreshContext newContext(MTMV mtmv) {
+        return new IvmIncrRefreshContext(mtmv, new ConnectContext(), "audit", queryId -> { });
+    }
+
+    private static MTMV mockMtmv() {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getName()).thenReturn("mv");
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("db");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(new IvmInfo());
+        return mtmv;
+    }
+
+    private static List<Command> makeCommands(Command cmd) {
+        return Collections.singletonList(cmd);
+    }
+
+    private static class TestIvmIncrRefreshManager extends IvmIncrRefreshManager {
+        private final IvmIncrRefreshContext context;
+        private final List<Command> commands;
+        private boolean executeCalled;
+        private boolean throwOnExecute;
+        private String failureMessage;
+        private boolean throwIvmExceptionOnAnalyze;
+        private boolean throwBinlogNotEnabledOnAnalyze;
+        private IvmPlanSignature planSignatureMismatch;
+
+        private TestIvmIncrRefreshManager(IvmIncrRefreshContext context, List<Command> commands) {
+            this.context = context;
+            this.commands = commands;
+        }
+
+        @Override
+        void executeInternalRefresh(IvmIncrRefreshContext ctx) throws Exception {
+            if (planSignatureMismatch != null) {
+                throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, "layout drift");
+            }
+            if (throwIvmExceptionOnAnalyze) {
+                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED, "unsupported aggregate");
+            }
+            if (throwBinlogNotEnabledOnAnalyze) {
+                throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
+                        "binlog is not enabled for table: no_binlog");
+            }
+            if (commands == null || commands.isEmpty()) {
+                return;
+            }
+            executeCalled = true;
+            if (throwOnExecute || failureMessage != null) {
+                String message = failureMessage != null ? failureMessage : "executor failed";
+                throw new RuntimeException(message);
+            }
+        }
+    }
+}

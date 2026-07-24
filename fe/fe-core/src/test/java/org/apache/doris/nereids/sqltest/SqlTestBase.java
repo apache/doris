@@ -107,7 +107,9 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
                         + ")\n"
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                         + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
+                        + "  \"replication_num\" = \"1\",\n"
+                        + "  \"binlog.enable\" = \"true\",\n"
+                        + "  \"binlog.format\" = \"ROW\"\n"
                         + ")\n",
                 "CREATE TABLE IF NOT EXISTS orders  (\n"
                         + "      o_orderkey       INTEGER NOT NULL,\n"

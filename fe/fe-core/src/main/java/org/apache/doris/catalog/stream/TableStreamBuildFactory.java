@@ -66,6 +66,7 @@ public class TableStreamBuildFactory {
         schema.add(changeTypeColumn);
         switch (params.baseTable.getType()) {
             case OLAP:
+            case MATERIALIZED_VIEW: // MTMV extends OlapTable
                 return new OlapTableStream(params.tableStreamName, schema, params.baseTable);
             default:
                 throw new DdlException("unsupported stream base table type: " + params.baseTable.getType());

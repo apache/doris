@@ -221,6 +221,7 @@ import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExplainRefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
@@ -1001,6 +1002,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.Ma
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
@@ -1647,7 +1649,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitCreateMTMV(CreateMTMVContext ctx) {
-        if (ctx.buildMode() == null && ctx.refreshMethod() == null && ctx.refreshTrigger() == null
+        if (ctx.buildMode() == null && ctx.refreshPolicy() == null && ctx.refreshTrigger() == null
                 && ctx.cols == null && ctx.keys == null
                 && ctx.HASH() == null && ctx.RANDOM() == null && ctx.BUCKETS() == null) {
             return visitCreateSyncMvCommand(ctx);
@@ -1655,7 +1657,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
-        RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
+        ParsedRefreshPolicy refreshPolicy = visitRefreshPolicy(ctx.refreshPolicy());
         MTMVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
@@ -1664,12 +1666,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.INTEGER_VALUE() != null) {
             bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         }
-        DistributionDescriptor desc;
+        DistributionDescriptor desc = null;
         if (ctx.HASH() != null) {
             desc = new DistributionDescriptor(true, ctx.AUTO() != null, bucketNum,
                     visitIdentifierList(ctx.hashKeys));
-        } else {
-            desc = new DistributionDescriptor(false, ctx.AUTO() != null, bucketNum, null);
+        } else if (ctx.RANDOM() != null || ctx.BUCKETS() != null || ctx.AUTO() != null) {
+            desc = new DistributionDescriptor(false, ctx.AUTO() != null || ctx.BUCKETS() == null, bucketNum, null);
         }
 
         Map<String, String> properties = ctx.propertyClause() != null
@@ -1681,7 +1683,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                 comment,
                 desc, properties, logicalPlan, querySql,
-                new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
+                new MTMVRefreshInfo(buildMode, refreshPolicy.refreshMethod,
+                        refreshPolicy.allowFallback, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
                 visitMTMVPartitionInfo(ctx.mvPartition()),
                 ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())
@@ -1813,6 +1816,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public ParsedRefreshPolicy visitRefreshPolicy(DorisParser.RefreshPolicyContext ctx) {
+        RefreshMethod refreshMethod = visitRefreshMethod(ctx == null ? null : ctx.refreshMethod());
+        // Missing policy on CREATE means AUTO, and AUTO keeps its historical
+        // implicit fallback. Non-AUTO methods require an explicit FALLBACK token.
+        boolean allowFallback = ctx != null && ctx.refreshFallback() != null
+                ? true : MTMVRefreshInfo.defaultAllowFallback(refreshMethod);
+        return new ParsedRefreshPolicy(refreshMethod, allowFallback);
+    }
+
+    private static class ParsedRefreshPolicy {
+        private final RefreshMethod refreshMethod;
+        private final boolean allowFallback;
+
+        private ParsedRefreshPolicy(RefreshMethod refreshMethod, boolean allowFallback) {
+            this.refreshMethod = refreshMethod;
+            this.allowFallback = allowFallback;
+        }
+    }
+
+    @Override
     public BuildMode visitBuildMode(BuildModeContext ctx) {
         if (ctx == null) {
             return BuildMode.IMMEDIATE;
@@ -1826,7 +1849,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public RefreshMTMVCommand visitRefreshMTMV(RefreshMTMVContext ctx) {
+    public LogicalPlan visitExplainRefreshMTMV(ExplainRefreshMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        boolean incremental = ctx.explainRefreshPolicy().INCREMENTAL() != null;
+        RefreshMode refreshMode = incremental ? RefreshMode.INCREMENTAL : RefreshMode.COMPLETE;
+        boolean includeExhaustedStreams = ctx.explainRefreshPolicy().ALL() != null;
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
+                new TableNameInfo(nameParts), ImmutableList.of(), refreshMode);
+        return withExplain(new RefreshMTMVCommand(refreshMTMVInfo, includeExhaustedStreams), ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitRefreshMTMV(RefreshMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         List<String> partitions = ImmutableList.of();
         if (ctx.partitionSpec() != null) {
@@ -1839,8 +1873,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitions = visitIdentifierList(ctx.partitionSpec().partitions);
             }
         }
-        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
-                partitions, ctx.COMPLETE() != null));
+        ParsedRefreshPolicy refreshPolicy = ctx.partitionSpec() == null
+                ? visitRefreshPolicy(ctx.refreshPolicy())
+                // Legacy REFRESH ... PARTITION(S) is an exact partition request,
+                // not the PARTITIONS refresh strategy with fallback.
+                : new ParsedRefreshPolicy(RefreshMethod.PARTITIONS, false);
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(new TableNameInfo(nameParts), partitions,
+                RefreshMode.valueOf(refreshPolicy.refreshMethod.name()), refreshPolicy.allowFallback);
+        return new RefreshMTMVCommand(refreshMTMVInfo);
     }
 
     private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {
@@ -1949,8 +1989,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     new TableNameInfo(visitMultipartIdentifier(ctx.renameNewName)));
         } else if (ctx.REFRESH() != null) {
             MTMVRefreshInfo refreshInfo = new MTMVRefreshInfo();
-            if (ctx.refreshMethod() != null) {
-                refreshInfo.setRefreshMethod(visitRefreshMethod(ctx.refreshMethod()));
+            if (ctx.refreshPolicy() != null) {
+                ParsedRefreshPolicy refreshPolicy = visitRefreshPolicy(ctx.refreshPolicy());
+                refreshInfo.setRefreshMethod(refreshPolicy.refreshMethod);
+                // Store fallback only when the method is present. ALTER REFRESH
+                // trigger-only statements must leave the existing fallback policy
+                // untouched.
+                refreshInfo.setAllowFallback(refreshPolicy.allowFallback);
             }
             if (ctx.refreshTrigger() != null) {
                 refreshInfo.setRefreshTriggerInfo(visitRefreshTrigger(ctx.refreshTrigger()));
@@ -4446,28 +4491,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return inputPlan;
         }
         return ParserUtils.withOrigin(ctx, () -> {
-            ExplainLevel explainLevel = ExplainLevel.NORMAL;
-
-            if (ctx.planType() != null) {
-                if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
-                    throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
-                }
-            }
-
-            boolean showPlanProcess = false;
-            if (ctx.level != null) {
-                if (!ctx.level.getText().equalsIgnoreCase("plan")) {
-                    explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
-                } else {
-                    explainLevel = parseExplainPlanType(ctx.planType());
-
-                    if (ctx.PROCESS() != null) {
-                        showPlanProcess = true;
-                    }
-                }
-            }
-            return new ExplainCommand(explainLevel, inputPlan, showPlanProcess);
+            Pair<ExplainLevel, Boolean> explainInfo = parseExplain(ctx);
+            return new ExplainCommand(explainInfo.first, inputPlan, explainInfo.second);
         });
+    }
+
+    private Pair<ExplainLevel, Boolean> parseExplain(ExplainContext ctx) {
+        ExplainLevel explainLevel = ExplainLevel.NORMAL;
+
+        if (ctx.planType() != null) {
+            if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
+                throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
+            }
+        }
+
+        boolean showPlanProcess = false;
+        if (ctx.level != null) {
+            if (!ctx.level.getText().equalsIgnoreCase("plan")) {
+                explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+            } else {
+                explainLevel = parseExplainPlanType(ctx.planType());
+
+                if (ctx.PROCESS() != null) {
+                    showPlanProcess = true;
+                }
+            }
+        }
+        return Pair.of(explainLevel, showPlanProcess);
     }
 
     private LogicalPlan withOutFile(LogicalPlan plan, OutFileClauseContext ctx) {

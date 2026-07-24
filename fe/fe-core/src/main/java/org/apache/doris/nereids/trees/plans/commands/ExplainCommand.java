@@ -35,6 +35,8 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Optional;
+
 /**
  * explain command.
  */
@@ -79,48 +81,54 @@ public class ExplainCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        LogicalPlan explainPlan;
         if (!(logicalPlan instanceof Explainable)) {
             throw new AnalysisException(logicalPlan.getClass().getSimpleName() + " cannot be explained");
         }
+        ConnectContext previousCtx = ConnectContext.get();
         Explainable explainable = (Explainable) logicalPlan;
-        if (explainable instanceof InsertIntoTableCommand
-                || explainable instanceof InsertOverwriteTableCommand
-                || explainable instanceof UpdateCommand) {
-            ctx.getStatementContext().setIsInsert(true);
-        }
-        if (explainable instanceof DeleteFromCommand) {
-            ctx.getStatementContext().setIsDelete(true);
-        }
-        explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
-        NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
-            new NereidsPlanner(ctx.getStatementContext())
-        );
-
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        ConnectContext explainCtx = null;
+        long previousTargetTableId = -1;
         boolean resetTargetTableId = false;
-        if (explainPlan instanceof LogicalIcebergDeleteSink) {
-            if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
-                resetTargetTableId = true;
-            }
-        } else if (explainPlan instanceof LogicalIcebergMergeSink) {
-            if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
-                resetTargetTableId = true;
-            }
-        }
         try {
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
+            explainCtx = explainable.getExplainConnectContext(ctx);
+            if (explainable instanceof InsertIntoTableCommand
+                    || explainable instanceof InsertOverwriteTableCommand
+                    || explainable instanceof UpdateCommand) {
+                explainCtx.getStatementContext().setIsInsert(true);
+            }
+            if (explainable instanceof DeleteFromCommand) {
+                explainCtx.getStatementContext().setIsDelete(true);
+            }
+            LogicalPlan explainPlan = ((LogicalPlan) explainable.getExplainPlan(explainCtx));
+            Optional<NereidsPlanner> explainPlanner =
+                    explainable.getExplainPlanner(explainPlan, explainCtx.getStatementContext());
+            NereidsPlanner planner = explainPlanner.isPresent()
+                    ? explainPlanner.get()
+                    : new NereidsPlanner(explainCtx.getStatementContext());
+
+            previousTargetTableId = explainCtx.getIcebergRowIdTargetTableId();
+            if (explainPlan instanceof LogicalIcebergDeleteSink) {
+                if (previousTargetTableId < 0) {
+                    explainCtx.setIcebergRowIdTargetTableId(
+                            ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
+                    resetTargetTableId = true;
+                }
+            } else if (explainPlan instanceof LogicalIcebergMergeSink) {
+                if (previousTargetTableId < 0) {
+                    explainCtx.setIcebergRowIdTargetTableId(
+                            ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
+                    resetTargetTableId = true;
+                }
+            }
+            LogicalPlanAdapter logicalPlanAdapter =
+                    new LogicalPlanAdapter(explainPlan, explainCtx.getStatementContext());
             ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
             logicalPlanAdapter.setIsExplain(explainOptions);
             executor.setParsedStmt(logicalPlanAdapter);
-            if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+            if (explainCtx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+                explainCtx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
-            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            planner.plan(logicalPlanAdapter, explainCtx.getSessionVariable().toThrift());
             executor.setPlanner(planner);
             // Skip SQL block rules check for EXPLAIN statements since they only show
             // the execution plan without actually executing the query
@@ -134,7 +142,13 @@ public class ExplainCommand extends Command implements NoForward {
             }
         } finally {
             if (resetTargetTableId) {
-                ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+                explainCtx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            }
+            if (ConnectContext.get() != previousCtx) {
+                ConnectContext.remove();
+                if (previousCtx != null) {
+                    previousCtx.setThreadLocalInfo();
+                }
             }
         }
     }

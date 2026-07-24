@@ -32,6 +32,8 @@ import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
@@ -45,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
@@ -138,6 +141,53 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
         AbstractTableStreamUpdate txnUpdate = txnInfo.getUpdate();
         Assertions.assertEquals(update.getNext(), ((OlapTableStreamUpdate) txnUpdate).getNext());
+    }
+
+    @Test
+    public void testUserInsertRejectsIvmInternalTableStream() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream");
+        String streamName = IvmUtil.streamName(12345L,
+                db.getTableOrDdlException("tbl_stream_base").getFullQualifiers());
+        createTable("create stream if not exists test_stream." + streamName
+                + " on table test_stream.tbl_stream_base\n"
+                + "properties('show_initial_rows' = 'true')");
+        String sql = "insert into test_stream.tbl_target select * from test_stream." + streamName;
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+        connectContext.setStartTime();
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.initPlan(connectContext, executor, true));
+        Assertions.assertTrue(ex.getMessage().contains("IVM internal table stream cannot be used in INSERT INTO"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testFastInsertIntoValuesAllowsMissingAnalyzedPlan() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        boolean originalFastAnalyze = connectContext.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+        connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(true);
+        try {
+            String sql = "insert into test_stream.tbl_target values (1, 2)";
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+            connectContext.setStartTime();
+            UUID uuid = UUID.randomUUID();
+            connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+            Assertions.assertNotNull(command.initPlan(connectContext, executor, false));
+        } finally {
+            connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(originalFastAnalyze);
+        }
     }
 
     @Test

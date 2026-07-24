@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -96,6 +99,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + ")\n"
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1');");
+        createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
+                + "duplicate key(c1) distributed by hash(c1) buckets 1 "
+                + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
         connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
     }
 
@@ -357,5 +363,88 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 ImmutableList.of(singleVariantSubColumnSlot)));
         Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
                 ImmutableList.of(variantRootSlot, variantSubColumnSlot)));
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsUseFinalAggregateTuple() throws Exception {
+        Planner planner = getSQLPlanner("select count(*) from test_db.t");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(AggregationNode.class, rootFragment.getPlanRoot());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+
+        AggregationNode aggregationNode = (AggregationNode) rootFragment.getPlanRoot();
+        SlotRef outputExpr = (SlotRef) rootFragment.getOutputExprs().get(0);
+        TupleDescriptor outputTuple = planner.getDescTable().getTupleDesc(aggregationNode.getOutputTupleIds().get(0));
+
+        Assertions.assertEquals(outputTuple.getSlots().get(0).getId(), outputExpr.getDesc().getId());
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsPruneTopNOrderByOnlySlots() throws Exception {
+        Planner planner = getSQLPlanner(
+                "select Status from tasks('type'='mv') order by CreateTime desc limit 1");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+        Assertions.assertEquals("Status", ((SlotRef) rootFragment.getOutputExprs().get(0)).getColumnName());
+    }
+
+    @Test
+    public void testCountDistinctNullFragmentOutputExprsAreBound() throws Exception {
+        Planner planner = getSQLPlanner("select count(distinct NULL) from test_db.t");
+
+        Assertions.assertNotNull(planner);
+        Assertions.assertFalse(planner.getFragments().isEmpty());
+        Assertions.assertEquals(1, planner.getFragments().get(0).getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, planner.getFragments().get(0).getOutputExprs().get(0));
+
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getOutputExprs() == null) {
+                continue;
+            }
+            for (Expr outputExpr : fragment.getOutputExprs()) {
+                Assertions.assertNotNull(outputExpr);
+            }
+        }
+    }
+
+    @Test
+    public void testComputedProjectionAboveDeferredTopNIsTranslated() throws Exception {
+        boolean originEnableTwoPhaseReadOpt = connectContext.getSessionVariable().enableTwoPhaseReadOpt;
+        long originTopnOptLimitThreshold = connectContext.getSessionVariable().topnOptLimitThreshold;
+        int originTopnLazyMaterializationThreshold =
+                connectContext.getSessionVariable().topNLazyMaterializationThreshold;
+        try {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = true;
+            connectContext.getSessionVariable().topnOptLimitThreshold = 1000;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold = -1;
+
+            String sql = "select c1 + 1, c2 + 1 from "
+                    + "(select c1, c2 from test_db.t_topn_lazy order by c1 limit 10) t";
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+            PlanFragment rootFragment = new PhysicalPlanTranslator(
+                    new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+
+            Assertions.assertEquals(2, rootFragment.getOutputExprs().size());
+            rootFragment.getOutputExprs().forEach(Assertions::assertNotNull);
+            Assertions.assertTrue(rootFragment.getOutputExprs().stream().allMatch(SlotRef.class::isInstance));
+            Assertions.assertNotNull(rootFragment.getPlanRoot().getProjectList());
+            Assertions.assertEquals(2, rootFragment.getPlanRoot().getProjectList().size());
+            Assertions.assertTrue(rootFragment.getPlanRoot().getProjectList().stream()
+                    .allMatch(ArithmeticExpr.class::isInstance));
+        } finally {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = originEnableTwoPhaseReadOpt;
+            connectContext.getSessionVariable().topnOptLimitThreshold = originTopnOptLimitThreshold;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold =
+                    originTopnLazyMaterializationThreshold;
+        }
     }
 }

@@ -115,8 +115,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         if (plan instanceof Sink) {
             plan = plan.child(0);
         }
+        List<String> sinkColumns = mv.isIvm() ? mv.getInsertedColumnNames() : ImmutableList.of();
         LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
-                ImmutableList.of(), ImmutableList.of(), parts, plan);
+                sinkColumns, ImmutableList.of(), parts, plan);
         if (LOG.isDebugEnabled()) {
             LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
                     sink.treeString());

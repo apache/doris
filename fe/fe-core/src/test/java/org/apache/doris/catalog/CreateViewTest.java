@@ -237,6 +237,32 @@ public class CreateViewTest {
     }
 
     @Test
+    public void testCreateViewWithoutDefinedColumnsDoesNotInjectAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.no_alias_view as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("no_alias_view");
+        Assert.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithDefinedColumnsRewritesAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.with_alias_view(c1, c2) as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("with_alias_view");
+        Assert.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1` AS `c1`, `internal`.`test`.`tbl1`.`k2` AS `c2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
     public void testViewRejectVarbinary() throws Exception {
         ExceptionChecker.expectThrowsWithMsg(
                 org.apache.doris.common.AnalysisException.class,

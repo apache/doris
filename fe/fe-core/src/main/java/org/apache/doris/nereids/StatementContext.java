@@ -27,6 +27,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -36,6 +37,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
@@ -94,6 +96,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -122,6 +125,7 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -328,6 +332,7 @@ public class StatementContext implements Closeable {
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
+    private final Set<TableNameInfo> excludedTriggerTables = new HashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
@@ -423,6 +428,17 @@ public class StatementContext implements Closeable {
         return oneLevelTables;
     }
 
+    public Set<TableNameInfo> getExcludedTriggerTables() {
+        return excludedTriggerTables;
+    }
+
+    public void setExcludedTriggerTables(Set<TableNameInfo> excludedTriggerTables) {
+        this.excludedTriggerTables.clear();
+        if (excludedTriggerTables != null) {
+            this.excludedTriggerTables.addAll(excludedTriggerTables);
+        }
+    }
+
     public Set<MTMV> getCandidateMTMVs() {
         return candidateMTMVs;
     }
@@ -475,6 +491,18 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public Optional<IvmRewriteContext> getIvmRewriteContext() {
+        return ivmRewriteContext;
+    }
+
+    public void setIvmRewriteContext(Optional<IvmRewriteContext> ivmRewriteContext) {
+        this.ivmRewriteContext = Objects.requireNonNull(ivmRewriteContext, "ivmRewriteContext can not be null");
+    }
+
+    public boolean isIvmMTMVRewrite() {
+        return getIvmRewriteContext().isPresent();
     }
 
     public Set<String> getUsedAIResourceNames() {

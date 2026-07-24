@@ -74,7 +74,7 @@ statementBase
 materializedViewStatement
     : CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
-        (REFRESH refreshMethod? refreshTrigger?)?
+        (REFRESH refreshPolicy? refreshTrigger?)?
         ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
@@ -82,9 +82,12 @@ materializedViewStatement
         (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS? query                                                                               #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
+    | explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        explainRefreshPolicy                                                                     #explainRefreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
+        (partitionSpec | refreshPolicy)                                                           #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
-        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+        | (REFRESH (refreshPolicy | refreshTrigger | refreshPolicy refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
@@ -1124,8 +1127,21 @@ refreshSchedule
     : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
+refreshPolicy
+    : refreshMethod refreshFallback?
+    ;
+
+explainRefreshPolicy
+    : INCREMENTAL (WITH ALL STREAMS)?
+    | COMPLETE
+    ;
+
+refreshFallback
+    : FALLBACK
+    ;
+
 refreshMethod
-    : COMPLETE | AUTO
+    : COMPLETE | AUTO | INCREMENTAL | PARTITIONS
     ;
 
 mvPartition
@@ -2132,6 +2148,7 @@ nonReserved
     | EXCLUDE
     | EXPIRED
     | EXTERNAL
+    | FALLBACK
     | FAILED_LOGIN_ATTEMPTS
     | FAST
     | FEATURE
