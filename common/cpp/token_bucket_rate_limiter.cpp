@@ -97,6 +97,14 @@ std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now,
         }
         _count += amount;
         count_value = _count;
+        if (_limit && count_value > _limit) {
+            // Keep rejection side-effect free. Roll back before releasing the lock so
+            // concurrent callers cannot observe debt from a request that will not run.
+            _count -= amount;
+            if (_max_speed) {
+                _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
+            }
+        }
         tokens_value = _remain_tokens;
         _prev_ns_count = now;
     }
@@ -124,10 +132,19 @@ int64_t TokenBucketRateLimiter::add(size_t amount) {
     return sleep_time_ns;
 }
 
+void TokenBucketRateLimiter::refund(size_t amount) {
+    std::lock_guard<SimpleSpinLock> lock(*_mutex);
+    if (_max_speed) {
+        _remain_tokens = std::min<double>(_remain_tokens + amount, _max_burst);
+    }
+    _count = (_count >= amount) ? _count - amount : 0;
+}
+
 TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst,
                                                            size_t limit,
                                                            std::function<void(int64_t)> metric_func)
-        : rate_limiter(std::make_unique<TokenBucketRateLimiter>(max_speed, max_burst, limit)),
+        : rate_limiter(std::make_shared<TokenBucketRateLimiter>(max_speed, max_burst, limit)),
+          _enabled(max_speed > 0 || limit > 0),
           metric_func(std::move(metric_func)) {}
 
 int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
@@ -135,22 +152,39 @@ int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
 }
 
 TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::add_with_config(size_t amount) {
-    TokenBucketRateLimiterResult result;
+    // Snapshot the current limiter and call add() outside the read lock: add() may
+    // sleep for a long time when throttled, and holding the read lock across the
+    // sleep would block reset() (dynamic config update) for the whole duration.
+    std::shared_ptr<TokenBucketRateLimiter> limiter;
     {
         std::shared_lock read {rate_limiter_rw_lock};
-        result = {.sleep_duration = rate_limiter->add(amount),
-                  .max_speed = rate_limiter->get_max_speed(),
-                  .max_burst = rate_limiter->get_max_burst(),
-                  .limit = rate_limiter->get_limit()};
+        limiter = rate_limiter;
     }
+    TokenBucketRateLimiterResult result = {.sleep_duration = limiter->add(amount),
+                                           .max_speed = limiter->get_max_speed(),
+                                           .max_burst = limiter->get_max_burst(),
+                                           .limit = limiter->get_limit()};
     metric_func(result.sleep_duration);
     return result;
 }
 
+std::shared_ptr<TokenBucketRateLimiter> TokenBucketRateLimiterHolder::charge(size_t amount) {
+    std::shared_ptr<TokenBucketRateLimiter> limiter;
+    {
+        std::shared_lock read {rate_limiter_rw_lock};
+        limiter = rate_limiter;
+    }
+    int64_t sleep_duration = limiter->add(amount);
+    metric_func(sleep_duration);
+    return sleep_duration < 0 ? nullptr : limiter;
+}
+
 int TokenBucketRateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
+    auto new_rate_limiter = std::make_shared<TokenBucketRateLimiter>(max_speed, max_burst, limit);
     {
         std::unique_lock write {rate_limiter_rw_lock};
-        rate_limiter = std::make_unique<TokenBucketRateLimiter>(max_speed, max_burst, limit);
+        rate_limiter = std::move(new_rate_limiter);
+        _enabled.store(max_speed > 0 || limit > 0, std::memory_order_release);
     }
     return 0;
 }

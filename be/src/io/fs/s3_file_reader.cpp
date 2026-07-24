@@ -160,11 +160,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
 
     int total_sleep_time = 0;
+    ObjectStorageResponse resp;
     while (retry_count <= max_retries) {
         *bytes_read = 0;
         s3_file_reader_read_counter << 1;
         // clang-format off
-        auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
+        resp = client->get_object( { .bucket = _bucket, .key = _key, },
                 to, offset, bytes_req, bytes_read);
         // clang-format on
         _s3_stats.total_get_request_counter++;
@@ -208,6 +209,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             "failed to get object, path={} offset={} bytes_req={} bytes_read={} file_size={} "
             "tries={}",
             _path.native(), offset, bytes_req, *bytes_read, _file_size, (max_retries + 1));
+    if (resp.status.code == ErrorCode::EXCEEDED_LIMIT) {
+        msg.append(fmt::format(", err={}", resp.status.msg));
+    }
     LOG(WARNING) << msg;
     return Status::InternalError(msg);
 }

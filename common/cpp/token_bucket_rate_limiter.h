@@ -18,6 +18,7 @@
 #pragma once
 #include <bvar/bvar.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <shared_mutex>
@@ -54,9 +55,14 @@ public:
     TokenBucketRateLimiter(size_t max_speed, size_t max_burst, size_t limit);
     ~TokenBucketRateLimiter();
 
-    // Use `amount` remain_tokens, sleeps if required or throws exception on limit overflow.
-    // Returns duration of sleep in nanoseconds (to distinguish sleeping on different kinds of S3RateLimiters for metrics)
+    // Use `amount` remain_tokens and count, sleeping when rate tokens are insufficient.
+    // Returns the sleep duration in nanoseconds, or -1 when the count limit rejects the add.
     int64_t add(size_t amount);
+
+    // Return `amount` tokens to the bucket (capped at max_burst) and roll back the
+    // cumulative counter. Used to reconcile a reservation with the actually consumed
+    // amount, e.g. a short read at EOF.
+    void refund(size_t amount);
 
     size_t get_max_speed() const { return _max_speed; }
 
@@ -93,7 +99,18 @@ public:
     int64_t add(size_t amount);
     TokenBucketRateLimiterResult add_with_config(size_t amount);
 
+    // Charge `amount` like add(), but return the limiter generation the tokens were
+    // taken from, or nullptr when the count limit rejects the charge. Callers that later
+    // refund a reservation must refund on the returned object, so that a concurrent
+    // reset() cannot make the refund pollute a fresh bucket that never saw the charge.
+    std::shared_ptr<TokenBucketRateLimiter> charge(size_t amount);
+
     int reset(size_t max_speed, size_t max_burst, size_t limit);
+
+    // Whether the currently published limiter can throttle or reject at all
+    // (max_speed > 0 or limit > 0). Lock-free fast path for callers that want to
+    // skip disabled limiters.
+    bool is_enabled() const { return _enabled.load(std::memory_order_acquire); }
 
     size_t get_max_speed() const;
     size_t get_max_burst() const;
@@ -101,7 +118,8 @@ public:
 
 private:
     mutable std::shared_mutex rate_limiter_rw_lock;
-    std::unique_ptr<TokenBucketRateLimiter> rate_limiter;
+    std::shared_ptr<TokenBucketRateLimiter> rate_limiter;
+    std::atomic<bool> _enabled;
     // Record the correspoding sleeping time(unit is ms)
     std::function<void(int64_t)> metric_func;
 };

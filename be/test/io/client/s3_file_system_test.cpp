@@ -34,6 +34,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "util/defer_op.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -2456,15 +2458,21 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
     // Save original config values
     int64_t original_get_bucket_tokens = config::s3_get_bucket_tokens;
     int64_t original_get_token_per_second = config::s3_get_token_per_second;
-    int64_t original_get_token_limit = config::s3_get_token_limit;
+    int64_t original_get_qps_per_core = config::s3_get_qps_per_core;
 
-    std::cout << "Original GET config: bucket_tokens=" << original_get_bucket_tokens
-              << ", token_per_second=" << original_get_token_per_second
-              << ", limit=" << original_get_token_limit << std::endl;
+    auto& manager = S3RateLimiterManager::instance();
+    Defer restore_configs {[&] {
+        config::s3_get_bucket_tokens = original_get_bucket_tokens;
+        config::s3_get_token_per_second = original_get_token_per_second;
+        config::s3_get_qps_per_core = original_get_qps_per_core;
+        manager.refresh();
+    }};
 
     int64_t new_s3_get_bucket_tokens_val = 50;
     int64_t new_s3_get_token_per_second_val = 1;
 
+    // Legacy configs are only effective while the per-core config is unset.
+    ASSERT_TRUE(config::set_config("s3_get_qps_per_core", "-1").ok());
     auto [success1, msg7] = config::set_config(
             "s3_get_bucket_tokens", std::to_string(new_s3_get_bucket_tokens_val), false, false);
     ASSERT_EQ(success1, 0) << "Failed to set s3_get_bucket_tokens: " << msg7;
@@ -2473,13 +2481,12 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
                                std::to_string(new_s3_get_token_per_second_val), false, false);
     ASSERT_EQ(success2, 0) << "Failed to set s3_get_token_per_second: " << msg8;
 
-    auto st = create_client();
-    ASSERT_TRUE(st.ok());
+    // Dynamic config changes take effect through the periodic idempotent refresh.
+    manager.refresh();
 
-    // Verify restoration
-    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_burst(),
+    EXPECT_EQ(manager.qps_limiter(S3RateLimitType::GET)->get_max_burst(),
               new_s3_get_bucket_tokens_val);
-    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_speed(),
+    EXPECT_EQ(manager.qps_limiter(S3RateLimitType::GET)->get_max_speed(),
               new_s3_get_token_per_second_val);
 }
 
