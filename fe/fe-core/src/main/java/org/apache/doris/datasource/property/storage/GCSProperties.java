@@ -91,6 +91,7 @@ public class GCSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"gs.session_token", "s3.session_token", "session_token"},
             required = false,
+            sensitive = true,
             description = "The session token of GCS.")
     protected String sessionToken = "";
 

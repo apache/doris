@@ -83,6 +83,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
      * to prevent messy, repetitive checks in application code.
      */
     @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token"}, required = false,
+            sensitive = true,
             description = "The security token of OSS.")
     protected String securityToken = "";
 

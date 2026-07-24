@@ -757,7 +757,7 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     @Test
     public void testBloomFilterColumnsEmptyString() throws Exception {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                        "Unknown properties: {bloom_filter_columns=}",
+                        "Unknown properties: [bloom_filter_columns]",
                         () -> createTable("CREATE TABLE test.tbl_bf_empty_columns (\n"
                 + "k1 INT, \n"
                 + "v1 VARCHAR(20)\n"
@@ -773,7 +773,7 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     @Test
     public void testBloomFilterColumnsOnlyCommas() {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown properties: {bloom_filter_columns=,,,}",
+                "Unknown properties: [bloom_filter_columns]",
                 () -> createTable("CREATE TABLE test.tbl_bf_only_commas (\n"
                         + "k1 INT, \n"
                         + "v1 VARCHAR(20)\n"

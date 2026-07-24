@@ -101,6 +101,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
     }
 
     private void checkObjectStorageInfo() throws UserException {
+        ObjectInfo objectInfo = null;
         try {
             tryConnect(stageProperties.getEndpoint());
             StagePB stagePB = toStageProto();
@@ -121,7 +122,7 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
                 stagePB = StagePB.newBuilder(stagePB).setExternalId(user.getExternalId()).setObjInfo(objInfoPB).build();
             }
 
-            ObjectInfo objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
+            objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
             ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
 
@@ -129,8 +130,8 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
             fs.headObjectWithMeta(objectInfo.getPrefix(), "1");
             fs.listObjectsWithPrefix(objectInfo.getPrefix(), "", null);
         } catch (Exception e) {
-            LOG.warn("Failed to access object storage, proto={}, err={}",
-                    stageProperties.getObjectStoreInfoPB(), e.toString());
+            LOG.warn("Failed to access object storage, stageName={}, objectInfo={}, err={}",
+                    stageName, objectInfo, e.toString());
             String msg;
             if (e instanceof UserException) {
                 msg = ((UserException) e).getDetailMessage();

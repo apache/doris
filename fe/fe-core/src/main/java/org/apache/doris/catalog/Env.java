@@ -1501,7 +1501,8 @@ public class Env {
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
-                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        // Do not log the cluster token fetched from the helper node.
+                        LOG.info("get token from helper node successfully.");
                         token = remoteToken;
                         storage.writeClusterIdAndToken();
                         storage.reload();

@@ -1239,7 +1239,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         while (retryTime++ < 3) {
             try {
                 response = MetaServiceProxy.getInstance().createStage(createStageRequest);
-                LOG.debug("create stage, stage: {}, {}, response: {}", stagePB, ifNotExists, response);
+                LOG.debug("create stage, stage={}, ifNotExists={}, response={}",
+                        getStageForLogging(stagePB), ifNotExists, response);
                 if (ifNotExists && response.getStatus().getCode() == MetaServiceCode.ALREADY_EXISTED) {
                     LOG.info("stage already exists, stage_name: {}", stagePB.getName());
                     return;
@@ -1353,14 +1354,33 @@ public class CloudInternalCatalog extends InternalCatalog {
         Cloud.GetStageResponse response = null;
         try {
             response = MetaServiceProxy.getInstance().getStage(builder.build());
-            LOG.debug("get stage, stageType={}, userName={}, userId= {}, stageName:{}, response: {}",
-                    stageType, userName, userId, stageName, response);
+            LOG.debug("get stage, stageType={}, userName={}, userId={}, stageName={}, response={}",
+                    stageType, userName, userId, stageName, getStageResponseForLogging(response));
         } catch (RpcException e) {
             LOG.warn("getStage rpc exception: {} ", e.getMessage(), e);
             throw new DdlException("internal error, try later");
         }
 
         return response;
+    }
+
+    private static Cloud.StagePB getStageForLogging(Cloud.StagePB stage) {
+        Cloud.StagePB.Builder stageBuilder = stage.toBuilder();
+        if (stage.hasObjInfo()) {
+            stageBuilder.getObjInfoBuilder().clearAk().clearSk();
+        }
+        return stageBuilder.build();
+    }
+
+    private static Cloud.GetStageResponse getStageResponseForLogging(Cloud.GetStageResponse response) {
+        Cloud.GetStageResponse.Builder responseBuilder = response.toBuilder();
+        for (int i = 0; i < responseBuilder.getStageCount(); i++) {
+            Cloud.StagePB.Builder stageBuilder = responseBuilder.getStageBuilder(i);
+            if (stageBuilder.hasObjInfo()) {
+                stageBuilder.getObjInfoBuilder().clearAk().clearSk();
+            }
+        }
+        return responseBuilder.build();
     }
 
     public void dropStage(Cloud.StagePB.StageType stageType, String userName, String userId,

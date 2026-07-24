@@ -20,7 +20,10 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
+import org.apache.doris.datasource.property.metastore.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
+import org.apache.doris.datasource.property.metastore.PaimonRestMetaStoreProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
@@ -28,6 +31,7 @@ import org.apache.doris.datasource.property.storage.MinioProperties;
 import org.apache.doris.datasource.property.storage.OBSProperties;
 import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.OzoneProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.util.BasicPrintableMap;
@@ -43,6 +47,7 @@ import java.util.TreeMap;
 public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     private boolean hidePassword;
     private Set<String> additionalHiddenKeys = Sets.newHashSet();
+    private Set<String> additionalSensitiveKeys = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
 
     public static final Set<String> SENSITIVE_KEY;
     public static final Set<String> HIDDEN_KEY;
@@ -55,11 +60,24 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
+        SENSITIVE_KEY.add("api_key");
+        SENSITIVE_KEY.add("apikey");
+        SENSITIVE_KEY.add("property.sasl.jaas.config");
+        SENSITIVE_KEY.add("sasl.jaas.config");
+        SENSITIVE_KEY.add("property.aws.access_key");
+        SENSITIVE_KEY.add("aws.access_key");
+        SENSITIVE_KEY.add("property.aws.secret_key");
+        SENSITIVE_KEY.add("aws.secret_key");
+        SENSITIVE_KEY.add("property.aws.session_key");
+        SENSITIVE_KEY.add("aws.session_key");
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(PaimonRestMetaStoreProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergJdbcMetaStoreProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(PaimonJdbcMetaStoreProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AzureProperties.class));
@@ -68,6 +86,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(COSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OBSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(MinioProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OzoneProperties.class));
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
     }
@@ -99,6 +118,13 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         this.additionalHiddenKeys = additionalHiddenKeys;
     }
 
+    public void setAdditionalSensitiveKeys(Set<String> additionalSensitiveKeys) {
+        this.additionalSensitiveKeys = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        if (additionalSensitiveKeys != null) {
+            this.additionalSensitiveKeys.addAll(additionalSensitiveKeys);
+        }
+    }
+
     /**
      * Registers additional sensitive property key aliases to be masked when printing property maps.
      *
@@ -124,7 +150,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     @Override
     protected String formatValue(Map.Entry<K, V> entry) {
-        if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
+        if (hidePassword && (SENSITIVE_KEY.contains(entry.getKey())
+                || additionalSensitiveKeys.contains(entry.getKey()))) {
             return PASSWORD_MASK;
         }
         return super.formatValue(entry);

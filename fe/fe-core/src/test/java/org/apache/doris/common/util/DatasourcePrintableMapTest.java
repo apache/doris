@@ -43,8 +43,28 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("api_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("apikey"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.session_token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("session_token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.session-token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("aws.glue.session-token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("oss.hdfs.security_token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("paimon.rest.dlf.access-key-secret"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("paimon.rest.dlf.access-key-id"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.jdbc.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("paimon.jdbc.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ozone.access_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ozone.secret_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ozone.session_token"));
+
+        // AWS external IDs are identifiers for the confused-deputy check, not credentials.
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("aws.external_id"));
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("property.aws.external_id"));
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("aws.external.id"));
+        Assertions.assertFalse(DatasourcePrintableMap.SENSITIVE_KEY.contains("property.aws.external.id"));
 
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
@@ -208,6 +228,23 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("visible_key = visible_value"));
         Assertions.assertFalse(result.contains("hidden_key"));
         Assertions.assertFalse(result.contains("another_hidden"));
+    }
+
+    @Test
+    public void testAdditionalSensitiveKeys() {
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("ak", "tmp_ak");
+        testMap.put("visible_key", "visible_value");
+
+        DatasourcePrintableMap<String, String> printableMap =
+                new DatasourcePrintableMap<>(testMap, "=", false, false, true);
+        Set<String> sensitiveKeys = new java.util.HashSet<>();
+        sensitiveKeys.add("ak");
+        printableMap.setAdditionalSensitiveKeys(sensitiveKeys);
+
+        String result = printableMap.toString();
+        Assertions.assertTrue(result.contains("ak = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("visible_key = visible_value"));
     }
 
     @Test

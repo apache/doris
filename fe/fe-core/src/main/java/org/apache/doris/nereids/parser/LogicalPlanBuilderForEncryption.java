@@ -32,12 +32,31 @@ import org.antlr.v4.runtime.ParserRuleContext;
 import org.apache.commons.collections4.MapUtils;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**LogicalPlanBuilderForEncryption*/
 public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
+    private static final Set<String> STAGE_ADDITIONAL_SENSITIVE_KEYS = new HashSet<>();
+    private static final Set<String> ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS = new HashSet<>();
+
+    static {
+        STAGE_ADDITIONAL_SENSITIVE_KEYS.add("ak");
+        STAGE_ADDITIONAL_SENSITIVE_KEYS.add("sk");
+
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("sasl.jaas.config");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.sasl.jaas.config");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("aws.access_key");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.access_key");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("aws.secret_key");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.secret_key");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("aws.session_key");
+        ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS.add("property.aws.session_key");
+    }
+
     private final Map<Pair<Integer, Integer>, String> indexInSqlToString;
 
     public LogicalPlanBuilderForEncryption(Map<Integer, ParserRuleContext> selectHintMap,
@@ -113,6 +132,23 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateCatalog(ctx);
     }
 
+    @Override
+    public LogicalPlan visitCreateRoutineLoad(DorisParser.CreateRoutineLoadContext ctx) {
+        if (ctx.propertyClause() != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        if (ctx.customProperties != null) {
+            encryptProperty(visitPropertyItemList(ctx.customProperties),
+                    ctx.customProperties.start.getStartIndex(),
+                    ctx.customProperties.stop.getStopIndex(),
+                    ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS);
+        }
+        return super.visitCreateRoutineLoad(ctx);
+    }
+
     // create repository clause (CREATE [READ ONLY] REPOSITORY ... WITH <backend> ... PROPERTIES(...))
     @Override
     public LogicalPlan visitCreateRepository(DorisParser.CreateRepositoryContext ctx) {
@@ -154,6 +190,29 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateTable(ctx);
     }
 
+    @Override
+    public LogicalPlan visitCreateDatabase(DorisParser.CreateDatabaseContext ctx) {
+        if (ctx.propertyClause() != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateDatabase(ctx);
+    }
+
+    @Override
+    public LogicalPlan visitCreateStage(DorisParser.CreateStageContext ctx) {
+        if (ctx.properties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex(),
+                    STAGE_ADDITIONAL_SENSITIVE_KEYS);
+        }
+        return super.visitCreateStage(ctx);
+    }
+
     // create storage vault clause
     @Override
     public LogicalPlan visitCreateStorageVault(DorisParser.CreateStorageVaultContext ctx) {
@@ -188,6 +247,23 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                     propertyClauseContext.fileProperties.stop.getStopIndex());
         }
         return super.visitAlterStorageVault(ctx);
+    }
+
+    @Override
+    public LogicalPlan visitAlterRoutineLoad(DorisParser.AlterRoutineLoadContext ctx) {
+        if (ctx.properties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        if (ctx.propertyItemList() != null) {
+            encryptProperty(visitPropertyItemList(ctx.propertyItemList()),
+                    ctx.propertyItemList().start.getStartIndex(),
+                    ctx.propertyItemList().stop.getStopIndex(),
+                    ROUTINE_LOAD_ADDITIONAL_SENSITIVE_KEYS);
+        }
+        return super.visitAlterRoutineLoad(ctx);
     }
 
     // alter authentication integration properties clause
@@ -247,9 +323,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     }
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
+        encryptProperty(properties, start, stop, null);
+    }
+
+    private void encryptProperty(Map<String, String> properties, int start, int stop,
+            Set<String> additionalSensitiveKeys) {
         if (MapUtils.isNotEmpty(properties)) {
             DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(properties, "=",
                     true, false, true);
+            printableMap.setAdditionalSensitiveKeys(additionalSensitiveKeys);
             indexInSqlToString.put(Pair.of(start, stop), printableMap.toString());
         }
     }
