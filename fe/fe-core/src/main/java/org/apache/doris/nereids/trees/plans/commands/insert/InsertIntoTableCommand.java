@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -240,6 +241,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv(), Optional.empty());
     }
 
+    protected DatabaseIf<?> getTargetDatabase(TableIf targetTable) {
+        return targetTable.getDatabase();
+    }
+
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
         return initPlan(ctx, executor, true);
     }
@@ -261,14 +266,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
+            DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
             if (needAuthCheck(targetTableIf) && !Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
-                            targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                    .checkTblPriv(ConnectContext.get(), targetDatabase.getCatalog().getName(),
+                            targetDatabase.getFullName(), targetTableIf.getName(),
                             PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        targetTableIf.getDatabase().getFullName()
+                        targetDatabase.getFullName()
                                 + "." + Util.getTempTableDisplayName(targetTableIf.getName()));
             }
             BuildInsertExecutorResult buildResult;
@@ -577,10 +583,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 Dictionary dictionary = (Dictionary) targetTableIf;
+                DatabaseIf<?> database = getTargetDatabase(dictionary);
                 // insertCtx is not useful for dictionary. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new DictionaryInsertExecutor(
-                                ctx, dictionary, label, planner, insertCtx, emptyInsert, jobId));
+                                ctx, database, dictionary, label, planner, insertCtx, emptyInsert, jobId));
             } else if (physicalSink instanceof PhysicalBlackholeSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 // insertCtx is not useful for blackhole. so keep it empty is ok.

@@ -990,9 +990,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
         UnboundDictionarySink<?> sink = ctx.root;
-        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
-        Dictionary dictionary = pair.second;
+        Database database = sink.getDatabase();
+        Dictionary dictionary = sink.getDictionary();
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // 1. bind target columns: from sink's column names to target tables' Columns
@@ -1116,19 +1115,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((ExternalDatabase) pair.first), (PluginDrivenExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not a plugin-driven connector table");
-    }
-
-    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
-            UnboundDictionarySink<? extends Plan> sink) {
-        Dictionary dictionary = sink.getDictionary();
-        Database db;
-        try {
-            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return Pair.of(db, dictionary);
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {
