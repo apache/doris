@@ -25,6 +25,8 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
+import com.google.protobuf.Descriptors;
+import com.google.protobuf.Message;
 import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -114,7 +116,7 @@ public class MetaServiceProxy {
                 CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
                         .update(System.currentTimeMillis() - startTime);
             }
-            return response;
+            return preferExactStatusCode(response);
         } catch (MetaServiceRateLimitException e) {
             recordRpcRateLimited(methodName);
             throw e;
@@ -262,7 +264,7 @@ public class MetaServiceProxy {
                         CloudMetrics.META_SERVICE_RPC_ALL_RETRY.increase(1L);
                         CloudMetrics.META_SERVICE_RPC_RETRY.getOrAdd(methodName).increase(1L);
                     }
-                    Response response = function.apply(client);
+                    Response response = preferExactStatusCode(function.apply(client));
                     Cloud.MetaServiceResponseStatus status = statusExtractor.apply(response);
                     if (status.getCode() != Cloud.MetaServiceCode.MS_TOO_BUSY) {
                         return response;
@@ -318,6 +320,40 @@ public class MetaServiceProxy {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    // Prefer the exact status code when this FE binary knows the enum value. The
+    // response keeps a
+    // legacy-compatible fallback code for old clients, so normalize the returned
+    // message once here
+    // and let existing callers continue to read status.getCode().
+    private static <Response> Response preferExactStatusCode(Response response) {
+        if (!(response instanceof Message)) {
+            return response;
+        }
+        Message message = (Message) response;
+        Descriptors.FieldDescriptor statusField = message.getDescriptorForType().findFieldByName("status");
+        if (statusField == null || !message.hasField(statusField)) {
+            return response;
+        }
+        Object statusObject = message.getField(statusField);
+        if (!(statusObject instanceof Cloud.MetaServiceResponseStatus)) {
+            return response;
+        }
+        Cloud.MetaServiceResponseStatus status = (Cloud.MetaServiceResponseStatus) statusObject;
+
+        if (!status.hasAuxCode()) {
+            return response;
+        }
+        Cloud.MetaServiceCode code = Cloud.MetaServiceCode.forNumber(status.getAuxCode());
+        if (code == null || code == status.getCode()) {
+            return response;
+        }
+        Cloud.MetaServiceResponseStatus normalizedStatus = status.toBuilder().setCode(code).build();
+        Message.Builder builder = message.toBuilder();
+        builder.setField(statusField, normalizedStatus);
+        return (Response) builder.build();
+    }
+
     private final MetaServiceClientWrapper w = new MetaServiceClientWrapper(this);
 
     /**
@@ -367,6 +403,9 @@ public class MetaServiceProxy {
             if (future instanceof com.google.common.util.concurrent.ListenableFuture) {
                 com.google.common.util.concurrent.ListenableFuture<Cloud.GetVersionResponse> listenableFuture =
                         (com.google.common.util.concurrent.ListenableFuture<Cloud.GetVersionResponse>) future;
+                listenableFuture = com.google.common.util.concurrent.Futures.transform(
+                        listenableFuture, MetaServiceProxy::preferExactStatusCode,
+                        com.google.common.util.concurrent.MoreExecutors.directExecutor());
                 MetaServiceClient finalClient = client;
                 com.google.common.util.concurrent.Futures.addCallback(listenableFuture,
                         new com.google.common.util.concurrent.FutureCallback<Cloud.GetVersionResponse>() {
@@ -386,6 +425,7 @@ public class MetaServiceProxy {
                                 }
                             }
                         }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
+                return listenableFuture;
             }
             return future;
         } catch (MetaServiceRateLimitException e) {

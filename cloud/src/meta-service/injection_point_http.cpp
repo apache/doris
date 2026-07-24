@@ -131,8 +131,8 @@ static void register_suites() {
                 std::bernoulli_distribution inject_fault {p};
                 if (inject_fault(gen)) {
                     auto* status = try_any_cast<MetaServiceResponseStatus*>(args[1]);
-                    status->set_code(MetaServiceCode::MS_TOO_BUSY);
-                    status->set_msg("injected ms too busy");
+                    set_response_status(status, MetaServiceCode::MS_TOO_BUSY,
+                                        "injected ms too busy");
                     LOG_WARNING("inject ms too busy on {} with probability {}", *req_name, p);
                     *try_any_cast<bool*>(args.back()) = true;
                 }
