@@ -454,6 +454,10 @@ public abstract class Type {
     }
 
     public String hideVersionForVersionColumn(Boolean isToSql) {
+        return hideVersionForVersionColumn(isToSql, false);
+    }
+
+    public String hideVersionForVersionColumn(Boolean isToSql, boolean showNestedComment) {
         if (isDatetime() || isDatetimeV2()) {
             StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
@@ -482,18 +486,27 @@ public abstract class Type {
             }
             return typeStr.toString();
         } else if (isArrayType()) {
-            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
+            String nestedDesc = ((ArrayType) this).getItemType()
+                    .hideVersionForVersionColumn(isToSql, showNestedComment);
             return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
-            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
-            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
+            String keyDesc = ((MapType) this).getKeyType()
+                    .hideVersionForVersionColumn(isToSql, showNestedComment);
+            String valueDesc = ((MapType) this).getValueType()
+                    .hideVersionForVersionColumn(isToSql, showNestedComment);
             return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
             for (int i = 0; i < structType.getFields().size(); i++) {
                 StructField field = structType.getFields().get(i);
-                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
+                StringBuilder desc = new StringBuilder(field.getName()).append(":")
+                        .append(field.getType().hideVersionForVersionColumn(isToSql, showNestedComment));
+                // Nested docs are part of DESCRIBE output only when comments were explicitly requested.
+                if (showNestedComment && field.isCommentSpecified()) {
+                    desc.append(String.format(" comment '%s'", field.getComment()));
+                }
+                fieldDesc.add(desc.toString());
             }
             return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {

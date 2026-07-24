@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.GenericPartitionFieldSummary;
@@ -69,6 +70,24 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testGetSchemaForBranchUsesRelationLocalSnapshot() {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        List<Column> schema = Collections.singletonList(new Column("old_name", Type.INT));
+        Mockito.when(table.loadSnapshot(
+                Mockito.eq(Optional.empty()),
+                Mockito.argThat(params -> params.isPresent()
+                        && params.get().isBranch()
+                        && "historical_branch".equals(
+                                params.get().getMapParams().get(TableScanParams.PARAMS_NAME)))))
+                .thenReturn(snapshot);
+        Mockito.when(table.getBaseSchema(Optional.of(snapshot), true)).thenReturn(schema);
+
+        Assert.assertSame(schema,
+                IcebergUtils.getSchemaForBranch(table, Optional.of("historical_branch"), true));
+    }
+
     @Test
     public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
         Table table = Mockito.mock(Table.class);
