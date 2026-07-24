@@ -774,6 +774,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
 
+    public static final String ENABLE_IVM_COMPLEX_OUTER_JOIN_DELTA
+            = "enable_ivm_complex_outer_join_delta";
+
     public static final String MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS
             = "materialized_view_rewrite_duration_threshold_ms";
 
@@ -2886,6 +2889,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
             description = "Whether enable materialized view nest rewrite")
     public boolean enableMaterializedViewNestRewrite = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_IVM_COMPLEX_OUTER_JOIN_DELTA, needForward = true,
+            description = {"是否允许 IVM 物化视图的 outer join null 侧继续嵌套 outer join",
+                    "Whether to allow an IVM materialized view outer join null side to contain another outer join"})
+    public boolean enableIvmComplexOuterJoinDelta = false;
 
     @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
             description = "The maximum duration allowed for transparent rewriting of materialized views; "
@@ -6361,6 +6369,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public boolean isEnableIvmComplexOuterJoinDelta() {
+        return enableIvmComplexOuterJoinDelta;
     }
 
     public int getMaterializedViewRelationMappingMaxCount() {
