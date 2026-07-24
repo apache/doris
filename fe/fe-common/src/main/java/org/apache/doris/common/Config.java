@@ -1658,6 +1658,20 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * Keep an unreferenced backup staging directory for this many seconds before deleting it.
+     * Orphan cleanup is disabled when this value is not positive.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int backup_orphan_dir_keep_max_second = 2 * 24 * 3600;
+
+    /**
+     * Scan for orphan backup staging directories at this interval in seconds.
+     * Orphan cleanup is disabled when this value is not positive.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long backup_orphan_dir_cleanup_interval_second = 3600;
+
+    /**
      * A internal config, to reduce the restore job size during serialization by compress.
      *
      * WARNING: Once this option is enabled and a restore is performed, the FE version cannot be rolled back.

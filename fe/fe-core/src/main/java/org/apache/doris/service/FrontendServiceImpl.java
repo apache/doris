@@ -4098,7 +4098,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String label = request.getLabelName();
         TGetSnapshotResult result = new TGetSnapshotResult();
         result.setStatus(new TStatus(TStatusCode.OK));
-        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(label);
+        boolean enableCompress = request.isEnableCompress();
+        // Materialize (or size-check) with file refcount; IOException propagates as INTERNAL_ERROR.
+        // Do not re-read files after return.
+        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(label, enableCompress);
         if (snapshot == null) {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s not exist", label));
@@ -4106,10 +4109,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
+            // Original on-disk sizes. For uncompressed oversized snapshots, BackupJob returns
+            // sizes only (meta/jobInfo are null) so the guard runs without loading content.
             long metaSize = snapshot.getMetaSize();
             long jobInfoSize = snapshot.getJobInfoSize();
-            long snapshotSize = snapshot.getMetaSize() + snapshot.getJobInfoSize();
-            if (metaSize + jobInfoSize >= Integer.MAX_VALUE && !request.isEnableCompress()) {
+            long snapshotSize = metaSize + jobInfoSize;
+            if (snapshotSize >= Integer.MAX_VALUE && !enableCompress) {
                 String msg = String.format(
                         "Snapshot %s is too large (%d bytes > 2GB). Please enable compression to continue.",
                         label, snapshotSize);
@@ -4123,20 +4128,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             long commitSeq = snapshot.getCommitSeq();
 
             LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
-                    + "expired at: {}, commit seq: {}", label, metaSize, jobInfoSize, expiredAt, commitSeq);
-            if (request.isEnableCompress()) {
-                byte[] meta = snapshot.getCompressedMeta();
-                byte[] jobInfo = snapshot.getCompressedJobInfo();
-                result.setMeta(meta);
-                result.setJobInfo(jobInfo);
+                    + "expired at: {}, commit seq: {}, compressed: {}",
+                    label, metaSize, jobInfoSize, expiredAt, commitSeq, snapshot.isCompressed());
+            byte[] meta = snapshot.getMeta();
+            byte[] jobInfo = snapshot.getJobInfo();
+            result.setMeta(meta);
+            result.setJobInfo(jobInfo);
+            if (snapshot.isCompressed()) {
                 result.setCompressed(true);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get snapshot info with compress, snapshot: {}, compressed meta "
                             + "size {}, compressed job info size {}", label, meta.length, jobInfo.length);
                 }
-            } else {
-                result.setMeta(snapshot.getMeta());
-                result.setJobInfo(snapshot.getJobInfo());
             }
             result.setExpiredAt(expiredAt);
             result.setCommitSeq(commitSeq);

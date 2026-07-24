@@ -19,6 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJob.BackupJobState;
+import org.apache.doris.backup.BackupJob.LocalJobDirCleanupResult;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
@@ -30,7 +31,9 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.GZIPUtils;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
@@ -66,13 +69,18 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class BackupJobTest {
@@ -324,6 +332,7 @@ public class BackupJobTest {
         Assert.assertTrue(metaInfo.exists());
         File jobInfo = new File(job.getLocalJobInfoFilePath());
         Assert.assertTrue(jobInfo.exists());
+        File localJobDir = jobInfo.getParentFile();
 
         BackupMeta restoreMetaInfo = null;
         BackupJobInfo restoreJobInfo = null;
@@ -353,6 +362,12 @@ public class BackupJobTest {
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.FINISHED, job.getState());
+        Assert.assertTrue(localJobDir.exists());
+
+        BackupHandler handler = new BackupHandler(env);
+        Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, job);
+        Deencapsulation.invoke(handler, "cleanupBackupJobLocalJobDirs", System.currentTimeMillis());
+        Assert.assertFalse(localJobDir.exists());
     }
 
     @Test
@@ -379,6 +394,514 @@ public class BackupJobTest {
         Assert.assertNotNull(copied);
         Assert.assertFalse(copied.dynamicPartitionExists());
         Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
+    }
+
+    @Test
+    public void testCleanupFinishedRemoteBackupJobDirFromPersistedFilePaths() throws IOException {
+        JobDirFixture fixture = createJobDirFixture(job, "remote_cleanup", BackupJobState.FINISHED);
+
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED,
+                job.cleanupLocalJobDirIfNecessary(System.currentTimeMillis()));
+
+        Assert.assertFalse(fixture.jobDir.exists());
+    }
+
+    @Test
+    public void testCleanupLocalSnapshotJobDirOnlyAfterExpired() throws IOException {
+        JobDirFixture fixture = createLocalJobDirFixture(
+                "local_snapshot_cleanup", 1000, BackupJobState.FINISHED);
+
+        Assert.assertEquals(LocalJobDirCleanupResult.NOT_DUE,
+                fixture.job.cleanupLocalJobDirIfNecessary(fixture.createTime + 999));
+        Assert.assertTrue(fixture.jobDir.exists());
+
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED,
+                fixture.job.cleanupLocalJobDirIfNecessary(fixture.createTime + 1000));
+        Assert.assertFalse(fixture.jobDir.exists());
+    }
+
+    @Test
+    public void testLocalSnapshotDataRemainsReadableAfterJobDirCleanup() throws IOException {
+        byte[] metaBytes = new byte[] {1, 2, 3};
+        byte[] jobInfoBytes = new byte[] {4, 5, 6};
+        JobDirFixture fixture = createLocalJobDirFixture("local_snapshot_read_cleanup", 1000,
+                BackupJobState.FINISHED, metaBytes, jobInfoBytes);
+
+        Snapshot snapshot = fixture.job.getSnapshot(false);
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED, fixture.job.cleanupLocalJobDirAfterRemoved());
+
+        Assert.assertFalse(fixture.jobDir.exists());
+        Assert.assertFalse(snapshot.isCompressed());
+        Assert.assertEquals(metaBytes.length, snapshot.getMetaSize());
+        Assert.assertEquals(jobInfoBytes.length, snapshot.getJobInfoSize());
+        Assert.assertArrayEquals(metaBytes, snapshot.getMeta());
+        Assert.assertArrayEquals(jobInfoBytes, snapshot.getJobInfo());
+    }
+
+    /**
+     * Oversized local snapshot must not be fully read into FE heap when compression is off.
+     * Sparse files provide a logical size &gt;= Integer.MAX_VALUE without allocating disk/RAM.
+     */
+    @Test
+    public void testLocalSnapshotOversizedWithoutCompressDoesNotReadFiles() throws IOException {
+        JobDirFixture fixture = createLocalJobDirFixture(
+                "local_snapshot_oversized", 3600 * 1000, BackupJobState.FINISHED);
+
+        long metaLogicalSize = (long) Integer.MAX_VALUE - 100L;
+        long jobInfoLogicalSize = 100L;
+        createSparseFile(fixture.metaInfo, metaLogicalSize);
+        createSparseFile(fixture.jobInfo, jobInfoLogicalSize);
+        Assert.assertEquals(metaLogicalSize, fixture.metaInfo.length());
+        Assert.assertEquals(jobInfoLogicalSize, fixture.jobInfo.length());
+
+        Snapshot snapshot = fixture.job.getSnapshot(false);
+
+        Assert.assertNotNull(snapshot);
+        Assert.assertFalse(snapshot.isExpired());
+        Assert.assertFalse(snapshot.isCompressed());
+        Assert.assertEquals(metaLogicalSize, snapshot.getMetaSize());
+        Assert.assertEquals(jobInfoLogicalSize, snapshot.getJobInfoSize());
+        Assert.assertTrue(snapshot.getMetaSize() + snapshot.getJobInfoSize() >= Integer.MAX_VALUE);
+        // Content must not be materialized for oversized uncompressed responses.
+        Assert.assertNull(snapshot.getMeta());
+        Assert.assertNull(snapshot.getJobInfo());
+        // Job dir must still exist; size guard rejected before any cleanup side-effect.
+        Assert.assertTrue(fixture.jobDir.exists());
+    }
+
+    @Test
+    public void testLocalSnapshotCompressStreamsFilesAndSurvivesCleanup() throws IOException {
+        // Slightly compressible payload; enough bytes to exercise streaming path.
+        byte[] metaBytes = new byte[64 * 1024];
+        byte[] jobInfoBytes = new byte[32 * 1024];
+        for (int i = 0; i < metaBytes.length; i++) {
+            metaBytes[i] = (byte) (i % 7);
+        }
+        for (int i = 0; i < jobInfoBytes.length; i++) {
+            jobInfoBytes[i] = (byte) (i % 11);
+        }
+        JobDirFixture fixture = createLocalJobDirFixture("local_snapshot_compress", 3600 * 1000,
+                BackupJobState.FINISHED, metaBytes, jobInfoBytes);
+
+        Snapshot snapshot = fixture.job.getSnapshot(true);
+        Assert.assertNotNull(snapshot);
+        Assert.assertTrue(snapshot.isCompressed());
+        Assert.assertEquals(metaBytes.length, snapshot.getMetaSize());
+        Assert.assertEquals(jobInfoBytes.length, snapshot.getJobInfoSize());
+        Assert.assertTrue(GZIPUtils.isGZIPCompressed(snapshot.getMeta()));
+        Assert.assertTrue(GZIPUtils.isGZIPCompressed(snapshot.getJobInfo()));
+        Assert.assertArrayEquals(metaBytes, GZIPUtils.decompress(snapshot.getMeta()));
+        Assert.assertArrayEquals(jobInfoBytes, GZIPUtils.decompress(snapshot.getJobInfo()));
+
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED, fixture.job.cleanupLocalJobDirAfterRemoved());
+        Assert.assertFalse(fixture.jobDir.exists());
+        // Materialized compressed payload remains usable after job dir is deleted.
+        Assert.assertArrayEquals(metaBytes, GZIPUtils.decompress(snapshot.getMeta()));
+        Assert.assertArrayEquals(jobInfoBytes, GZIPUtils.decompress(snapshot.getJobInfo()));
+    }
+
+    /**
+     * Active getSnapshot readers pin the staging dir via refcount; cleanup is deferred
+     * to a later handler cleanup cycle after the last reader releases, so neither
+     * mid-read deletion nor directory IO on the RPC thread can occur.
+     */
+    @Test
+    public void testLocalSnapshotCleanupDefersWhileGetSnapshotReaderPinned() throws Exception {
+        byte[] metaBytes = new byte[] {10, 20, 30, 40};
+        byte[] jobInfoBytes = new byte[] {50, 60, 70};
+        JobDirFixture fixture = createLocalJobDirFixture("local_snapshot_lock", 3600 * 1000,
+                BackupJobState.FINISHED, metaBytes, jobInfoBytes);
+
+        // Simulate an in-flight getSnapshot reader pin.
+        Deencapsulation.setField(fixture.job, "localJobDirReaders", 1);
+        Assert.assertEquals(LocalJobDirCleanupResult.DEFERRED, fixture.job.cleanupLocalJobDirAfterRemoved());
+        Assert.assertTrue("cleanup must defer while a reader is pinned", fixture.jobDir.exists());
+
+        // Release the pin (readers 1 -> 0); the RPC reader must not run directory IO.
+        Deencapsulation.invoke(fixture.job, "releaseLocalJobDirRead");
+        Assert.assertTrue(fixture.jobDir.exists());
+        Assert.assertFalse(Deencapsulation.getField(fixture.job, "localJobDirCleaned"));
+
+        // A later backup handler cleanup cycle performs the deferred deletion.
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED, fixture.job.cleanupLocalJobDirAfterRemoved());
+        Assert.assertFalse(fixture.jobDir.exists());
+        Assert.assertTrue(Deencapsulation.getField(fixture.job, "localJobDirCleaned"));
+    }
+
+    @Test
+    public void testCleanupRetriesAfterDeleteFailure() throws IOException {
+        boolean[] failDelete = {true};
+        BackupJob localSnapshotJob = new BackupJob("local_label", dbId, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0) {
+            @Override
+            void deleteLocalJobDir(Path jobDirPath) throws IOException {
+                if (failDelete[0]) {
+                    failDelete[0] = false;
+                    throw new IOException("injected delete failure");
+                }
+                super.deleteLocalJobDir(jobDirPath);
+            }
+        };
+        JobDirFixture fixture = createJobDirFixture(
+                localSnapshotJob, "local_snapshot_delete_retry", BackupJobState.CANCELLED);
+
+        Assert.assertEquals(LocalJobDirCleanupResult.FAILED,
+                localSnapshotJob.cleanupLocalJobDirIfNecessary(fixture.createTime));
+        Assert.assertTrue(fixture.jobDir.exists());
+        Assert.assertFalse(Deencapsulation.getField(localSnapshotJob, "localJobDirCleaned"));
+
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED,
+                localSnapshotJob.cleanupLocalJobDirIfNecessary(fixture.createTime));
+        Assert.assertFalse(fixture.jobDir.exists());
+        Assert.assertTrue(Deencapsulation.getField(localSnapshotJob, "localJobDirCleaned"));
+    }
+
+    @Test
+    public void testLocalSnapshotIoFailurePropagatesAsIOException() throws IOException {
+        JobDirFixture fixture = createLocalJobDirFixture(
+                "local_snapshot_io_fail", 3600 * 1000, BackupJobState.FINISHED);
+
+        Assert.assertTrue(fixture.metaInfo.delete());
+        try {
+            fixture.job.getSnapshot(false);
+            Assert.fail("expected IOException when meta file is missing");
+        } catch (IOException e) {
+            // Must not be swallowed as null / SNAPSHOT_NOT_EXIST.
+            Assert.assertNotNull(e.getMessage());
+        }
+        // Failed materialization still releases the pin so later cleanup can proceed.
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED, fixture.job.cleanupLocalJobDirAfterRemoved());
+        Assert.assertFalse(fixture.jobDir.exists());
+    }
+
+    @Test
+    public void testGetSnapshotReturnsNullWhenUnavailable() throws IOException {
+        Assert.assertNull(job.getSnapshot(false));
+
+        JobDirFixture remoteFixture = createJobDirFixture(
+                job, "remote_snapshot_unavailable", BackupJobState.FINISHED);
+        Assert.assertNull(remoteFixture.job.getSnapshot(false));
+
+        JobDirFixture missingPathFixture = createLocalJobDirFixture(
+                "local_snapshot_missing_path", 3600 * 1000, BackupJobState.FINISHED);
+        Deencapsulation.setField(missingPathFixture.job, "localMetaInfoFilePath", null);
+        Assert.assertNull(missingPathFixture.job.getSnapshot(false));
+
+        JobDirFixture cleanedFixture = createLocalJobDirFixture(
+                "local_snapshot_cleaned", 3600 * 1000, BackupJobState.FINISHED);
+        Deencapsulation.setField(cleanedFixture.job, "localJobDirCleaned", true);
+        Assert.assertNull(cleanedFixture.job.getSnapshot(false));
+
+        BackupJob pathWithoutParentJob = new BackupJob("path_without_parent", dbId, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+        Deencapsulation.setField(pathWithoutParentJob, "state", BackupJobState.FINISHED);
+        Deencapsulation.setField(pathWithoutParentJob, "localMetaInfoFilePath", Repository.FILE_META_INFO);
+        Deencapsulation.setField(pathWithoutParentJob, "localJobInfoFilePath", Repository.PREFIX_JOB_INFO + "test");
+        Assert.assertNull(pathWithoutParentJob.getSnapshot(false));
+    }
+
+    @Test
+    public void testCleanupHandlesMissingPersistedAndInvalidPaths() throws IOException {
+        BackupJob pendingJob = new BackupJob("pending_cleanup", dbId, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+        Assert.assertEquals(LocalJobDirCleanupResult.NOT_DUE, pendingJob.cleanupLocalJobDirAfterRemoved());
+
+        BackupJob missingPathJob = new BackupJob("missing_cleanup_path", dbId, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+        Deencapsulation.setField(missingPathJob, "state", BackupJobState.FINISHED);
+        Assert.assertEquals(LocalJobDirCleanupResult.ALREADY_CLEANED,
+                missingPathJob.cleanupLocalJobDirAfterRemoved());
+        Assert.assertEquals(LocalJobDirCleanupResult.ALREADY_CLEANED,
+                missingPathJob.cleanupLocalJobDirAfterRemoved());
+
+        Path invalidJobDir = Files.createTempDirectory("invalid_backup_job_dir");
+        try {
+            BackupJob invalidPathJob = new BackupJob("invalid_cleanup_path", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL,
+                    env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+            Deencapsulation.setField(invalidPathJob, "state", BackupJobState.FINISHED);
+            Deencapsulation.setField(invalidPathJob, "localJobDirPath", invalidJobDir);
+
+            Assert.assertEquals(LocalJobDirCleanupResult.INVALID_PATH,
+                    invalidPathJob.cleanupLocalJobDirAfterRemoved());
+            Assert.assertTrue(Files.exists(invalidJobDir));
+        } finally {
+            Files.deleteIfExists(invalidJobDir);
+        }
+
+        File persistedJobDir = createLocalJobDir("job_info_only_cleanup");
+        File persistedJobInfo = new File(persistedJobDir, Repository.PREFIX_JOB_INFO + "persisted");
+        Files.write(persistedJobInfo.toPath(), new byte[0]);
+        BackupJob jobInfoOnlyJob = new BackupJob("job_info_only", dbId, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+        Deencapsulation.setField(jobInfoOnlyJob, "state", BackupJobState.FINISHED);
+        Deencapsulation.setField(jobInfoOnlyJob, "localJobInfoFilePath", persistedJobInfo.getAbsolutePath());
+
+        Assert.assertEquals(LocalJobDirCleanupResult.DELETED, jobInfoOnlyJob.cleanupLocalJobDirAfterRemoved());
+        Assert.assertFalse(persistedJobDir.exists());
+    }
+
+    @Test
+    public void testCleanupStatsDistinguishKnownJobResults() throws Exception {
+        BackupHandler handler = new BackupHandler(env);
+
+        BackupJob deletedJob = new BackupJob("deleted", dbId + 10, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+        createJobDirFixture(deletedJob, "stats_deleted", BackupJobState.FINISHED);
+        Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId + 10, deletedJob);
+
+        BackupJob absentJob = new BackupJob("absent", dbId + 11, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+        JobDirFixture absentFixture = createJobDirFixture(absentJob, "stats_absent", BackupJobState.FINISHED);
+        Files.delete(absentFixture.metaInfo.toPath());
+        Files.delete(absentFixture.jobInfo.toPath());
+        Files.delete(absentFixture.jobDir.toPath());
+        Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId + 11, absentJob);
+
+        BackupJob deferredJob = new BackupJob("deferred", dbId + 12, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+        createJobDirFixture(deferredJob, "stats_deferred", BackupJobState.FINISHED);
+        Deencapsulation.setField(deferredJob, "localJobDirReaders", 1);
+        Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId + 12, deferredJob);
+
+        BackupJob failedJob = new BackupJob("failed", dbId + 13, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0) {
+            @Override
+            void deleteLocalJobDir(Path jobDirPath) throws IOException {
+                throw new IOException("injected delete failure");
+            }
+        };
+        createJobDirFixture(failedJob, "stats_failed", BackupJobState.FINISHED);
+        Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId + 13, failedJob);
+
+        BackupJob notDueJob = new BackupJob("not_due", dbId + 14, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+        Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId + 14, notDueJob);
+
+        Object stats = Deencapsulation.invoke(handler, "cleanupBackupJobLocalJobDirs",
+                System.currentTimeMillis());
+        Assert.assertEquals(5, (int) Deencapsulation.getField(stats, "itemsScanned"));
+        Assert.assertEquals(1, (int) Deencapsulation.getField(stats, "directoriesDeleted"));
+        Assert.assertEquals(1, (int) Deencapsulation.getField(stats, "directoriesAlreadyAbsent"));
+        Assert.assertEquals(1, (int) Deencapsulation.getField(stats, "jobsDeferred"));
+        Assert.assertEquals(1, (int) Deencapsulation.getField(stats, "failures"));
+        Assert.assertEquals(1, (int) Deencapsulation.getField(stats, "notDue"));
+    }
+
+    @Test
+    public void testCleanupCancelledLocalSnapshotJobDirFromPersistedFilePaths() throws IOException {
+        JobDirFixture fixture = createLocalJobDirFixture(
+                "local_cancel_cleanup", 1000, BackupJobState.CANCELLED);
+
+        fixture.job.cleanupLocalJobDirIfNecessary(fixture.createTime);
+        Assert.assertFalse(fixture.jobDir.exists());
+    }
+
+    @Test
+    public void testExpiredGetSnapshotDoesNotDeleteJobDir() throws IOException {
+        JobDirFixture fixture = createLocalJobDirFixture(
+                "expired_snapshot_rpc", 1000, BackupJobState.FINISHED);
+        long expiredCreateTime = fixture.createTime - 1000;
+        Deencapsulation.setField(fixture.job, "createTime", expiredCreateTime);
+
+        Snapshot snapshot = fixture.job.getSnapshot(false);
+        Assert.assertTrue(snapshot.isExpired());
+        Assert.assertTrue(fixture.jobDir.exists());
+
+        fixture.job.cleanupLocalJobDirIfNecessary(expiredCreateTime + 1000);
+        Assert.assertFalse(fixture.jobDir.exists());
+    }
+
+    @Test
+    public void testEvictedJobCleanupWaitsForPinnedReader() throws Exception {
+        int oldMaxJobNum = Config.max_backup_restore_job_num_per_db;
+        Config.max_backup_restore_job_num_per_db = 1;
+        try {
+            BackupHandler handler = new BackupHandler(env);
+            BackupJob evictedJob = new BackupJob("evicted_label", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+            JobDirFixture fixture = createJobDirFixture(
+                    evictedJob, "evicted_snapshot", BackupJobState.FINISHED);
+            Deencapsulation.setField(evictedJob, "localJobDirReaders", 1);
+
+            BackupJob replacementJob = new BackupJob("replacement_label", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, evictedJob);
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, replacementJob);
+
+            Deque<BackupJob> pendingCleanupJobs = Deencapsulation.getField(handler, "pendingCleanupJobs");
+            Assert.assertEquals(1, pendingCleanupJobs.size());
+            Deencapsulation.invoke(handler, "cleanupPendingBackupJobLocalJobDirs");
+            Assert.assertTrue(fixture.jobDir.exists());
+            Assert.assertEquals(1, pendingCleanupJobs.size());
+
+            Deencapsulation.invoke(evictedJob, "releaseLocalJobDirRead");
+            Assert.assertTrue(fixture.jobDir.exists());
+            Deencapsulation.invoke(handler, "cleanupPendingBackupJobLocalJobDirs");
+            Assert.assertFalse(fixture.jobDir.exists());
+            Assert.assertTrue(pendingCleanupJobs.isEmpty());
+        } finally {
+            Config.max_backup_restore_job_num_per_db = oldMaxJobNum;
+        }
+    }
+
+    @Test
+    public void testEvictedLocalSnapshotIsRemovedAndCleaned() throws Exception {
+        int oldMaxJobNum = Config.max_backup_restore_job_num_per_db;
+        Config.max_backup_restore_job_num_per_db = 1;
+        try {
+            BackupHandler handler = new BackupHandler(env);
+            JobDirFixture fixture = createLocalJobDirFixture(
+                    "evicted_local_snapshot", 3600 * 1000, BackupJobState.FINISHED,
+                    new byte[] {1, 2}, new byte[] {3, 4});
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, fixture.job);
+
+            Assert.assertNotNull(handler.getSnapshot(fixture.job.getLabel(), false));
+
+            BackupJob replacementJob = new BackupJob("replacement_label", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), 3600 * 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, replacementJob);
+
+            Assert.assertNull(handler.getSnapshot(fixture.job.getLabel(), false));
+            Assert.assertTrue(fixture.jobDir.exists());
+
+            Deencapsulation.invoke(handler, "cleanupPendingBackupJobLocalJobDirs");
+            Assert.assertFalse(fixture.jobDir.exists());
+        } finally {
+            Config.max_backup_restore_job_num_per_db = oldMaxJobNum;
+        }
+    }
+
+    @Test
+    public void testCheckpointReplayAndEvictionDoNotTouchJobDirs() throws Exception {
+        int oldMaxJobNum = Config.max_backup_restore_job_num_per_db;
+        Config.max_backup_restore_job_num_per_db = 1;
+        mockedEnvStatic.when(Env::isCheckpointThread).thenReturn(true);
+        try {
+            Deencapsulation.setField(job, "state", BackupJobState.SAVE_META);
+            job.replayRun();
+            Assert.assertNull(job.getLocalMetaInfoFilePath());
+            Assert.assertNull(job.getLocalJobInfoFilePath());
+
+            BackupHandler handler = new BackupHandler(env);
+            BackupJob finishedJob = new BackupJob("checkpoint_finished", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+            File localJobDir = createLocalJobDir("checkpoint_eviction");
+            Deencapsulation.setField(finishedJob, "state", BackupJobState.FINISHED);
+            Deencapsulation.setField(finishedJob, "localJobDirPath", localJobDir.toPath());
+            BackupJob replacementJob = new BackupJob("checkpoint_replacement", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), 1000, BackupCommand.BackupContent.ALL, env, repoId, 0);
+
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, finishedJob);
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, replacementJob);
+
+            Deque<BackupJob> pendingCleanupJobs = Deencapsulation.getField(handler, "pendingCleanupJobs");
+            Assert.assertTrue(pendingCleanupJobs.isEmpty());
+            Assert.assertTrue(localJobDir.exists());
+        } finally {
+            Config.max_backup_restore_job_num_per_db = oldMaxJobNum;
+            mockedEnvStatic.when(Env::isCheckpointThread).thenReturn(false);
+        }
+    }
+
+    @Test
+    public void testOrphanJobDirCleanupUsesReferencesAndGracePeriod() throws Exception {
+        int oldOrphanKeepSecond = Config.backup_orphan_dir_keep_max_second;
+        Config.backup_orphan_dir_keep_max_second = 2 * 24 * 3600;
+        Path externalDir = Files.createTempDirectory("backup_orphan_external");
+        Path symlink = null;
+        try {
+            long nowMs = System.currentTimeMillis();
+            File referencedDir = createRepoJobDir(repoId, "referenced");
+            File oldOrphanDir = createRepoJobDir(repoId, "old_orphan");
+            File newOrphanDir = createRepoJobDir(repoId, "new_orphan");
+            Files.setLastModifiedTime(referencedDir.toPath(),
+                    FileTime.fromMillis(nowMs - TimeUnit.DAYS.toMillis(3)));
+            Files.setLastModifiedTime(oldOrphanDir.toPath(),
+                    FileTime.fromMillis(nowMs - TimeUnit.DAYS.toMillis(3)));
+
+            BackupHandler handler = new BackupHandler(env);
+            BackupJob referencedJob = new BackupJob("referenced_label", dbId, UnitTestUtil.DB_NAME,
+                    Lists.newArrayList(), TimeUnit.DAYS.toMillis(7), BackupCommand.BackupContent.ALL,
+                    env, repoId, 0);
+            Deencapsulation.setField(referencedJob, "state", BackupJobState.FINISHED);
+            Deencapsulation.setField(referencedJob, "localJobDirPath", referencedDir.toPath());
+            Deencapsulation.invoke(handler, "addBackupOrRestoreJob", dbId, referencedJob);
+
+            Path repoDir = referencedDir.toPath().getParent();
+            symlink = repoDir.resolve("orphan_symlink_" + id.getAndIncrement());
+            Files.createSymbolicLink(symlink, externalDir);
+
+            Deencapsulation.invoke(handler, "cleanupOrphanBackupJobLocalJobDirs", nowMs);
+
+            Assert.assertTrue(referencedDir.exists());
+            Assert.assertFalse(oldOrphanDir.exists());
+            Assert.assertTrue(newOrphanDir.exists());
+            Assert.assertTrue(Files.exists(symlink, LinkOption.NOFOLLOW_LINKS));
+            Assert.assertTrue(Files.exists(externalDir));
+
+            File disabledCleanupOrphanDir = createRepoJobDir(repoId, "disabled_cleanup_orphan");
+            Files.setLastModifiedTime(disabledCleanupOrphanDir.toPath(),
+                    FileTime.fromMillis(nowMs - TimeUnit.DAYS.toMillis(3)));
+            Config.backup_orphan_dir_keep_max_second = 0;
+            Deencapsulation.invoke(handler, "cleanupOrphanBackupJobLocalJobDirs", nowMs);
+            Assert.assertTrue(disabledCleanupOrphanDir.exists());
+        } finally {
+            if (symlink != null) {
+                Files.deleteIfExists(symlink);
+            }
+            Files.deleteIfExists(externalDir);
+            Config.backup_orphan_dir_keep_max_second = oldOrphanKeepSecond;
+        }
+    }
+
+    @Test
+    public void testOrphanJobDirCleanupUsesIndependentInterval() throws Exception {
+        long oldCleanupIntervalSecond = Config.backup_orphan_dir_cleanup_interval_second;
+        Config.backup_orphan_dir_cleanup_interval_second = 3600;
+        try {
+            long nowMs = System.currentTimeMillis();
+            BackupHandler handler = new BackupHandler(env);
+
+            File firstOldOrphanDir = createRepoJobDir(repoId, "first_interval_orphan");
+            Files.setLastModifiedTime(firstOldOrphanDir.toPath(),
+                    FileTime.fromMillis(nowMs - TimeUnit.DAYS.toMillis(3)));
+            Deencapsulation.invoke(handler, "cleanupOrphanBackupJobLocalJobDirsIfNecessary", nowMs);
+            Assert.assertFalse(firstOldOrphanDir.exists());
+
+            File secondOldOrphanDir = createRepoJobDir(repoId, "second_interval_orphan");
+            Files.setLastModifiedTime(secondOldOrphanDir.toPath(),
+                    FileTime.fromMillis(nowMs - TimeUnit.DAYS.toMillis(3)));
+            Deencapsulation.invoke(handler, "cleanupOrphanBackupJobLocalJobDirsIfNecessary",
+                    nowMs + Config.backup_handler_update_interval_millis);
+            Assert.assertTrue(secondOldOrphanDir.exists());
+
+            Deencapsulation.invoke(handler, "cleanupOrphanBackupJobLocalJobDirsIfNecessary",
+                    nowMs + TimeUnit.HOURS.toMillis(1));
+            Assert.assertFalse(secondOldOrphanDir.exists());
+        } finally {
+            Config.backup_orphan_dir_cleanup_interval_second = oldCleanupIntervalSecond;
+        }
+    }
+
+    @Test
+    public void testOrphanJobDirCleanupCanBeDisabled() throws Exception {
+        long oldCleanupIntervalSecond = Config.backup_orphan_dir_cleanup_interval_second;
+        Config.backup_orphan_dir_cleanup_interval_second = 0;
+        try {
+            BackupHandler handler = new BackupHandler(env);
+            Deencapsulation.invoke(handler, "cleanupOrphanBackupJobLocalJobDirsIfNecessary",
+                    System.currentTimeMillis());
+            long lastCleanupTimeMs = Deencapsulation.getField(handler, "lastOrphanJobDirCleanupTimeMs");
+            Assert.assertEquals(0L, lastCleanupTimeMs);
+        } finally {
+            Config.backup_orphan_dir_cleanup_interval_second = oldCleanupIntervalSecond;
+        }
     }
 
     /**
@@ -656,5 +1179,77 @@ public class BackupJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    private File createLocalJobDir(String name) throws IOException {
+        Path jobDirPath = BackupHandler.BACKUP_ROOT_DIR.resolve(name + "_" + id.getAndIncrement());
+        Files.createDirectories(jobDirPath);
+        return jobDirPath.toFile();
+    }
+
+    private File createRepoJobDir(long jobRepoId, String name) throws IOException {
+        Path jobDirPath = BackupHandler.BACKUP_ROOT_DIR.resolve("repo__" + jobRepoId)
+                .resolve(name + "_" + id.getAndIncrement());
+        Files.createDirectories(jobDirPath);
+        return jobDirPath.toFile();
+    }
+
+    private JobDirFixture createLocalJobDirFixture(
+            String name, long timeoutMs, BackupJobState state) throws IOException {
+        return createLocalJobDirFixture(name, timeoutMs, state, new byte[0], new byte[0]);
+    }
+
+    private JobDirFixture createLocalJobDirFixture(
+            String name, long timeoutMs, BackupJobState state, byte[] metaBytes, byte[] jobInfoBytes)
+            throws IOException {
+        BackupJob localSnapshotJob = new BackupJob("local_label", dbId, UnitTestUtil.DB_NAME,
+                Lists.newArrayList(), timeoutMs, BackupCommand.BackupContent.ALL,
+                env, Repository.KEEP_ON_LOCAL_REPO_ID, 0);
+        return createJobDirFixture(localSnapshotJob, name, state, metaBytes, jobInfoBytes);
+    }
+
+    private JobDirFixture createJobDirFixture(
+            BackupJob targetJob, String name, BackupJobState state) throws IOException {
+        return createJobDirFixture(targetJob, name, state, new byte[0], new byte[0]);
+    }
+
+    private JobDirFixture createJobDirFixture(
+            BackupJob targetJob, String name, BackupJobState state, byte[] metaBytes, byte[] jobInfoBytes)
+            throws IOException {
+        File jobDir = createLocalJobDir(name);
+        File metaInfo = new File(jobDir, Repository.FILE_META_INFO);
+        File jobInfo = new File(jobDir, Repository.PREFIX_JOB_INFO + "test");
+        Files.write(metaInfo.toPath(), metaBytes);
+        Files.write(jobInfo.toPath(), jobInfoBytes);
+
+        long createTime = System.currentTimeMillis();
+        Deencapsulation.setField(targetJob, "state", state);
+        Deencapsulation.setField(targetJob, "createTime", createTime);
+        Deencapsulation.setField(targetJob, "localJobDirPath", null);
+        Deencapsulation.setField(targetJob, "localMetaInfoFilePath", metaInfo.getAbsolutePath());
+        Deencapsulation.setField(targetJob, "localJobInfoFilePath", jobInfo.getAbsolutePath());
+        return new JobDirFixture(targetJob, jobDir, metaInfo, jobInfo, createTime);
+    }
+
+    private void createSparseFile(File file, long logicalSize) throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
+            raf.setLength(logicalSize);
+        }
+    }
+
+    private static class JobDirFixture {
+        private final BackupJob job;
+        private final File jobDir;
+        private final File metaInfo;
+        private final File jobInfo;
+        private final long createTime;
+
+        private JobDirFixture(BackupJob job, File jobDir, File metaInfo, File jobInfo, long createTime) {
+            this.job = job;
+            this.jobDir = jobDir;
+            this.metaInfo = metaInfo;
+            this.jobInfo = jobInfo;
+            this.createTime = createTime;
+        }
     }
 }
