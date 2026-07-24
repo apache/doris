@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -400,6 +401,10 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_instance((RS*)s, c); },
                   .role = HttpRole::RECYCLER}},
+                {"check_tablet",
+                 {.handler = [](void* s,
+                                brpc::Controller* c) { return process_check_tablet((RS*)s, c); },
+                  .role = HttpRole::RECYCLER}},
                 {"check_job_info",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_job_info((RS*)s, c); },
@@ -765,6 +770,32 @@ HttpResponse process_check_instance(RecyclerServiceImpl* service, brpc::Controll
     std::string msg = "OK";
     service->check_instance(*instance_id, code, msg);
     return http_text_reply(code, msg, msg);
+}
+
+HttpResponse process_check_tablet(RecyclerServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    const auto* instance_id = uri.GetQuery("instance_id");
+    const auto* tablet_id_str = uri.GetQuery("tablet_id");
+    if (!instance_id || instance_id->empty() || !tablet_id_str || tablet_id_str->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "missing required parameters");
+    }
+
+    int64_t tablet_id = 0;
+    try {
+        tablet_id = std::stoll(*tablet_id_str);
+    } catch (const std::exception& e) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("invalid tablet_id, err={}", e.what()));
+    }
+    if (tablet_id <= 0) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "tablet_id should be positive");
+    }
+
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    std::string body;
+    service->check_tablet(*instance_id, tablet_id, code, msg, body);
+    return body.empty() ? http_json_reply(code, msg) : http_json_reply(code, msg, body);
 }
 
 HttpResponse process_check_job_info(RecyclerServiceImpl* service, brpc::Controller* cntl) {

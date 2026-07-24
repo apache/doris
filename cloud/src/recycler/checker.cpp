@@ -568,188 +568,199 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
     return 0;
 }
 
+int InstanceChecker::load_tablet_files(const doris::RowsetMetaCloudPB& rs_meta,
+                                       TabletFilesCache* cache, long* checked_volume_bytes) {
+    DCHECK(cache != nullptr);
+    DCHECK(checked_volume_bytes != nullptr);
+    if (cache->tablet_id == rs_meta.tablet_id()) {
+        return 0;
+    }
+
+    cache->tablet_id = 0;
+    cache->files.clear();
+    long tablet_volume = 0;
+    auto find_it = accessor_map_.find(rs_meta.resource_id());
+    if (find_it == accessor_map_.end()) {
+        LOG_WARNING("resource id not found in accessor map")
+                .tag("resource_id", rs_meta.resource_id())
+                .tag("tablet_id", rs_meta.tablet_id())
+                .tag("rowset_id", rs_meta.rowset_id_v2());
+        return -1;
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = find_it->second->list_directory(tablet_path_prefix(rs_meta.tablet_id()), &list_iter);
+    if (ret != 0) { // No need to log, because S3Accessor has logged this error
+        return -1;
+    }
+
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        cache->files.insert(std::move(file->path));
+        tablet_volume += file->size;
+    }
+    cache->tablet_id = rs_meta.tablet_id();
+    *checked_volume_bytes += tablet_volume;
+    return 0;
+}
+
+int InstanceChecker::check_rowset_objects(doris::RowsetMetaCloudPB& rs_meta, std::string_view key,
+                                          TabletFilesCache* cache, ObjectCheckResult* result) {
+    DCHECK(cache != nullptr);
+    DCHECK(result != nullptr);
+    if (rs_meta.num_segments() == 0) {
+        return 0;
+    }
+
+    bool data_loss = false;
+    bool segment_file_loss = false;
+    bool index_file_loss = false;
+
+    DORIS_CLOUD_DEFER {
+        if (data_loss) {
+            LOG(INFO) << "segment file is" << (segment_file_loss ? "" : " not") << " loss, "
+                      << "index file is" << (index_file_loss ? "" : " not") << " loss, "
+                      << "rowset.tablet_id = " << rs_meta.tablet_id();
+            ++result->num_rowset_loss;
+        }
+    };
+
+    ++result->num_scanned_with_segment;
+    if (int ret = load_tablet_files(rs_meta, cache, &result->checked_volume_bytes); ret != 0) {
+        return ret;
+    }
+
+    for (int i = 0; i < rs_meta.num_segments(); ++i) {
+        auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
+
+        // Skip check if segment is already packed into a larger file
+        const auto& index_map = rs_meta.packed_slice_locations();
+        if (index_map.find(path) != index_map.end()) {
+            continue;
+        }
+
+        if (cache->files.contains(path)) {
+            continue;
+        }
+
+        if (1 == key_exist(txn_kv_.get(), key)) {
+            // Rowset has been deleted instead of data loss
+            break;
+        }
+        data_loss = true;
+        segment_file_loss = true;
+        result->missing_segment_files.push_back(path);
+        TEST_SYNC_POINT_CALLBACK("InstanceChecker.do_check1", &path);
+        LOG(WARNING) << "object not exist, path=" << path
+                     << ", rs_meta=" << rs_meta.ShortDebugString() << " key=" << hex(key);
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn, err=" << err;
+        return -1;
+    }
+
+    TabletIndexPB tablet_index;
+    int tablet_idx_ret =
+            get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index);
+    if (tablet_idx_ret != 0) {
+        LOG(WARNING) << "failed to get tablet index, tablet_id= " << rs_meta.tablet_id()
+                     << " ret=" << tablet_idx_ret;
+        return -1;
+    }
+
+    auto tablet_schema_key =
+            meta_schema_key({instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
+    ValueBuf tablet_schema_val;
+    err = cloud::blob_get(txn.get(), tablet_schema_key, &tablet_schema_val);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get schema, err=" << err;
+        return -1;
+    }
+
+    auto* schema = rs_meta.mutable_tablet_schema();
+    if (!parse_schema_value(tablet_schema_val, schema)) {
+        LOG(WARNING) << "malformed schema value, key=" << hex(tablet_schema_key);
+        return 0;
+    }
+
+    std::vector<std::pair<int64_t, std::string>> index_ids;
+    for (const auto& i : rs_meta.tablet_schema().index()) {
+        if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+            index_ids.emplace_back(i.index_id(), i.index_suffix_name());
+        }
+    }
+    if (index_ids.empty()) {
+        return 0;
+    }
+
+    const auto& index_map = rs_meta.packed_slice_locations();
+    for (int i = 0; i < rs_meta.num_segments(); ++i) {
+        std::vector<std::string> index_path_v;
+        if (rs_meta.tablet_schema().inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index_id : index_ids) {
+                LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
+                          << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
+                          << " index_id=" << index_id.first
+                          << " index_suffix_name=" << index_id.second;
+                index_path_v.emplace_back(inverted_index_path_v1(rs_meta.tablet_id(),
+                                                                 rs_meta.rowset_id_v2(), i,
+                                                                 index_id.first, index_id.second));
+            }
+        } else {
+            index_path_v.emplace_back(
+                    inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
+        }
+
+        bool all_found = true;
+        for (const auto& idx_file_path : index_path_v) {
+            // Skip check if inverted index file is already packed into a larger file
+            if (index_map.find(idx_file_path) != index_map.end()) {
+                continue;
+            }
+            if (cache->files.contains(idx_file_path)) {
+                continue;
+            }
+            LOG(INFO) << "loss index file: " << idx_file_path;
+            result->missing_index_files.push_back(idx_file_path);
+            all_found = false;
+        }
+        if (all_found) {
+            continue;
+        }
+        index_file_loss = true;
+        data_loss = true;
+    }
+
+    return 0;
+}
+
 int InstanceChecker::do_check() {
     TEST_SYNC_POINT("InstanceChecker.do_check");
     LOG(INFO) << "begin to check instance objects instance_id=" << instance_id_;
     int check_ret = 0;
-    long num_scanned = 0;
-    long num_scanned_with_segment = 0;
-    long num_rowset_loss = 0;
-    long instance_volume = 0;
+    ObjectCheckResult result;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "check instance objects finished, cost=" << cost
-                  << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
-                  << " num_scanned_with_segment=" << num_scanned_with_segment
-                  << " num_rowset_loss=" << num_rowset_loss
-                  << " instance_volume=" << instance_volume;
-        g_bvar_checker_num_scanned.put(instance_id_, num_scanned);
-        g_bvar_checker_num_scanned_with_segment.put(instance_id_, num_scanned_with_segment);
-        g_bvar_checker_num_check_failed.put(instance_id_, num_rowset_loss);
+                  << "s. instance_id=" << instance_id_ << " num_scanned=" << result.num_scanned
+                  << " num_scanned_with_segment=" << result.num_scanned_with_segment
+                  << " num_rowset_loss=" << result.num_rowset_loss
+                  << " instance_volume=" << result.checked_volume_bytes;
+        g_bvar_checker_num_scanned.put(instance_id_, result.num_scanned);
+        g_bvar_checker_num_scanned_with_segment.put(instance_id_, result.num_scanned_with_segment);
+        g_bvar_checker_num_check_failed.put(instance_id_, result.num_rowset_loss);
         g_bvar_checker_check_cost_s.put(instance_id_, static_cast<long>(cost));
         // FIXME(plat1ko): What if some list operation failed?
-        g_bvar_checker_instance_volume.put(instance_id_, instance_volume);
+        g_bvar_checker_instance_volume.put(instance_id_, result.checked_volume_bytes);
     };
 
-    struct TabletFiles {
-        int64_t tablet_id {0};
-        std::unordered_set<std::string> files;
-    };
-    TabletFiles tablet_files_cache;
-
-    auto check_rowset_objects = [&, this](doris::RowsetMetaCloudPB& rs_meta, std::string_view key) {
-        if (rs_meta.num_segments() == 0) {
-            return;
-        }
-
-        bool data_loss = false;
-        bool segment_file_loss = false;
-        bool index_file_loss = false;
-
-        DORIS_CLOUD_DEFER {
-            if (data_loss) {
-                LOG(INFO) << "segment file is" << (segment_file_loss ? "" : " not") << " loss, "
-                          << "index file is" << (index_file_loss ? "" : " not") << " loss, "
-                          << "rowset.tablet_id = " << rs_meta.tablet_id();
-                num_rowset_loss++;
-            }
-        };
-
-        ++num_scanned_with_segment;
-        if (tablet_files_cache.tablet_id != rs_meta.tablet_id()) {
-            long tablet_volume = 0;
-            // Clear cache
-            tablet_files_cache.tablet_id = 0;
-            tablet_files_cache.files.clear();
-            // Get all file paths under this tablet directory
-            auto find_it = accessor_map_.find(rs_meta.resource_id());
-            if (find_it == accessor_map_.end()) {
-                LOG_WARNING("resource id not found in accessor map")
-                        .tag("resource_id", rs_meta.resource_id())
-                        .tag("tablet_id", rs_meta.tablet_id())
-                        .tag("rowset_id", rs_meta.rowset_id_v2());
-                check_ret = -1;
-                return;
-            }
-
-            std::unique_ptr<ListIterator> list_iter;
-            int ret = find_it->second->list_directory(tablet_path_prefix(rs_meta.tablet_id()),
-                                                      &list_iter);
-            if (ret != 0) { // No need to log, because S3Accessor has logged this error
-                check_ret = -1;
-                return;
-            }
-
-            for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
-                tablet_files_cache.files.insert(std::move(file->path));
-                tablet_volume += file->size;
-            }
-            tablet_files_cache.tablet_id = rs_meta.tablet_id();
-            instance_volume += tablet_volume;
-        }
-
-        for (int i = 0; i < rs_meta.num_segments(); ++i) {
-            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
-
-            // Skip check if segment is already packed into a larger file
-            const auto& index_map = rs_meta.packed_slice_locations();
-            if (index_map.find(path) != index_map.end()) {
-                continue;
-            }
-
-            if (tablet_files_cache.files.contains(path)) {
-                continue;
-            }
-
-            if (1 == key_exist(txn_kv_.get(), key)) {
-                // Rowset has been deleted instead of data loss
-                break;
-            }
-            data_loss = true;
-            segment_file_loss = true;
-            TEST_SYNC_POINT_CALLBACK("InstanceChecker.do_check1", &path);
-            LOG(WARNING) << "object not exist, path=" << path
-                         << ", rs_meta=" << rs_meta.ShortDebugString() << " key=" << hex(key);
-        }
-
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to init txn, err=" << err;
-            check_ret = -1;
-            return;
-        }
-
-        TabletIndexPB tablet_index;
-        if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) == -1) {
-            LOG(WARNING) << "failed to get tablet index, tablet_id= " << rs_meta.tablet_id();
-            check_ret = -1;
-            return;
-        }
-
-        auto tablet_schema_key =
-                meta_schema_key({instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
-        ValueBuf tablet_schema_val;
-        err = cloud::blob_get(txn.get(), tablet_schema_key, &tablet_schema_val);
-
-        if (err != TxnErrorCode::TXN_OK) {
-            check_ret = -1;
-            LOG(WARNING) << "failed to get schema, err=" << err;
-            return;
-        }
-
-        auto* schema = rs_meta.mutable_tablet_schema();
-        if (!parse_schema_value(tablet_schema_val, schema)) {
-            LOG(WARNING) << "malformed schema value, key=" << hex(tablet_schema_key);
-            return;
-        }
-
-        std::vector<std::pair<int64_t, std::string>> index_ids;
-        for (const auto& i : rs_meta.tablet_schema().index()) {
-            if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
-                index_ids.emplace_back(i.index_id(), i.index_suffix_name());
-            }
-        }
-        if (!index_ids.empty()) {
-            const auto& index_map = rs_meta.packed_slice_locations();
-            for (int i = 0; i < rs_meta.num_segments(); ++i) {
-                std::vector<std::string> index_path_v;
-                if (rs_meta.tablet_schema().inverted_index_storage_format() ==
-                    InvertedIndexStorageFormatPB::V1) {
-                    for (const auto& index_id : index_ids) {
-                        LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
-                                  << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
-                                  << " index_id=" << index_id.first
-                                  << " index_suffix_name=" << index_id.second;
-                        index_path_v.emplace_back(
-                                inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
-                                                       i, index_id.first, index_id.second));
-                    }
-                } else {
-                    index_path_v.emplace_back(
-                            inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
-                }
-
-                if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
-                        // Skip check if inverted index file is already packed into a larger file
-                        if (index_map.find(idx_file_path) != index_map.end()) {
-                            return true;
-                        }
-                        if (!tablet_files_cache.files.contains(idx_file_path)) {
-                            LOG(INFO) << "loss index file: " << idx_file_path;
-                            return false;
-                        }
-                        return true;
-                    })) {
-                    continue;
-                }
-                index_file_loss = true;
-                data_loss = true;
-            }
-        }
-    };
+    TabletFilesCache tablet_files_cache;
 
     // scan visible rowsets
     auto start_key = meta_rowset_key({instance_id_, 0, 0});
@@ -769,7 +780,7 @@ int InstanceChecker::do_check() {
             LOG(WARNING) << "internal error, failed to get rowset meta, err=" << err;
             return -1;
         }
-        num_scanned += it->size();
+        result.num_scanned += it->size();
 
         while (it->has_next() && !stopped()) {
             auto [k, v] = it->next();
@@ -779,16 +790,81 @@ int InstanceChecker::do_check() {
 
             doris::RowsetMetaCloudPB rs_meta;
             if (!rs_meta.ParseFromArray(v.data(), v.size())) {
-                ++num_rowset_loss;
+                ++result.num_rowset_loss;
                 LOG(WARNING) << "malformed rowset meta. key=" << hex(k) << " val=" << hex(v);
                 continue;
             }
-            check_rowset_objects(rs_meta, k);
+            if (int ret = check_rowset_objects(rs_meta, k, &tablet_files_cache, &result);
+                ret != 0) {
+                check_ret = -1;
+            }
         }
         start_key.push_back('\x00'); // Update to next smallest key for iteration
     }
 
-    return num_rowset_loss > 0 ? 1 : check_ret;
+    return result.num_rowset_loss > 0 ? 1 : check_ret;
+}
+
+int InstanceChecker::do_tablet_check(int64_t tablet_id, ObjectCheckResult* result) {
+    DCHECK(result != nullptr);
+    *result = {};
+    LOG(INFO) << "begin to check tablet objects instance_id=" << instance_id_
+              << " tablet_id=" << tablet_id;
+    int check_ret = 0;
+    TabletFilesCache tablet_files_cache;
+    using namespace std::chrono;
+    auto start_time = steady_clock::now();
+    DORIS_CLOUD_DEFER {
+        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        LOG(INFO) << "check tablet objects finished, cost=" << cost
+                  << "s. instance_id=" << instance_id_ << " tablet_id=" << tablet_id
+                  << " num_scanned=" << result->num_scanned
+                  << " num_scanned_with_segment=" << result->num_scanned_with_segment
+                  << " num_rowset_loss=" << result->num_rowset_loss
+                  << " checked_volume=" << result->checked_volume_bytes;
+    };
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
+    auto end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        result->num_scanned += it->size();
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            doris::RowsetMetaCloudPB rowset;
+            if (!rowset.ParseFromArray(v.data(), v.size())) {
+                ++result->num_rowset_loss;
+                LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
+            } else if (int ret = check_rowset_objects(rowset, k, &tablet_files_cache, result);
+                       ret != 0) {
+                check_ret = -1;
+            }
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
+    }
+
+    return result->num_rowset_loss > 0 ? 1 : check_ret;
 }
 
 int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {

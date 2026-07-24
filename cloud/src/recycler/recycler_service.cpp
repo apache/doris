@@ -398,6 +398,94 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
     }
 }
 
+void RecyclerServiceImpl::check_tablet(const std::string& instance_id, int64_t tablet_id,
+                                       MetaServiceCode& code, std::string& msg, std::string& body) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = "failed to create txn";
+        return;
+    }
+    std::string key;
+    instance_key({instance_id}, &key);
+    std::string val;
+    err = txn->get(key, &val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_GET_ERR;
+        msg = fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        return;
+    }
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed instance info, key={}", hex(key));
+        return;
+    }
+
+    TabletIndexPB tablet_index;
+    int tablet_idx_ret = get_tablet_idx(txn_kv_.get(), instance_id, tablet_id, tablet_index);
+    if (tablet_idx_ret == 1) {
+        code = MetaServiceCode::TABLET_NOT_FOUND;
+        msg = fmt::format("tablet not found, instance_id={}, tablet_id={}", instance_id, tablet_id);
+        return;
+    }
+    if (tablet_idx_ret != 0) {
+        code = MetaServiceCode::KV_TXN_GET_ERR;
+        msg = fmt::format("failed to get tablet index, instance_id={}, tablet_id={}", instance_id,
+                          tablet_id);
+        return;
+    }
+
+    InstanceChecker checker(txn_kv_, instance_id);
+    int init_ret = checker.init(instance);
+    if (init_ret != 0) {
+        code = MetaServiceCode::UNDEFINED_ERR;
+        msg = fmt::format("failed to init instance checker, instance_id={}, ret={}", instance_id,
+                          init_ret);
+        return;
+    }
+
+    InstanceChecker::ObjectCheckResult result;
+    int check_ret = checker.do_tablet_check(tablet_id, &result);
+    if (check_ret < 0) {
+        code = MetaServiceCode::UNDEFINED_ERR;
+        msg = fmt::format("failed to check tablet objects, instance_id={}, tablet_id={}",
+                          instance_id, tablet_id);
+        return;
+    }
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+    doc.AddMember("instance_id", rapidjson::StringRef(instance_id.data(), instance_id.size()),
+                  alloc);
+    doc.AddMember("tablet_id", tablet_id, alloc);
+    doc.AddMember("data_loss", check_ret == 1, alloc);
+    doc.AddMember("rowsets_scanned", result.num_scanned, alloc);
+    doc.AddMember("rowsets_with_segments_scanned", result.num_scanned_with_segment, alloc);
+    doc.AddMember("rowsets_with_missing_objects", result.num_rowset_loss, alloc);
+    doc.AddMember("checked_volume_bytes", result.checked_volume_bytes, alloc);
+
+    rapidjson::Value missing_segment_files(rapidjson::kArrayType);
+    for (const auto& path : result.missing_segment_files) {
+        missing_segment_files.PushBack(rapidjson::StringRef(path.data(), path.size()), alloc);
+    }
+    doc.AddMember("missing_segment_files", missing_segment_files, alloc);
+
+    rapidjson::Value missing_index_files(rapidjson::kArrayType);
+    for (const auto& path : result.missing_index_files) {
+        missing_index_files.PushBack(rapidjson::StringRef(path.data(), path.size()), alloc);
+    }
+    doc.AddMember("missing_index_files", missing_index_files, alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+    body = buffer.GetString();
+    msg = check_ret == 0 ? "tablet object check finished" : "tablet object loss detected";
+}
+
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
                        MetaServiceCode& code, std::string& msg,
                        RecyclerThreadPoolGroup thread_pool_group,
