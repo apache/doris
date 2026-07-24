@@ -288,6 +288,10 @@ bool CloudTabletMgr::peek_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* ta
     return true;
 }
 
+std::shared_ptr<CloudTablet> CloudTabletMgr::get_tablet_if_cached(int64_t tablet_id) {
+    return _tablet_map->get(tablet_id);
+}
+
 void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str.data(), tablet_id_str.size());

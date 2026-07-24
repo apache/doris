@@ -178,4 +178,36 @@ TEST_F(CloudTabletMgrTest, TestConcurrentGetTabletTabletMapConsistency) {
     sp->clear_all_call_backs();
 }
 
+TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = _tablet_meta;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [](auto&& args) { try_any_cast_ret<Status>(args)->second = true; });
+
+    CloudTabletMgr mgr(_engine);
+    const int64_t cached_tablet_id = 99999;
+    const int64_t uncached_tablet_id = 100000;
+
+    EXPECT_EQ(nullptr, mgr.get_tablet_if_cached(cached_tablet_id));
+
+    auto res = mgr.get_tablet(cached_tablet_id);
+    ASSERT_TRUE(res.has_value()) << res.error();
+
+    auto cached_tablet = mgr.get_tablet_if_cached(cached_tablet_id);
+    ASSERT_NE(nullptr, cached_tablet);
+    EXPECT_EQ(cached_tablet_id, cached_tablet->tablet_id());
+
+    EXPECT_EQ(nullptr, mgr.get_tablet_if_cached(uncached_tablet_id));
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
 } // namespace doris

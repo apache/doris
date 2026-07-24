@@ -39,6 +39,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/thread_context.h"
 #include "service/internal_service.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
@@ -47,6 +48,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
+#include "util/async_io.h"
 #include "util/debug/leakcheck_disabler.h"
 
 using namespace brpc;
@@ -70,6 +72,10 @@ const UniqueId NORMAL_LOAD_ID(1, 1);
 const UniqueId ABNORMAL_LOAD_ID(1, 0);
 std::string NORMAL_STRING("normal");
 std::string ABNORMAL_STRING("abnormal");
+
+static void load_stream_test_thread_context_deleter(void* d) {
+    delete static_cast<ThreadContext*>(d);
+}
 
 void construct_schema(OlapTableSchemaParam* schema) {
     // construct schema
@@ -577,6 +583,11 @@ public:
     }
 
     void SetUp() override {
+        btls_key = INVALID_BTHREAD_KEY;
+        CHECK_EQ(0, bthread_key_create(&btls_key, load_stream_test_thread_context_deleter));
+        AsyncIO::btls_io_ctx_key = INVALID_BTHREAD_KEY;
+        CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
+
         _server = new brpc::Server();
         srand(time(nullptr));
         char buffer[MAX_PATH_LEN];
@@ -625,6 +636,10 @@ public:
         _server->Stop(0);
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
+        CHECK_EQ(0, bthread_key_delete(btls_key));
+        btls_key = INVALID_BTHREAD_KEY;
+        CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
+        AsyncIO::btls_io_ctx_key = INVALID_BTHREAD_KEY;
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }

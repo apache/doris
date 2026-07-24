@@ -1100,6 +1100,17 @@ message PAlterVaultSyncRequest {
 message PAlterVaultSyncResponse {
 }
 
+message PSyncTabletMetaRequest {
+    repeated int64 tablet_ids = 1;
+}
+
+message PSyncTabletMetaResponse {
+    optional PStatus status = 1;
+    optional int64 synced_tablets = 2;
+    optional int64 skipped_tablets = 3;
+    optional int64 failed_tablets = 4;
+}
+
 message PGetBeResourceRequest {
 }
 
@@ -1265,6 +1276,7 @@ service PBackendService {
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
+    rpc sync_tablet_meta(PSyncTabletMetaRequest) returns (PSyncTabletMetaResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
     rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);
