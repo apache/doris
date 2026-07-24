@@ -20,6 +20,7 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScopes;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
@@ -116,7 +117,9 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         String dbName = jdbcHandle.getRemoteDbName();
         String tableName = jdbcHandle.getRemoteTableName();
 
-        List<JdbcFieldInfo> fields = client.getJdbcColumnsInfo(dbName, tableName);
+        List<JdbcFieldInfo> fields = ConnectorStatementScopes.resolveInStatement(
+                session, ConnectorStatementScopes.JDBC_COLUMNS, dbName, tableName,
+                () -> client.getJdbcColumnsInfo(dbName, tableName));
 
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (JdbcFieldInfo field : fields) {
@@ -159,7 +162,9 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         String tableName = jdbcHandle.getRemoteTableName();
 
         JdbcIdentifierMapper mapper = getIdentifierMapper(session);
-        List<JdbcFieldInfo> fields = client.getJdbcColumnsInfo(dbName, tableName);
+        List<JdbcFieldInfo> fields = ConnectorStatementScopes.resolveInStatement(
+                session, ConnectorStatementScopes.JDBC_COLUMNS, dbName, tableName,
+                () -> client.getJdbcColumnsInfo(dbName, tableName));
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (JdbcFieldInfo field : fields) {
             String remoteName = field.getColumnName();

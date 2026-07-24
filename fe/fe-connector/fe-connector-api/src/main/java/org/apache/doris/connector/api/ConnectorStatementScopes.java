@@ -35,8 +35,8 @@ import java.util.function.Supplier;
  * connectors cannot collide on {@code (db, table)} and hand one connector another's value (a
  * {@link ClassCastException}). Every consumer MUST use a distinct namespace declared here as a reviewed
  * uniqueness invariant. Declared today: {@link #ICEBERG_TABLE}, {@link #HUDI_LATEST_SCHEMA},
- * {@link #HUDI_LATEST_INSTANT}, {@link #ES_INDEX_MAPPING}. (maxcompute memoizes its handle on the
- * per-statement metadata instance itself, so it needs no namespace here.)
+ * {@link #HUDI_LATEST_INSTANT}, {@link #ES_INDEX_MAPPING}, {@link #JDBC_COLUMNS}. (maxcompute memoizes its
+ * handle on the per-statement metadata instance itself, so it needs no namespace here.)
  */
 public final class ConnectorStatementScopes {
 
@@ -55,6 +55,21 @@ public final class ConnectorStatementScopes {
      * {@code getMapping} fires once per statement (see {@code EsStatementScope}).
      */
     public static final String ES_INDEX_MAPPING = "es.index_mapping";
+
+    /**
+     * Namespace for jdbc's per-statement RAW remote-columns memo (a {@code List<JdbcFieldInfo>}), shared by the
+     * schema path ({@code JdbcConnectorMetadata#getTableSchema}), the scan column-handle path
+     * ({@code JdbcConnectorMetadata#getColumnHandles}) and the write INSERT-SQL shaping
+     * ({@code JdbcWritePlanProvider#buildInsertSql}) so one table's remote {@code getJdbcColumnsInfo} fires at
+     * most once per statement. The value is the raw remote columns (session-independent); each consumer
+     * re-applies its own transform (identifier mapper for handles, type conversion for schema) per call.
+     * The shared list is treated read-only EXCEPT that the schema path's {@code jdbcTypeToConnectorType}
+     * idempotently sets {@code allowNull = true} on a field in place for some date types — safe because the
+     * mutation is idempotent and the only reader of {@code allowNull} is {@code getTableSchema}, which always
+     * re-derives it via {@code jdbcTypeToConnectorType} before reading (the handle / write paths read only the
+     * column name).
+     */
+    public static final String JDBC_COLUMNS = "jdbc.columns";
 
     private ConnectorStatementScopes() {
     }
