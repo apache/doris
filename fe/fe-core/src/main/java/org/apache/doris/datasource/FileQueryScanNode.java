@@ -477,11 +477,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
             HiveSplit hiveSplit = (HiveSplit) fileSplit;
             isACID = hiveSplit.isACID();
         }
-        List<String> rawPartitionValues = fileSplit.getPartitionValues() == null
-                ? BrokerUtil.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
-                false, isACID) : fileSplit.getPartitionValues();
         BrokerUtil.ParsedColumnsFromPath partitionValues =
-                BrokerUtil.normalizeColumnsFromPath(rawPartitionValues);
+                fileSplit.getPartitionValues() == null
+                        ? BrokerUtil.parseColumnsFromPathWithNullInfo(
+                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                        : BrokerUtil.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValues.getValues(),
                 pathPartitionKeys, partitionValues.getIsNull());

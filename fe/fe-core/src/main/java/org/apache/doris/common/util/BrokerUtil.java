@@ -24,7 +24,6 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
@@ -69,6 +68,7 @@ import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public class BrokerUtil {
     private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
@@ -155,7 +155,7 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPath(filePath, columnsFromPath, true, false);
+        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, true, false).getValues();
     }
 
     public static List<String> parseColumnsFromPath(
@@ -164,23 +164,35 @@ public class BrokerUtil {
             boolean caseSensitive,
             boolean isACID)
             throws UserException {
+        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, caseSensitive, isACID)
+                .getValues();
+    }
+
+    public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfo(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive,
+            boolean isACID)
+            throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
-            return Collections.emptyList();
+            return new ParsedColumnsFromPath(Collections.emptyList(), Collections.emptyList());
         }
         // if it is ACID, the path count is 3. The hdfs path is hdfs://xxx/table_name/par=xxx/delta(or base)_xxx/.
         int pathCount = isACID ? 3 : 2;
+        List<String> expectedColumns = columnsFromPath;
         if (!caseSensitive) {
-            for (int i = 0; i < columnsFromPath.size(); i++) {
-                String path = columnsFromPath.remove(i);
-                columnsFromPath.add(i, path.toLowerCase());
+            expectedColumns = new ArrayList<>(columnsFromPath.size());
+            for (String path : columnsFromPath) {
+                expectedColumns.add(path.toLowerCase(Locale.ROOT));
             }
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
             throw new UserException("Fail to parse columnsFromPath, expected: "
-                    + columnsFromPath + ", filePath: " + filePath);
+                    + expectedColumns + ", filePath: " + filePath);
         }
-        String[] columns = new String[columnsFromPath.size()];
+        String[] columns = new String[expectedColumns.size()];
+        Boolean[] columnsFromPathIsNull = new Boolean[expectedColumns.size()];
         int size = 0;
         boolean skipOnce = true;
         for (int i = strings.length - pathCount; i >= 0; i--) {
@@ -194,31 +206,33 @@ public class BrokerUtil {
                     continue;
                 }
                 throw new UserException("Fail to parse columnsFromPath, expected: "
-                        + columnsFromPath + ", filePath: " + filePath);
+                        + expectedColumns + ", filePath: " + filePath);
             }
             skipOnce = false;
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
-                        + columnsFromPath + ", filePath: " + filePath);
+                        + expectedColumns + ", filePath: " + filePath);
             }
-            String parsedColumnName = caseSensitive ? pair[0] : pair[0].toLowerCase();
-            int index = columnsFromPath.indexOf(parsedColumnName);
+            String parsedColumnName = caseSensitive ? pair[0] : pair[0].toLowerCase(Locale.ROOT);
+            int index = expectedColumns.indexOf(parsedColumnName);
             if (index == -1) {
                 continue;
             }
-            columns[index] = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
-                ? FeConstants.null_string : pair[1];
+            boolean isNull = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1]);
+            columns[index] = isNull ? "" : pair[1];
+            columnsFromPathIsNull[index] = isNull;
             size++;
-            if (size >= columnsFromPath.size()) {
+            if (size >= expectedColumns.size()) {
                 break;
             }
         }
-        if (size != columnsFromPath.size()) {
+        if (size != expectedColumns.size()) {
             throw new UserException("Fail to parse columnsFromPath, expected: "
-                    + columnsFromPath + ", filePath: " + filePath);
+                    + expectedColumns + ", filePath: " + filePath);
         }
-        return Lists.newArrayList(columns);
+        return new ParsedColumnsFromPath(
+                Lists.newArrayList(columns), Lists.newArrayList(columnsFromPathIsNull));
     }
 
     public static ParsedColumnsFromPath normalizeColumnsFromPath(List<String> columnsFromPath) {
@@ -228,8 +242,7 @@ public class BrokerUtil {
         List<String> values = new ArrayList<>(columnsFromPath.size());
         List<Boolean> isNull = new ArrayList<>(columnsFromPath.size());
         for (String value : columnsFromPath) {
-            boolean nullValue = value == null || FeConstants.null_string.equals(value)
-                    || HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(value);
+            boolean nullValue = value == null || HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(value);
             values.add(nullValue ? "" : value);
             isNull.add(nullValue);
         }

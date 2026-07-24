@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
@@ -332,8 +333,11 @@ public class HudiScanNode extends HiveScanNode {
                 formPathKeys.add(entry.getKey());
                 formPathValues.add(entry.getValue());
             }
+            BrokerUtil.ParsedColumnsFromPath parsedColumnsFromPath =
+                    BrokerUtil.normalizeColumnsFromPath(formPathValues);
             rangeDesc.setColumnsFromPathKeys(formPathKeys);
-            rangeDesc.setColumnsFromPath(formPathValues);
+            rangeDesc.setColumnsFromPath(parsedColumnsFromPath.getValues());
+            rangeDesc.setColumnsFromPathIsNull(parsedColumnsFromPath.getIsNull());
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
