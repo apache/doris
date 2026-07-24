@@ -131,7 +131,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -684,7 +683,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
                         ),
-                        costBased(topDown(new PushDownAggWithDistinctThroughJoinOneSide())),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
