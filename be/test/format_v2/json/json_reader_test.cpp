@@ -173,14 +173,21 @@ struct ReadResult {
     bool eof = false;
     size_t second_rows = 0;
     bool second_eof = false;
+    size_t document_buffer_size = 0;
     std::vector<ColumnDefinition> schema;
 };
 
 ReadResult read_once(const std::string& file_name, const std::string& content,
                      TFileScanRangeParams params, const std::vector<SlotDescriptor*>& slots,
-                     const std::vector<int32_t>& requested_local_ids, bool read_twice = false) {
+                     const std::vector<int32_t>& requested_local_ids, bool read_twice = false,
+                     bool is_hive_table = false) {
     const auto file_path = write_json_file(file_name, content);
     auto range = file_range(file_path);
+    if (is_hive_table) {
+        TTableFormatFileDesc table_format;
+        table_format.__set_table_format_type("hive");
+        range.__set_table_format_params(std::move(table_format));
+    }
 
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
@@ -210,6 +217,7 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
 
     result.block = make_block(result.schema, requested_local_ids);
     result.status = reader.get_block(&result.block, &result.rows, &result.eof);
+    result.document_buffer_size = reader.TEST_document_buffer_size();
     if (result.status.ok() && read_twice) {
         auto eof_block = make_block(result.schema, requested_local_ids);
         result.second_status =
@@ -318,6 +326,20 @@ TEST(JsonReaderTest, ReadsRequestedColumnsInFileScanRequestOrder) {
     ASSERT_TRUE(result.second_status.ok()) << result.second_status.to_string();
     EXPECT_EQ(result.second_rows, 0);
     EXPECT_TRUE(result.second_eof);
+    EXPECT_EQ(result.document_buffer_size, 0);
+}
+
+TEST(JsonReaderTest, HiveColumnLookupIsCaseInsensitiveWithoutNormalizedKeys) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once("hive_case.jsonl",
+                            R"({"ID":7,"NaMe":"alice"})"
+                            "\n",
+                            json_scan_params(), slots, {0, 1}, false, true);
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    ASSERT_EQ(result.rows, 1);
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 7);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "alice");
 }
 
 TEST(JsonReaderTest, ReadsSingleDocumentOuterArray) {

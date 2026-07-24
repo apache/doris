@@ -34,6 +34,20 @@
 
 namespace doris::format::jdbc {
 
+Status validate_non_nullable_special_type_result(const IColumn& result, size_t rows) {
+    const auto* nullable = check_and_get_column<ColumnNullable>(&result);
+    if (UNLIKELY(nullable == nullptr)) {
+        return Status::InternalError("JDBC special-type CAST did not return a nullable column");
+    }
+    if (UNLIKELY(nullable->has_null(0, rows))) {
+        // CAST NULL represents invalid source data; stripping the null map would turn it into a
+        // valid-looking default for a NOT NULL destination.
+        return Status::DataQualityError(
+                "JDBC special-type CAST produced NULL for a non-nullable column");
+    }
+    return Status::OK();
+}
+
 std::string JdbcJniReader::connector_class() const {
     return "org/apache/doris/jdbc/JdbcJniScanner";
 }
@@ -184,6 +198,7 @@ Status JdbcJniReader::_cast_string_to_special_type(const format::JniTableReader:
     if (target_type->is_nullable()) {
         output_block->replace_by_position(column.output_index, result_column);
     } else {
+        RETURN_IF_ERROR(validate_non_nullable_special_type_result(*result_column, rows));
         const auto* nullable_column = assert_cast<const ColumnNullable*>(result_column.get());
         output_block->replace_by_position(column.output_index,
                                           nullable_column->get_nested_column_ptr());

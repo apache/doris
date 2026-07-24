@@ -58,9 +58,17 @@ struct ParquetScanRange;
 class NativeParquetMetadata;
 
 namespace detail {
+struct PredicateConjunctStage {
+    VExprContextSPtr owner_context;
+    VExprSPtr expression;
+    std::vector<size_t> required_positions;
+};
+
 struct PredicateConjunctSchedule {
     std::map<size_t, VExprContextSPtrs> single_column_conjuncts;
     VExprContextSPtrs remaining_conjuncts;
+    std::vector<PredicateConjunctStage> remaining_stages;
+    bool supports_lazy_materialization = true;
 };
 
 struct AdaptivePredicateStats {
@@ -77,6 +85,8 @@ std::vector<size_t> adaptive_prefetch_prefix(
         const std::unordered_map<size_t, AdaptivePredicateStats>& stats,
         double minimum_reach_probability);
 bool should_sample_adaptive_predicate(size_t samples, size_t batch_sequence);
+Status validate_ephemeral_expr_result_column(size_t original_columns, int result_column_id,
+                                             size_t current_columns);
 Status build_native_prefetch_ranges(
         const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -206,7 +216,7 @@ private:
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
             const format::FileScanRequest& request);
     std::vector<format::LocalColumnIndex> adaptive_predicate_prefetch_columns(
-            const format::FileScanRequest& request) const;
+            const format::FileScanRequest& request);
 
     Status open_next_row_group(ParquetFileContext& file_context,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -303,6 +313,7 @@ private:
     detail::PredicateConjunctSchedule _predicate_schedule;
     std::vector<size_t> _predicate_positions_scratch;
     std::unordered_map<size_t, size_t> _predicate_indices_by_position_scratch;
+    std::unordered_set<size_t> _materialized_predicate_positions_scratch;
     std::vector<size_t> _ordered_predicate_positions_scratch;
     std::unordered_map<uint32_t, std::vector<SelectionVector::Index>>
             _predicate_column_selection_scratch;
