@@ -228,6 +228,15 @@ public class PlanReceiver extends AbstractReceiver {
                 if (edge.isEnforcedOrder()) {
                     return false;
                 } else {
+                    // Reject missed edges that reference a projected alias whose
+                    // source bitmap spans both left and right. The alias layer
+                    // is emitted by proposeProject (after proposeJoin), so the
+                    // join predicate would reference a slot that does not exist
+                    // in either child's output. Wait for a later join step where
+                    // the alias source is fully contained in one child.
+                    if (!hyperGraph.isEdgeSafeForJoin(edge, left, right)) {
+                        return false;
+                    }
                     // add the missed edge to edges
                     missingEdges.add(edge);
                 }
@@ -291,29 +300,61 @@ public class PlanReceiver extends AbstractReceiver {
 
     private LogicalPlan proposeProject(LogicalPlan join, List<Edge> edges, long left, long right) {
         Set<Slot> outputSet = join.getOutputSet();
-        // calculate required columns by all parents
-        Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+        // calculate required columns by all parents (final outputs + unused edges)
+        Set<Slot> parentRequireSlots = calculateRequiredSlots(left, right, edges);
+        // Pending projected aliases may reference input slots (e.g., A.v, B.v for
+        // s=A.v+B.v) that are not in finalRequiredSlots or unused edges. Preserve
+        // them so the join output still contains the base columns needed to evaluate
+        // the alias expressions, both for aliases emitted at this stage and those
+        // deferred to a later join whose bitmap is a superset.
+        Set<Slot> aliasInputSlots = hyperGraph.getAllAliasInputSlotsForNodes(
+                LongBitmap.newBitmapUnion(left, right));
+        Set<Slot> requireSlots = new HashSet<>(parentRequireSlots);
+        requireSlots.addAll(aliasInputSlots);
         List<NamedExpression> allProjects = new ArrayList<>(outputSet.size());
         for (Slot slot : outputSet) {
             if (requireSlots.contains(slot)) {
                 allProjects.add(slot);
             }
         }
-        if (hyperGraph.hasLiteralAlias()) {
-            allProjects.addAll(hyperGraph.getLiteralAlias(left, right));
-        }
 
         if (allProjects.isEmpty()) {
             allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
         }
 
-        // propose logical project
+        // propose logical project for the slot pass-through
         LogicalPlan logicalPlan;
         if (outputSet.equals(new HashSet<>(allProjects))) {
             logicalPlan = join;
         } else {
             logicalPlan = new LogicalProject<>(allProjects, join);
         }
+
+        // Emit projected aliases as a single LogicalProject node.
+        // Cross-layer references (e.g., z = x + 1 referencing x = COALESCE(v, 0))
+        // were already resolved at graph-build time, so only one Project is needed.
+        // Carry forward child slots still required by parents (e.g., join keys)
+        // or by deferred alias layers (e.g., B.w for a later y=B.w+1).
+        // Use the full requireSlots so that deferred-layer inputs survive
+        // through intermediate layers.
+        if (hyperGraph.hasProjectedAliases()) {
+            List<NamedExpression> aliases = hyperGraph.getProjectedAliases(left, right);
+            if (!aliases.isEmpty()) {
+                Set<ExprId> aliasExprIds = new HashSet<>();
+                for (NamedExpression a : aliases) {
+                    aliasExprIds.add(a.getExprId());
+                }
+                List<NamedExpression> mergedLayer = new ArrayList<>(aliases);
+                for (Slot childSlot : logicalPlan.getOutputSet()) {
+                    if (requireSlots.contains(childSlot)
+                            && !aliasExprIds.contains(childSlot.getExprId())) {
+                        mergedLayer.add(childSlot);
+                    }
+                }
+                logicalPlan = new LogicalProject<>(mergedLayer, logicalPlan);
+            }
+        }
+
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
                 && !logicalPlan.getOutputSet().equals(new HashSet<>(finalProjects))) {
             logicalPlan = new LogicalProject<>(finalProjects, logicalPlan);
