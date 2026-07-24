@@ -179,7 +179,7 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
             return 0;
         }
         assert (numRows == vectorTable.getNumRows());
-        return vectorTable.getMetaAddress();
+        return getBeMetaAddress();
     }
 
     @Override

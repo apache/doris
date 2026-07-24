@@ -43,7 +43,7 @@ public class PluginDrivenSplit extends FileSplit {
                 scanRange.getFileSize(),
                 scanRange.getModificationTime(),
                 scanRange.getHosts().toArray(new String[0]),
-                buildPartitionValues(scanRange));
+                null);
         this.connectorScanRange = scanRange;
     }
 
@@ -67,11 +67,18 @@ public class PluginDrivenSplit extends FileSplit {
         return LocationPath.of(pathStr);
     }
 
-    private static List<String> buildPartitionValues(ConnectorScanRange scanRange) {
-        Map<String, String> partValues = scanRange.getPartitionValues();
-        if (partValues == null || partValues.isEmpty()) {
+    List<String> getPartitionValuesInKeyOrder(List<String> partitionKeys) {
+        Map<String, String> partValues = connectorScanRange.getPartitionValues();
+        if (partValues == null || partValues.isEmpty() || partitionKeys == null || partitionKeys.isEmpty()) {
             return null;
         }
-        return new ArrayList<>(partValues.values());
+        List<String> partitionValues = new ArrayList<>(partitionKeys.size());
+        for (String partitionKey : partitionKeys) {
+            if (!partValues.containsKey(partitionKey)) {
+                return null;
+            }
+            partitionValues.add(partValues.get(partitionKey));
+        }
+        return partitionValues;
     }
 }

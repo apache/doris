@@ -19,7 +19,6 @@ package org.apache.doris.common.jni;
 
 
 import org.apache.doris.common.jni.utils.OffHeap;
-import org.apache.doris.common.jni.vec.VectorTable;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -50,11 +49,6 @@ public class JniScannerTest {
             if (metaAddress != 0) {
                 long rows = OffHeap.getLong(null, metaAddress);
                 Assert.assertEquals(32, rows);
-
-                VectorTable restoreTable = VectorTable.createReadableTable(scanner.getTable().getColumnTypes(),
-                        scanner.getTable().getFields(), metaAddress);
-                System.out.println(restoreTable.dump((int) rows).substring(0, 128));
-                // Restored table is release by the origin table.
             }
             scanner.resetTable();
         } while (metaAddress != 0);
@@ -99,6 +93,31 @@ public class JniScannerTest {
         // EOF
         metaAddress = scanner.getNextBatchMeta();
         Assert.assertEquals(0, metaAddress);
+
+        scanner.releaseTable();
+        scanner.close();
+    }
+
+    @Test
+    public void testWritableTableMetaUsesBeReaderLayout() throws IOException {
+        OffHeap.setTesting();
+        MockJniScanner scanner = new MockJniScanner(16, new HashMap<String, String>() {
+            {
+                put("mock_rows", "16");
+                put("required_fields", "int");
+                put("columns_types", "int");
+            }
+        });
+        scanner.open();
+
+        long metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(16, OffHeap.getLong(null, metaAddress));
+
+        long nullMapAddress = scanner.getTable().getColumn(0).nullMapAddress();
+        long dataAddress = scanner.getTable().getColumn(0).dataAddress();
+        Assert.assertEquals(nullMapAddress, OffHeap.getLong(null, metaAddress + 8));
+        Assert.assertEquals(dataAddress, OffHeap.getLong(null, metaAddress + 16));
 
         scanner.releaseTable();
         scanner.close();

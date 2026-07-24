@@ -26,9 +26,10 @@
 
 #include <atomic>
 #include <memory>
-#include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -41,14 +42,24 @@ struct BlockMeta {
     FileCacheType type;
     size_t size;
     uint64_t ttl;
+    std::string table_name;
+    std::string partition_name;
 
     BlockMeta() : type(DISPOSABLE), size(0), ttl(0) {}
     BlockMeta(FileCacheType type_, size_t size_) : type(type_), size(size_), ttl(0) {}
     BlockMeta(FileCacheType type_, size_t size_, uint64_t ttl_)
             : type(type_), size(size_), ttl(ttl_) {}
+    BlockMeta(FileCacheType type_, size_t size_, uint64_t ttl_, std::string table_name_,
+              std::string partition_name_)
+            : type(type_),
+              size(size_),
+              ttl(ttl_),
+              table_name(std::move(table_name_)),
+              partition_name(std::move(partition_name_)) {}
 
     bool operator==(const BlockMeta& other) const {
-        return type == other.type && size == other.size && ttl == other.ttl;
+        return type == other.type && size == other.size && ttl == other.ttl &&
+               table_name == other.table_name && partition_name == other.partition_name;
     }
 };
 

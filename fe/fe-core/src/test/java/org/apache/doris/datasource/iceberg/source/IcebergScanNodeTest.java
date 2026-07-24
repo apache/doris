@@ -73,7 +73,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -603,6 +605,44 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSetIcebergParamsKeepsMixedCaseIdentityPartitionKeys() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                Types.NestedField.required(2, "Country", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("Dt", "partition_dt")
+                .identity("Country", "partition_country")
+                .build();
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.specs())
+                .thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+        setIcebergTable(node, icebergTable);
+
+        String dataPath = "file:///tmp/data-file.parquet";
+        IcebergSplit split = new IcebergSplit(LocationPath.of(dataPath), 0, 128, 128, new String[0],
+                2, Collections.emptyMap(), new ArrayList<>(), dataPath);
+        split.setTableFormatType(TableFormatType.ICEBERG);
+        split.setSplitFileFormat(FileFormat.PARQUET);
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Dt", "2026-03-19");
+        partitionValues.put("Country", "CN");
+        split.setIcebergPartitionValues(partitionValues);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
+                TFileRangeDesc.class, IcebergSplit.class);
+        method.setAccessible(true);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        method.invoke(node, rangeDesc, split);
+
+        Assert.assertEquals(Arrays.asList("Dt", "Country"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("2026-03-19", "CN"), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals("Dt=2026-03-19/Country=CN", rangeDesc.getPartitionName());
+    }
+
+    @Test
     public void testPositionDeleteSystemTableValidatesDeletionVectorMetadata() throws Exception {
         DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
         Mockito.when(deleteFile.path()).thenReturn("file:///tmp/delete-shared.puffin");
@@ -755,5 +795,175 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10001 is a smooth upgrade source"));
         }
+    }
+
+    @Test
+    public void testCreateIcebergSplitSetsIdentityPartitionValuesWithoutRuntimeFilterPrune() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setEnableRuntimeFilterPartitionPrune(false);
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "dt", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("dt").build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "20260319");
+
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.specs())
+                .thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.name()).thenReturn("tbl");
+
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, icebergTable);
+        Field isPartitionedTableField = IcebergScanNode.class.getDeclaredField("isPartitionedTable");
+        isPartitionedTableField.setAccessible(true);
+        isPartitionedTableField.set(node, true);
+        Field partitionMapInfosField = IcebergScanNode.class.getDeclaredField("partitionMapInfos");
+        partitionMapInfosField.setAccessible(true);
+        partitionMapInfosField.set(node, new HashMap<PartitionData, Map<String, String>>());
+        Field storagePropertiesMapField = IcebergScanNode.class.getDeclaredField("storagePropertiesMap");
+        storagePropertiesMapField.setAccessible(true);
+        storagePropertiesMapField.set(node, Collections.emptyMap());
+
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.path()).thenReturn("file:///tmp/data-file.parquet");
+        Mockito.when(dataFile.fileSizeInBytes()).thenReturn(128L);
+        Mockito.when(dataFile.specId()).thenReturn(partitionSpec.specId());
+        Mockito.when(dataFile.partition()).thenReturn(partitionData);
+
+        FileScanTask task = Mockito.mock(FileScanTask.class);
+        Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(128L);
+        Mockito.when(task.deletes()).thenReturn(Collections.emptyList());
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("createIcebergSplit", FileScanTask.class);
+        method.setAccessible(true);
+        IcebergSplit split = (IcebergSplit) method.invoke(node, task);
+
+        Assert.assertEquals("20260319", split.getIcebergPartitionValues().get("dt"));
+    }
+
+    @Test
+    public void testCreateIcebergSplitKeepsPartitionAccountingForTransformPartitions() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).day("ts").build();
+        PartitionData partitionData1 = new PartitionData(partitionSpec.partitionType());
+        partitionData1.set(0, 20531);
+        PartitionData partitionData2 = new PartitionData(partitionSpec.partitionType());
+        partitionData2.set(0, 20532);
+
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.specs()).thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+        Mockito.when(icebergTable.name()).thenReturn("tbl");
+
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, icebergTable);
+        Field isPartitionedTableField = IcebergScanNode.class.getDeclaredField("isPartitionedTable");
+        isPartitionedTableField.setAccessible(true);
+        isPartitionedTableField.set(node, true);
+        Map<PartitionData, Map<String, String>> partitionMapInfos = new HashMap<>();
+        Field partitionMapInfosField = IcebergScanNode.class.getDeclaredField("partitionMapInfos");
+        partitionMapInfosField.setAccessible(true);
+        partitionMapInfosField.set(node, partitionMapInfos);
+        Field storagePropertiesMapField = IcebergScanNode.class.getDeclaredField("storagePropertiesMap");
+        storagePropertiesMapField.setAccessible(true);
+        storagePropertiesMapField.set(node, Collections.emptyMap());
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("createIcebergSplit", FileScanTask.class);
+        method.setAccessible(true);
+        IcebergSplit split1 = (IcebergSplit) method.invoke(node,
+                createFileScanTask(partitionSpec.specId(), partitionData1, "file:///tmp/data-file-1.parquet"));
+        IcebergSplit split2 = (IcebergSplit) method.invoke(node,
+                createFileScanTask(partitionSpec.specId(), partitionData2, "file:///tmp/data-file-2.parquet"));
+
+        Assert.assertNull(split1.getIcebergPartitionValues());
+        Assert.assertNull(split2.getIcebergPartitionValues());
+        Assert.assertEquals(2, partitionMapInfos.size());
+        Assert.assertTrue(partitionMapInfos.get(partitionData1).isEmpty());
+        Assert.assertTrue(partitionMapInfos.get(partitionData2).isEmpty());
+        Assert.assertEquals(2, node.numApproximateSplits());
+    }
+
+    @Test
+    public void testCreateIcebergSplitKeepsIdentityValuesForMixedSpecMaterialization() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "dt", Types.StringType.get()),
+                Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("dt")
+                .day("ts")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2026-03-19");
+        partitionData.set(1, 20531);
+
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.specs()).thenReturn(Collections.singletonMap(partitionSpec.specId(), partitionSpec));
+        Mockito.when(icebergTable.name()).thenReturn("tbl");
+
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, icebergTable);
+        Field isPartitionedTableField = IcebergScanNode.class.getDeclaredField("isPartitionedTable");
+        isPartitionedTableField.setAccessible(true);
+        isPartitionedTableField.set(node, true);
+        Map<PartitionData, Map<String, String>> partitionMapInfos = new HashMap<>();
+        Field partitionMapInfosField = IcebergScanNode.class.getDeclaredField("partitionMapInfos");
+        partitionMapInfosField.setAccessible(true);
+        partitionMapInfosField.set(node, partitionMapInfos);
+        Field storagePropertiesMapField = IcebergScanNode.class.getDeclaredField("storagePropertiesMap");
+        storagePropertiesMapField.setAccessible(true);
+        storagePropertiesMapField.set(node, Collections.emptyMap());
+
+        Method createSplitMethod = IcebergScanNode.class.getDeclaredMethod("createIcebergSplit", FileScanTask.class);
+        createSplitMethod.setAccessible(true);
+        IcebergSplit split = (IcebergSplit) createSplitMethod.invoke(node,
+                createFileScanTask(partitionSpec.specId(), partitionData, "file:///tmp/mixed-spec.parquet"));
+
+        Assert.assertEquals(Collections.singletonMap("dt", "2026-03-19"), split.getIcebergPartitionValues());
+        Assert.assertFalse(split.isCacheablePartitionContext());
+        Assert.assertTrue(partitionMapInfos.get(partitionData).isEmpty());
+
+        Method setParamsMethod = IcebergScanNode.class.getDeclaredMethod("setIcebergParams",
+                TFileRangeDesc.class, IcebergSplit.class);
+        setParamsMethod.setAccessible(true);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        setParamsMethod.invoke(node, rangeDesc, split);
+
+        Assert.assertEquals(Collections.singletonList("dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Collections.singletonList("2026-03-19"), rangeDesc.getColumnsFromPath());
+        Assert.assertFalse(rangeDesc.isSetPartitionValues());
+        Assert.assertFalse(rangeDesc.isSetPartitionName());
+    }
+
+    private FileScanTask createFileScanTask(int specId, PartitionData partitionData, String path) {
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.path()).thenReturn(path);
+        Mockito.when(dataFile.fileSizeInBytes()).thenReturn(128L);
+        Mockito.when(dataFile.format()).thenReturn(FileFormat.PARQUET);
+        Mockito.when(dataFile.specId()).thenReturn(specId);
+        Mockito.when(dataFile.partition()).thenReturn(partitionData);
+
+        FileScanTask task = Mockito.mock(FileScanTask.class);
+        Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(128L);
+        Mockito.when(task.deletes()).thenReturn(Collections.emptyList());
+        return task;
     }
 }

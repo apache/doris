@@ -275,6 +275,10 @@ Status ParallelScannerBuilder::_load() {
             std::vector<uint32_t> segment_rows;
             OlapReaderStatistics preload_stats;
             auto preload_io_ctx = create_preload_io_context(_state, &preload_stats);
+            if (auto it = _tablet_contexts.find(tablet_id); it != _tablet_contexts.end()) {
+                preload_io_ctx.table_name = it->second.first;
+                preload_io_ctx.partition_name = it->second.second;
+            }
             RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
                                                               &preload_stats, &preload_io_ctx));
             _tablet_preload_file_cache_stats[tablet_id].merge_from(preload_stats.file_cache_stats);
@@ -296,6 +300,12 @@ Status ParallelScannerBuilder::_load() {
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReadSource&& read_source, io::FileCacheStatistics&& initial_file_cache_stats) {
+    std::string table_name;
+    std::string partition_name;
+    if (auto it = _tablet_contexts.find(tablet->tablet_id()); it != _tablet_contexts.end()) {
+        table_name = it->second.first;
+        partition_name = it->second.second;
+    }
     OlapScanner::Params params {
             .state = _state,
             .profile = _scanner_profile.get(),
@@ -310,6 +320,8 @@ std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
             .binlog_scan_type = TBinlogScanType::NONE,
             .start_tso = std::nullopt,
             .end_tso = std::nullopt,
+            .table_name = std::move(table_name),
+            .partition_name = std::move(partition_name),
     };
     return OlapScanner::create_shared(_parent, std::move(params));
 }

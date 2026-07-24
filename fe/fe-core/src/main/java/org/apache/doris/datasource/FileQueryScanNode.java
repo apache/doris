@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -471,10 +472,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             isACID = hiveSplit.isACID();
         }
         FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
-                fileSplit.getPartitionValues() == null
-                        ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
-                        : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
+                getPartitionValuesFromSplit(fileSplit, pathPartitionKeys, isACID);
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
                 pathPartitionKeys, partitionValuesFromPath.getIsNull());
@@ -493,6 +491,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
         return curLocations;
+    }
+
+    private FilePartitionUtils.ParsedColumnsFromPath getPartitionValuesFromSplit(
+            FileSplit fileSplit, List<String> pathPartitionKeys, boolean isACID) throws UserException {
+        if (fileSplit instanceof PluginDrivenSplit) {
+            PluginDrivenSplit pluginDrivenSplit = (PluginDrivenSplit) fileSplit;
+            List<String> partitionValues = pluginDrivenSplit.getPartitionValuesInKeyOrder(pathPartitionKeys);
+            if (partitionValues != null) {
+                return FilePartitionUtils.normalizeColumnsFromPath(partitionValues);
+            }
+        }
+        return fileSplit.getPartitionValues() == null
+                ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                        fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,
@@ -563,12 +576,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // fileSize only be used when format is orc or parquet and TFileType is broker
         // When TFileType is other type, it is not necessary
         rangeDesc.setFileSize(fileSplit.getFileLength());
-        if (!columnsFromPathKeys.isEmpty()) {
-            rangeDesc.setColumnsFromPath(columnsFromPath);
-            rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
-            rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
-        }
-
         rangeDesc.setFileType(fileSplit.getLocationType());
         rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
         if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
@@ -576,6 +583,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
+        List<TPartitionKeyValue> partitionKeyValues =
+                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath, columnsFromPathIsNull);
+        FileScanNode.fillPathPartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
         return rangeDesc;
     }
 

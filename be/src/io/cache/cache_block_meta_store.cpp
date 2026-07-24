@@ -24,7 +24,6 @@
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
 
-#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <optional>
@@ -110,11 +109,9 @@ Status CacheBlockMetaStore::init() {
     }
     _db.reset(db_ptr);
 
-    // Store the file_cache_meta column family handle
-    // handles[0] is default column family, handles[1] is file_cache_meta
+    // handles[0] is default column family, handles[1] is file_cache_meta.
     if (handles.size() >= 2) {
         _file_cache_meta_cf_handle.reset(handles[1]);
-        // Close default column family handle as we won't use it
         _db->DestroyColumnFamilyHandle(handles[0]);
     } else {
         return Status::InternalError("Failed to get file_cache_meta column family handle");
@@ -484,6 +481,12 @@ std::string serialize_value(const BlockMeta& meta) {
     pb.set_type(static_cast<::doris::io::cache::FileCacheType>(meta.type));
     pb.set_size(meta.size);
     pb.set_ttl(meta.ttl);
+    if (!meta.table_name.empty()) {
+        pb.set_table_name(meta.table_name);
+    }
+    if (!meta.partition_name.empty()) {
+        pb.set_partition_name(meta.partition_name);
+    }
 
     std::string result;
     pb.SerializeToString(&result);
@@ -568,7 +571,14 @@ std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status*
         }
 
         if (status) *status = Status::OK();
-        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
+        BlockMeta meta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
+        if (pb.has_table_name()) {
+            meta.table_name = pb.table_name();
+        }
+        if (pb.has_partition_name()) {
+            meta.partition_name = pb.partition_name();
+        }
+        return meta;
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
@@ -601,7 +611,14 @@ std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* 
         }
 
         if (status) *status = Status::OK();
-        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
+        BlockMeta meta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
+        if (pb.has_table_name()) {
+            meta.table_name = pb.table_name();
+        }
+        if (pb.has_partition_name()) {
+            meta.partition_name = pb.partition_name();
+        }
+        return meta;
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf from string_view";

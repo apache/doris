@@ -1777,7 +1777,9 @@ void CloudTablet::_submit_segment_download_task(const RowsetSharedPtr& rs,
             .ctx = {
                     .expiration_time = expiration_time,
                     .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                    .is_warmup = true
+                    .is_warmup = true,
+                    .table_name = "",
+                    .partition_name = ""
             },
             .download_done {[=](Status st) {
                 DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_data.callback.block_compaction_rowset", {
@@ -1823,7 +1825,9 @@ void CloudTablet::_submit_inverted_index_download_task(const RowsetSharedPtr& rs
             .ctx = {
                     .expiration_time = expiration_time,
                     .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                    .is_warmup = true
+                    .is_warmup = true,
+                    .table_name = "",
+                    .partition_name = ""
             },
             .download_done {[=](Status st) {
                 DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_idx.callback.block", {

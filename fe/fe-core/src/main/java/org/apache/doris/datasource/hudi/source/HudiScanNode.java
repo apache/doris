@@ -32,6 +32,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FilePartitionUtils;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -49,6 +50,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -325,19 +327,41 @@ public class HudiScanNode extends HiveScanNode {
         tableFormatFileDesc.setHudiParams(fileDesc);
         Map<String, String> partitionValues = hudiSplit.getHudiPartitionValues();
         if (partitionValues != null) {
-            List<String> formPathKeys = new ArrayList<>();
-            List<String> formPathValues = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                formPathKeys.add(entry.getKey());
-                formPathValues.add(entry.getValue());
-            }
-            FilePartitionUtils.ParsedColumnsFromPath parsedColumnsFromPath =
-                    FilePartitionUtils.normalizeColumnsFromPath(formPathValues);
-            rangeDesc.setColumnsFromPathKeys(formPathKeys);
-            rangeDesc.setColumnsFromPath(parsedColumnsFromPath.getValues());
-            rangeDesc.setColumnsFromPathIsNull(parsedColumnsFromPath.getIsNull());
+            fillPartitionContextFromMap(rangeDesc, partitionValues, getPathPartitionKeys());
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    private void fillPartitionContextFromMap(
+            TFileRangeDesc rangeDesc, Map<String, String> partitionValues, List<String> orderedPartitionKeys) {
+        List<String> fromPathKeys = new ArrayList<>();
+        List<String> fromPathValues = new ArrayList<>();
+        for (String partitionKey : orderedPartitionKeys) {
+            if (!partitionValues.containsKey(partitionKey)) {
+                continue;
+            }
+            fromPathKeys.add(partitionKey);
+            fromPathValues.add(partitionValues.get(partitionKey));
+        }
+        FilePartitionUtils.ParsedColumnsFromPath parsedColumnsFromPath =
+                FilePartitionUtils.normalizeColumnsFromPath(fromPathValues);
+        List<TPartitionKeyValue> partitionKeyValues = FileScanNode.buildPartitionKeyValues(
+                fromPathKeys,
+                parsedColumnsFromPath.getValues(),
+                parsedColumnsFromPath.getIsNull());
+        if (partitionKeyValues.isEmpty()) {
+            return;
+        }
+        rangeDesc.setColumnsFromPathKeys(partitionKeyValues.stream()
+                .map(TPartitionKeyValue::getKey)
+                .collect(Collectors.toList()));
+        rangeDesc.setColumnsFromPath(partitionKeyValues.stream()
+                .map(TPartitionKeyValue::getValue)
+                .collect(Collectors.toList()));
+        rangeDesc.setColumnsFromPathIsNull(partitionKeyValues.stream()
+                .map(TPartitionKeyValue::isIsNull)
+                .collect(Collectors.toList()));
+        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
     }
 
     private boolean canUseNativeReader() {

@@ -27,17 +27,22 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.thrift.TPlanNode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -217,5 +222,59 @@ public class OlapScanNodeTest {
         slotDescriptor.setColumn(new Column(columnName, PrimitiveType.BIGINT));
         tupleDescriptor.addSlot(slotDescriptor);
         return slotDescriptor;
+    }
+
+    @Test
+    public void testToThriftIncludesFileCacheContext() {
+        OlapTable table = Mockito.spy(UnitTestUtil.createTable(new Database(1L, UnitTestUtil.DB_NAME),
+                2L, UnitTestUtil.TABLE_NAME, 3L, 4L, 5L, 6L, 7L));
+        Mockito.doReturn("internal.testDb.testTable").when(table).getNameWithFullQualifiers();
+
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(1));
+        desc.setTable(table);
+        int nextSlotId = 1;
+        for (Column column : table.getBaseSchema()) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(nextSlotId++), desc.getId());
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
+
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(1), desc, "olapScanNode",
+                ScanContext.EMPTY);
+        node.setSelectedIndexInfo(table.getBaseIndexId(), true, "");
+        node.setSelectedPartitionIds(Lists.newArrayList(table.getPartition(UnitTestUtil.PARTITION_NAME).getId()));
+
+        TPlanNode planNode = new TPlanNode();
+        node.toThrift(planNode);
+
+        Assert.assertEquals("internal.testDb.testTable(" + UnitTestUtil.TABLE_NAME + ")",
+                planNode.getOlapScanNode().getTableName());
+        Assert.assertEquals(UnitTestUtil.PARTITION_NAME, planNode.getOlapScanNode().getPartitionName());
+    }
+
+    @Test
+    public void testToThriftLeavesPartitionNameEmptyForMultiPartitionScan() {
+        OlapTable table = Mockito.spy(UnitTestUtil.createTable(new Database(10L, UnitTestUtil.DB_NAME),
+                20L, UnitTestUtil.TABLE_NAME, 30L, 40L, 50L, 60L, 70L));
+        Mockito.doReturn("internal.testDb.testTable").when(table).getNameWithFullQualifiers();
+
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(2));
+        desc.setTable(table);
+        int nextSlotId = 10;
+        for (Column column : table.getBaseSchema()) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(nextSlotId++), desc.getId());
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
+
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(2), desc, "olapScanNode",
+                ScanContext.EMPTY);
+        node.setSelectedIndexInfo(table.getBaseIndexId(), true, "");
+        node.setSelectedPartitionIds(Lists.newArrayList(1L, 2L));
+
+        TPlanNode planNode = new TPlanNode();
+        node.toThrift(planNode);
+
+        Assert.assertEquals("", planNode.getOlapScanNode().getPartitionName());
     }
 }

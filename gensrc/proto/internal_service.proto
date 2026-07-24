@@ -1184,6 +1184,10 @@ message PFetchPeerDataRequest {
     optional bool request_cache_fill = 7 [default = false];
     // Rowset meta carrier for peer read/fill. The current caller only fills resource_id/tablet_id.
     optional RowsetMetaPB rowset_meta = 8;
+    // Optional file-cache observability context. Missing fields are treated as empty for rolling
+    // compatibility.
+    optional string table_name = 9;
+    optional string partition_name = 10;
 }
 
 message CacheBlockPB {

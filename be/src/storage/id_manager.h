@@ -82,15 +82,17 @@ struct ExternalFileMappingInfo {
      * 1. If the file belongs to a partition, columns_from_path_keys and columns_from_path in TFileRangeDesc are needed when materializing the partition column
      * 2. path, file_type, modification_time,compress_type .... used to read the file
      * 3. TFileFormatType can distinguish whether it is iceberg/hive/hudi/paimon
-     */
+    */
     TFileRangeDesc scan_range_desc;
     bool enable_file_meta_cache;
+    std::string table_name;
 
     ExternalFileMappingInfo(int plan_node_id, const TFileRangeDesc& scan_range,
-                            bool file_meta_cache)
+                            bool file_meta_cache, std::string table_name_)
             : plan_node_id(plan_node_id),
               scan_range_desc(scan_range),
-              enable_file_meta_cache(file_meta_cache) {}
+              enable_file_meta_cache(file_meta_cache),
+              table_name(std::move(table_name_)) {}
 
     std::string to_string() const {
         std::string value;
@@ -118,10 +120,11 @@ struct FileMapping {
               value(std::in_place_type<InternalFileMappingInfo>, tablet_id, rowset_id, segment_id) {
     }
 
-    FileMapping(int plan_node_id, const TFileRangeDesc& scan_range, bool enable_file_meta_cache)
+    FileMapping(int plan_node_id, const TFileRangeDesc& scan_range, bool enable_file_meta_cache,
+                std::string table_name)
             : type(FileMappingType::EXTERNAL),
               value(std::in_place_type<ExternalFileMappingInfo>, plan_node_id, scan_range,
-                    enable_file_meta_cache) {}
+                    enable_file_meta_cache, std::move(table_name)) {}
 
     std::tuple<int64_t, RowsetId, uint32_t> get_doris_format_info() const {
         DCHECK(type == FileMappingType::INTERNAL);

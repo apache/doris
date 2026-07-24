@@ -169,7 +169,11 @@ size_t count_cached_remote_reader_tmp_files(const fs::path& cache_path) {
 FileCacheKey make_test_file_cache_key(std::string_view key_name, size_t offset = 0) {
     return FileCacheKey {.hash = io::BlockFileCache::hash(std::string(key_name)),
                          .offset = offset,
-                         .meta = {.expiration_time = 0, .type = FileCacheType::NORMAL}};
+                         .meta = {.expiration_time = 0,
+                                  .type = FileCacheType::NORMAL,
+                                  .tablet_id = 0,
+                                  .table_name = "",
+                                  .partition_name = ""}};
 }
 
 struct MockFallbackAppendvWriterState {

@@ -169,6 +169,8 @@ public:
         std::set<ColumnId> extra_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
+        std::string table_name;
+        std::string partition_name;
 
         // use only in vec exec engine
         std::vector<ColumnId>* origin_return_columns = nullptr;

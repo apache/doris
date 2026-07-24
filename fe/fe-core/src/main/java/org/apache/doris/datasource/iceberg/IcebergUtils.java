@@ -783,6 +783,40 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
+    public static Map<String, String> getIdentityPartitionInfoMapForCache(PartitionData partitionData,
+            PartitionSpec partitionSpec, String timeZone) {
+        Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        List<PartitionField> partitionFields = partitionSpec.fields();
+        Preconditions.checkArgument(fields.size() == partitionFields.size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            PartitionField partitionField = partitionFields.get(i);
+            if (!partitionField.transform().isIdentity()) {
+                return null;
+            }
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                return null;
+            }
+            String columnName = partitionSpec.schema().findColumnName(partitionField.sourceId());
+            if (columnName == null) {
+                return null;
+            }
+            Object value = partitionData.get(i);
+            try {
+                partitionInfoMap.put(columnName, serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
+
     public static List<String> getIdentityPartitionColumns(Table table) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {

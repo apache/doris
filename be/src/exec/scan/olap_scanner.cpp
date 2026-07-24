@@ -95,6 +95,13 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .tso_predicate_column_id {},
                                  .output_columns {},
                                  .extra_columns {},
+                                 .profile = nullptr,
+                                 .runtime_state = nullptr,
+                                 .table_name = std::move(params.table_name),
+                                 .partition_name = std::move(params.partition_name),
+                                 .origin_return_columns = nullptr,
+                                 .tablet_columns_convert_to_null_set = nullptr,
+                                 .push_down_agg_type_opt = TPushAggOp::NONE,
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
@@ -166,6 +173,8 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
             .query_id = &state->query_id(),
             .file_cache_stats = file_cache_stats,
             .is_inverted_index = true,
+            .table_name = "",
+            .partition_name = "",
     };
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
@@ -297,6 +306,8 @@ Status OlapScanner::_prepare_impl() {
         auto io_ctx = build_score_runtime_collection_io_context(
                 _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
+        io_ctx.table_name = _tablet_reader_params.table_name;
+        io_ctx.partition_name = _tablet_reader_params.partition_name;
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
@@ -422,9 +433,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
     _tablet_reader_params.score_runtime = _score_runtime;
-    _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
+    _tablet_reader_params.output_columns = olap_local_state->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
-    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+    for (const auto& ele : olap_local_state->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -469,6 +480,16 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
+    {
+        auto* olap_scan_local_state = &_local_state->cast<OlapScanLocalState>();
+        TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
+        if (_tablet_reader_params.table_name.empty() && olap_scan_node.__isset.table_name) {
+            _tablet_reader_params.table_name = olap_scan_node.table_name;
+        }
+        if (_tablet_reader_params.partition_name.empty() && olap_scan_node.__isset.partition_name) {
+            _tablet_reader_params.partition_name = olap_scan_node.partition_name;
+        }
+    }
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
@@ -588,7 +609,7 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        auto* olap_scan_local_state = (OlapScanLocalState*)_local_state;
+        auto* olap_scan_local_state = &_local_state->cast<OlapScanLocalState>();
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
 
         // Set MOR value predicate pushdown flag
@@ -916,7 +937,7 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters for OlapScanner
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
-    auto* local_state = (OlapScanLocalState*)_local_state;
+    auto* local_state = &_local_state->cast<OlapScanLocalState>();
     COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);

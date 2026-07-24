@@ -504,6 +504,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         DORIS_CHECK(_table_reader != nullptr);
         _current_range_path = _current_range.path;
+        _update_io_context_from_range();
 
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
@@ -674,9 +675,10 @@ std::optional<format::GlobalRowIdContext> FileScannerV2::_create_global_rowid_co
     }
     auto& id_file_map = _state->get_id_file_map();
     DORIS_CHECK(id_file_map != nullptr);
-    const auto file_id = id_file_map->get_file_mapping_id(
-            std::make_shared<FileMapping>(_local_state->cast<FileScanLocalState>().parent_id(),
-                                          range, _should_enable_file_meta_cache()));
+    auto& local_state = _local_state->cast<FileScanLocalState>();
+    const auto file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
+            local_state.parent_id(), range, _should_enable_file_meta_cache(),
+            local_state.table_name()));
     return format::GlobalRowIdContext {
             .version = IdManager::ID_VERSION,
             .backend_id = BackendOptions::get_backend_id(),
@@ -953,7 +955,39 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
 
 Status FileScannerV2::_init_io_ctx() {
     _io_ctx = create_file_scan_io_context(_state);
+    if (_local_state) {
+        _io_ctx->table_name = _local_state->cast<FileScanLocalState>().table_name();
+    }
     return Status::OK();
+}
+
+void FileScannerV2::_update_io_context_from_range() {
+    if (!_io_ctx) {
+        return;
+    }
+    if (_current_range.__isset.partition_name) {
+        _io_ctx->partition_name = _current_range.partition_name;
+    } else {
+        _io_ctx->partition_name = _build_partition_name(_current_range);
+    }
+}
+
+std::string FileScannerV2::_build_partition_name(const TFileRangeDesc& range) const {
+    if (!range.__isset.partition_values || range.partition_values.empty()) {
+        return "";
+    }
+    std::string result;
+    result.reserve(64);
+    for (size_t i = 0; i < range.partition_values.size(); ++i) {
+        const auto& partition_value = range.partition_values[i];
+        if (i > 0) {
+            result.append("/");
+        }
+        result.append(partition_value.key);
+        result.append("=");
+        result.append(partition_value.value);
+    }
+    return result;
 }
 
 void FileScannerV2::_reset_adaptive_batch_size_state() {

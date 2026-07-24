@@ -133,6 +133,8 @@ private:
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
+    void _update_io_context_from_range();
+    std::string _build_partition_name(const TFileRangeDesc& range) const;
     Status _init_expr_ctxes();
     Status _prepare_next_split(bool* eos);
     Status _init_table_reader(const TFileRangeDesc& range);

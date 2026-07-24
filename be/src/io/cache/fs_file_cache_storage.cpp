@@ -293,7 +293,7 @@ Status FSFileCacheStorage::abort(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
+Status FSFileCacheStorage::finalize(FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
@@ -321,8 +321,10 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-    BlockMeta meta(key.meta.type, size, key.meta.expiration_time);
-    _meta_store->put(mkey, meta);
+    if (_meta_store) {
+        _meta_store->put(mkey, BlockMeta(key.meta.type, size, key.meta.expiration_time,
+                                         key.meta.table_name, key.meta.partition_name));
+    }
 
     return Status::OK();
 }
@@ -450,7 +452,8 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
     // file operation
     if (key.meta.type != type) {
         BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(type, size, key.meta.expiration_time);
+        BlockMeta meta(type, size, key.meta.expiration_time, key.meta.table_name,
+                       key.meta.partition_name);
         _meta_store->put(mkey, meta);
     }
     return Status::OK();
@@ -991,6 +994,9 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr) const {
+    if (!_meta_store) {
+        return;
+    }
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
@@ -1017,7 +1023,6 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         LOG(WARNING) << "Failed to create iterator for meta store";
         return;
     }
-
     while (iterator->valid()) {
         BlockMetaKey meta_key = iterator->key();
         BlockMeta meta_value = iterator->value();
@@ -1047,6 +1052,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
+        ctx.table_name = meta_value.table_name;
+        ctx.partition_name = meta_value.partition_name;
         args.ctx = ctx;
 
         args.key_path = "";
@@ -1171,6 +1178,8 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     context_original.expiration_time = block_meta->ttl;
     context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
+    context_original.table_name = block_meta->table_name;
+    context_original.partition_name = block_meta->partition_name;
 
     if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,
                                     cache_lock)) {

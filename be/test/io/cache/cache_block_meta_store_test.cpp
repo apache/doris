@@ -21,12 +21,13 @@
 
 #include <atomic>
 #include <filesystem>
-#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
 
 #include "common/status.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
 
 namespace doris::io {
 
@@ -69,6 +70,8 @@ TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     EXPECT_EQ(result->type, meta1.type);
     EXPECT_EQ(result->size, meta1.size);
     EXPECT_EQ(result->ttl, meta1.ttl);
+    EXPECT_EQ(result->table_name, meta1.table_name);
+    EXPECT_EQ(result->partition_name, meta1.partition_name);
 
     // Test non-existent key
     uint128_t hash2 = (static_cast<uint128_t>(999) << 64) | 999;
@@ -373,11 +376,84 @@ TEST_F(CacheBlockMetaStoreTest, BlockMetaEquality) {
     BlockMeta meta3(INDEX, 1024, 3600);
     BlockMeta meta4(NORMAL, 2048, 3600);
     BlockMeta meta5(NORMAL, 1024, 7200);
+    BlockMeta meta6(NORMAL, 1024, 3600, "ctl.db.tbl", "partition_a");
 
     EXPECT_TRUE(meta1 == meta2);
     EXPECT_FALSE(meta1 == meta3);
     EXPECT_FALSE(meta1 == meta4);
     EXPECT_FALSE(meta1 == meta5);
+    EXPECT_FALSE(meta1 == meta6);
+}
+
+TEST_F(CacheBlockMetaStoreTest, BlockMetaContextRoundTrip) {
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    BlockMeta meta(NORMAL, 1024, 3600, "internal.db.tbl", "p20260319");
+
+    meta_store_->put(key, meta);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    auto result = meta_store_->get(key);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->table_name, "internal.db.tbl");
+    EXPECT_EQ(result->partition_name, "p20260319");
+}
+
+TEST_F(CacheBlockMetaStoreTest, BlockMetaContextPersistsAcrossReopen) {
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    meta_store_->put(key, BlockMeta(NORMAL, 1024, 3600, "ctl.db.tbl", "partition_a"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    meta_store_.reset();
+    meta_store_ = std::make_unique<CacheBlockMetaStore>(test_db_path_.string());
+
+    auto result = meta_store_->get(key);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->table_name, "ctl.db.tbl");
+    EXPECT_EQ(result->partition_name, "partition_a");
+}
+
+TEST_F(CacheBlockMetaStoreTest, BlockMetaContextKeepsOldColumnFamilyOpenCompatible) {
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    meta_store_->put(key, BlockMeta(NORMAL, 1024, 3600, "ctl.db.tbl", "partition_a"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    meta_store_.reset();
+
+    rocksdb::Options options;
+    options.create_if_missing = false;
+    std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+    column_families.emplace_back(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions());
+    column_families.emplace_back("file_cache_meta", rocksdb::ColumnFamilyOptions());
+
+    std::vector<rocksdb::ColumnFamilyHandle*> handles;
+    rocksdb::DB* db = nullptr;
+    const auto status =
+            rocksdb::DB::Open(options, test_db_path_.string(), column_families, &handles, &db);
+    ASSERT_TRUE(status.ok()) << status.ToString();
+
+    for (auto* handle : handles) {
+        db->DestroyColumnFamilyHandle(handle);
+    }
+    delete db;
+}
+
+TEST_F(CacheBlockMetaStoreTest, SerializeDeserializeContext) {
+    BlockMeta original_meta(NORMAL, 1024, 1800, "ctl.db.tbl", "partition_a");
+    std::string serialized = serialize_value(original_meta);
+
+    Status status;
+    auto deserialized = deserialize_value(serialized, &status);
+
+    ASSERT_TRUE(deserialized.has_value()) << status.to_string();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(deserialized->type, original_meta.type);
+    EXPECT_EQ(deserialized->size, original_meta.size);
+    EXPECT_EQ(deserialized->ttl, original_meta.ttl);
+    EXPECT_EQ(deserialized->table_name, original_meta.table_name);
+    EXPECT_EQ(deserialized->partition_name, original_meta.partition_name);
 }
 
 TEST_F(CacheBlockMetaStoreTest, BlockMetaKeyEquality) {

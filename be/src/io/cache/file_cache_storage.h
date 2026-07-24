@@ -68,7 +68,7 @@ public:
     virtual Status appendv(const FileCacheKey& key, const Slice* values, size_t value_cnt) = 0;
     virtual Status append_iobuf(const FileCacheKey& key, const butil::IOBuf& value) = 0;
     // finalize the block
-    virtual Status finalize(const FileCacheKey& key, const size_t size) = 0;
+    virtual Status finalize(FileCacheKey& key, const size_t size) = 0;
     // read the block
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
     // read the block and append bytes into iobuf

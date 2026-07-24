@@ -171,7 +171,11 @@ FileBlockSPtr create_manual_peer_test_block(const fs::path& file_path, size_t of
     FileCacheKey key;
     key.hash = BlockFileCache::hash(file_path.filename().native());
     key.offset = offset;
-    key.meta = KeyMeta {.expiration_time = 0, .type = FileCacheType::NORMAL};
+    key.meta = KeyMeta {.expiration_time = 0,
+                        .type = FileCacheType::NORMAL,
+                        .tablet_id = 0,
+                        .table_name = "",
+                        .partition_name = ""};
     return std::make_shared<FileBlock>(key, size, cache, FileBlock::State::EMPTY);
 }
 

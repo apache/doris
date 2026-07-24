@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartitionKeyValue;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -430,6 +431,9 @@ public class FileGroupInfo {
             rangeDesc.setFileSize(fileStatus.size);
         }
         rangeDesc.setModificationTime(fileStatus.getModificationTime());
+        List<TPartitionKeyValue> partitionKeyValues =
+                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath, columnsFromPathIsNull);
+        FileScanNode.fillTablePartitionContext(rangeDesc, targetTable, partitionKeyValues);
         return rangeDesc;
     }
 }
