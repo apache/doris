@@ -246,6 +246,124 @@ public class FrontendServiceImplTest {
     }
 
     @Test
+    public void testListTableStatusPrunesCommentLookupWhenNotProjected() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_comment_status_column");
+            params.setRequiredColumns(Collections.singleton("UPDATE_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            // comment is a required Thrift field: it must be set (empty placeholder),
+            // and the response must pass Thrift validation without the lookup.
+            Assert.assertTrue(status.isSetComment());
+            Assert.assertEquals("", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.never()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusFillsCommentWhenProjected() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.fill_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("fill_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn("projected comment").when(spyTable).getComment();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("fill_comment_status_column");
+            params.setRequiredColumns(Collections.singleton("TABLE_COMMENT"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertTrue(status.isSetComment());
+            Assert.assertEquals("projected comment", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.atLeastOnce()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusFillsCommentWhenRequiredColumnsUnset() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.legacy_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("legacy_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn("legacy comment").when(spyTable).getComment();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("legacy_comment_status_column");
+            // required_columns unset: an older BE — everything is filled.
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertTrue(status.isSetComment());
+            Assert.assertEquals("legacy comment", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.atLeastOnce()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
     public void testListTableStatusPrunesAllOptionalColumnsWhenRequiredColumnsIsEmpty() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.prune_all_optional_status_columns(\n"
                 + "    k1 INT,\n"
