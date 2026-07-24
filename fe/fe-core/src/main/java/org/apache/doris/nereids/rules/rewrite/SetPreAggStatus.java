@@ -326,28 +326,33 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
             PreAggStatus preAggStatus = PreAggStatus.on();
             for (AggregateFunction aggFunc : aggregateFuncs) {
-                if (aggFunc.children().isEmpty() || aggFunc.children().size() > 1) {
+                Set<Slot> aggSlots = aggFunc.getInputSlots();
+                if (aggSlots.isEmpty()) {
                     preAggStatus = PreAggStatus.off(
                             String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                } else if (aggFunc.children().size() == 1 && aggFunc.child(0) instanceof Slot) {
-                    Slot aggSlot = (Slot) aggFunc.child(0);
-                    if (aggSlot instanceof SlotReference
-                            && ((SlotReference) aggSlot).getOriginalColumn().isPresent()) {
-                        if (((SlotReference) aggSlot).getOriginalColumn().get().isKey()) {
-                            preAggStatus = OneKeySlotAggChecker.INSTANCE.check(aggFunc);
-                        } else {
-                            preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
-                                    ((SlotReference) aggSlot).getOriginalColumn().get().getAggregationType());
-                        }
-                    } else {
-                        preAggStatus = PreAggStatus.off(
-                                String.format("aggregate function %s use unknown slot %s from scan",
-                                        aggFunc, aggSlot));
-                    }
                 } else {
-                    Set<Slot> aggSlots = aggFunc.getInputSlots();
                     Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitKeyValueSlots(aggSlots);
-                    preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
+                    if (splitSlots.first.isEmpty()) {
+                        // only value slots
+                        if (aggFunc.children().size() == 1 && aggFunc.child(0) instanceof SlotReference) {
+                            SlotReference slotRef = (SlotReference) aggFunc.child(0);
+                            if (slotRef.getOriginalColumn().isPresent()) {
+                                preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
+                                        slotRef.getOriginalColumn().get().getAggregationType());
+                            } else {
+                                preAggStatus = PreAggStatus.off(
+                                        String.format("can't turn preAgg on for aggregate function %s", aggFunc));
+                            }
+                        } else {
+                            preAggStatus = PreAggStatus.off(
+                                    String.format("can't turn preAgg on for aggregate function %s", aggFunc));
+                        }
+                    } else if (splitSlots.second.isEmpty()) {
+                        // only key slots
+                        preAggStatus = KeySlotAggChecker.INSTANCE.check(aggFunc);
+                    } else {
+                        preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
+                    }
                 }
                 if (preAggStatus.isOff()) {
                     return preAggStatus;
@@ -401,6 +406,10 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             } else {
                 // currently, only IF and CASE WHEN are supported
                 returnExps.add(removeCast(child));
+            }
+            if (conditionExps.isEmpty()) {
+                return PreAggStatus.off(
+                        String.format("can't turn preAgg on for aggregate function %s", aggFunc));
             }
 
             // step 2: check condition expressions
@@ -511,8 +520,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
         }
 
-        private static class OneKeySlotAggChecker extends ExpressionVisitor<PreAggStatus, Void> {
-            public static final OneKeySlotAggChecker INSTANCE = new OneKeySlotAggChecker();
+        private static class KeySlotAggChecker extends ExpressionVisitor<PreAggStatus, Void> {
+            public static final KeySlotAggChecker INSTANCE = new KeySlotAggChecker();
 
             public PreAggStatus check(AggregateFunction aggFun) {
                 return aggFun.accept(INSTANCE, null);
