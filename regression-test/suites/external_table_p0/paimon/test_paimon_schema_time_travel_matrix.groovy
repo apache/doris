@@ -529,11 +529,11 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         // Scenario TC08/S20: illegal PK/partition changes fail atomically.
         test {
             sql """alter table ${pkTable} drop column id"""
-            exception "Drop column operation is not supported"
+            exception "DROP COLUMN not supported"
         }
         test {
             sql """alter table ${partitionTable} drop column old_partition"""
-            exception "Drop column operation is not supported"
+            exception "DROP COLUMN not supported"
         }
         assertEquals([[1, "alpha-updated"], [3, "gamma"]],
                 sql("""select id, full_name from ${pkTable} order by id"""))
