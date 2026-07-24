@@ -78,16 +78,19 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- For BE Paimon OSS/S3 Access -->
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-jindo</artifactId>
-        </dependency>
+        <!--
+          NOTE: the paimon OSS/S3 FileIO plugins (paimon-s3 / paimon-jindo) are intentionally
+          NOT here. They register org.apache.paimon.fs.FileIOLoader service providers
+          (S3Loader / JindoLoader), but the FileIOLoader interface itself lives in paimon-common,
+          which is bundled in paimon-scanner, NOT on this shared/preload classpath. Because each
+          JniScannerClassLoader delegates parent-first to the JVM app classloader (where this
+          preload jar sits), a provider defined here could not resolve the child-only FileIOLoader
+          interface, so ServiceLoader discovery in paimon-scanner's FileIO.get() failed with
+          NoClassDefFoundError: FileIOLoader. The plugins are therefore co-located with the
+          FileIOLoader interface in paimon-scanner (its only BE consumer) so the whole FileIO SPI
+          lives in one classloader. Do not move them back here without also putting paimon-common
+          on this classpath.
+        -->
         <!-- For Avro and Hudi Scanner PreLoad -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
