@@ -40,17 +40,15 @@ import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -101,7 +99,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -749,67 +746,37 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan viewBody = parseAndAnalyzeDorisView(view, qualifiedTableName, cascadesContext);
                     LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
-                case HMS_EXTERNAL_TABLE:
-                    HMSExternalTable hmsTable = (HMSExternalTable) table;
-                    if (Config.enable_query_hive_views && hmsTable.isView()) {
-                        isView = true;
-                        String hiveCatalog = hmsTable.getCatalog().getName();
-                        String hiveDb = hmsTable.getDatabase().getFullName();
-                        String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeExternalView(
-                                hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
-                    }
-                    if (hmsTable.getDlaType() == DLAType.HUDI) {
-                        LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
-                                qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
-                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot(),
-                                Optional.empty());
-                        hudiScan = hudiScan.withScanParams(
-                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
-                        return hudiScan;
-                    } else {
-                        return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                                qualifierWithoutTableName,
-                                ImmutableList.of(),
-                                unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot(),
-                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
-                    }
-                case ICEBERG_EXTERNAL_TABLE:
-                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
-                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
-                        Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
-                        if (tableSnapshot.isPresent()) {
-                            // iceberg view not supported with snapshot time/version travel
-                            // note that enable_fallback_to_original_planner should be set with false
-                            // or else this exception will not be thrown
-                            // because legacy planner will retry and thrown other exception
-                            throw new UnsupportedOperationException(
-                                "iceberg view not supported with snapshot time/version travel");
-                        }
-                        isView = true;
-                        String icebergCatalog = icebergExternalTable.getCatalog().getName();
-                        String icebergDb = icebergExternalTable.getDatabase().getFullName();
-                        String ddlSql = icebergExternalTable.getViewText();
-                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
-                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
-                    }
-                    if (icebergExternalTable.isView()) {
-                        throw new UnsupportedOperationException(
-                            "please set enable_query_iceberg_views=true to enable query iceberg views");
-                    }
-                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, ImmutableList.of(),
-                        unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
                 case PLUGIN_EXTERNAL_TABLE:
+                    if (table instanceof PluginDrivenExternalTable
+                            && ((PluginDrivenExternalTable) table).isView()) {
+                        // Plugin view (hive after the hms cutover, or iceberg): any connector that declares
+                        // SUPPORTS_VIEW serves its view here, unconditionally — the legacy
+                        // enable_query_hive_views / enable_query_iceberg_views switches are deprecated no-ops,
+                        // so a view is served regardless of them. The view body is converted by the session
+                        // dialect inside parseAndAnalyzeExternalView (shared with the legacy HMS hive-view
+                        // path), which is fully neutral.
+                        PluginDrivenExternalTable pluginViewTable = (PluginDrivenExternalTable) table;
+                        if (unboundRelation.getTableSnapshot().isPresent()) {
+                            // A view cannot be combined with snapshot time/version travel (meaningless for a
+                            // view, for hive and iceberg alike).
+                            // note that enable_fallback_to_original_planner should be set with false
+                            // or else this exception will not be thrown
+                            // because legacy planner will retry and thrown other exception
+                            throw new UnsupportedOperationException(
+                                "view not supported with snapshot time/version travel");
+                        }
+                        isView = true;
+                        String pluginCatalog = pluginViewTable.getCatalog().getName();
+                        String pluginDb = pluginViewTable.getDatabase().getFullName();
+                        String ddlSql = pluginViewTable.getViewText();
+                        Plan pluginViewPlan = parseAndAnalyzeExternalView(pluginViewTable,
+                                pluginCatalog, pluginDb, ddlSql, cascadesContext);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
+                    }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
@@ -885,8 +852,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         } else if (table instanceof OlapTable) {
                             sqlCacheContext.addUsedTable(table);
-                        } else if (table instanceof HMSExternalTable
+                        } else if (table instanceof ExternalTable && table instanceof MTMVRelatedTableIf
                                 && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
+                            // Any external lakehouse plugin table that exposes a stable data-version token
+                            // (MTMVRelatedTableIf#getNewestUpdateVersionOrTime) is cacheable; addUsedTable
+                            // records the token and fails safe if it is unavailable. Gated by the (default
+                            // false) enable_hive_sql_cache switch so behavior is unchanged unless opted in.
                             sqlCacheContext.addUsedTable(table);
                         } else {
                             sqlCacheContext.setHasUnsupportedTables(true);

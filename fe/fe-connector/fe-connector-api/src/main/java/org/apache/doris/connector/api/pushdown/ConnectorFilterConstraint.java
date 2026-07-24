@@ -18,53 +18,27 @@
 package org.apache.doris.connector.api.pushdown;
 
 import java.io.Serializable;
-import java.util.Collections;
-import java.util.Map;
 import java.util.Objects;
 
 /**
  * Constraint information passed to {@code applyFilter}.
  *
- * <p>Carries two complementary representations of the filter:</p>
- * <ul>
- *   <li>{@link #getExpression()} — the full expression tree
- *       (for connectors that can inspect arbitrary predicates)</li>
- *   <li>{@link #getColumnDomains()} — per-column domain summaries
- *       (for connectors that only need range/equality checks,
- *       e.g. partition pruning)</li>
- * </ul>
+ * <p>Carries the full filter expression tree via {@link #getExpression()},
+ * which connectors inspect to push down predicates.</p>
  */
 public final class ConnectorFilterConstraint implements Serializable {
 
     private static final long serialVersionUID = 2L;
 
     private final ConnectorExpression expression;
-    private final Map<String, ConnectorDomain> columnDomains;
 
-    public ConnectorFilterConstraint(ConnectorExpression expression,
-            Map<String, ConnectorDomain> columnDomains) {
-        this.expression = Objects.requireNonNull(expression, "expression");
-        this.columnDomains = columnDomains == null
-                ? Collections.emptyMap()
-                : Collections.unmodifiableMap(columnDomains);
-    }
-
-    /** Creates a constraint from an expression only (no domain summary). */
+    /** Creates a constraint from a filter expression. */
     public ConnectorFilterConstraint(ConnectorExpression expression) {
-        this(expression, Collections.emptyMap());
+        this.expression = Objects.requireNonNull(expression, "expression");
     }
 
     /** The full filter expression tree. */
     public ConnectorExpression getExpression() {
         return expression;
-    }
-
-    /**
-     * Per-column domain summaries extracted from the expression.
-     * Key is the column name. Useful for quick partition pruning
-     * without walking the expression tree.
-     */
-    public Map<String, ConnectorDomain> getColumnDomains() {
-        return columnDomains;
     }
 }

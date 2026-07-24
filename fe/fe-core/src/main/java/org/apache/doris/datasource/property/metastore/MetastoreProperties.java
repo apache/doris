@@ -18,13 +18,14 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectionProperties;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -84,9 +85,10 @@ public class MetastoreProperties extends ConnectionProperties {
 
     static {
         //subclasses should be registered here
-        register(Type.HMS, new HivePropertiesFactory());
-        register(Type.ICEBERG, new IcebergPropertiesFactory());
-        register(Type.PAIMON, new PaimonPropertiesFactory());
+        // Design S7: hms/iceberg/paimon are plugin (SPI) catalogs whose metastore properties live
+        // connector-side; fe-core no longer parses them. The Type.HMS/ICEBERG/PAIMON enum values remain (so a
+        // stray create() fails loud with "Unsupported metastore type") but their factories are intentionally
+        // not registered.
         register(Type.TRINO_CONNECTOR, new TrinoConnectorPropertiesFactory());
     }
 
@@ -128,9 +130,8 @@ public class MetastoreProperties extends ConnectionProperties {
 
     /**
      * Returns the execution authenticator for this metastore.
-     * Subclasses that support Kerberos (e.g., {@link HiveHMSProperties})
-     * override this via their {@code @Getter executionAuthenticator} field
-     * to return a Kerberos-capable authenticator.
+     * Subclasses that support Kerberos override this via their
+     * {@code @Getter executionAuthenticator} field to return a Kerberos-capable authenticator.
      *
      * <p>The default implementation returns a simple no-op authenticator.</p>
      */
@@ -138,5 +139,22 @@ public class MetastoreProperties extends ConnectionProperties {
 
     public ExecutionAuthenticator getExecutionAuthenticator() {
         return NOOP_AUTH;
+    }
+
+    /**
+     * Storage-configuration properties derived from this metastore's own properties that the raw catalog
+     * property map does not already supply. {@code CatalogProperty.initStorageProperties} merges them (as
+     * defaults — an explicit user key always wins) into the map fed to {@code StorageProperties.createAll},
+     * before storage-backend detection.
+     *
+     * <p>The default is empty: no derivation, zero behavior change for every existing metastore type. The
+     * iceberg filesystem flavor overrides it to bridge a {@code warehouse=hdfs://<ns>/path} into
+     * {@code fs.defaultFS=hdfs://<ns>} — legacy {@code IcebergHadoopExternalCatalog} did this in its
+     * constructor (dead on the plugin/cutover path), and the shared HDFS detection never reads
+     * {@code warehouse}, so an HA-nameservice hadoop catalog configured with only {@code warehouse} would
+     * otherwise fail to bind HDFS storage.</p>
+     */
+    public Map<String, String> getDerivedStorageProperties() {
+        return Collections.emptyMap();
     }
 }

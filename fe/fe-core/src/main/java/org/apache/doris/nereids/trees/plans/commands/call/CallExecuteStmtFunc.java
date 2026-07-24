@@ -22,7 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -98,7 +99,7 @@ public class CallExecuteStmtFunc extends CallFunc {
         if (catalogIf instanceof PluginDrivenExternalCatalog) {
             PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
             ConnectorSession session = pluginCatalog.buildConnectorSession();
-            ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
             metadata.executeStmt(session, stmt);
         } else {
             throw new AnalysisException("executeStmt not supported for catalog type: "

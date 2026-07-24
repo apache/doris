@@ -78,6 +78,31 @@ public interface ConnectorScanRange extends Serializable {
         return 0;
     }
 
+    /**
+     * Returns this split's weight numerator for proportional BE assignment, or {@code -1} when the
+     * connector provides no weight.
+     *
+     * <p>The engine forms a proportional split weight {@code getSelfSplitWeight() / getTargetSplitSize()}
+     * (clamped) only when BOTH this and {@link #getTargetSplitSize()} are provided; otherwise it falls back
+     * to {@code SplitWeight.standard()} (uniform). A connector with no size-based weight model keeps the
+     * {@code -1} default and is unaffected. {@code 0} is a legitimate weight (e.g. an empty file or a
+     * zero-row system-table split), distinct from the {@code -1} "not provided" sentinel.</p>
+     */
+    default long getSelfSplitWeight() {
+        return -1;
+    }
+
+    /**
+     * Returns the weight denominator (scan-level target split size) used with {@link #getSelfSplitWeight()}
+     * to form the proportional split weight, or {@code -1} when not provided.
+     *
+     * <p>Proportional weighting is applied only when this is positive AND {@link #getSelfSplitWeight()} is
+     * non-negative; otherwise the engine uses {@code SplitWeight.standard()}.</p>
+     */
+    default long getTargetSplitSize() {
+        return -1;
+    }
+
     /** Returns preferred host locations for data locality. */
     default List<String> getHosts() {
         return Collections.emptyList();
@@ -106,11 +131,40 @@ public interface ConnectorScanRange extends Serializable {
     }
 
     /**
-     * Returns delete files associated with this scan range.
-     * Used by Iceberg merge-on-read tables for positional/equality deletes.
+     * Whether this range belongs to a partitioned table whose partition values come from the connector's
+     * metadata (NOT encoded in the file path). When {@code true}, an <em>empty</em> {@link #getPartitionValues()}
+     * map means "this file genuinely has no path-derived partition values" and the engine must use it verbatim
+     * instead of falling back to Hive-style path parsing — which would fail for connectors (e.g. Iceberg) whose
+     * data files are not laid out as {@code key=value} directories. The default {@code false} preserves the
+     * legacy behavior (an empty map is treated as "no partition info", letting the engine path-parse).
      */
-    default List<ConnectorDeleteFile> getDeleteFiles() {
-        return Collections.emptyList();
+    default boolean isPartitionBearing() {
+        return false;
+    }
+
+    /**
+     * Returns the precomputed pushed-down COUNT(*) row count this range carries, or {@code -1} when
+     * the range carries no precomputed count.
+     *
+     * <p>When a no-grouping {@code COUNT(*)} is pushed down, a connector that can produce a precomputed
+     * row count (e.g. Paimon's collapsed count range) surfaces the summed total here so the scan node
+     * can render the EXPLAIN {@code pushdown agg=COUNT (n)} line. Ranges with no precomputed count keep
+     * the {@code -1} default, which renders as the {@code (-1)} sentinel.</p>
+     */
+    default long getPushDownRowCount() {
+        return -1;
+    }
+
+    /**
+     * Whether this range is read by BE's NATIVE (ORC/Parquet) reader rather than the JNI scanner.
+     *
+     * <p>Used by a connector that distinguishes native vs JNI sub-splits (e.g. Paimon) so the scan
+     * node can accumulate the native/total split counts for the EXPLAIN
+     * {@code paimonNativeReadSplits=<native>/<total>} line. The default is {@code false} (JNI), so
+     * connectors without a native read path are unaffected.</p>
+     */
+    default boolean isNativeReadRange() {
+        return false;
     }
 
     /**

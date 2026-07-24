@@ -54,6 +54,7 @@ suite("test_hive_ctas_to_doris", "p0,external") {
             qt_q01 """ select length(str1),length(str2) ,length(str3) from ${catalog}.${db_name}.${hive_tb} """
             qt_q02 """ desc ${catalog}.${db_name}.${hive_tb} """
 
+            sql """ drop database if exists internal.${db_name} """
             sql """ create database if not exists internal.${db_name} """
 
             // ctas for partition

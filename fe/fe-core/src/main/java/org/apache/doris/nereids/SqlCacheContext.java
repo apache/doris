@@ -26,7 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
@@ -193,9 +193,17 @@ public class SqlCacheContext {
         try {
             if (tableIf instanceof OlapTable) {
                 version = ((OlapTable) tableIf).getVisibleVersion();
-            } else if (tableIf instanceof HMSExternalTable) {
-                HMSExternalTable hmsExternalTable = (HMSExternalTable) tableIf;
-                version = hmsExternalTable.getUpdateTime();
+            } else if (tableIf instanceof MTMVRelatedTableIf) {
+                // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon:
+                // monotonic snapshot version). OlapTable is handled above; MTMV is an OlapTable too, so this
+                // arm only catches external MVCC tables (flipped hive/iceberg/paimon/hudi).
+                version = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
+                if (version <= 0) {
+                    // No reliable data-change signal (empty partition set / dropped): fail-safe, do not
+                    // pin a bogus constant that would serve stale results.
+                    setHasUnsupportedTables(true);
+                    return;
+                }
             }
         } catch (Throwable e) {
             // in cloud, getVisibleVersion throw exception, disable sql cache temporary

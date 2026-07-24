@@ -17,32 +17,24 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
-import org.apache.doris.connector.api.write.ConnectorWriteType;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorSinkPlan;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
-import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.THiveColumn;
-import org.apache.doris.thrift.THiveColumnType;
-import org.apache.doris.thrift.THiveLocationParams;
-import org.apache.doris.thrift.THiveTableSink;
-import org.apache.doris.thrift.TJdbcTable;
-import org.apache.doris.thrift.TJdbcTableSink;
-import org.apache.doris.thrift.TOdbcTableType;
+import org.apache.doris.thrift.TSortInfo;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,63 +43,90 @@ import java.util.Set;
 /**
  * Generic data sink for plugin-driven external tables.
  *
- * <p>Extends {@link BaseExternalTableDataSink} and constructs the appropriate
- * Thrift {@link TDataSink} based on {@link ConnectorWriteConfig} obtained from
- * the connector SPI. This allows different connector plugins to produce their
- * write configuration without knowing Thrift types, while the engine handles
- * the Thrift serialization.</p>
- *
- * <p>Supported write types and their Thrift mappings:</p>
- * <ul>
- *   <li>{@link ConnectorWriteType#FILE_WRITE} → {@link TDataSinkType#HIVE_TABLE_SINK}</li>
- *   <li>{@link ConnectorWriteType#JDBC_WRITE} → {@link TDataSinkType#JDBC_TABLE_SINK}</li>
- *   <li>Others → determined by per-connector migration</li>
- * </ul>
+ * <p>Extends {@link BaseExternalTableDataSink}. The connector supplies a
+ * {@link ConnectorWritePlanProvider} and builds its own opaque {@link TDataSink}
+ * via {@link ConnectorWritePlanProvider#planWrite}; the engine dispatches that
+ * sink to BE unchanged. This is the single, source-agnostic write path used by
+ * every write-capable connector (jdbc / maxcompute / iceberg). The connector-
+ * specific {@code T*TableSink} dialect lives entirely inside the connector.</p>
  */
 public class PluginDrivenTableSink extends BaseExternalTableDataSink {
 
-    private static final Logger LOG = LogManager.getLogger(PluginDrivenTableSink.class);
-
-    // Well-known property keys in ConnectorWriteConfig.properties
-    public static final String PROP_DB_NAME = "db_name";
-    public static final String PROP_TABLE_NAME = "table_name";
-    public static final String PROP_OVERWRITE = "overwrite";
-    public static final String PROP_WRITE_PATH = "write_path";
-    public static final String PROP_TARGET_PATH = "target_path";
-    public static final String PROP_ORIGINAL_WRITE_PATH = "original_write_path";
-
-    // JDBC-specific property keys
-    public static final String PROP_JDBC_URL = "jdbc_url";
-    public static final String PROP_JDBC_USER = "jdbc_user";
-    public static final String PROP_JDBC_PASSWORD = "jdbc_password";
-    public static final String PROP_JDBC_DRIVER_URL = "jdbc_driver_url";
-    public static final String PROP_JDBC_DRIVER_CLASS = "jdbc_driver_class";
-    public static final String PROP_JDBC_DRIVER_CHECKSUM = "jdbc_driver_checksum";
-    public static final String PROP_JDBC_TABLE_NAME = "jdbc_table_name";
-    public static final String PROP_JDBC_RESOURCE_NAME = "jdbc_resource_name";
-    public static final String PROP_JDBC_TABLE_TYPE = "jdbc_table_type";
-    public static final String PROP_JDBC_INSERT_SQL = "jdbc_insert_sql";
-    public static final String PROP_JDBC_USE_TRANSACTION = "jdbc_use_transaction";
-    public static final String PROP_JDBC_CATALOG_ID = "jdbc_catalog_id";
-    public static final String PROP_JDBC_POOL_MIN = "connection_pool_min_size";
-    public static final String PROP_JDBC_POOL_MAX = "connection_pool_max_size";
-    public static final String PROP_JDBC_POOL_MAX_WAIT = "connection_pool_max_wait_time";
-    public static final String PROP_JDBC_POOL_MAX_LIFE = "connection_pool_max_life_time";
-    public static final String PROP_JDBC_POOL_KEEP_ALIVE = "connection_pool_keep_alive";
-
     private final PluginDrivenExternalTable targetTable;
-    private final ConnectorWriteConfig writeConfig;
+    // Plan-provider mode (W5): the connector builds its own opaque TDataSink via planWrite().
+    private final ConnectorWritePlanProvider writePlanProvider;
+    private final ConnectorSession connectorSession;
+    private final ConnectorTableHandle tableHandle;
+    private final List<ConnectorColumn> connectorColumns;
+    // The engine-built BE sort instruction for a connector that declares write-sort columns (iceberg
+    // WRITE ORDERED BY); null when the target needs no write sort. The connector cannot build it (the
+    // bound output exprs live only here), so the translator resolves the connector's declared sort
+    // columns against the sink output and hands the TSortInfo here to thread onto the write handle.
+    private final TSortInfo writeSortInfo;
+    // The DML write operation this sink performs. A plain INSERT sink keeps the default INSERT (the
+    // connector promotes it to OVERWRITE from the handle's isOverwrite() flag); the row-level DML
+    // translator arms (DELETE / UPDATE / MERGE) pass the operation here so the connector's planWrite
+    // dispatches to the matching BE sink dialect (TIcebergDeleteSink / TIcebergMergeSink) instead of
+    // the INSERT TIcebergTableSink. Threaded onto the write handle so planWrite's buildWriteContext
+    // reads it via ConnectorWriteHandle.getWriteOperation().
+    private final WriteOperation writeOperation;
 
+    /**
+     * Plan-provider mode (W5): the connector supplies a {@link ConnectorWritePlanProvider}
+     * and builds its own opaque {@link TDataSink} via
+     * {@link ConnectorWritePlanProvider#planWrite}.
+     */
     public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
-            ConnectorWriteConfig writeConfig) {
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns, null);
+    }
+
+    /**
+     * Plan-provider mode with an engine-built write {@link TSortInfo} threaded to the connector's write
+     * handle (for a connector that declares write-sort columns).
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            TSortInfo writeSortInfo) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                writeSortInfo, WriteOperation.INSERT);
+    }
+
+    /**
+     * Plan-provider mode with the DML {@link WriteOperation} threaded to the connector's write handle, so
+     * the connector's {@code planWrite} dispatches to the matching BE sink dialect. The two shorter ctors
+     * default this to {@link WriteOperation#INSERT} (the byte-identical plain-INSERT path); the row-level
+     * DML translator arms use this ctor with {@code DELETE} / {@code UPDATE} / {@code MERGE}.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            TSortInfo writeSortInfo, WriteOperation writeOperation) {
         super();
         this.targetTable = targetTable;
-        this.writeConfig = writeConfig;
+        this.writePlanProvider = writePlanProvider;
+        this.connectorSession = connectorSession;
+        this.tableHandle = tableHandle;
+        this.connectorColumns = connectorColumns;
+        this.writeSortInfo = writeSortInfo;
+        this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
+    }
+
+    /**
+     * The connector session this sink's write plan reads. The insert executor binds the
+     * connector transaction onto it (via {@link ConnectorSession#setCurrentTransaction})
+     * before {@code bindDataSink} runs, so the connector's {@code planWrite} sees the active
+     * transaction.
+     */
+    public ConnectorSession getConnectorSession() {
+        return connectorSession;
     }
 
     @Override
     protected Set<TFileFormatType> supportedFileFormatTypes() {
-        // Connector determines format through write config; accept all
+        // Connector determines format through its own write plan; accept all
         return EnumSet.allOf(TFileFormatType.class);
     }
 
@@ -118,50 +137,43 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         if (explainLevel == TExplainLevel.BRIEF) {
             return sb.toString();
         }
-        sb.append(prefix).append("  WRITE TYPE: ").append(writeConfig.getWriteType()).append("\n");
+        sb.append(prefix).append("  WRITE: plan-provider\n");
         sb.append(prefix).append("  TABLE: ").append(targetTable.getName()).append("\n");
-        if (writeConfig.getWriteType() == ConnectorWriteType.JDBC_WRITE) {
-            Map<String, String> props = writeConfig.getProperties();
-            sb.append(prefix).append("  TABLE TYPE: ")
-                    .append(props.getOrDefault(PROP_JDBC_TABLE_TYPE, "")).append("\n");
-            sb.append(prefix).append("  INSERT SQL: ")
-                    .append(props.getOrDefault(PROP_JDBC_INSERT_SQL, "")).append("\n");
-            sb.append(prefix).append("  USE TRANSACTION: ")
-                    .append(props.getOrDefault(PROP_JDBC_USE_TRANSACTION, "false")).append("\n");
-        } else {
-            if (writeConfig.getFileFormat() != null) {
-                sb.append(prefix).append("  FORMAT: ").append(writeConfig.getFileFormat()).append("\n");
-            }
-            if (writeConfig.getWriteLocation() != null) {
-                sb.append(prefix).append("  LOCATION: ").append(writeConfig.getWriteLocation()).append("\n");
-            }
-        }
+        // Let the connector surface its own write detail (e.g. jdbc INSERT SQL); the sink itself is
+        // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
+        // EXPLAIN), so the connector derives the detail from the write handle.
+        ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
+                tableHandle, connectorColumns, false, Collections.emptyMap(), null, Optional.empty(),
+                writeOperation);
+        writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
 
+    /**
+     * Delegates sink construction to the connector, which returns its own opaque
+     * {@link TDataSink}; the engine dispatches it to BE unchanged. The
+     * {@link ConnectorWriteHandle} carries the bound target table handle and write columns.
+     *
+     * <p>Connector-specific write context (OVERWRITE flag, static partition spec) is read from
+     * the {@link PluginDrivenInsertCommandContext} and passed through to the connector.</p>
+     */
     @Override
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
-        ConnectorWriteType writeType = writeConfig.getWriteType();
-        switch (writeType) {
-            case FILE_WRITE:
-                bindFileWriteSink(insertCtx);
-                break;
-            case JDBC_WRITE:
-                bindJdbcWriteSink(insertCtx);
-                break;
-            default:
-                throw new AnalysisException(
-                        "Unsupported write type for plugin-driven sink: " + writeType);
+        boolean overwrite = false;
+        Map<String, String> writeContext = Collections.emptyMap();
+        Optional<String> branchName = Optional.empty();
+        if (insertCtx.isPresent() && insertCtx.get() instanceof PluginDrivenInsertCommandContext) {
+            PluginDrivenInsertCommandContext ctx = (PluginDrivenInsertCommandContext) insertCtx.get();
+            overwrite = ctx.isOverwrite();
+            writeContext = ctx.getStaticPartitionSpec();
+            branchName = ctx.getBranchName();
         }
-    }
-
-    /**
-     * Returns the write config associated with this sink.
-     * Used by the insert executor to access connector write configuration.
-     */
-    public ConnectorWriteConfig getWriteConfig() {
-        return writeConfig;
+        ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
+                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo, branchName,
+                writeOperation);
+        ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
+        this.tDataSink = sinkPlan.getDataSink();
     }
 
     /**
@@ -171,143 +183,61 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         return targetTable;
     }
 
-    /**
-     * Builds a THiveTableSink for file-based writes.
-     *
-     * <p>BE's Hive table sink is the generic file writer that handles
-     * Parquet/ORC/Text output. Connectors provide all necessary
-     * configuration through {@link ConnectorWriteConfig}.</p>
-     */
-    private void bindFileWriteSink(Optional<InsertCommandContext> insertCtx)
-            throws AnalysisException {
-        Map<String, String> props = writeConfig.getProperties();
-        THiveTableSink tSink = new THiveTableSink();
+    /** Bound {@link ConnectorWriteHandle} passed to {@link ConnectorWritePlanProvider#planWrite}. */
+    private static final class PluginDrivenWriteHandle implements ConnectorWriteHandle {
+        private final ConnectorTableHandle tableHandle;
+        private final List<ConnectorColumn> columns;
+        private final boolean overwrite;
+        private final Map<String, String> writeContext;
+        private final TSortInfo sortInfo;
+        private final Optional<String> branchName;
+        private final WriteOperation writeOperation;
 
-        // DB and table names
-        tSink.setDbName(props.getOrDefault(PROP_DB_NAME, targetTable.getDbName()));
-        tSink.setTableName(props.getOrDefault(PROP_TABLE_NAME, targetTable.getName()));
-
-        // Columns: build from target table schema + partition info from write config
-        Set<String> partNames = new HashSet<>(writeConfig.getPartitionColumns());
-        List<Column> allColumns = targetTable.getColumns();
-        List<THiveColumn> targetColumns = new ArrayList<>();
-        for (Column col : allColumns) {
-            THiveColumn tHiveColumn = new THiveColumn();
-            tHiveColumn.setName(col.getName());
-            tHiveColumn.setColumnType(
-                    partNames.contains(col.getName())
-                            ? THiveColumnType.PARTITION_KEY
-                            : THiveColumnType.REGULAR);
-            targetColumns.add(tHiveColumn);
-        }
-        tSink.setColumns(targetColumns);
-
-        // File format
-        if (writeConfig.getFileFormat() != null) {
-            TFileFormatType formatType = getTFileFormatType(writeConfig.getFileFormat());
-            tSink.setFileFormat(formatType);
+        private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+                boolean overwrite, Map<String, String> writeContext, TSortInfo sortInfo,
+                Optional<String> branchName, WriteOperation writeOperation) {
+            this.tableHandle = tableHandle;
+            this.columns = columns;
+            this.overwrite = overwrite;
+            this.writeContext = writeContext;
+            this.sortInfo = sortInfo;
+            this.branchName = branchName == null ? Optional.empty() : branchName;
+            this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
         }
 
-        // Compression
-        if (writeConfig.getCompression() != null) {
-            tSink.setCompressionType(getTFileCompressType(writeConfig.getCompression()));
+        @Override
+        public TSortInfo getSortInfo() {
+            return sortInfo;
         }
 
-        // Location
-        String writePath = props.getOrDefault(PROP_WRITE_PATH, writeConfig.getWriteLocation());
-        String targetPath = props.getOrDefault(PROP_TARGET_PATH, writeConfig.getWriteLocation());
-        if (writePath != null) {
-            THiveLocationParams locationParams = new THiveLocationParams();
-            locationParams.setWritePath(writePath);
-            locationParams.setOriginalWritePath(
-                    props.getOrDefault(PROP_ORIGINAL_WRITE_PATH, writePath));
-            locationParams.setTargetPath(targetPath);
-            LocationPath locationPath = LocationPath.of(targetPath,
-                    targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
-            TFileType fileType = locationPath.getTFileTypeForBE();
-            locationParams.setFileType(fileType);
-            tSink.setLocation(locationParams);
-
-            if (fileType.equals(TFileType.FILE_BROKER)) {
-                tSink.setBrokerAddresses(
-                        getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
-            }
+        @Override
+        public Optional<String> getBranchName() {
+            return branchName;
         }
 
-        // Overwrite flag
-        if (props.containsKey(PROP_OVERWRITE)) {
-            tSink.setOverwrite(Boolean.parseBoolean(props.get(PROP_OVERWRITE)));
+        @Override
+        public ConnectorTableHandle getTableHandle() {
+            return tableHandle;
         }
 
-        // Hadoop/storage config for BE access
-        Map<String, String> beStorageProps = targetTable.getCatalog()
-                .getCatalogProperty().getBackendStorageProperties();
-        tSink.setHadoopConfig(beStorageProps);
-
-        // Any extra connector-specific properties: pass through via hadoop_config
-        for (Map.Entry<String, String> entry : props.entrySet()) {
-            String key = entry.getKey();
-            if (!isWellKnownProperty(key)) {
-                tSink.putToHadoopConfig(key, entry.getValue());
-            }
+        @Override
+        public List<ConnectorColumn> getColumns() {
+            return columns;
         }
 
-        tDataSink = new TDataSink(TDataSinkType.HIVE_TABLE_SINK);
-        tDataSink.setHiveTableSink(tSink);
-    }
-
-    /**
-     * Builds a TJdbcTableSink for JDBC-based writes.
-     */
-    private void bindJdbcWriteSink(Optional<InsertCommandContext> insertCtx)
-            throws AnalysisException {
-        Map<String, String> props = writeConfig.getProperties();
-
-        TJdbcTableSink jdbcSink = new TJdbcTableSink();
-
-        TJdbcTable tJdbcTable = new TJdbcTable();
-        tJdbcTable.setJdbcUrl(props.getOrDefault(PROP_JDBC_URL, ""));
-        tJdbcTable.setJdbcUser(props.getOrDefault(PROP_JDBC_USER, ""));
-        tJdbcTable.setJdbcPassword(props.getOrDefault(PROP_JDBC_PASSWORD, ""));
-        tJdbcTable.setJdbcDriverUrl(props.getOrDefault(PROP_JDBC_DRIVER_URL, ""));
-        tJdbcTable.setJdbcDriverClass(props.getOrDefault(PROP_JDBC_DRIVER_CLASS, ""));
-        tJdbcTable.setJdbcDriverChecksum(props.getOrDefault(PROP_JDBC_DRIVER_CHECKSUM, ""));
-        tJdbcTable.setJdbcTableName(props.getOrDefault(PROP_JDBC_TABLE_NAME, ""));
-        tJdbcTable.setJdbcResourceName(props.getOrDefault(PROP_JDBC_RESOURCE_NAME, ""));
-        tJdbcTable.setCatalogId(Long.parseLong(props.getOrDefault(PROP_JDBC_CATALOG_ID, "0")));
-        tJdbcTable.setConnectionPoolMinSize(
-                Integer.parseInt(props.getOrDefault(PROP_JDBC_POOL_MIN, "1")));
-        tJdbcTable.setConnectionPoolMaxSize(
-                Integer.parseInt(props.getOrDefault(PROP_JDBC_POOL_MAX, "10")));
-        tJdbcTable.setConnectionPoolMaxWaitTime(
-                Integer.parseInt(props.getOrDefault(PROP_JDBC_POOL_MAX_WAIT, "5000")));
-        tJdbcTable.setConnectionPoolMaxLifeTime(
-                Integer.parseInt(props.getOrDefault(PROP_JDBC_POOL_MAX_LIFE, "1800000")));
-        tJdbcTable.setConnectionPoolKeepAlive(
-                Boolean.parseBoolean(props.getOrDefault(PROP_JDBC_POOL_KEEP_ALIVE, "false")));
-        jdbcSink.setJdbcTable(tJdbcTable);
-
-        String insertSql = props.getOrDefault(PROP_JDBC_INSERT_SQL, "");
-        jdbcSink.setInsertSql(insertSql);
-
-        boolean useTxn = Boolean.parseBoolean(
-                props.getOrDefault(PROP_JDBC_USE_TRANSACTION, "false"));
-        jdbcSink.setUseTransaction(useTxn);
-
-        String tableType = props.getOrDefault(PROP_JDBC_TABLE_TYPE, "");
-        if (!tableType.isEmpty()) {
-            jdbcSink.setTableType(TOdbcTableType.valueOf(tableType));
+        @Override
+        public boolean isOverwrite() {
+            return overwrite;
         }
 
-        tDataSink = new TDataSink(TDataSinkType.JDBC_TABLE_SINK);
-        tDataSink.setJdbcTableSink(jdbcSink);
-    }
+        @Override
+        public Map<String, String> getWriteContext() {
+            return writeContext;
+        }
 
-    private boolean isWellKnownProperty(String key) {
-        return key.equals(PROP_DB_NAME) || key.equals(PROP_TABLE_NAME)
-                || key.equals(PROP_OVERWRITE)
-                || key.equals(PROP_WRITE_PATH) || key.equals(PROP_TARGET_PATH)
-                || key.equals(PROP_ORIGINAL_WRITE_PATH)
-                || key.startsWith("jdbc_");
+        @Override
+        public WriteOperation getWriteOperation() {
+            return writeOperation;
+        }
     }
 }

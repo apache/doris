@@ -47,25 +47,234 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Iceberg SDK: catalog API, types, schema -->
+        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
+             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
+             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
+             this plugin's own bundled jar and link against THIS plugin's Caffeine. The iceberg plugin already
+             carries Caffeine 2.9.3 transitively (iceberg-core; vendored DeleteFileIndex pins it), which is the
+             version fe-connector-cache is compiled against — so no extra Caffeine dependency is needed here.
+             IcebergLatestSnapshotCache / IcebergManifestCache are backed by MetaCacheEntry. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Shared HMS module: supplies Doris's version-aware org.apache.hadoop.hive.metastore.HiveMetaStoreClient
+             (bundled in fe-connector-hms-*.jar, which sorts before fe-connector-hms-hive-shade-*.jar in the
+             plugin lib so it shadows the shaded, unpatched client). Required for the hms flavor: without it, iceberg's
+             HiveCatalog uses the Hive-3 "@cat#" db-name marker that a Hive-1/2 metastore rejects, so list/get
+             database return empty (see HiveMetaStoreClient header). Same module fe-connector-hive reuses. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-hms</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Shared low-level utilities: the NamedArguments / ArgumentParsers argument framework used by the
+             ALTER TABLE EXECUTE procedure bodies (the engine validates against the same fe-foundation code).
+             fe-foundation has zero fe-core dependencies and a non-gated package (org.apache.doris.foundation),
+             so the connector depends on it directly. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Iceberg per-engine metastore backends + the shared MetaStoreProvider SPI (D-059 Q2=B): the
+             per-flavor property / HiveConf / DLF-conf assembly ported in P6-T05/T07 reuses the shared
+             Abstract{Hms,Dlf}MetaStoreProperties conf (toHiveConfOverrides / toDlfCatalogConf) via
+             bindForType("hms"/"dlf"), and P6-T10 wires validateProperties to bindForType(flavor).validate().
+             Post P6-T10 the concrete iceberg impls + their ServiceLoader providers live in
+             fe-connector-metastore-iceberg (mirroring fe-connector-metastore-paimon); it transitively pulls
+             the extension point + framework + conf bases (metastore-spi), the contracts (metastore-api), and
+             fe-kerberos. All bundled child-first into the plugin-zip, so only iceberg's providers are
+             discoverable here (NOT paimon's). Hadoop/fs-free. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-iceberg</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Thrift types for constructing TTableFormatFileDesc / TIcebergFileDesc in populateRangeParams
+             (P6.2-T03). provided scope: the host FE supplies fe-thrift at runtime, so it is NOT bundled into
+             the plugin-zip (mirrors fe-connector-paimon); fe-connector-api's own fe-thrift is provided too
+             and provided scope is non-transitive, hence the direct re-declaration. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Iceberg SDK: catalog API, types, schema. Supplies the rest/hadoop/jdbc flavor catalog-impls
+             (RESTCatalog / HadoopCatalog / JdbcCatalog), loaded by name via CatalogUtil. -->
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
 
-        <!-- Iceberg AWS integration (Glue catalog, S3FileIO) -->
+        <!-- Caffeine: needed on the COMPILE classpath for the vendored split-package
+             org.apache.iceberg.DeleteFileIndex (T08). iceberg-core 1.10.1 made DeleteFileIndex package-private,
+             so the connector ships its own public copy (mirrors fe-core) to drive manifest-level scan planning;
+             that copy imports com.github.benmanes.caffeine. iceberg-core already brings caffeine 2.9.3 at runtime
+             scope (so it is in the plugin-zip), but runtime-scoped transitives are not on the compile classpath
+             — hence this explicit compile-scope declaration (same version, deduped). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
+        </dependency>
+
+        <!-- iceberg-bundled-guava: needed on the COMPILE classpath for the vendored split-package
+             org.apache.iceberg.DeleteFileIndex (T08), which imports iceberg's relocated guava
+             (org.apache.iceberg.relocated.com.google.common.base/collect). iceberg-core brings this
+             artifact only at RUNTIME scope (so it is in the plugin-zip), and runtime-scoped transitives
+             are not on the compile classpath — the same treatment as caffeine above. Until the fe-connector
+             closure moved off the fat hive-catalog-shade, that shade jar carried these relocated-guava
+             classes at compile scope; the slim fe-connector-hms-hive-shade deliberately excludes
+             iceberg-bundled-guava (iceberg-core already ships it, avoiding a duplicate), so declare it here
+             at compile scope. Same version as iceberg-core, deduped at runtime. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-bundled-guava</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+
+        <!-- Iceberg AWS integration: the glue flavor's org.apache.iceberg.aws.glue.GlueCatalog + S3FileIO.
+             Needs the AWS SDK v2 modules below at runtime. -->
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
 
+        <!-- The hms-flavor org.apache.iceberg.hive.HiveCatalog is NOT a direct dependency here: it is
+             bundled (with the shared relocated thrift shade.doris.hive.org.apache.thrift) inside
+             fe-connector-hms-hive-shade and reaches this plugin transitively via fe-connector-hms above —
+             the same slim shade that supplies the plain-HMS client, so HiveCatalog and the client link
+             against one identical relocated thrift + metastore-api. The old direct
+             org.apache.doris:hive-catalog-shade dependency (and the dead dlf-flavor ProxyMetaStoreClient
+             it carried) was removed atomically with the hms cutover off the fat shade — see
+             plan-doc/fe-connector-hive-shade-localization/design.md. plugin-zip.xml still excludes
+             fe-thrift/libthrift so no original-package thrift lands in the plugin. -->
+
         <!-- Hadoop for HadoopCatalog and Configuration -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
             <version>${hadoop.version}</version>
+        </dependency>
+
+        <!-- hadoop-hdfs-client supplies org.apache.hadoop.hdfs.DistributedFileSystem AND its
+             META-INF/services/org.apache.hadoop.fs.FileSystem 'hdfs' registration — the Hadoop FileSystem impl
+             needed whenever iceberg's HadoopFileIO touches an hdfs:// path (an hms-catalog CREATE TABLE writes
+             metadata/00000-*.metadata.json via FileSystem.get(hdfs://…)). hadoop-common above carries only the
+             base FileSystem + file/har/ftp providers (no hdfs); the plugin runs child-first (org.apache.hadoop is
+             NOT in ChildFirstClassLoader's parent-first allowlist), so the parent 'app' loader's hdfs provider is
+             a DIFFERENT FileSystem subtype and ServiceLoader rejects it — FileSystem.getFileSystemClass("hdfs")
+             then threw 'No FileSystem for scheme "hdfs"' (surfaced by Iceberg as RuntimeIOException 'Failed to
+             get file system for path'). SAME self-contained child-first reasoning as hadoop-aws below (and as
+             fe-connector-paimon, which bundles hadoop-hdfs-client for the identical reason): co-locate the FS impl
+             with the plugin's own hadoop-common FileSystem so the SPI cast succeeds. runtime scope
+             (DistributedFileSystem is loaded reflectively via the Hadoop FileSystem SPI, not referenced at compile
+             time). NOT in fe/pom.xml dependencyManagement, so the version is pinned explicitly to
+             ${hadoop.version}. hadoop-common is excluded so the plugin keeps a SINGLE FileSystem/Configuration
+             copy (the direct hadoop-common above) — no cross-loader split. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for the hadoop-catalog flavor over an
+             s3a:// warehouse (HadoopCatalog.initialize -> Util.getFs -> Path.getFileSystem -> FileSystem.get).
+             The base org.apache.hadoop.fs.FileSystem comes from hadoop-common above; the plugin runs child-first
+             (org.apache.hadoop is NOT in ChildFirstClassLoader's parent-first allowlist), so bundling
+             hadoop-common WITHOUT hadoop-aws left FileSystem in the child loader while S3AFileSystem resolved
+             from the parent 'app' loader (fe-core's own hadoop-aws) — FileSystem.createFileSystem's cast then
+             threw "S3AFileSystem cannot be cast to FileSystem" (the FIX-PAIMON-HADOOP-CLASSLOADER split;
+             fe-connector-paimon/trino bundle hadoop-aws for the same reason). The fs.s3a.impl lookup is pinned
+             to the plugin loader via conf.setClassLoader (IcebergCatalogFactory.buildHadoopConfiguration), so
+             co-locating S3AFileSystem in the child loader here makes the cast succeed. Version + the monolithic
+             software.amazon.awssdk:bundle exclusion are inherited from fe/pom.xml dependencyManagement; the AWS
+             SDK v2 modules S3A needs at runtime (s3 / sdk-core / apache-client / s3-transfer-manager) are
+             already bundled child-first below (the iceberg-aws closure). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
+        <!-- AWS SDK v2 (BOM-managed, ${awssdk.version}) for the glue + s3tables + dlf-AWS paths. Bundled
+             into the plugin so the connector's GlueCatalog / S3TablesCatalog get their OWN sdk-core
+             ExecutionAttribute static under the child-first plugin loader; a second copy colliding with
+             fe-core's permanently poisons S3 for the whole JVM (paimon RC-3). The set mirrors fe-core's
+             iceberg AWS closure: glue/sts exclude apache-client (url-connection-client is the HTTP
+             client); s3-transfer-manager carries the execution.interceptors SPI resource that must resolve
+             child-first. software.amazon.awssdk MUST stay child-first (NOT in any parent-first allowlist). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>glue</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3tables</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sdk-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>aws-json-protocol</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>protocol-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+        </dependency>
+
+        <!-- S3Tables catalog impl (software.amazon.s3tables.iceberg.S3TablesCatalog) for the s3tables
+             flavor. NOT in the AWS SDK BOM; version managed via dependencyManagement in fe/pom.xml
+             (${s3tables.catalog.version}). -->
+        <dependency>
+            <groupId>software.amazon.s3tables</groupId>
+            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
         </dependency>
 
         <dependency>
@@ -76,6 +285,28 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: the assembleHiveConf parity test instantiates a real org.apache.hadoop.hive.conf.HiveConf,
+             whose static init touches org.apache.hadoop.mapred.JobConf (hadoop-mapreduce-client-core). That
+             artifact reaches the module only transitively (and is <optional> in hive-catalog-shade), so it is
+             absent from the unit-test classpath. The PRODUCTION hms path runs inside the assembled plugin (full
+             hadoop closure), so this is test-scope only — NOT bundled. Mirrors fe-connector-paimon. Version from
+             dependencyManagement (${hadoop.version}). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: org.apache.hadoop.hive.conf.HiveConf static init references commons-lang 2.x
+             (org.apache.commons.lang.StringUtils); like hadoop-mapreduce-client-core above it is present only
+             transitively in the runtime plugin closure, not on the unit-test classpath. Test-scope only — NOT
+             bundled. Version from dependencyManagement. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

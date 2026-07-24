@@ -1,0 +1,81 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.spi;
+
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.filesystem.properties.StorageProperties;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
+import java.util.List;
+
+public class ConnectorContextTest {
+
+    /** A minimal ConnectorContext implementing only the two abstract methods; everything else default. */
+    private static ConnectorContext minimalContext() {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_catalog";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+        };
+    }
+
+    @Test
+    public void getStorageProperties_defaultsToEmptyList() {
+        // The new storage seam (D-003): fe-core overrides this to hand the connector the catalog's
+        // typed fe-filesystem StorageProperties. Every OTHER connector keeps the default empty list,
+        // so introducing the seam must not change their behavior -- and it must never return null.
+        List<StorageProperties> storage = minimalContext().getStorageProperties();
+        Assertions.assertNotNull(storage, "getStorageProperties() must never return null");
+        Assertions.assertTrue(storage.isEmpty(),
+                "default getStorageProperties() must be empty so non-paimon connectors are unaffected");
+    }
+
+    @Test
+    public void getBackendFileType_defaultDerivesFromScheme() {
+        // The write-side file-type seam (T06): fe-core overrides it (LocationPath, broker-aware); the
+        // default has no storage machinery and derives the BE file type from the URI scheme alone,
+        // returning the TFileType enum NAME so the SPI stays Thrift-free (like normalizeStorageUri).
+        ConnectorContext ctx = minimalContext();
+        Assertions.assertEquals("FILE_S3", ctx.getBackendFileType("s3://bucket/data", null));
+        Assertions.assertEquals("FILE_S3", ctx.getBackendFileType("oss://bucket/data", null));
+        Assertions.assertEquals("FILE_HDFS", ctx.getBackendFileType("hdfs://ns/data", null));
+        Assertions.assertEquals("FILE_HDFS", ctx.getBackendFileType("viewfs://ns/data", null));
+        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("file:///tmp/data", null));
+        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("/no/scheme", null));
+        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType(null, null));
+    }
+
+    @Test
+    public void createSiblingConnector_defaultsToNull() {
+        // The cross-plugin sibling seam: only a gateway connector's context (fe-core's DefaultConnectorContext)
+        // overrides this to build a real sibling; every other connector keeps the default null, so introducing
+        // the seam must not change their behavior -- a non-gateway connector that never calls it is unaffected.
+        Connector sibling = minimalContext().createSiblingConnector("iceberg", Collections.emptyMap());
+        Assertions.assertNull(sibling,
+                "default createSiblingConnector() must return null so non-gateway connectors are unaffected");
+    }
+}

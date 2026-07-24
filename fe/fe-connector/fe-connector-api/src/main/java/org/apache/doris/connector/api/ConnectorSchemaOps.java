@@ -37,11 +37,26 @@ public interface ConnectorSchemaOps {
         return false;
     }
 
-    /** Retrieves metadata for the specified database. */
+    /**
+     * Retrieves metadata for the specified database. The default returns metadata with an empty
+     * property map (so SHOW CREATE DATABASE renders no LOCATION/PROPERTIES for connectors with no
+     * database-level metadata, matching their pre-flip behavior); connectors that expose namespace
+     * metadata (e.g. iceberg's namespace location) override this. Mirrors the graceful empty defaults
+     * of {@link #listDatabaseNames}/{@link #databaseExists} rather than throwing.
+     */
     default ConnectorDatabaseMetadata getDatabase(
             ConnectorSession session, String dbName) {
-        throw new DorisConnectorException(
-                "getDatabase not implemented");
+        return new ConnectorDatabaseMetadata(dbName, Collections.emptyMap());
+    }
+
+    /**
+     * Whether this connector supports CREATE DATABASE. Defaults to false so the FE
+     * {@code CREATE DATABASE IF NOT EXISTS} remote existence precheck applies only to
+     * connectors that can actually create databases; connectors that cannot keep their
+     * existing "CREATE DATABASE not supported" behavior unchanged.
+     */
+    default boolean supportsCreateDatabase() {
+        return false;
     }
 
     /** Creates a new database with the given name and properties. */
@@ -56,5 +71,16 @@ public interface ConnectorSchemaOps {
             String dbName, boolean ifExists) {
         throw new DorisConnectorException(
                 "DROP DATABASE not supported");
+    }
+
+    /**
+     * Drops the specified database, cascading to its tables when {@code force} is
+     * true. The default delegates to the non-cascading 3-arg form, so connectors
+     * that do not support cascade keep their current behavior with zero change;
+     * a connector that supports FORCE overrides this overload.
+     */
+    default void dropDatabase(ConnectorSession session,
+            String dbName, boolean ifExists, boolean force) {
+        dropDatabase(session, dbName, ifExists);
     }
 }

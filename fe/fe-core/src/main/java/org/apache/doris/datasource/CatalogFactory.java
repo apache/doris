@@ -25,12 +25,9 @@ import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalogFactory;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
 import com.google.common.base.Strings;
@@ -47,10 +44,17 @@ import java.util.Set;
 public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
-    // Only these catalog types are routed through the SPI connector path.
-    // Other types (hms, iceberg, paimon, trino-connector, hudi, max_compute) still use
-    // their built-in ExternalCatalog implementations until their ConnectorProviders are fully ready.
-    private static final Set<String> SPI_READY_TYPES = ImmutableSet.of("jdbc", "es");
+    // Only these catalog types are routed through the SPI connector path; every other type falls through to the
+    // built-in ExternalCatalog switch below. "hms" is now SPI-ready: an hms catalog is a PluginDrivenExternalCatalog
+    // driven by the hive connector, which flips plain-hive + iceberg-on-HMS + hudi-on-HMS to the SPI path (the
+    // latter two served as embedded siblings of the hms gateway).
+    // Do NOT add "hudi": there is no standalone hudi catalog type and no HudiExternalCatalog — a hudi table is
+    // parasitic on an HMS catalog (HMSExternalTable, dlaType==HUDI) and is served post-cutover as an embedded
+    // SIBLING of the hms gateway via ConnectorContext.createSiblingConnector("hudi", ...), which bypasses this
+    // set. Adding "hudi" here would build a standalone PluginDrivenExternalCatalog around HudiConnector with no
+    // fe-core catalog class backing it.
+    private static final Set<String> SPI_READY_TYPES =
+            ImmutableSet.of("jdbc", "es", "trino-connector", "max_compute", "paimon", "iceberg", "hms");
 
     /**
      * create the catalog instance from catalog log.
@@ -133,25 +137,9 @@ public class CatalogFactory {
         // Fallback to built-in catalog types if no SPI connector matched.
         if (catalog == null) {
             switch (catalogType) {
-                case "hms":
-                    catalog = new HMSExternalCatalog(catalogId, name, resource, props, comment);
-                    break;
-                case "iceberg":
-                    catalog = IcebergExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "paimon":
-                    catalog = PaimonExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "trino-connector":
-                    catalog = TrinoConnectorExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
-                case "max_compute":
-                    catalog = new MaxComputeExternalCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
+                // hms and iceberg are routed through the SPI connector path (SPI_READY_TYPES) and never reach
+                // this built-in fallback; their legacy built-in cases were removed at the GSON cutover (their
+                // GSON subtypes are now registerCompatibleSubtype-only -> PluginDriven).
                 case "lakesoul":
                     throw new DdlException("Lakesoul catalog is no longer supported");
                 case "doris":

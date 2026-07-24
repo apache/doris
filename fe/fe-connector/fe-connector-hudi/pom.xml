@@ -70,17 +70,157 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Supplies the plugin-side HMS Kerberos parser (HmsMetaStoreProperties.kerberos() via
+             MetaStoreProviders.bindForType("hms")) + transitively fe-kerberos, for
+             HudiConnector.buildPluginAuthenticator; bundled child-first by plugin-zip.xml's runtime
+             dependencySet. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-hms</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Hudi SDK for MetaClient and Avro schema -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <!-- rocksdbjni (54MB, ~1/4 of the plugin) is only used by Hudi's OPT-IN
+                     RocksDbBasedFileSystemView and RocksDbDiskMap. This connector builds an in-memory
+                     file-system view (HudiScanPlanProvider ->
+                     FileSystemViewManager.createInMemoryFileSystemView) and never selects the RocksDB
+                     view; the metadata-table external spillable map defaults to BITCASK (pure-Java), not
+                     ROCKSDB. The createInMemory path has no static reference to the RocksDB classes, so
+                     there is no class-init hazard — the jar is dead weight on the FE metadata read path. -->
+                <exclusion>
+                    <groupId>org.rocksdb</groupId>
+                    <artifactId>rocksdbjni</artifactId>
+                </exclusion>
+                <!-- hudi-common pulls hbase-server for the HFile-format metadata-table reader, which
+                     transitively drags the HBase RegionServer web-UI stack (hbase-http ->
+                     hbase-shaded-jetty/jersey, ~5.7MB) and the Hadoop YARN + MapReduce + HDFS-daemon job
+                     stack (hadoop-mapreduce-client-core -> yarn-api/common/client + jline; hadoop-hdfs the
+                     NameNode/DataNode server jar -> leveldbjni; hadoop-distcp), ~26MB total. The FE metadata
+                     read path (timeline + HFile MDT via createInMemoryFileSystemView) never submits a
+                     YARN/MR job, starts a RegionServer, or serves the HBase info UI, so strip the
+                     job/server/UI infra while KEEPING the HFile reader core (hbase-server + hbase-common +
+                     hbase-client + hbase-protocol*). hadoop-hdfs-CLIENT (needed for hdfs:// warehouses)
+                     previously arrived under the excluded mapreduce subtree, so it is re-declared directly
+                     below. Mirrors the same trims fe-connector-hms-hive-shade already applies to hive. -->
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-mapreduce-client-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-distcp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hbase</groupId>
+                    <artifactId>hbase-http</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- HadoopStorageConfiguration for building MetaClient -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-hadoop-mr</artifactId>
+        </dependency>
+
+        <!-- hadoop-hdfs-client supplies org.apache.hadoop.hdfs.DistributedFileSystem + its
+             META-INF/services/org.apache.hadoop.fs.FileSystem 'hdfs' registration, needed whenever the
+             connector opens an hdfs:// table base path to read the .hoodie timeline
+             (HudiScanPlanProvider.buildMetaClient -> HoodieTableMetaClient.getStorage -> FileSystem.get).
+             It previously arrived transitively via hudi-common -> hbase-server ->
+             hadoop-mapreduce-client-core, which is excluded above to drop the YARN/MR job stack, so
+             re-declare it directly. Same self-contained child-first reasoning as hadoop-aws below and as
+             fe-connector-iceberg/paimon: runtime scope (DistributedFileSystem is loaded reflectively via
+             the Hadoop FileSystem SPI, not referenced at compile time), version pinned to ${hadoop.version}
+             (NOT in fe/pom.xml dependencyManagement), and hadoop-common excluded so the plugin keeps the
+             SINGLE hadoop-common copy that fe-connector-hms already contributes (no cross-loader
+             FileSystem/Configuration split). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- parquet-hadoop supplies org.apache.parquet.hadoop.ParquetFileReader and parquet-avro supplies
+             org.apache.parquet.avro.AvroSchemaConverter for hudi's FE-side schema read: TableSchemaResolver
+             reads a data file's parquet footer to resolve the table Avro schema
+             (ParquetUtils.readAvroSchema -> readSchema -> ParquetFileReader.readFooter(Configuration, Path),
+             then converts the parquet MessageType to Avro). hudi-common bundles NO parquet, and no other
+             jar in this plugin (the fe-connector-hms-hive-shade slim shade carries none either) provides an
+             un-relocated org.apache.parquet.hadoop.* — so the
+             un-relocated ParquetFileReader would otherwise resolve from the parent 'app' loader while
+             ParquetUtils and Configuration come from the child (org.apache.hadoop is child-first here, from the
+             bundled hadoop-common) — readFooter's Configuration parameter then splits across two loaders and the
+             JVM throws a LinkageError (loader constraint violation on org.apache.hadoop.conf.Configuration).
+             Co-locating parquet child-first here — the SAME FIX-PAIMON-HADOOP-CLASSLOADER pattern as hadoop-aws
+             below — keeps ParquetFileReader + Configuration in one loader. parquet-hadoop pulls its
+             parquet-column/common/encoding/format-structures/jackson siblings transitively; versions are
+             BOM-managed (${parquet.version}). -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+        </dependency>
+
+        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for s3a:// warehouses. Unlike hive
+             (whose FE metadata path is HMS-thrift-only and never opens an s3a:// FileSystem), the hudi
+             connector opens the table base path on the FE to read the .hoodie timeline
+             (HudiScanPlanProvider.buildMetaClient -> HoodieTableMetaClient.getStorage -> FileSystem.get). The
+             base org.apache.hadoop.fs.FileSystem comes from hadoop-common (bundled transitively via hudi
+             above); the plugin runs child-first (org.apache.hadoop is NOT in ChildFirstClassLoader's
+             parent-first allowlist), so bundling hadoop-common WITHOUT hadoop-aws left FileSystem in the child
+             loader while S3AFileSystem resolved from the parent 'app' loader (fe-core's own hadoop-aws) —
+             FileSystem.createFileSystem's cast then threw "S3AFileSystem cannot be cast to FileSystem" (the
+             SAME FIX-PAIMON-HADOOP-CLASSLOADER split iceberg/paimon already carry). Co-locating S3AFileSystem
+             in the child loader here makes the cast succeed. Version + the monolithic
+             software.amazon.awssdk:bundle exclusion are inherited from fe/pom.xml dependencyManagement; the
+             AWS SDK v2 modules S3A needs at runtime are bundled child-first below. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
+        <!-- AWS SDK v2 for the child-bundled hadoop-aws S3AFileSystem (mirrors fe-connector-paimon/iceberg,
+             RC-3). Without it the plugin bundles S3AFileSystem child-first but NO SDK: its
+             ExecutionAttribute static registers against the single PARENT-loaded sdk-core, colliding with
+             fe-core's S3A in ExecutionAttribute.ensureUnique() -> ExceptionInInitializerError that permanently
+             poisons S3 for the whole FE JVM. The 's3' module's compile closure brings sdk-core (the
+             load-bearing ExecutionAttribute) + aws-core + auth + regions; apache-client is added explicitly
+             because hadoop-aws 3.4.2 wires ApacheHttpClient and it is only test-scoped in s3's closure;
+             s3-transfer-manager carries the software/amazon/awssdk/services/s3/execution.interceptors SPI
+             resource that must resolve child-first. Versions are BOM-managed (awssdk ${awssdk.version}).
+             software.amazon.awssdk MUST stay child-first (NOT in the parent-first allowlist). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
         </dependency>
 
         <dependency>

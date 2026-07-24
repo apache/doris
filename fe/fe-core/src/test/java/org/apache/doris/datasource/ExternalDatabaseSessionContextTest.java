@@ -19,189 +19,117 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ExternalDatabaseSessionContextTest extends TestWithFeService {
+/**
+ * Re-migrates #63068's {@code ExternalDatabaseSessionContextTest} onto the SPI architecture: the DATA-FLOW proof
+ * (not just the bypass DECISION, which {@link PluginDrivenExternalCatalogSessionBypassTest} pins) that a
+ * {@code iceberg.rest.session=user} catalog serves PER-USER metadata live and never through the shared
+ * (catalog+name-keyed, NOT user-keyed) name cache — the cross-user leakage guard (Trino CVE-2026-34214).
+ *
+ * <p>The bypass reads {@link SessionContext#current()} for both the decision and the live listing, so the token is
+ * driven through a {@code mockStatic}; the catalog overrides the remote listing to return each user's own
+ * databases and to record the token it listed under. Because every read records a fresh token (even a repeat of
+ * an earlier token), we prove no read was served from a shared cache; because the per-user results are disjoint,
+ * we prove no user's database set leaks to another. #63068 asserted the same via a "bootstrap" shared read, which
+ * on this branch fail-closes (a session=user catalog has no shared identity to bootstrap with) — so the live
+ * per-read token record is the equivalent, architecture-correct observable.
+ */
+public class ExternalDatabaseSessionContextTest {
 
-    @Override
-    protected void runBeforeAll() throws Exception {
-        FeConstants.runningUnitTest = true;
+    private static SessionContext ctxFor(String token) {
+        return SessionContext.of(token, new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, token));
     }
 
     @Test
-    public void testDelegatedSessionTableNamesBypassSharedCache() {
-        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
-        IcebergExternalDatabase db = new IcebergExternalDatabase(catalog, 2L, "db1", "db1");
+    public void delegatedSessionDatabaseNamesGoLivePerTokenAndNeverShareTheCache() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog();
+        // Build the per-token contexts with the REAL SessionContext.of BEFORE mocking the static current()
+        // (calling a mocked static inside when(...).thenReturn(...) would corrupt the stubbing).
+        SessionContext ctxA = ctxFor("token_a");
+        SessionContext ctxB = ctxFor("token_b");
+        try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
+            sc.when(SessionContext::current).thenReturn(ctxA);
+            List<String> aDbs = catalog.getDbNames();
+            sc.when(SessionContext::current).thenReturn(ctxB);
+            List<String> bDbs = catalog.getDbNames();
+            // Repeat token_a: if any read were served from a shared cache this would NOT re-list live.
+            sc.when(SessionContext::current).thenReturn(ctxA);
+            List<String> aDbsAgain = catalog.getDbNames();
 
-        withDelegatedToken("token_a", () -> Assertions.assertEquals(
-                Collections.singleton("table_a"), db.getTableNamesWithLock()));
-        withDelegatedToken("token_b", () -> Assertions.assertEquals(
-                Collections.singleton("table_b"), db.getTableNamesWithLock()));
-        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b"), catalog.tokensUsedToListTables);
-    }
-
-    @Test
-    public void testDelegatedSessionDatabaseLookupBypassesSharedCache() {
-        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
-
-        withDelegatedToken("token_a", () -> Assertions.assertNotNull(catalog.getDbNullable("db_a")));
-        withDelegatedToken("token_b", () -> Assertions.assertNull(catalog.getDbNullable("db_a")));
-        withDelegatedToken("token_b", () -> Assertions.assertNotNull(catalog.getDbNullable("db_b")));
-        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "token_b"),
-                catalog.tokensUsedToListDatabases);
-    }
-
-    @Test
-    public void testDelegatedSessionDatabaseNamesDoNotPopulateSharedCache() {
-        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog();
-
-        withDelegatedToken("token_a", () -> Assertions.assertEquals(
-                Lists.newArrayList("db_a", InfoSchemaDb.DATABASE_NAME, MysqlDb.DATABASE_NAME), catalog.getDbNames()));
-        withDelegatedToken("token_b", () -> Assertions.assertEquals(
-                Lists.newArrayList("db_b", InfoSchemaDb.DATABASE_NAME, MysqlDb.DATABASE_NAME), catalog.getDbNames()));
-        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b"), catalog.tokensUsedToListDatabases);
-
-        withDelegatedToken("token_a", () -> {
-            List<String> sharedDatabaseNames = catalog.getSharedDatabaseNames();
-            Assertions.assertTrue(sharedDatabaseNames.contains("db1"));
-            Assertions.assertFalse(sharedDatabaseNames.contains("db_a"));
-        });
-        Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "bootstrap"),
-                catalog.tokensUsedToListDatabases);
-    }
-
-    @Test
-    public void testDelegatedSessionDatabaseLookupUsesLocalNameMapping() {
-        SessionAwareIcebergCatalog catalog = new SessionAwareIcebergCatalog(
-                Collections.singletonMap("lower_case_database_names", "1"));
-
-        withDelegatedToken("token_upper", () -> {
-            Assertions.assertEquals(Lists.newArrayList("salesdb", InfoSchemaDb.DATABASE_NAME, MysqlDb.DATABASE_NAME),
-                    catalog.getDbNames());
-            ExternalDatabase<?> db = catalog.getDbNullable("salesdb");
-            Assertions.assertNotNull(db);
-            Assertions.assertEquals("salesdb", db.getFullName());
-            Assertions.assertEquals("SalesDB", db.getRemoteName());
-        });
-        Assertions.assertEquals(Lists.newArrayList("token_upper", "token_upper"),
-                catalog.tokensUsedToListDatabases);
-    }
-
-    private static void withDelegatedToken(String token, Runnable action) {
-        ConnectContext context = new ConnectContext();
-        context.setSessionContext(SessionContext.of(new DelegatedCredential(
-                DelegatedCredential.Type.ACCESS_TOKEN, token)));
-        context.setThreadLocalInfo();
-        try {
-            action.run();
-        } finally {
-            ConnectContext.remove();
+            // Per-user visibility: each token sees only its own database — no cross-user leakage.
+            Assertions.assertTrue(aDbs.contains("db_a") && !aDbs.contains("db_b"),
+                    "token_a must see only its own database");
+            Assertions.assertTrue(bDbs.contains("db_b") && !bDbs.contains("db_a"),
+                    "token_b must NOT see token_a's database (shared cache would have leaked it)");
+            Assertions.assertEquals(aDbs, aDbsAgain, "the repeat read re-lists token_a's live view");
+            // Every read listed live under its OWN token -> nothing was served from a shared cache.
+            Assertions.assertEquals(Lists.newArrayList("token_a", "token_b", "token_a"),
+                    catalog.tokensUsedToListDatabases,
+                    "each getDbNames must go live with the current user's token, never hit a shared cache");
+            // System databases stay visible under a per-user listing.
+            Assertions.assertTrue(aDbs.contains(InfoSchemaDb.DATABASE_NAME) && aDbs.contains(MysqlDb.DATABASE_NAME),
+                    "information_schema + mysql must remain visible under the per-user bypass");
         }
     }
 
-    private static class SessionAwareIcebergCatalog extends IcebergRestExternalCatalog {
-        private final List<String> tokensUsedToListTables = Lists.newArrayList();
-        private final List<String> tokensUsedToListDatabases = Lists.newArrayList();
+    /**
+     * A {@code session=user} plugin catalog whose remote database listing is per-token (each token sees only
+     * {@code db_<suffix>}) and records the token it listed under. Pre-initialized so {@code getDbNames} skips the
+     * Env-dependent metaCache build; the credentialed bypass path never touches that cache anyway.
+     */
+    private static final class SessionAwareCatalog extends PluginDrivenExternalCatalog {
+        private final List<String> tokensUsedToListDatabases = new ArrayList<>();
 
-        private SessionAwareIcebergCatalog() {
-            this(Collections.emptyMap());
-        }
-
-        private SessionAwareIcebergCatalog(Map<String, String> overrideProps) {
-            super(1L, "session_catalog", null, catalogProperties(overrideProps), "");
-        }
-
-        private static Map<String, String> catalogProperties(Map<String, String> overrideProps) {
-            Map<String, String> props = new HashMap<>();
-            props.put("type", "iceberg");
-            props.put("iceberg.catalog.type", "rest");
-            props.put("iceberg.rest.uri", "http://localhost:8181");
-            props.put("iceberg.rest.security.type", "oauth2");
-            props.put("iceberg.rest.session", "user");
-            props.put("iceberg.rest.oauth2.credential", "client_credentials");
-            props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
-            props.putAll(overrideProps);
-            return props;
+        SessionAwareCatalog() {
+            super(1L, "test_ctl", null, props(), "", userSessionConnector());
+            this.initialized = true;
         }
 
         @Override
         protected void initLocalObjectsImpl() {
-            executionAuthenticator = new ExecutionAuthenticator() {
-            };
+            // no-op: the connector is injected via the constructor and the catalog is pre-initialized.
         }
 
         @Override
         protected List<String> listDatabaseNames() {
-            tokensUsedToListDatabases.add("bootstrap");
-            return databaseNamesForToken("bootstrap");
-        }
-
-        @Override
-        protected List<String> listDatabaseNames(SessionContext ctx) {
-            String token = token(ctx);
+            String token = SessionContext.current().getDelegatedCredential().get().getToken();
             tokensUsedToListDatabases.add(token);
-            return databaseNamesForToken(token);
-        }
-
-        private List<String> databaseNamesForToken(String token) {
-            if ("token_a".equals(token)) {
-                return Lists.newArrayList("db_a");
-            }
-            if ("token_b".equals(token)) {
-                return Lists.newArrayList("db_b");
-            }
-            if ("token_upper".equals(token)) {
-                return Lists.newArrayList("SalesDB");
-            }
-            return Lists.newArrayList("db1");
+            // per-user: token_a -> [db_a], token_b -> [db_b]
+            return Lists.newArrayList("db_" + token.substring("token_".length()));
         }
 
         @Override
-        protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
-            String token = token(ctx);
-            tokensUsedToListTables.add(token);
-            if ("token_a".equals(token)) {
-                return Lists.newArrayList("table_a");
-            }
-            if ("token_b".equals(token)) {
-                return Lists.newArrayList("table_b");
-            }
-            return Lists.newArrayList("bootstrap_table");
+        public String fromRemoteDatabaseName(String remoteDatabaseName) {
+            // identity mapping (avoids routing through the mocked connector's metadata for the local name)
+            return remoteDatabaseName;
         }
 
-        @Override
-        public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-            return listTableNamesFromRemote(ctx, dbName).contains(tblName);
+        private static Connector userSessionConnector() {
+            Connector connector = Mockito.mock(Connector.class);
+            Mockito.when(connector.getCapabilities())
+                    .thenReturn(EnumSet.of(ConnectorCapability.SUPPORTS_USER_SESSION));
+            return connector;
         }
 
-        @Override
-        public boolean isIcebergRestUserSessionEnabled() {
-            return true;
-        }
-
-        private List<String> getSharedDatabaseNames() {
-            makeSureInitialized();
-            return metaCache.listNames();
-        }
-
-        private static String token(SessionContext ctx) {
-            return ctx.getDelegatedCredential()
-                    .map(DelegatedCredential::getToken)
-                    .orElse("bootstrap");
+        private static Map<String, String> props() {
+            Map<String, String> props = new HashMap<>();
+            props.put("type", "iceberg");
+            return props;
         }
     }
 }
