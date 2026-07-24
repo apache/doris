@@ -106,6 +106,16 @@ constexpr size_t kExpectedGoldenCaseCount = 76;
 constexpr size_t kExpectedGoldenSegmentCount = 154;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
+constexpr std::array<std::string_view, 6> kGoldenProducerTests {
+        "SegmentFlusherFormatTest.WideKeyTableModelsKeepTheirSegmentBytes",
+        "SegmentFlusherFormatTest.AllSupportedScalarValueTypesKeepTheirSegmentBytes",
+        "SegmentFlusherFormatTest.EmbeddedAndExternalIndexesKeepTheirSegmentBytes",
+        "SegmentFlusherFormatTest.ComplexObjectAndVariantValuesKeepTheirSegmentBytes",
+        "SegmentFlusherFormatTest.RowStoreAndSegmentCreatorPathsKeepTheirSegmentBytes",
+        "SegmentFlusherTransformFormatTest.PartialUpdateAndRowBinlogPathsKeepTheirSegmentBytes",
+};
+
+using GoldenManifest = std::map<std::string, std::set<std::string>>;
 
 struct TypeCase {
     std::string_view name;
@@ -1118,8 +1128,13 @@ Result<Block> create_flexible_partial_update_block(const TabletSchemaSPtr& schem
     return block;
 }
 
+struct IntegerTabletBlockOptions {
+    bool include_binlog_columns = false;
+    bool include_existing_key_delete = false;
+};
+
 Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int segment_ordinal,
-                                          bool include_binlog_columns = false) {
+                                          IntegerTabletBlockOptions options = {}) {
     Block block = schema->create_block();
     for (int row = 0; row < 3; ++row) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
@@ -1137,21 +1152,23 @@ Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int se
                 RETURN_IF_ERROR_RESULT(append_text_value(
                         &block, column_index, std::to_string(6000 + segment_ordinal * 10 + row)));
             } else if (name == BINLOG_TSO_COL) {
-                DCHECK(include_binlog_columns);
+                DCHECK(options.include_binlog_columns);
                 RETURN_IF_ERROR_RESULT(append_text_value(
                         &block, column_index, std::to_string(10000 + segment_ordinal * 10 + row)));
             } else if (name == BINLOG_LSN_COL) {
-                DCHECK(include_binlog_columns);
+                DCHECK(options.include_binlog_columns);
                 RETURN_IF_ERROR_RESULT(append_text_value(
                         &block, column_index, std::to_string(20000 + segment_ordinal * 10 + row)));
             } else if (name == BINLOG_OP_COL) {
-                DCHECK(include_binlog_columns);
+                DCHECK(options.include_binlog_columns);
                 RETURN_IF_ERROR_RESULT(append_text_value(&block, column_index, "0"));
             } else if (name == COMMIT_TSO_COL) {
                 RETURN_IF_ERROR_RESULT(append_text_value(&block, column_index, "0"));
             } else if (name == DELETE_SIGN) {
+                const bool is_delete =
+                        row == 2 || (options.include_existing_key_delete && row == 1);
                 RETURN_IF_ERROR_RESULT(
-                        append_text_value(&block, column_index, row == 2 ? "1" : "0"));
+                        append_text_value(&block, column_index, is_delete ? "1" : "0"));
             } else {
                 block.get_by_position(column_index).column->assert_mutable()->insert_default();
             }
@@ -1162,7 +1179,8 @@ Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int se
 
 Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
                                                  const PartialUpdateInfo& partial_update_info,
-                                                 int segment_ordinal) {
+                                                 int segment_ordinal,
+                                                 bool stale_first_existing_sequence = false) {
     Block block = schema->create_block_by_cids(partial_update_info.update_cids);
     for (int row = 0; row < 3; ++row) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
@@ -1174,8 +1192,10 @@ Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
                 RETURN_IF_ERROR_RESULT(append_text_value(
                         &block, column_index, std::to_string(3000 + segment_ordinal * 10 + row)));
             } else if (name == SEQUENCE_COL) {
+                const int sequence_base = stale_first_existing_sequence && row == 0 ? 4999 : 6000;
                 RETURN_IF_ERROR_RESULT(append_text_value(
-                        &block, column_index, std::to_string(6000 + segment_ordinal * 10 + row)));
+                        &block, column_index,
+                        std::to_string(sequence_base + segment_ordinal * 10 + row)));
             } else {
                 return ResultError(
                         Status::InternalError("unexpected fixed partial-update column {}", name));
@@ -1559,44 +1579,205 @@ Status verify_segment_manifest(std::string_view directory, std::string_view case
     return Status::OK();
 }
 
-Status verify_checked_in_golden_root_manifest() {
+Result<GoldenManifest> read_checked_in_golden_manifest() {
+    GoldenManifest manifest;
     std::error_code iteration_error;
-    std::filesystem::recursive_directory_iterator iterator(kGoldenDir, iteration_error);
+    std::filesystem::directory_iterator cases(kGoldenDir, iteration_error);
     if (iteration_error) {
-        return Status::IOError("failed to list checked-in golden directory: {}",
-                               iteration_error.message());
+        return ResultError(Status::IOError("failed to list checked-in golden directory: {}",
+                                           iteration_error.message()));
     }
 
-    size_t case_count = 0;
-    size_t segment_count = 0;
-    const std::filesystem::recursive_directory_iterator end;
-    for (; iterator != end; iterator.increment(iteration_error)) {
+    const std::filesystem::directory_iterator end;
+    for (; cases != end; cases.increment(iteration_error)) {
         if (iteration_error) {
-            return Status::IOError("failed to list checked-in golden directory: {}",
-                                   iteration_error.message());
+            return ResultError(Status::IOError("failed to list checked-in golden directory: {}",
+                                               iteration_error.message()));
         }
-        if (iterator.depth() == 0 && iterator->is_directory(iteration_error)) {
-            ++case_count;
-        } else if (iterator->is_regular_file(iteration_error)) {
-            const auto filename = iterator->path().filename().string();
+        if (!cases->is_directory(iteration_error)) {
+            if (iteration_error) {
+                return ResultError(
+                        Status::IOError("failed to inspect checked-in golden root entry: {}",
+                                        iteration_error.message()));
+            }
+            continue;
+        }
+
+        auto& segment_files = manifest[cases->path().filename().string()];
+        std::filesystem::directory_iterator files(cases->path(), iteration_error);
+        if (iteration_error) {
+            return ResultError(Status::IOError("failed to list checked-in golden case {}: {}",
+                                               cases->path().string(), iteration_error.message()));
+        }
+        for (; files != end; files.increment(iteration_error)) {
+            if (iteration_error) {
+                return ResultError(Status::IOError("failed to list checked-in golden case {}: {}",
+                                                   cases->path().string(),
+                                                   iteration_error.message()));
+            }
+            if (!files->is_regular_file(iteration_error)) {
+                if (iteration_error) {
+                    return ResultError(
+                            Status::IOError("failed to inspect checked-in golden entry {}: {}",
+                                            files->path().string(), iteration_error.message()));
+                }
+                continue;
+            }
+            const auto filename = files->path().filename().string();
             if (std::string_view(filename).starts_with("segment_") &&
                 std::string_view(filename).ends_with(".dat")) {
-                ++segment_count;
+                segment_files.insert(filename);
             }
         }
-        if (iteration_error) {
-            return Status::IOError("failed to inspect checked-in golden directory: {}",
-                                   iteration_error.message());
-        }
     }
-    if (case_count != kExpectedGoldenCaseCount || segment_count != kExpectedGoldenSegmentCount) {
+    return manifest;
+}
+
+Status verify_checked_in_golden_root_manifest() {
+    auto manifest_result = read_checked_in_golden_manifest();
+    if (!manifest_result.has_value()) {
+        return manifest_result.error();
+    }
+    const auto& manifest = manifest_result.value();
+    const auto segment_count = std::accumulate(
+            manifest.begin(), manifest.end(), size_t {0},
+            [](size_t count, const auto& entry) { return count + entry.second.size(); });
+    if (manifest.size() != kExpectedGoldenCaseCount ||
+        segment_count != kExpectedGoldenSegmentCount) {
         return Status::InternalError(
                 "checked-in golden root manifest changed: expected {} cases and {} Segments, "
                 "found {} cases and {} Segments",
-                kExpectedGoldenCaseCount, kExpectedGoldenSegmentCount, case_count, segment_count);
+                kExpectedGoldenCaseCount, kExpectedGoldenSegmentCount, manifest.size(),
+                segment_count);
     }
     return Status::OK();
 }
+
+class GoldenCoverageRegistry {
+public:
+    void begin(bool enabled, GoldenManifest checked_in_manifest) {
+        _enabled = enabled;
+        _checked_in_manifest = std::move(checked_in_manifest);
+        _executed_manifest.clear();
+    }
+
+    Status record(std::string_view case_name, const std::vector<uint32_t>& segment_ids) {
+        if (!_enabled) {
+            return Status::OK();
+        }
+        std::set<std::string> segment_files;
+        for (const auto segment_id : segment_ids) {
+            segment_files.insert(fmt::format("segment_{}.dat", segment_id));
+        }
+        if (segment_files.size() != segment_ids.size()) {
+            return Status::InternalError("duplicate Segment ids executed for {}", case_name);
+        }
+
+        const auto [entry, inserted] =
+                _executed_manifest.emplace(std::string(case_name), segment_files);
+        if (!inserted && entry->second != segment_files) {
+            return Status::InternalError(
+                    "executed Segment manifest changed across repetitions for {}", case_name);
+        }
+        return Status::OK();
+    }
+
+    Status finish() const {
+        if (!_enabled || _checked_in_manifest == _executed_manifest) {
+            return Status::OK();
+        }
+        for (const auto& [case_name, segment_files] : _checked_in_manifest) {
+            const auto executed = _executed_manifest.find(case_name);
+            if (executed == _executed_manifest.end()) {
+                return Status::InternalError(
+                        "checked-in golden case {} was not executed; its {} Segment files are "
+                        "orphaned",
+                        case_name, segment_files.size());
+            }
+            if (executed->second != segment_files) {
+                return Status::InternalError(
+                        "executed Segment manifest differs from checked-in files for {}",
+                        case_name);
+            }
+        }
+        for (const auto& [case_name, segment_files] : _executed_manifest) {
+            if (!_checked_in_manifest.contains(case_name)) {
+                return Status::InternalError(
+                        "executed golden case {} with {} Segments has no checked-in directory",
+                        case_name, segment_files.size());
+            }
+        }
+        return Status::InternalError("executed and checked-in golden manifests differ");
+    }
+
+private:
+    bool _enabled = false;
+    GoldenManifest _checked_in_manifest;
+    GoldenManifest _executed_manifest;
+};
+
+GoldenCoverageRegistry& golden_coverage_registry() {
+    static GoldenCoverageRegistry registry;
+    return registry;
+}
+
+class GoldenCoverageEnvironment : public testing::Environment {
+public:
+    void SetUp() override {
+        auto& registry = golden_coverage_registry();
+        registry.begin(false, {});
+        if (std::getenv(kGoldenOutputDirEnv.data()) != nullptr) {
+            return;
+        }
+
+        std::array<bool, kGoldenProducerTests.size()> found {};
+        std::array<bool, kGoldenProducerTests.size()> selected {};
+        const auto* unit_test = testing::UnitTest::GetInstance();
+        for (int suite_index = 0; suite_index < unit_test->total_test_suite_count();
+             ++suite_index) {
+            const auto* test_suite = unit_test->GetTestSuite(suite_index);
+            for (int test_index = 0; test_index < test_suite->total_test_count(); ++test_index) {
+                const auto* test_info = test_suite->GetTestInfo(test_index);
+                const auto full_name = fmt::format("{}.{}", test_suite->name(), test_info->name());
+                const auto producer = std::find(kGoldenProducerTests.begin(),
+                                                kGoldenProducerTests.end(), full_name);
+                if (producer == kGoldenProducerTests.end()) {
+                    continue;
+                }
+                const auto producer_index =
+                        static_cast<size_t>(std::distance(kGoldenProducerTests.begin(), producer));
+                found[producer_index] = true;
+                selected[producer_index] = test_info->should_run();
+            }
+        }
+
+        bool missing_producer = false;
+        for (size_t index = 0; index < kGoldenProducerTests.size(); ++index) {
+            if (!found[index]) {
+                ADD_FAILURE() << "missing golden producer test " << kGoldenProducerTests[index];
+                missing_producer = true;
+            }
+        }
+        if (missing_producer ||
+            !std::all_of(selected.begin(), selected.end(), [](bool value) { return value; })) {
+            return;
+        }
+
+        auto manifest_result = read_checked_in_golden_manifest();
+        if (!manifest_result.has_value()) {
+            ADD_FAILURE() << manifest_result.error().to_string();
+            return;
+        }
+        registry.begin(true, std::move(manifest_result).value());
+    }
+
+    void TearDown() override {
+        const auto status = golden_coverage_registry().finish();
+        if (!status.ok()) {
+            ADD_FAILURE() << status.to_string();
+        }
+    }
+};
 
 struct LogicalSegmentContents {
     Block block;
@@ -1806,6 +1987,63 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
                                    .max_primary_key = std::move(max_primary_key)};
 }
 
+Status verify_segment_field(const Block& block, std::string_view column_name, size_t row_id,
+                            const Field& expected) {
+    const auto position = block.get_position_by_name(std::string(column_name));
+    if (position < 0) {
+        return Status::InternalError("row-binlog Segment is missing column {}", column_name);
+    }
+    Field actual;
+    block.get_by_position(position).column->get(row_id, actual);
+    if (!logical_field_equal(actual, expected)) {
+        return Status::InternalError("row-binlog Segment column {} row {} has an unexpected value",
+                                     column_name, row_id);
+    }
+    return Status::OK();
+}
+
+Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t segment_id) {
+    const auto schema = tablet->row_binlog_tablet_schema();
+    RowsetWriterContext read_context;
+    read_context.tablet_schema = schema;
+    read_context.tablet_id = tablet->tablet_id();
+    read_context.rowset_id.init(10002);
+    auto contents_result = read_logical_segment(
+            fmt::format("{}/mow_row_binlog_before/segment_{}.dat", kTestDir, segment_id),
+            segment_id, schema, read_context, false);
+    if (!contents_result.has_value()) {
+        return contents_result.error();
+    }
+    const auto& block = contents_result.value().block;
+    if (block.rows() != 3) {
+        return Status::InternalError("mow_row_binlog_before segment {} has {} rows, expected 3",
+                                     segment_id, block.rows());
+    }
+
+    const auto key_base = static_cast<Int32>(segment_id * 10);
+    for (size_t row_id = 0; row_id < block.rows(); ++row_id) {
+        const auto key = key_base + static_cast<Int32>(row_id);
+        const auto operation = row_id == 0 ? ROW_BINLOG_UPDATE : ROW_BINLOG_DELETE;
+        RETURN_IF_ERROR(
+                verify_segment_field(block, "k1", row_id, Field::create_field<TYPE_INT>(key)));
+        RETURN_IF_ERROR(verify_segment_field(
+                block, BINLOG_OP_COL, row_id,
+                Field::create_field<TYPE_BIGINT>(static_cast<Int64>(operation))));
+        if (row_id < 2) {
+            RETURN_IF_ERROR(verify_segment_field(
+                    block, "__BEFORE__v1__", row_id,
+                    Field::create_field<TYPE_INT>(static_cast<Int32>(3000 + key))));
+            RETURN_IF_ERROR(verify_segment_field(
+                    block, "__BEFORE__v2__", row_id,
+                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(4000 + key))));
+        } else {
+            RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v1__", row_id, Field {}));
+            RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v2__", row_id, Field {}));
+        }
+    }
+    return Status::OK();
+}
+
 Status compare_logical_segments(std::string_view case_name, uint32_t segment_id,
                                 const LogicalSegmentContents& current,
                                 const LogicalSegmentContents& golden) {
@@ -1947,7 +2185,7 @@ protected:
                         golden_result.value().size());
             }
         }
-        return Status::OK();
+        return golden_coverage_registry().record(case_name, segment_ids);
     }
 
     void SetUp() override {
@@ -3190,22 +3428,59 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                         .ok());
     std::vector<Block> sequence_binlog_blocks;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result =
-                create_binlog_partial_update_block(sequence_binlog_tablet->tablet_schema(),
-                                                   *sequence_binlog_partial_update, segment_id);
+        auto block_result = create_binlog_partial_update_block(
+                sequence_binlog_tablet->tablet_schema(), *sequence_binlog_partial_update,
+                segment_id, /*stale_first_existing_sequence=*/true);
         ASSERT_TRUE(block_result.has_value()) << block_result.error();
         sequence_binlog_blocks.push_back(std::move(block_result).value());
     }
-    ASSERT_TRUE(record(flush_twice("mow_sequence_row_binlog_horizontal",
-                                   sequence_binlog_tablet->row_binlog_tablet_schema(),
-                                   std::move(sequence_binlog_blocks), false, 0,
-                                   DataWriteType::TYPE_DIRECT, false,
-                                   [this, sequence_binlog_tablet, sequence_binlog_partial_update,
-                                    sequence_binlog_history](RowsetWriterContext& context) {
-                                       configure_row_binlog_context(context, sequence_binlog_tablet,
-                                                                    sequence_binlog_partial_update,
-                                                                    sequence_binlog_history);
-                                   })));
+    std::vector<std::pair<bool, int>> sequence_lookup_results;
+    {
+        auto* sync_point = SyncPoint::get_instance();
+        const bool sync_point_was_enabled = sync_point->get_enable();
+        sync_point->enable_processing();
+        Defer restore_sync_point {[sync_point, sync_point_was_enabled] {
+            if (!sync_point_was_enabled) {
+                sync_point->disable_processing();
+            }
+        }};
+        SyncPoint::CallbackGuard lookup_guard;
+        sync_point->set_call_back(
+                "BaseTablet::lookup_row_key:found",
+                [sequence_binlog_tablet, sequence_binlog_history,
+                 &sequence_lookup_results](auto&& args) {
+                    auto* tablet = try_any_cast<BaseTablet*>(args[0]);
+                    auto* rowset = try_any_cast<Rowset*>(args[1]);
+                    if (tablet != sequence_binlog_tablet.get() ||
+                        rowset != sequence_binlog_history.front().get()) {
+                        return;
+                    }
+                    sequence_lookup_results.emplace_back(try_any_cast<bool>(args[2]),
+                                                         try_any_cast<int>(args[3]));
+                },
+                &lookup_guard);
+        ASSERT_TRUE(record(flush_twice(
+                "mow_sequence_row_binlog_horizontal",
+                sequence_binlog_tablet->row_binlog_tablet_schema(),
+                std::move(sequence_binlog_blocks), false, 0, DataWriteType::TYPE_DIRECT, false,
+                [this, sequence_binlog_tablet, sequence_binlog_partial_update,
+                 sequence_binlog_history](RowsetWriterContext& context) {
+                    configure_row_binlog_context(context, sequence_binlog_tablet,
+                                                 sequence_binlog_partial_update,
+                                                 sequence_binlog_history);
+                })));
+    }
+    ASSERT_EQ(sequence_lookup_results.size(), 8);
+    constexpr std::array expected_sequence_lookup_statuses {
+            ErrorCode::KEY_ALREADY_EXISTS, ErrorCode::OK,
+            ErrorCode::KEY_ALREADY_EXISTS, ErrorCode::OK,
+            ErrorCode::KEY_ALREADY_EXISTS, ErrorCode::OK,
+            ErrorCode::KEY_ALREADY_EXISTS, ErrorCode::OK,
+    };
+    for (size_t index = 0; index < sequence_lookup_results.size(); ++index) {
+        EXPECT_TRUE(sequence_lookup_results[index].first);
+        EXPECT_EQ(sequence_lookup_results[index].second, expected_sequence_lookup_statuses[index]);
+    }
 
     auto before_binlog_tablet = create_binlog_tablet(22003, true, true);
     ASSERT_NE(before_binlog_tablet, nullptr);
@@ -3223,7 +3498,8 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     std::vector<Block> before_binlog_blocks;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
         auto block_result =
-                create_integer_tablet_block(before_binlog_tablet->tablet_schema(), segment_id);
+                create_integer_tablet_block(before_binlog_tablet->tablet_schema(), segment_id,
+                                            {.include_existing_key_delete = true});
         ASSERT_TRUE(block_result.has_value()) << block_result.error();
         before_binlog_blocks.push_back(std::move(block_result).value());
     }
@@ -3236,11 +3512,16 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                                              before_binlog_history, true);
             });
     ASSERT_TRUE(before_result.has_value()) << before_result.error();
+    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
+        const auto status = verify_row_binlog_before_segment(before_binlog_tablet, segment_id);
+        ASSERT_TRUE(status.ok()) << status;
+    }
 
     std::vector<Block> compacted_binlog_blocks;
     for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result = create_integer_tablet_block(
-                plain_binlog_tablet->row_binlog_tablet_schema(), segment_id, true);
+        auto block_result =
+                create_integer_tablet_block(plain_binlog_tablet->row_binlog_tablet_schema(),
+                                            segment_id, {.include_binlog_columns = true});
         ASSERT_TRUE(block_result.has_value()) << block_result.error();
         compacted_binlog_blocks.push_back(std::move(block_result).value());
     }
@@ -3251,6 +3532,9 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                 configure_row_binlog_context(context, plain_binlog_tablet);
             })));
 }
+
+[[maybe_unused]] testing::Environment* const kGoldenCoverageEnvironment =
+        testing::AddGlobalTestEnvironment(new GoldenCoverageEnvironment);
 
 } // namespace
 } // namespace doris
