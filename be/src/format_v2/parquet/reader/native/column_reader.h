@@ -411,7 +411,6 @@ private:
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);
-    Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
 class ArrayColumnReader : public ColumnReader {

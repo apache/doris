@@ -844,7 +844,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     _state = INITIALIZED;
-    RETURN_IF_ERROR(_parse_first_page_header());
     return Status::OK();
 }
 
@@ -908,30 +907,46 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::read_levels(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_ensure_dictionary_page_loaded() {
+    if (_dict_checked) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_state == INITIALIZED);
     while (true) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
         const tparquet::PageHeader* header = nullptr;
         RETURN_IF_ERROR(_page_reader->get_page_header(&header));
         if (header->type == tparquet::PageType::DATA_PAGE ||
             header->type == tparquet::PageType::DATA_PAGE_V2) {
-            _state = INITIALIZED;
-            return parse_page_header();
+            if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+                if (header->type == tparquet::PageType::DATA_PAGE &&
+                    _page_reader->has_active_offset_index()) {
+                    // V1 nested pages expose row boundaries only in repetition levels, so an
+                    // indexed seek must not skip the first page before those levels are decoded.
+                    _page_reader->discard_offset_index();
+                    _offset_index = nullptr;
+                }
+            }
+            _dict_checked = true;
+            return Status::OK();
         }
         if (header->type != tparquet::PageType::DICTIONARY_PAGE) {
             RETURN_IF_ERROR(_page_reader->skip_auxiliary_page());
-            _state = INITIALIZED;
             continue;
         }
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
         RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
         RETURN_IF_ERROR(_page_reader->dict_next_page());
-        _state = INITIALIZED;
-        // A dictionary is the only non-data page with decoder state. Any following index or
-        // extension pages are skipped by the same pre-data loop.
+        // A nested V1 chunk must inspect its first data-page type before indexed seeking can skip
+        // that page; dictionary discovery alone is not enough to make the OffsetIndex trustworthy.
     }
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool* has_dict) {
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    *has_dict = _has_dict;
+    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -939,6 +954,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
     const tparquet::PageHeader* header = nullptr;
     while (true) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
@@ -1010,6 +1026,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
+    // Load dictionary state before advancing can jump past the physical dictionary page.
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
     // Level parsing advances _page_data past the allocation base, so retain explicit ownership
     // state instead of inferring whether current decoders still reference decompressed storage.
     _page_uses_decompress_buf = false;
@@ -1022,8 +1040,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
         _decompress_release_pending = false;
         _decompress_release_threshold = std::numeric_limits<size_t>::max();
     }
-    _state = INITIALIZED;
     RETURN_IF_ERROR(_page_reader->next_page());
+    _state = INITIALIZED;
     return Status::OK();
 }
 
@@ -1714,6 +1732,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    }
     if constexpr (OFFSET_INDEX) {
         if (_page_reader->has_active_offset_index()) {
             while (true) {
