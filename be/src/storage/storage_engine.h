@@ -22,6 +22,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest_prod.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -156,6 +157,9 @@ public:
     RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
 
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
+    int64_t memory_limitation_bytes_for_build_index() const;
+    void notify_build_index_task_begin();
+    void notify_build_index_task_end();
 
     int get_disk_num() { return _disk_num; }
 
@@ -191,6 +195,10 @@ protected:
     std::shared_ptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
+
+    FRIEND_TEST(BuildIndexMemoryLimitTest, TaskCounting);
+    int32_t running_build_index_tasks() const;
+    std::atomic<int32_t> _running_build_index_tasks {0};
 
     int _disk_num {-1};
 
