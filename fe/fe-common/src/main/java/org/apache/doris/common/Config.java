@@ -1253,7 +1253,7 @@ public class Config extends ConfigBase {
      * Minimum batch interval for adaptive routine load tasks when not at EOF.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int routine_load_adaptive_min_batch_interval_sec = 360;
+    public static int routine_load_adaptive_min_batch_interval_sec = 120;
 
     /**
      * The max number of files store in SmallFileMgr
