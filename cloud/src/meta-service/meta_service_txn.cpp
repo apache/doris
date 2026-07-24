@@ -1528,6 +1528,7 @@ void MetaServiceImpl::commit_txn_immediately(
         TxnErrorCode& err, KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
+    int64_t commit_tso = request->has_commit_tso() ? request->commit_tso() : -1;
 
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
@@ -1733,6 +1734,8 @@ void MetaServiceImpl::commit_txn_immediately(
             i.set_start_version(new_version);
             i.set_end_version(new_version);
             i.set_visible_ts_ms(rowsets_visible_ts_ms);
+            i.mutable_commit_tso()->set_start_tso(commit_tso);
+            i.mutable_commit_tso()->set_end_tso(commit_tso);
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
@@ -1896,6 +1899,7 @@ void MetaServiceImpl::commit_txn_immediately(
         }
         txn_info.set_commit_time(commit_time);
         txn_info.set_finish_time(commit_time);
+        txn_info.set_commit_tso(commit_tso);
         if (request->has_commit_attachment()) {
             txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
         }
@@ -2204,6 +2208,7 @@ void MetaServiceImpl::commit_txn_eventually(
     std::stringstream ss;
     TxnErrorCode err = TxnErrorCode::TXN_OK;
     int64_t txn_id = request->txn_id();
+    int64_t commit_tso = request->has_commit_tso() ? request->commit_tso() : -1;
 
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
@@ -2428,6 +2433,7 @@ void MetaServiceImpl::commit_txn_eventually(
         }
         txn_info.set_commit_time(commit_time);
         txn_info.set_finish_time(commit_time);
+        txn_info.set_commit_tso(commit_tso);
         if (request->has_commit_attachment()) {
             txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
         }
@@ -2723,6 +2729,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                                               int64_t db_id, KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
+    int64_t commit_tso = request->has_commit_tso() ? request->commit_tso() : -1;
     auto sub_txn_infos = request->sub_txn_infos();
     std::map<int64_t, std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>>
             sub_txn_to_tmp_rowsets_meta;
@@ -2934,6 +2941,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 i.set_start_version(new_version);
                 i.set_end_version(new_version);
                 i.set_visible_ts_ms(rowsets_visible_ts_ms);
+                i.mutable_commit_tso()->set_start_tso(commit_tso);
+                i.mutable_commit_tso()->set_end_tso(commit_tso);
                 LOG(INFO) << "xxx update rowset version, txn_id=" << txn_id
                           << ", sub_txn_id=" << sub_txn_id << ", table_id=" << table_id
                           << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id
@@ -3101,6 +3110,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
         txn_info.set_commit_time(commit_time);
         txn_info.set_finish_time(commit_time);
+        txn_info.set_commit_tso(commit_tso);
         if (request->has_commit_attachment()) {
             txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
         }

@@ -75,6 +75,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
+    reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
 
     TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
@@ -97,8 +98,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
-    if (reader_params.reader_type == ReaderType::READER_BINLOG_COMPACTION) {
-        reader_params.delete_bitmap = tablet->tablet_meta()->binlog_delvec_ptr();
+    if (reader_params.read_row_binlog) {
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
     if (stats_output && stats_output->rowid_conversion) {
@@ -261,6 +262,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
+    reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
     reader_params.enable_sparse_optimization = enable_sparse_optimization;
 
     TabletReadSource read_source;
@@ -286,8 +288,8 @@ Status Merger::vertical_compact_one_group(
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
         has_cluster_key = true;
     }
-    if (reader_params.reader_type == ReaderType::READER_BINLOG_COMPACTION) {
-        reader_params.delete_bitmap = tablet->tablet_meta()->binlog_delvec_ptr();
+    if (reader_params.read_row_binlog) {
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {

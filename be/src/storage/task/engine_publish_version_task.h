@@ -32,6 +32,7 @@
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/task/engine_task.h"
+#include "storage/txn/txn_manager.h"
 #include "util/time.h"
 
 namespace doris {
@@ -65,7 +66,7 @@ class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(StorageEngine& engine, EnginePublishVersionTask* engine_task,
                          TabletSharedPtr tablet, RowsetSharedPtr rowset,
-                         std::vector<RowsetSharedPtr> attach_rowsets, int64_t partition_id,
+                         const RowBinlogTxnInfo& attach_row_binlog, int64_t partition_id,
                          int64_t transaction_id, Version version, const TabletInfo& tablet_info,
                          int64_t commit_tso);
     ~TabletPublishTxnTask();
@@ -79,7 +80,8 @@ private:
 
     TabletSharedPtr _tablet;
     RowsetSharedPtr _rowset;
-    std::vector<RowsetSharedPtr> _attach_rowsets;
+    // the row binlog published together with the base tablet.
+    RowBinlogTxnInfo _attach_row_binlog;
     int64_t _partition_id;
     int64_t _transaction_id;
     Version _version;

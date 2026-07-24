@@ -204,8 +204,6 @@ Status RowSourcesBuffer::_create_buffer_file() {
         file_path_ss << "_full";
     } else if (_reader_type == ReaderType::READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";
-    } else if (_reader_type == ReaderType::READER_BINLOG_COMPACTION) {
-        file_path_ss << "_binlog";
     } else {
         DCHECK(false);
         return Status::InternalError("unknown reader type");

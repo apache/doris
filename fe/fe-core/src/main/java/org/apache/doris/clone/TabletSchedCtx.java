@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.Tablet.CopyType;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
@@ -50,7 +49,6 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.thrift.TTabletCopyType;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
@@ -161,7 +159,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private Tablet tablet = null;
     private long visibleVersion = -1;
     private long committedVersion = -1;
-    private boolean copyRowBinlog = false;
 
     private long tabletSize = 0;
 
@@ -392,10 +389,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setTablet(Tablet tablet) {
         this.tablet = tablet;
-    }
-
-    public void setCopyRowBinlog(boolean copyRowBinlog) {
-        this.copyRowBinlog = copyRowBinlog;
     }
 
     public Tablet getTablet() {
@@ -1056,11 +1049,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         cloneTask = new CloneTask(tDestBe, destBackendId, dbId, tblId, partitionId, indexId, tabletId,
                 replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
                 visibleVersion, (int) (taskTimeoutMs / 1000));
-        int copyType = CopyType.DEFAULT;
-        if (copyRowBinlog) {
-            copyType |= TTabletCopyType.ROW_BINLOG.getValue();
-        }
-        cloneTask.setCopyType(copyType);
         destOldVersion = replica.getVersion();
         cloneTask.setPathHash(srcPathHash, destPathHash);
         LOG.info("create clone task to repair replica, tabletId={}, replica={}, visible version {}, tablet status {}",

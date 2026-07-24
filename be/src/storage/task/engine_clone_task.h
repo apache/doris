@@ -64,13 +64,12 @@ private:
     Status _do_clone();
 
     Status _finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
-                         bool is_incremental_clone, bool copy_row_binlog);
+                         bool is_incremental_clone);
 
     Status _finish_incremental_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta,
-                                     int64_t version, bool copy_row_binlog);
+                                     int64_t version);
 
-    Status _finish_full_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta,
-                              bool copy_row_binlog);
+    Status _finish_full_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta);
 
     Status _make_and_download_snapshots(DataDir& data_dir, const std::string& local_data_path,
                                         TBackend* src_host, std::string* src_file_path,

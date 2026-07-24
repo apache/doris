@@ -645,7 +645,6 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.updateTabletSize();
             tabletCtx.setVersionInfo(partition.getVisibleVersion(), partition.getCommittedVersion());
             tabletCtx.setSchemaHash(tbl.getSchemaHashByIndexId(idx.getId()));
-            tabletCtx.setCopyRowBinlog(idx.getId() == tbl.getBaseIndexId() && tbl.needRowBinlog());
             tabletCtx.setStorageMedium(tbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium());
 
             handleTabletByTypeAndStatus(tabletHealth.status, tabletCtx, batchTask);

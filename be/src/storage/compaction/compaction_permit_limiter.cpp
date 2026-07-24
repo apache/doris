@@ -22,23 +22,13 @@
 
 namespace doris {
 
-CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0), _binlog_used_permits(0) {}
+CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
-bool CompactionPermitLimiter::try_request(int64_t permits, CompactionType compaction_type) {
+bool CompactionPermitLimiter::try_request(int64_t permits) {
     const int64_t total_permits = config::total_permits_for_compaction_score;
     std::unique_lock<std::mutex> lock(_permits_mutex);
     if (_used_permits + permits > total_permits) {
         return false;
-    }
-
-    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
-        const int64_t binlog_total_permits =
-                (total_permits * config::binlog_compaction_permits_percent + 99) / 100;
-        if (_binlog_used_permits + permits > binlog_total_permits) {
-            return false;
-        }
-        _binlog_used_permits += permits;
-        DorisMetrics::instance()->binlog_compaction_used_permits->set_value(_binlog_used_permits);
     }
 
     _used_permits += permits;
@@ -76,12 +66,8 @@ void CompactionPermitLimiter::request(int64_t permits) {
     DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);
 }
 
-void CompactionPermitLimiter::release(int64_t permits, CompactionType compaction_type) {
+void CompactionPermitLimiter::release(int64_t permits) {
     std::unique_lock<std::mutex> lock(_permits_mutex);
-    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
-        _binlog_used_permits -= permits;
-        DorisMetrics::instance()->binlog_compaction_used_permits->set_value(_binlog_used_permits);
-    }
     _used_permits -= permits;
     _permits_cv.notify_one();
     DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);

@@ -101,6 +101,7 @@ message PResetGlobalRfResult {
 message PTabletWithPartition {
     required int64 partition_id = 1;
     required int64 tablet_id = 2;
+    optional int64 binlog_tablet_id = 3;
 }
 
 message PRandomBucketPartitionParam {

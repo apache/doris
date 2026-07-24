@@ -20,20 +20,24 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility;
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id))
+    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
     return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
-            ip, port, tablet_id, compact_type))
+            ip, port, tablet_id, compact_type), null, 10,
+            context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
@@ -52,19 +56,15 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
     return _be_run_compaction(ip, port, tablet_id, "full")
 }
 
-Suite.metaClass.be_run_binlog_compaction = { String ip, String port, String tablet_id  /* param */->
-    return _be_run_compaction(ip, port, tablet_id, "binlog")
-}
-
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id),
+            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
-logger.info("Added 'be_run_binlog_compaction' function to Suite")
 Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[] ->
-    if (!(compaction_type in ["cumulative", "base", "full", "binlog"])) {
-        throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full, binlog")
+    if (!(compaction_type in ["cumulative", "base", "full"])) {
+        throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
 
     def backendId_to_backendIP = [:]
@@ -101,9 +101,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 break
             case "full":
                 (exit_code, stdout, stderr) = be_run_full_compaction(be_host, be_port, tablet.TabletId)
-                break
-            case "binlog":
-                (exit_code, stdout, stderr) = be_run_binlog_compaction(be_host, be_port, tablet.TabletId)
                 break
         }
         assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"

@@ -436,6 +436,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
                     tableList.stream().map(Table::getId).collect(Collectors.toList()));
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            long commitTSO = TransactionUtil.getCommitTSO(transactionId, database,
+                    tableList.stream().map(Table::getId).collect(Collectors.toSet()));
             if (!mowTableList.isEmpty()) {
                 if (!checkTransactionStateBeforeCommit(dbId, transactionId)) {
                     return;
@@ -449,7 +452,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
-                    mowTableList, backendToPartitionInfos);
+                    mowTableList, backendToPartitionInfos, commitTSO);
             // clear signature after commit succeeds
             clearTxnLastSignature(dbId, transactionId);
         } catch (Exception e) {
@@ -683,7 +686,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
-            List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
+            List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
+            long commitTSO)
             throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException(
@@ -703,6 +707,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setTxnId(transactionId)
                 .setIs2Pc(is2PC)
                 .setCloudUniqueId(Config.cloud_unique_id)
+                .setCommitTso(commitTSO)
                 .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos))
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
@@ -1019,6 +1024,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (!tableMap.containsKey(tableId)) {
                 continue;
             }
+            long partitionId = tabletMeta.getPartitionId();
+            Partition partition = tableMap.get(tableId).getPartition(partitionId);
+            if (partition == null) {
+                throw new MetaNotFoundException("partition " + partitionId + " does not exist");
+            }
+            MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
+            if (index == null) {
+                throw new MetaNotFoundException("index " + tabletMeta.getIndexId() + " does not exist");
+            }
+            if (index.isRowBinlog()) {
+                // Row-binlog delete bitmap is derived and saved by its base tablet.
+                continue;
+            }
 
             lockContext.getTabletToTabletMeta().put(tabletId, tabletMeta);
 
@@ -1028,7 +1046,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 tableTabletIds.add(tabletId);
             }
 
-            long partitionId = tabletMeta.getPartitionId();
             long backendId = tabletCommitInfos.get(i).getBackendId();
 
             if (!lockContext.getTableToPartitions().containsKey(tableId)) {
@@ -1044,10 +1061,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 partitionToTablets.put(partitionId, Sets.newHashSet());
             }
             partitionToTablets.get(partitionId).add(tabletId);
-            Partition partition = tableMap.get(tableId).getPartition(partitionId);
-            if (partition == null) {
-                throw new MetaNotFoundException("partition " + partitionId + " does not exist");
-            }
             lockContext.getPartitions().putIfAbsent(partitionId, partition);
         }
         if (!tableList.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
@@ -1581,6 +1594,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         try {
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
+            long commitTSO = TransactionUtil.getCommitTSO(transactionId, (Database) db,
+                    tableList.stream().map(Table::getId).collect(Collectors.toSet()));
             if (!mowTableList.isEmpty()) {
                 if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
                     return true;
@@ -1598,7 +1613,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         lockContext, partitionToSubTxnIds);
             }
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
-                    backendToPartitionInfos);
+                    backendToPartitionInfos, commitTSO);
             // clear signature after commit succeeds
             clearTxnLastSignature(db.getId(), transactionId);
         } catch (Exception e) {
@@ -1636,7 +1651,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void commitTransactionWithSubTxns(long dbId, List<Table> tableList, long transactionId,
             List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
-            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos) throws UserException {
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos, long commitTSO)
+            throws UserException {
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
             sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
@@ -1651,6 +1667,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setIs2Pc(false)
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setIsTxnLoad(true)
+                .setCommitTso(commitTSO)
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
@@ -1682,9 +1699,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     .sorted(Comparator.comparingLong(Table::getId))
                     .collect(Collectors.toList());
         } else {
-            // If disabled, only lock MOW tables
+            // If disabled, only lock tables that need ordered commit metadata.
             return tableList.stream()
-                    .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                    .filter(table -> table instanceof OlapTable
+                            && (((OlapTable) table).getEnableUniqueKeyMergeOnWrite()
+                            || ((OlapTable) table).enableTso()))
                     .sorted(Comparator.comparingLong(Table::getId))
                     .collect(Collectors.toList());
         }
@@ -1721,6 +1740,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                     + ", tableList=(" + StringUtils.join(tablesToLock, ",") + ")");
                 }
             }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait")) {
+            LOG.info("debug point: block at CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
+            String token = debugPoint.param("token", "invalid_token");
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait")) {
+                DebugPoint spinWaitDebugPoint = DebugPointUtil.getDebugPoint(
+                        "CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
+                String passToken = spinWaitDebugPoint.param("pass_token", "");
+                if (token.equals(passToken)) {
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave CloudGlobalTransactionMgr.tryCommitLock.enable_spin_wait");
         }
         if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.timeout")) {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
@@ -1817,13 +1856,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
-        List<OlapTable> mowTableList = getMowTableList(tableList, null);
-        if (!mowTableList.isEmpty()) {
-            if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
-                return;
+        beforeCommitTransaction(tableList, transactionId, timeoutMillis);
+        try {
+            List<OlapTable> mowTableList = getMowTableList(tableList, null);
+            if (!mowTableList.isEmpty()) {
+                if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
+                    return;
+                }
             }
+            long commitTSO = TransactionUtil.getCommitTSO(transactionId, db,
+                    tableList.stream().map(Table::getId).collect(Collectors.toSet()));
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true,
+                    mowTableList, null, commitTSO);
+        } finally {
+            afterCommitTransaction(tableList, transactionId);
         }
-        commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true, mowTableList, null);
     }
 
     @Override

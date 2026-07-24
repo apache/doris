@@ -59,6 +59,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.ColumnsUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.proto.OlapCommon;
@@ -128,7 +129,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 distributionInfo, dbId, tbl.getId());
 
         // add to index map
-        Map<Long, MaterializedIndex> indexMap = Maps.newHashMap();
+        // Use LinkedHashMap so the base index is processed before the row-binlog companion index.
+        Map<Long, MaterializedIndex> indexMap = Maps.newLinkedHashMap();
         indexMap.put(tbl.getBaseIndexId(), baseIndex);
 
         // create rollup index if has
@@ -137,7 +139,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 continue;
             }
 
-            MaterializedIndex rollup = new MaterializedIndex(indexId, IndexState.NORMAL);
+            MaterializedIndex rollup = new MaterializedIndex(indexId,
+                    indexIdToMeta.get(indexId).isRowBinlogIndex() ? IndexState.ROW_BINLOG : IndexState.NORMAL);
             indexMap.put(indexId, rollup);
         }
 
@@ -148,18 +151,24 @@ public class CloudInternalCatalog extends InternalCatalog {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
             MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+            boolean isRowBinlogIndex = indexMeta.isRowBinlogIndex();
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId,
                     indexId, schemaHash, dataProperty.getStorageMedium());
-            createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
-                    tabletMeta, tabletIdSet);
+            if (isRowBinlogIndex) {
+                createCloudRowBinlogTablets(index, baseIndex, version, tabletMeta, tabletIdSet);
+            } else {
+                createCloudTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
+                        tabletMeta, tabletIdSet);
+            }
 
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             // TStorageType storageType = indexMeta.getStorageType();
             List<Column> columns = indexMeta.getSchema();
             KeysType keysType = indexMeta.getKeysType();
+            boolean enableUniqueKeyMergeOnWrite = !isRowBinlogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
 
             List<Index> indexes;
             if (index.getId() == tbl.getBaseIndexId()) {
@@ -182,8 +191,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
-                        tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                        enableUniqueKeyMergeOnWrite, tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
+                        binlogConfig, tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
@@ -196,7 +205,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
-                                    tbl.getVerticalCompactionNumColumnsPerGroup());
+                        tbl.getVerticalCompactionNumColumnsPerGroup(), isRowBinlogIndex);
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -222,7 +231,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-            boolean storeRowColumn, int schemaVersion, String compactionPolicy,
+            boolean storeRowColumn, int schemaVersion, BinlogConfig binlogConfig, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
@@ -231,7 +240,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
-            int verticalCompactionNumColumnsPerGroup) throws DdlException {
+            int verticalCompactionNumColumnsPerGroup, boolean isRowBinlogTablet) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -245,6 +254,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setIsInMemory(isInMemory);
         builder.setTtlSeconds(ttlSeconds);
         builder.setSchemaVersion(schemaVersion);
+        builder.setIsRowBinlogTablet(isRowBinlogTablet);
+        if (binlogConfig != null) {
+            builder.setBinlogConfig(binlogConfig.toProtobuf());
+        }
 
         UUID uuid = UUID.randomUUID();
         Types.PUniqueId tabletUid = Types.PUniqueId.newBuilder()
@@ -260,7 +273,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setReplicaId(tablet.getReplicas().get(0).getId());
         builder.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
-        builder.setCompactionPolicy(compactionPolicy);
+        builder.setCompactionPolicy(isRowBinlogTablet
+                ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
         builder.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         builder.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         builder.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
@@ -479,6 +493,29 @@ public class CloudInternalCatalog extends InternalCatalog {
             tablet.addReplica(replica);
         }
         index.appendTablets(bucketTablets);
+    }
+
+    private void createCloudRowBinlogTablets(MaterializedIndex rowBinlogIndex, MaterializedIndex baseIndex,
+            long version, TabletMeta tabletMeta, Set<Long> tabletIdSet) {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> baseTablets = baseIndex.getTablets();
+        List<Tablet> rowBinlogTablets = new ArrayList<>(baseTablets.size());
+        for (int i = 0; i < baseTablets.size(); ++i) {
+            Tablet baseTablet = baseTablets.get(i);
+            Tablet rowBinlogTablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
+            baseTablet.setAlignedTabletId(rowBinlogTablet.getId());
+            rowBinlogTablet.setAlignedTabletId(baseTablet.getId());
+            invertedIndex.addTablet(rowBinlogTablet.getId(), tabletMeta);
+            rowBinlogTablets.add(rowBinlogTablet);
+            tabletIdSet.add(rowBinlogTablet.getId());
+
+            long replicaId = Env.getCurrentEnv().getNextId();
+            Replica replica = new CloudReplica(replicaId, null, ReplicaState.NORMAL, version,
+                    tabletMeta.getOldSchemaHash(), tabletMeta.getDbId(), tabletMeta.getTableId(),
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
+            rowBinlogTablet.addReplica(replica);
+        }
+        rowBinlogIndex.appendTablets(rowBinlogTablets);
     }
 
     @Override

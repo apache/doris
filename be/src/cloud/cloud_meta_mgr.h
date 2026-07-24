@@ -84,9 +84,16 @@ public:
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
+
+    Status commit_rowsets(RowsetMeta& rs_meta, RowsetMeta& attach_row_binlog,
+                          const std::string& job_id, int64_t table_id,
+                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr,
+                          std::shared_ptr<RowsetMeta>* existed_attach_row_binlog = nullptr);
     void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id);
+    Status update_tmp_rowsets(const RowsetMeta& rs_meta, const RowsetMeta& attach_row_binlog,
+                              int64_t table_id);
 
     Status update_packed_file_info(const std::string& packed_file_path,
                                    const cloud::PackedFileInfoPB& packed_file_info,

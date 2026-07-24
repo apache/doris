@@ -184,9 +184,17 @@ public:
                        const CreateRowsetRequest* request, CreateRowsetResponse* response,
                        ::google::protobuf::Closure* done) override;
 
+    void commit_rowsets(::google::protobuf::RpcController* controller,
+                        const CreateRowsetsRequest* request, CreateRowsetsResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
     void update_tmp_rowset(::google::protobuf::RpcController* controller,
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override;
+
+    void update_tmp_rowsets(::google::protobuf::RpcController* controller,
+                            const CreateRowsetsRequest* request, CreateRowsetsResponse* response,
+                            ::google::protobuf::Closure* done) override;
 
     void update_packed_file_info(::google::protobuf::RpcController* controller,
                                  const UpdatePackedFileInfoRequest* request,
@@ -429,6 +437,15 @@ public:
                           ::google::protobuf::Closure* done) override;
 
 private:
+    void commit_rowset_meta(Transaction* txn, const std::string& instance_id,
+                            const std::string& tablet_job_id, doris::RowsetMetaCloudPB& rowset_meta,
+                            doris::RowsetMetaCloudPB* existed_rowset_meta, MetaServiceCode& code,
+                            std::string& msg);
+    void update_tmp_rowset_meta(Transaction* txn, const std::string& instance_id,
+                                doris::RowsetMetaCloudPB& rowset_meta,
+                                doris::RowsetMetaCloudPB* existed_rowset_meta,
+                                MetaServiceCode& code, std::string& msg);
+
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
@@ -662,10 +679,22 @@ public:
         call_impl(&cloud::MetaService::commit_rowset, controller, request, response, done);
     }
 
+    void commit_rowsets(::google::protobuf::RpcController* controller,
+                        const CreateRowsetsRequest* request, CreateRowsetsResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_rowsets, controller, request, response, done);
+    }
+
     void update_tmp_rowset(::google::protobuf::RpcController* controller,
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tmp_rowset, controller, request, response, done);
+    }
+
+    void update_tmp_rowsets(::google::protobuf::RpcController* controller,
+                            const CreateRowsetsRequest* request, CreateRowsetsResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_tmp_rowsets, controller, request, response, done);
     }
 
     void update_packed_file_info(::google::protobuf::RpcController* controller,

@@ -1017,6 +1017,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             BinlogConfig oldBinlogConfig = getBinlogConfig();
             BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
+            if (newBinlogConfig.isEnableForCCR()) {
+                if (Config.isCloudMode()) {
+                    throw new DdlException("Binlog<CCR> is not supported in cloud mode");
+                }
+            }
+
             if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {

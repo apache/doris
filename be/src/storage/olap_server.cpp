@@ -61,6 +61,7 @@
 #include "storage/compaction/cold_data_compaction.h"
 #include "storage/compaction/compaction_permit_limiter.h"
 #include "storage/compaction/cumulative_compaction.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction_task_tracker.h"
@@ -181,7 +182,7 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
         return _tablet_submitted_cumu_compaction[dir];
     case CompactionType::FULL_COMPACTION:
         return _tablet_submitted_full_compaction[dir];
-    case CompactionType::BINLOG_COMPACTION:
+    case CompactionType::CUMU_BINLOG_COMPACTION:
         return _tablet_submitted_binlog_compaction[dir];
     default:
         CHECK(false) << "invalid compaction type";
@@ -784,13 +785,12 @@ void StorageEngine::_binlog_compaction_tasks_producer_callback() {
             }
 
             std::vector<TabletCompactionContext> tablet_compaction_contexts =
-                    _generate_compaction_tasks(CompactionType::BINLOG_COMPACTION, data_dirs,
+                    _generate_compaction_tasks(CompactionType::CUMU_BINLOG_COMPACTION, data_dirs,
                                                check_score);
             for (const auto& tablet_compaction_context : tablet_compaction_contexts) {
                 const auto& tablet = tablet_compaction_context.tablet;
-                Status st =
-                        _submit_compaction_task(tablet, CompactionType::BINLOG_COMPACTION, false, 0,
-                                                tablet_compaction_context.prefer_compaction_level);
+                Status st = _submit_compaction_task(tablet, CompactionType::CUMU_BINLOG_COMPACTION,
+                                                    false, 0);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit binlog compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;
@@ -821,7 +821,7 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
 
 bool need_generate_compaction_tasks(int task_cnt_per_disk, int thread_per_disk,
                                     CompactionType compaction_type, bool all_base) {
-    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
         return task_cnt_per_disk < thread_per_disk;
     }
 
@@ -869,7 +869,7 @@ int get_concurrent_per_disk(int max_score, int thread_per_disk) {
 }
 
 int32_t disk_compaction_slot_num(const DataDir& data_dir, CompactionType compaction_type) {
-    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
         return config::binlog_compaction_task_num_per_disk;
     }
     return data_dir.is_ssd_disk() ? config::compaction_task_num_per_fast_disk
@@ -903,9 +903,9 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
     for (auto* data_dir : data_dirs) {
         bool need_pick_tablet = true;
         uint32_t executing_task_num =
-                compaction_type == CompactionType::BINLOG_COMPACTION
+                compaction_type == CompactionType::CUMU_BINLOG_COMPACTION
                         ? compaction_registry_snapshot.count_executing_compaction(
-                                  data_dir, CompactionType::BINLOG_COMPACTION)
+                                  data_dir, CompactionType::CUMU_BINLOG_COMPACTION)
                         : compaction_registry_snapshot.count_executing_cumu_and_base(data_dir);
         need_pick_tablet = has_free_compaction_slot(&compaction_registry_snapshot, data_dir,
                                                     compaction_type, executing_task_num);
@@ -944,7 +944,7 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
         } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
             DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
                     max_compaction_score);
-        } else if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+        } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
             DorisMetrics::instance()->tablet_binlog_max_compaction_score->set_value(
                     max_compaction_score);
         }
@@ -961,6 +961,9 @@ void StorageEngine::_update_cumulative_compaction_policy() {
         _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
                 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                         CUMULATIVE_TIME_SERIES_POLICY);
+        _cumulative_compaction_policies[CUMULATIVE_BINLOG_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_BINLOG_POLICY);
     }
 }
 
@@ -986,7 +989,7 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force,
-                                              int trigger_method, int8_t prefer_compaction_level) {
+                                              int trigger_method) {
     bool already_exist = _compaction_submit_registry.insert(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist<false>(
@@ -996,12 +999,12 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     tablet->compaction_stage = CompactionStage::PENDING;
     std::shared_ptr<CompactionMixin> compaction;
     int64_t permits = 0;
-    Status st = Tablet::prepare_compaction_and_calculate_permits(
-            compaction_type, tablet, compaction, permits, prefer_compaction_level);
+    Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
+                                                                 compaction, permits);
     if (st.ok() && permits > 0) {
         if (!force) {
-            if (compaction_type == CompactionType::BINLOG_COMPACTION) {
-                if (!_permit_limiter.try_request(permits, compaction_type)) {
+            if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+                if (!_permit_limiter.try_request(permits)) {
                     _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                     tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
                     return Status::OK();
@@ -1029,8 +1032,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             case CompactionType::FULL_COMPACTION:
                 info.compaction_type = CompactionProfileType::FULL;
                 break;
-            case CompactionType::BINLOG_COMPACTION:
-                info.compaction_type = CompactionProfileType::BINLOG;
+            case CompactionType::CUMU_BINLOG_COMPACTION:
+                info.compaction_type = CompactionProfileType::CUMULATIVE;
                 break;
             default:
                 DCHECK(false) << "invalid compaction type: " << compaction_type;
@@ -1060,7 +1063,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             thread_pool = &_cumu_compaction_thread_pool;
             compaction_type_name = "CUMU";
             break;
-        case CompactionType::BINLOG_COMPACTION:
+        case CompactionType::CUMU_BINLOG_COMPACTION:
             thread_pool = &_binlog_compaction_thread_pool;
             compaction_type_name = "BINLOG";
             break;
@@ -1096,7 +1099,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             // Cleanup tracker on submit failure
             tracker->remove_task(compaction_id);
             if (!force) {
-                _permit_limiter.release(permits, compaction_type);
+                _permit_limiter.release(permits);
             }
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
@@ -1133,7 +1136,7 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
         DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                 _base_compaction_thread_pool->get_queue_size());
-    } else if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+    } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
         DorisMetrics::instance()->binlog_compaction_task_running_total->increment(1);
         DorisMetrics::instance()->binlog_compaction_task_pending_total->set_value(
                 _binlog_compaction_thread_pool->get_queue_size());
@@ -1144,7 +1147,7 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         // Idempotent cleanup: remove task from tracker
         CompactionTaskTracker::instance()->remove_task(compaction_id);
         if (!force) {
-            _permit_limiter.release(permits, compaction_type);
+            _permit_limiter.release(permits);
         }
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
@@ -1161,7 +1164,7 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
             DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
             DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                     _base_compaction_thread_pool->get_queue_size());
-        } else if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+        } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
             DorisMetrics::instance()->binlog_compaction_task_running_total->increment(-1);
             DorisMetrics::instance()->binlog_compaction_task_pending_total->set_value(
                     _binlog_compaction_thread_pool->get_queue_size());
@@ -1262,16 +1265,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
                 _get_cumulative_compaction_policy(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
-    int8_t prefer_compaction_level = -1;
-    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
-        tablet->calc_compaction_score(compaction_type, &prefer_compaction_level);
-        if (prefer_compaction_level < 0) {
-            return Status::Error<ErrorCode::BINLOG_COMPACTION_NO_SUITABLE_VERSION>(
-                    "failed to init binlog compaction due to no suitable version");
-        }
-    }
-    return _submit_compaction_task(tablet, compaction_type, force, trigger_method,
-                                   prefer_compaction_level);
+    return _submit_compaction_task(tablet, compaction_type, force, trigger_method);
 }
 
 Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,

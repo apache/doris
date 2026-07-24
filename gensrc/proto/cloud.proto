@@ -533,6 +533,7 @@ message TxnInfoPB {
     // The cluster_id of the compute cluster that performed the load
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
+    optional int64 commit_tso = 23;
 }
 
 // For check txn conflict and txn timeout
@@ -1021,6 +1022,7 @@ message CommitTxnRequest {
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
     optional string request_ip = 12;
+    optional int64 commit_tso = 13;
 }
 
 message SubTxnInfo {
@@ -1356,6 +1358,22 @@ message CreateRowsetRequest {
 message CreateRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
     optional doris.RowsetMetaCloudPB existed_rowset_meta = 2;
+}
+
+message CreateRowsetsRequest {
+    optional string cloud_unique_id = 1; // For auth
+    // Currently only supports data rowset + row-binlog rowset.
+    optional doris.RowsetMetaCloudPB rowset_meta = 2;
+    optional doris.RowsetMetaCloudPB attach_row_binlog = 3;
+    optional int64 txn_id = 4;
+    optional string tablet_job_id = 5;
+    optional string request_ip = 6;
+}
+
+message CreateRowsetsResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional doris.RowsetMetaCloudPB existed_rowset_meta = 2;
+    optional doris.RowsetMetaCloudPB existed_attach_row_binlog = 3;
 }
 
 message GetRowsetRequest {
@@ -2315,7 +2333,9 @@ service MetaService {
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc commit_rowsets(CreateRowsetsRequest) returns (CreateRowsetsResponse);
     rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc update_tmp_rowsets(CreateRowsetsRequest) returns (CreateRowsetsResponse);
     rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
     rpc get_schema_dict(GetSchemaDictRequest) returns (GetSchemaDictResponse);
     rpc prepare_index(IndexRequest) returns (IndexResponse);

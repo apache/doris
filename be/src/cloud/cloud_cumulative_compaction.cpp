@@ -537,7 +537,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     _engine.cumu_compaction_policy(compaction_policy)
             ->pick_input_rowsets(cloud_tablet(), candidate_rowsets, max_score,
                                  config::cumulative_compaction_min_deltas, &_input_rowsets,
-                                 &_last_delete_version, &compaction_score);
+                                 &_last_delete_version, &compaction_score,
+                                 _allow_delete_in_cumu_compaction);
 
     if (_input_rowsets.empty()) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(

@@ -41,6 +41,7 @@ class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
+    bool read_row_binlog = false;
     Version version {-1, -1};
     TabletSchemaSPtr tablet_schema = nullptr;
     std::vector<int> topn_filter_source_node_ids;

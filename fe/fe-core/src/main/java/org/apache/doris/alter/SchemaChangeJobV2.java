@@ -308,11 +308,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
 
-                            MaterializedIndexMeta rowBinlogIndexMeta = null;
-                            if (tbl.needRowBinlog() && originIndexId == tbl.getBaseIndexId()) {
-                                rowBinlogIndexMeta = tbl.getRowBinlogMeta();
-                            }
-
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
@@ -341,8 +336,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                     tbl.storageDictPageSize(),
                                     columnSeqMapping,
-                                    tbl.getVerticalCompactionNumColumnsPerGroup(),
-                                    rowBinlogIndexMeta);
+                                    tbl.getVerticalCompactionNumColumnsPerGroup());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);

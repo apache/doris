@@ -159,6 +159,7 @@ public:
     std::string brief(bool detail = false) const;
 
     bool is_mow_table() const;
+    bool enable_tso() const;
 
     Status allocate_schema_buffer() {
         if (_schema_buffer == nullptr) {

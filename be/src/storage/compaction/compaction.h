@@ -76,7 +76,6 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
-    virtual int8_t compaction_level() const { return -1; }
 
     // Returns compaction profile type for task tracking.
     // Default returns std::nullopt (not tracked). Only base/cumulative/full override.

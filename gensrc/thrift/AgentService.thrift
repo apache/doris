@@ -75,14 +75,6 @@ enum TEncryptionAlgorithm {
     SM4 = 2
 }
 
-// Bit flags used by clone/snapshot to describe which tablet files must be copied.
-// Request fields use i32 bitmasks of TTabletCopyType values.
-enum TTabletCopyType {
-    DATA = 1,
-    ROW_BINLOG = 2,
-    CCR_BINLOG = 4
-}
-
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
@@ -254,7 +246,7 @@ struct TCreateTabletReq {
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
     31: optional i32 vertical_compaction_num_columns_per_group = 5
-    32: optional TTabletSchema row_binlog_schema
+    32: optional bool is_row_binlog_tablet = false
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -387,7 +379,6 @@ struct TCloneReq {
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
     13: optional i64 table_id = -1
-    14: optional i32 copy_type = 5 // bitmask of TTabletCopyType, DATA | CCR_BINLOG by default
 }
 
 struct TCompactionReq {
@@ -467,7 +458,6 @@ struct TSnapshotRequest {
     12: optional Types.TVersion end_version
     13: optional bool is_copy_binlog
     14: optional Types.TTabletId ref_tablet_id
-    15: optional i32 copy_type = 1 // bitmask of TTabletCopyType, DATA by default
 }
 
 struct TReleaseSnapshotRequest {

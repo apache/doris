@@ -32,6 +32,7 @@
 #include "storage/rowset/pending_rowset_helper.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet_fwd.h"
+#include "storage/txn/txn_manager.h"
 
 namespace doris {
 
@@ -87,8 +88,8 @@ public:
 
     bool is_data_builder() const { return _req.write_req_type == WriteRequestType::DATA; }
 
-    // Attach an extra rowset (e.g. binlog rowset) to the same txn.
-    Status attach_rowset_to_txn(const RowsetSharedPtr& rowset);
+    // Attach the binlog rowset and its independent binlog tablet to the same txn.
+    Status attach_row_binlog_to_txn(const RowBinlogTxnInfo& attach_row_binlog);
 
     // Attach an extra pending rowset id so that PendingLocalRowsets can be
     // cleaned up together with the primary rowset.
@@ -113,8 +114,8 @@ protected:
     WriteRequest _req;
     BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
-    // Extra rowsets attached to the same txn (e.g. binlog rowsets).
-    std::vector<RowsetSharedPtr> _attach_rowsets;
+    // The binlog rowset and its independent binlog tablet attached to the same txn.
+    RowBinlogTxnInfo _attach_row_binlog;
     std::shared_ptr<RowsetWriter> _rowset_writer;
     PendingRowsetGuard _pending_rs_guard;
     // Extra rowset ids that share the same PendingRowsetGuard.
@@ -166,8 +167,8 @@ private:
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 };
 
-// Rowset builder dedicated for row_binlog rowset, it shares the same tablet
-// but uses an independent row_binlog tablet schema.
+// Rowset builder dedicated for row_binlog rowset. It writes to the independent
+// row_binlog tablet while being attached to the base tablet txn by GroupRowsetBuilder.
 class RowBinlogRowsetBuilder : public RowsetBuilder {
 public:
     RowBinlogRowsetBuilder(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile);
@@ -189,9 +190,8 @@ public:
     }
 };
 
-// manage one transaction with multiple rowset_builder
-// eg. normal data rowset + row_binlog rowset
-// Now only support one tablet
+// Manage one transaction with multiple rowset_builders.
+// eg. normal data rowset + row_binlog rowset.
 class GroupRowsetBuilder : public BaseRowsetBuilder {
 public:
     GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& group_build_req,

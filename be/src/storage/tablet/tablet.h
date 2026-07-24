@@ -20,7 +20,6 @@
 #include <butil/macros.h>
 #include <glog/logging.h>
 
-#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -42,7 +41,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "storage/binlog.h"
 #include "storage/binlog_config.h"
-#include "storage/compaction/binlog_compaction_policy.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -119,14 +118,11 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
     std::string tablet_path() const override { return _tablet_path; }
-    std::string row_binlog_path() const {
-        return fmt::format("{}/{}", _tablet_path, FDRowBinlogSuffix);
-    }
     std::string get_rowset_path(const RowsetMetaSharedPtr& rowset_meta) const {
         if (!rowset_meta->is_local()) {
             return "";
         }
-        return rowset_meta->is_row_binlog() ? row_binlog_path() : tablet_path();
+        return tablet_path();
     }
 
     bool set_tablet_schema_into_rowset_meta();
@@ -142,7 +138,7 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                               const std::vector<RowsetSharedPtr>& to_delete,
-                              bool is_incremental_clone, bool copy_row_binlog = false);
+                              bool is_incremental_clone);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -163,7 +159,6 @@ public:
     uint64_t segment_count() const;
     Version max_version() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
-    BinlogCompactionPolicy* binlog_compaction_policy();
 
     // properties encapsulated in TabletSchema
     SortType sort_type() const;
@@ -177,19 +172,16 @@ public:
     int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
-    Status add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset = nullptr);
+    Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
-    Status modify_row_binlog_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                                     std::vector<RowsetSharedPtr>& to_delete);
     bool rowset_exists_unlocked(const RowsetSharedPtr& rowset);
 
-    // Add a committed data rowset and its row binlog rowset
-    Status add_inc_rowset(const RowsetSharedPtr& rowset,
-                          const RowsetSharedPtr& row_binlog_rowset = nullptr);
+    // Add a committed rowset.
+    Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
@@ -219,7 +211,6 @@ public:
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
-    std::mutex& get_binlog_compaction_lock() { return _binlog_compaction_lock; }
     std::shared_mutex& get_meta_store_lock() { return _meta_store_lock; }
 
     std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
@@ -232,8 +223,7 @@ public:
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
-    uint32_t calc_compaction_score(CompactionType compaction_type,
-                                   int8_t* prefer_compaction_level = nullptr);
+    uint32_t calc_compaction_score(CompactionType compaction_type);
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -270,24 +260,6 @@ public:
     int64_t last_full_compaction_success_time() { return _last_full_compaction_success_millis; }
     void set_last_full_compaction_success_time(int64_t millis) {
         _last_full_compaction_success_millis = millis;
-    }
-
-    int64_t last_binlog_compaction_success_time(int8_t compaction_level) {
-        DCHECK(compaction_level >= 0 &&
-               compaction_level < BinlogCompactionPolicy::kBinlogCompactionMaxLevel);
-        return _last_binlog_compaction_success_millis[compaction_level].load();
-    }
-    int64_t last_binlog_compaction_failure_time() {
-        return _last_binlog_compaction_failure_millis.load();
-    }
-    void init_last_binlog_compaction_success_and_failure_time();
-    void set_last_binlog_compaction_success_time(int8_t compaction_level, int64_t millis) {
-        DCHECK(compaction_level >= 0 &&
-               compaction_level < BinlogCompactionPolicy::kBinlogCompactionMaxLevel);
-        _last_binlog_compaction_success_millis[compaction_level] = millis;
-    }
-    void set_last_binlog_compaction_failure_time(int64_t millis) {
-        _last_binlog_compaction_failure_millis = millis;
     }
 
     int64_t last_cumu_compaction_schedule_time() { return _last_cumu_compaction_schedule_millis; }
@@ -346,8 +318,7 @@ public:
 
     static Status prepare_compaction_and_calculate_permits(
             CompactionType compaction_type, const TabletSharedPtr& tablet,
-            std::shared_ptr<CompactionMixin>& compaction, int64_t& permits,
-            int8_t prefer_compaction_level = -1);
+            std::shared_ptr<CompactionMixin>& compaction, int64_t& permits);
 
     void execute_compaction(CompactionMixin& compaction);
 
@@ -378,12 +349,6 @@ public:
 
     std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
-    void set_last_binlog_compaction_status(std::string status) {
-        _last_binlog_compaction_status = std::move(status);
-    }
-
-    std::string get_last_binlog_compaction_status() { return _last_binlog_compaction_status; }
-
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
@@ -409,18 +374,14 @@ public:
     Status create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // MUST hold EXCLUSIVE `_meta_lock`
-    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add, bool copy_row_binlog = false);
+    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
     // MUST hold EXCLUSIVE `_meta_lock`
-    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale,
-                          bool copy_row_binlog = false);
+    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
 
     // MUST hold SHARED `_meta_lock`
     const auto& rowset_map() const { return _rs_version_map; }
     // MUST hold SHARED `_meta_lock`
     const auto& stale_rowset_map() const { return _stale_rs_version_map; }
-    // MUST hold SHARED `_meta_lock`
-    const auto& row_binlog_rowset_map() const { return _row_binlog_rs_version_map; }
-
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -520,14 +481,10 @@ public:
         return _tablet_meta->binlog_config().is_enable() &&
                _tablet_meta->binlog_config().is_row_binlog_format();
     }
-
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
     void set_binlog_config(BinlogConfig binlog_config);
-
-    // row_binlog
-    int32_t row_binlog_schema_hash() const { return _tablet_meta->row_binlog_schema_hash(); }
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
@@ -561,9 +518,6 @@ private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
     Status _contains_version(const Version& version);
-    Status _add_row_binlog_rowset_unlocked(const RowsetSharedPtr& rowset,
-                                           const RowsetSharedPtr& row_binlog_rowset);
-
     // Returns:
     // version: the max continuous version from beginning
     // max_version: the max version of this tablet
@@ -577,7 +531,6 @@ private:
     uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     uint32_t _calc_base_compaction_score() const;
-    uint32_t _calc_binlog_compaction_score(int8_t* prefer_compaction_level = nullptr);
 
     std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
                                                                      int64_t max_start_version);
@@ -622,7 +575,6 @@ private:
     std::mutex _ingest_lock;
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
-    std::mutex _binlog_compaction_lock;
     std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 
@@ -646,11 +598,6 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
-    // timestamp of last binlog compaction success for each compaction level
-    std::array<std::atomic<int64_t>, BinlogCompactionPolicy::kBinlogCompactionMaxLevel>
-            _last_binlog_compaction_success_millis;
-    // timestamp of last binlog compaction failure
-    std::atomic<int64_t> _last_binlog_compaction_failure_millis;
     // timestamp of last cumu compaction schedule time
     std::atomic<int64_t> _last_cumu_compaction_schedule_millis;
     // timestamp of last base compaction schedule time
@@ -664,12 +611,10 @@ private:
     std::string _last_cumu_compaction_status;
     std::string _last_base_compaction_status;
     std::string _last_full_compaction_status;
-    std::string _last_binlog_compaction_status;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
-    std::shared_ptr<BinlogCompactionPolicy> _binlog_compaction_policy;
 
     // use a separate thread to check all tablets paths existence
     std::atomic<bool> _is_tablet_path_exists;
@@ -711,10 +656,6 @@ private:
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
     return _cumulative_compaction_policy.get();
-}
-
-inline BinlogCompactionPolicy* Tablet::binlog_compaction_policy() {
-    return _binlog_compaction_policy.get();
 }
 
 inline bool Tablet::init_succeeded() {
@@ -836,27 +777,5 @@ inline size_t Tablet::next_unique_id() const {
 inline int64_t Tablet::avg_rs_meta_serialize_size() const {
     return _tablet_meta->avg_rs_meta_serialize_size();
 }
-
-class TabletCopyType {
-public:
-    static constexpr int32_t DEFAULT = TTabletCopyType::DATA | TTabletCopyType::CCR_BINLOG;
-
-    static bool has(int32_t copy_type, TTabletCopyType::type flag) {
-        return (copy_type & static_cast<int32_t>(flag)) != 0;
-    }
-
-    static Status validate(int32_t copy_type) {
-        if (copy_type <= 0 || (copy_type & ~all_types()) != 0) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid copy_type bitmask: {}, valid bits: {}", copy_type, all_types());
-        }
-        return Status::OK();
-    }
-
-private:
-    static constexpr int32_t all_types() {
-        return TTabletCopyType::DATA | TTabletCopyType::ROW_BINLOG | TTabletCopyType::CCR_BINLOG;
-    }
-};
 
 } // namespace doris

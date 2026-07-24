@@ -128,7 +128,7 @@ TabletMetaSharedPtr TabletMeta::create(
             request.__isset.vertical_compaction_num_columns_per_group
                     ? request.vertical_compaction_num_columns_per_group
                     : 5,
-            request.__isset.row_binlog_schema ? &request.row_binlog_schema : nullptr);
+            request.__isset.is_row_binlog_tablet ? request.is_row_binlog_tablet : false);
 }
 
 TabletMeta::~TabletMeta() {
@@ -140,8 +140,7 @@ TabletMeta::~TabletMeta() {
 TabletMeta::TabletMeta()
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
-          _delete_bitmap(new DeleteBitmap(_tablet_id)),
-          _binlog_delvec(new DeleteBitmap(_tablet_id)) {}
+          _delete_bitmap(new DeleteBitmap(_tablet_id)) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int64_t replica_id, int32_t schema_hash, int32_t shard_id,
@@ -159,12 +158,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
                        TEncryptionAlgorithm::type tde_algorithm,
                        TStorageFormat::type storage_format,
-                       int32_t vertical_compaction_num_columns_per_group,
-                       const TTabletSchema* row_binlog_schema)
+                       int32_t vertical_compaction_num_columns_per_group, bool is_row_binlog_tablet)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)),
-          _binlog_delvec(new DeleteBitmap(tablet_id)),
           _storage_format(storage_format) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -196,6 +193,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             time_series_compaction_level_threshold);
     tablet_meta_pb.set_vertical_compaction_num_columns_per_group(
             vertical_compaction_num_columns_per_group);
+    tablet_meta_pb.set_is_row_binlog_tablet(is_row_binlog_tablet);
     SchemaCreateOptions schema_create_options_for_data = {
             .col_ordinal_to_unique_id = col_ordinal_to_unique_id,
             .compression_type = compression_type,
@@ -206,38 +204,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
     tablet_meta_pb.set_in_restore_mode(false);
 
-    TabletSchemaPB* schema_pb_for_row_binlog = nullptr;
-    if (row_binlog_schema != nullptr) {
-        tablet_meta_pb.set_row_binlog_schema_hash(row_binlog_schema->schema_hash);
-        DCHECK(binlog_config.has_value());
-        DCHECK(binlog_config->enable && binlog_config->binlog_format == TBinlogFormat::ROW);
-
-        std::unordered_map<uint32_t, uint32_t> row_binlog_col_ordinal_to_unique_id;
-        uint32_t row_binlog_next_unique_id = 0;
-        for (uint32_t col_ordinal = 0; col_ordinal < row_binlog_schema->columns.size();
-             ++col_ordinal) {
-            const auto& tcolumn = row_binlog_schema->columns[col_ordinal];
-            uint32_t unique_id = 0;
-            if (tcolumn.col_unique_id >= 0) {
-                unique_id = tcolumn.col_unique_id;
-            } else {
-                unique_id = col_ordinal;
-            }
-            row_binlog_col_ordinal_to_unique_id[col_ordinal] = unique_id;
-            if (row_binlog_next_unique_id <= unique_id) {
-                row_binlog_next_unique_id = unique_id + 1;
-            }
-        }
-
-        SchemaCreateOptions schema_create_options_for_row_binlog = {
-                .col_ordinal_to_unique_id = row_binlog_col_ordinal_to_unique_id,
-                .compression_type = compression_type,
-                .inverted_index_file_storage_format = inverted_index_file_storage_format,
-                .next_unique_id = row_binlog_next_unique_id};
-        schema_pb_for_row_binlog = tablet_meta_pb.mutable_row_binlog_schema();
-        init_schema_from_thrift(*row_binlog_schema, schema_create_options_for_row_binlog,
-                                schema_pb_for_row_binlog);
-    }
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
@@ -266,10 +232,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TStorageFormat::V3:
         schema_pb_for_data->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
         _schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
-        if (schema_pb_for_row_binlog != nullptr) {
-            schema_pb_for_row_binlog->set_storage_format(
-                    TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
-        }
         break;
     default:
         break;
@@ -301,11 +263,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap),
-          _binlog_delvec(b._binlog_delvec),
-          _row_binlog_schema_hash(b._row_binlog_schema_hash),
-          _row_binlog_schema(b._row_binlog_schema),
-          _row_binlog_rs_metas(b._row_binlog_rs_metas),
           _binlog_config(b._binlog_config),
+          _is_row_binlog_tablet(b._is_row_binlog_tablet),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
           _time_series_compaction_file_count_threshold(
@@ -865,17 +824,9 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _handle = pair.first;
     _schema = pair.second;
 
-    if (tablet_meta_pb.has_row_binlog_schema()) {
-        TabletSchemaSPtr row_binlog_schema = std::make_shared<TabletSchema>();
-        row_binlog_schema->init_from_pb(tablet_meta_pb.row_binlog_schema());
-        _row_binlog_schema = std::move(row_binlog_schema);
-        _row_binlog_schema_hash = tablet_meta_pb.row_binlog_schema_hash();
-    }
-
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
         _delete_bitmap->set_tablet_id(_tablet_id);
-        _binlog_delvec->set_tablet_id(_tablet_id);
     }
 
     // init _rs_metas
@@ -896,12 +847,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         }
     }
 
-    for (auto& it : tablet_meta_pb.row_binlog_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
-        rs_meta->init_from_pb(it);
-        _row_binlog_rs_metas.emplace(rs_meta->version(), rs_meta);
-    }
-
     if (tablet_meta_pb.has_in_restore_mode()) {
         _in_restore_mode = tablet_meta_pb.in_restore_mode();
     }
@@ -920,32 +865,22 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         int seg_ids_size = tablet_meta_pb.delete_bitmap().segment_ids_size();
         int versions_size = tablet_meta_pb.delete_bitmap().versions_size();
         int seg_maps_size = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps_size();
-        int binlog_mark_size = tablet_meta_pb.delete_bitmap().is_binlog_delvec_size();
         CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size &&
               seg_maps_size == versions_size);
-        CHECK(binlog_mark_size == 0 || binlog_mark_size == rst_ids_size);
         for (int i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
             auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
             auto ver = tablet_meta_pb.delete_bitmap().versions(i);
             auto bitmap = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i).data();
-            bool from_binlog = tablet_meta_pb.delete_bitmap().is_binlog_delvec_size() > 0
-                                       ? tablet_meta_pb.delete_bitmap().is_binlog_delvec(i)
-                                       : false;
-            if (!from_binlog) {
-                delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] =
-                        roaring::Roaring::read(bitmap);
-            } else {
-                binlog_delvec().delete_bitmap[{rst_id, seg_id, ver}] =
-                        roaring::Roaring::read(bitmap);
-            }
+            delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
     }
 
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
+    _is_row_binlog_tablet = tablet_meta_pb.is_row_binlog_tablet();
     _compaction_policy = tablet_meta_pb.compaction_policy();
     _time_series_compaction_goal_size_mbytes =
             tablet_meta_pb.time_series_compaction_goal_size_mbytes();
@@ -962,10 +897,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     if (tablet_meta_pb.has_encryption_algorithm()) {
         _encryption_algorithm = tablet_meta_pb.encryption_algorithm();
-    }
-
-    if (tablet_meta_pb.has_row_binlog_schema_hash()) {
-        _row_binlog_schema_hash = tablet_meta_pb.row_binlog_schema_hash();
     }
 }
 
@@ -1008,17 +939,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
         for (const auto& [_, rs] : _stale_rs_metas) {
             rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
         }
-        for (const auto& [_, rs] : _row_binlog_rs_metas) {
-            rs->to_rowset_pb(tablet_meta_pb->add_row_binlog_rs_metas());
-        }
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
-
-    if (_row_binlog_schema != nullptr) {
-        _row_binlog_schema->to_schema_pb(tablet_meta_pb->mutable_row_binlog_schema());
-        tablet_meta_pb->set_row_binlog_schema_hash(_row_binlog_schema_hash);
-    }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
@@ -1049,24 +972,13 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
             delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
             delete_bitmap_pb->add_segment_ids(segment_id);
             delete_bitmap_pb->add_versions(ver);
-            delete_bitmap_pb->add_is_binlog_delvec(false);
-            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
-            bitmap.write(bitmap_data.data());
-            *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
-        }
-
-        for (auto& [id, bitmap] : binlog_delvec().snapshot().delete_bitmap) {
-            auto& [rowset_id, segment_id, ver] = id;
-            delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
-            delete_bitmap_pb->add_segment_ids(segment_id);
-            delete_bitmap_pb->add_versions(ver);
-            delete_bitmap_pb->add_is_binlog_delvec(true);
             std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
             bitmap.write(bitmap_data.data());
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
+    tablet_meta_pb->set_is_row_binlog_tablet(_is_row_binlog_tablet);
     tablet_meta_pb->set_compaction_policy(compaction_policy());
     tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(
             time_series_compaction_goal_size_mbytes());
@@ -1128,24 +1040,6 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     return Status::OK();
 }
 
-Status TabletMeta::add_row_binlog_rs_meta(const RowsetMetaSharedPtr& row_binlog_meta) {
-    // check RowsetMeta is valid
-    for (auto& [_, rs] : _row_binlog_rs_metas) {
-        if (rs->version() == row_binlog_meta->version()) {
-            if (rs->rowset_id() != row_binlog_meta->rowset_id()) {
-                return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
-                        "binlog version already exist. binlog_rowset_id={}, version={}, tablet={}",
-                        rs->rowset_id().to_string(), rs->version().to_string(), tablet_id());
-            } else {
-                // rowsetid,version is equal, it is a duplicate req, skip it
-                return Status::OK();
-            }
-        }
-    }
-    _row_binlog_rs_metas.emplace(row_binlog_meta->version(), row_binlog_meta);
-    return Status::OK();
-}
-
 void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add) {
     for (const auto& rs : to_add) {
         _rs_metas.emplace(rs->rowset_meta()->version(), rs->rowset_meta());
@@ -1197,17 +1091,6 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
-void TabletMeta::modify_row_binlog_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                                            const std::vector<RowsetMetaSharedPtr>& to_delete) {
-    for (const auto& rs_to_del : to_delete) {
-        _row_binlog_rs_metas.erase(rs_to_del->version());
-    }
-
-    for (const auto& rs_to_add : to_add) {
-        _row_binlog_rs_metas.emplace(rs_to_add->version(), rs_to_add);
-    }
-}
-
 // Use the passing "rs_metas" to replace the rs meta in this tablet meta
 // Also clear the _stale_rs_metas because this tablet meta maybe copyied from
 // an existing tablet before. Add after revise, only the passing "rs_metas"
@@ -1223,14 +1106,6 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     }
     if (_enable_unique_key_merge_on_write) {
         _delete_bitmap->clear_rowset_cache_version();
-    }
-}
-
-void TabletMeta::revise_row_binlog_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
-    _row_binlog_rs_metas.clear();
-    for (auto& rs_meta : rs_metas) {
-        _row_binlog_rs_metas.emplace(rs_meta->version(), rs_meta);
     }
 }
 
@@ -1255,16 +1130,6 @@ void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap
     }
 }
 
-void TabletMeta::revise_binlog_delvec_unlocked(const DeleteBitmap& binlog_delvec) {
-    _binlog_delvec = std::make_unique<DeleteBitmap>(tablet_id());
-    for (const auto& [_, rs] : _row_binlog_rs_metas) {
-        DeleteBitmap rs_bm(tablet_id());
-        binlog_delvec.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
-                             &rs_bm);
-        _binlog_delvec->merge(rs_bm);
-    }
-}
-
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     _stale_rs_metas.erase(version);
 }
@@ -1278,14 +1143,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& versio
 
 RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
     if (auto it = _stale_rs_metas.find(version); it != _stale_rs_metas.end()) {
-        return it->second;
-    }
-    return nullptr;
-}
-
-RowsetMetaSharedPtr TabletMeta::acquire_row_binlog_rs_meta_by_version(
-        const Version& version) const {
-    if (auto it = _row_binlog_rs_metas.find(version); it != _row_binlog_rs_metas.end()) {
         return it->second;
     }
     return nullptr;

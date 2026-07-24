@@ -38,7 +38,6 @@ using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 struct TabletCompactionContext {
     TabletSharedPtr tablet;
-    int8_t prefer_compaction_level = -1;
 };
 
 } // namespace doris

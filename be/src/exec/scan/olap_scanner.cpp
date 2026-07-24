@@ -78,8 +78,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
-                                 .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
-                                                                       : ReaderType::READER_QUERY,
+                                 .reader_type = ReaderType::READER_QUERY,
+                                 .read_row_binlog = params.read_row_binlog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -213,10 +213,7 @@ Status OlapScanner::_prepare_impl() {
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        TabletSchemaSPtr source_tablet_schema =
-                _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                        ? tablet->row_binlog_tablet_schema()
-                        : tablet->tablet_schema();
+        TabletSchemaSPtr source_tablet_schema = tablet->tablet_schema();
 
         tablet_schema = std::make_shared<TabletSchema>();
         tablet_schema->copy_from(*source_tablet_schema);
@@ -252,8 +249,6 @@ Status OlapScanner::_prepare_impl() {
                             .skip_missing_versions = _state->skip_missing_version(),
                             .enable_fetch_rowsets_from_peers =
                                     config::enable_fetch_rowsets_from_peer_replicas,
-                            .capture_row_binlog =
-                                    _tablet_reader_params.reader_type == ReaderType::READER_BINLOG,
                             .enable_prefer_cached_rowset =
                                     config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
                                                             : false,
@@ -337,12 +332,10 @@ Status OlapScanner::_init_tso_predicates() {
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                ? tablet_schema->binlog_tso_col_idx()
-                                : tablet_schema->commit_tso_col_idx();
-    const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                             ? BINLOG_TSO_COL
-                                             : COMMIT_TSO_COL;
+    int32_t tso_index = _tablet_reader_params.read_row_binlog ? tablet_schema->binlog_tso_col_idx()
+                                                              : tablet_schema->commit_tso_col_idx();
+    const std::string& column_name =
+            _tablet_reader_params.read_row_binlog ? BINLOG_TSO_COL : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
                                      column_name);

@@ -1601,7 +1601,8 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
-        long commitTSO = getCommitTSO(transactionState, db, tableToPartition.keySet());
+        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
+                tableToPartition.keySet());
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1651,7 +1652,7 @@ public class DatabaseTransactionMgr {
             long tableId = subTransactionState.getTable().getId();
             tableIds.add(tableId);
         }
-        long commitTSO = getCommitTSO(transactionState, db, tableIds);
+        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db, tableIds);
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1727,7 +1728,8 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
-        long commitTSO = getCommitTSO(transactionState, db, transactionState.getIdToTableCommitInfos().keySet());
+        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
+                transactionState.getIdToTableCommitInfos().keySet());
         transactionState.setCommitTSO(commitTSO);
 
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
@@ -3109,45 +3111,6 @@ public class DatabaseTransactionMgr {
             if (entry.getValue() == transactionId) {
                 iterator.remove();
             }
-        }
-    }
-
-    private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds)
-            throws TransactionCommitFailedException {
-        long tso = -1L;
-        if (!Config.enable_feature_binlog) {
-            return tso;
-        }
-        if (tableIds == null || tableIds.isEmpty()) {
-            return tso;
-        }
-        boolean anyEnableTso = false;
-        for (long tableId : tableIds) {
-            Table table = db.getTableNullable(tableId);
-            if (table instanceof OlapTable && ((OlapTable) table).enableTso()) {
-                anyEnableTso = true;
-                break;
-            }
-        }
-        if (!anyEnableTso) {
-            return tso;
-        }
-        try {
-            Env env = Env.getCurrentEnv();
-            if (env == null || env.getTSOService() == null) {
-                throw new TransactionCommitFailedException("failed to get TSO for txn "
-                        + transactionState.getTransactionId() + ": TSO service is unavailable");
-            }
-            long fetched = env.getTSOService().getTSO();
-            if (fetched <= 0) {
-                throw new TransactionCommitFailedException("failed to get TSO for txn "
-                        + transactionState.getTransactionId() + ", fetched=" + fetched);
-            }
-            return fetched;
-        } catch (RuntimeException e) {
-            LOG.warn("failed to get TSO for txn {}, abort commit", transactionState.getTransactionId(), e);
-            throw new TransactionCommitFailedException("failed to get TSO for txn "
-                    + transactionState.getTransactionId(), e);
         }
     }
 

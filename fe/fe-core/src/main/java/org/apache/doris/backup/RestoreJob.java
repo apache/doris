@@ -704,6 +704,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 BackupOlapTableInfo tblInfo = olapTableEntry.getValue();
                 Table remoteTbl = backupMeta.getTable(tableName);
                 Preconditions.checkNotNull(remoteTbl);
+                OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
+                if (remoteOlapTbl.needRowBinlog()) {
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "Do not support restore table with binlog<Row> enabled: " + remoteOlapTbl.getName());
+                    return;
+                }
                 Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
                 boolean isSchemaChanged = false;
                 if (localTbl != null && localTbl.getType() != TableType.OLAP) {
@@ -722,8 +728,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         + localOlapTbl.getName());
                         return;
                     }
-                    OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
-
                     if (localOlapTbl.isColocateTable() || (reserveColocate && remoteOlapTbl.isColocateTable())) {
                         status = new Status(ErrCode.COMMON_ERROR, "Not support to restore to local table "
                                 + tableName + " with colocate group.");
@@ -870,7 +874,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 // Table does not exist or atomic restore
                 if (localTbl == null || isAtomicRestore) {
-                    OlapTable remoteOlapTbl = (OlapTable) remoteTbl;
                     // Retain only expected restore partitions in this table;
                     Set<String> allPartNames = remoteOlapTbl.getPartitionNames();
                     for (String partName : allPartNames) {
@@ -1458,10 +1461,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
-                    MaterializedIndexMeta rowBinlogIndexMeta = null;
-                    if (localTbl.needRowBinlog() && restoredIdx.getId() == localTbl.getBaseIndexId()) {
-                        rowBinlogIndexMeta = localTbl.getRowBinlogMeta();
-                    }
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
@@ -1492,8 +1491,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getColumnSeqMapping(),
-                            localTbl.getVerticalCompactionNumColumnsPerGroup(),
-                            rowBinlogIndexMeta);
+                            localTbl.getVerticalCompactionNumColumnsPerGroup());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {

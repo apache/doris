@@ -25,8 +25,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/debug_points.h"
@@ -424,6 +427,8 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
     } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
         return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_BINLOG_POLICY) {
+        return std::make_shared<BinlogCumulativeCompactionPolicy>();
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }

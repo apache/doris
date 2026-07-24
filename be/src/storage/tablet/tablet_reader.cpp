@@ -139,8 +139,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == ReaderType::READER_QUERY ||
-        read_params.reader_type == ReaderType::READER_BINLOG) {
+    if (read_params.reader_type == ReaderType::READER_QUERY) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
@@ -168,6 +167,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     _reader_context.reader_type = read_params.reader_type;
+    _reader_context.read_row_binlog = read_params.read_row_binlog;
     _reader_context.version = read_params.version;
     _reader_context.tablet_schema = _tablet_schema;
     _reader_context.need_ordered_result = need_ordered_result;
@@ -175,9 +175,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.use_insert_order_when_same =
-            read_params.use_insert_order_when_same ||
-            read_params.reader_type == ReaderType::READER_BINLOG ||
-            read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
+            read_params.use_insert_order_when_same || read_params.read_row_binlog;
     _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
@@ -298,8 +296,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_return_columns_timer_ns);
-    if (read_params.reader_type == ReaderType::READER_QUERY ||
-        read_params.reader_type == ReaderType::READER_BINLOG) {
+    if (read_params.reader_type == ReaderType::READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
         for (auto id : read_params.return_columns) {
@@ -323,7 +320,6 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
-                read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {

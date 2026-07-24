@@ -42,7 +42,6 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
-#include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -83,7 +82,7 @@ Status PrimaryKeyModelRowRetriever::init(const HistoricalRowRetrieverContext& co
 
 Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_sign_column_data,
                                                             size_t row_pos, size_t num_rows) {
-    auto* tablet = static_cast<Tablet*>(_context.tablet.get());
+    auto* tablet = _context.tablet.get();
     auto& tablet_schema = _context.tablet_schema;
 
     DCHECK(_context.partial_update_info);
@@ -161,9 +160,6 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
 Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_pos,
                                                       size_t num_rows) {
     DCHECK_EQ(_use_default_or_null_flag.size(), num_rows);
-    if (config::is_cloud_mode()) {
-        return Status::NotSupported("fill_missing_columns");
-    }
     if (_context.partial_update_info == nullptr) {
         return Status::InternalError("partial update info is null");
     }
@@ -175,11 +171,6 @@ Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_p
 Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
                                                        const std::vector<uint32_t>& value_cids,
                                                        size_t /*row_pos*/, size_t num_rows) {
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): cloud mode
-        return Status::NotSupported("fill_before_columns");
-    }
-
     auto& tablet_schema = _context.tablet_schema;
 
     if (num_rows == 0 || value_cids.empty()) {
