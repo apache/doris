@@ -428,6 +428,10 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    const int32_t binlog_op_column_id = tablet_schema->binlog_op_col_idx();
+    const bool is_binlog_merge_scan =
+            _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL ||
+            _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA;
     for (auto& predicates : slot_to_predicates) {
         const int sid = predicates.first;
         DCHECK(slot_id_to_slot_desc.contains(sid));
@@ -437,6 +441,12 @@ Status OlapScanner::_init_tablet_reader_params(
             throw Exception(
                     Status::InternalError("Column {} not found in tablet schema",
                                           slot_id_to_slot_desc.find(sid)->second->col_name()));
+        }
+        // BlockReader synthesizes the stream-change op for MIN_DELTA and DETAIL scans, while
+        // this storage column still contains the raw binlog op. Keep its predicates above
+        // BlockReader so they are evaluated against the synthesized values.
+        if (is_binlog_merge_scan && index == binlog_op_column_id) {
+            continue;
         }
         for (auto& predicate : predicates.second) {
             _tablet_reader_params.predicates.push_back(predicate->clone(index));
