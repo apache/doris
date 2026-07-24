@@ -224,10 +224,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         }
     }
 
-    private List<Slot> computeIcebergOutput() {
-        return computeOutput(table.getFullSchema());
-    }
-
     private List<Slot> computeOutput(List<Column> schema) {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Builder<Slot> slots = ImmutableList.builder();
@@ -239,6 +235,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             slots.add(virtualColumn.toSlot());
         }
         return slots.build();
+    }
+
+    private List<Slot> computeIcebergOutput() {
+        return computeOutput(table.getFullSchema());
     }
 
     @Override
