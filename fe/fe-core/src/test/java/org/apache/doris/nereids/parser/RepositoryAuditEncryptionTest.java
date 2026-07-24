@@ -60,4 +60,39 @@ public class RepositoryAuditEncryptionTest {
         Assertions.assertFalse(masked.contains("SUPERSECRET"), "secret_key must be masked: " + masked);
         Assertions.assertTrue(masked.contains("*XXX"), "expected mask token: " + masked);
     }
+
+    @Test
+    public void testCreateResourceMasksAiApiKey() {
+        String sql = "CREATE EXTERNAL RESOURCE \"ai_resource\" PROPERTIES ("
+                + "\"type\" = \"ai\", "
+                + "\"ai.api_key\" = \"sk-test\", "
+                + "\"ai.endpoint\" = \"https://api.test\")";
+        String masked = encrypt(sql);
+        Assertions.assertFalse(masked.contains("sk-test"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+        Assertions.assertTrue(masked.contains("https://api.test"), masked);
+    }
+
+    @Test
+    public void testAlterResourceMasksAiApiKey() {
+        String sql = "ALTER RESOURCE \"ai_resource\" PROPERTIES ("
+                + "\"ai.api_key\" = \"sk-test\", "
+                + "\"ai.endpoint\" = \"https://api.test\")";
+        String masked = encrypt(sql);
+        Assertions.assertFalse(masked.contains("sk-test"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+        Assertions.assertTrue(masked.contains("https://api.test"), masked);
+    }
+
+    @Test
+    public void testCreateJobWithUpdateDoesNotThrowClassCastException() {
+        // CREATE JOB ... DO <update> parses the DML as UpdateContext, not InsertTableContext.
+        // geneEncryptionSQL must not fail with ClassCastException on such statements.
+        String sql = "CREATE JOB job1 ON SCHEDULE AT CURRENT_TIMESTAMP DO UPDATE t SET type = 2 WHERE type = 1";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof NeedAuditEncryption,
+                "command should be NeedAuditEncryption: " + plan.getClass().getName());
+        NeedAuditEncryption cmd = (NeedAuditEncryption) plan;
+        Assertions.assertDoesNotThrow(() -> cmd.geneEncryptionSQL(sql));
+    }
 }
