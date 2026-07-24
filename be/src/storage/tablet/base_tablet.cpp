@@ -37,6 +37,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
@@ -469,6 +470,7 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-size): Keep the existing rowset lookup flow together.
 Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema,
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -560,6 +562,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                 // return it's rowset
                 *rowset = rs;
             }
+            TEST_SYNC_POINT_CALLBACK("BaseTablet::lookup_row_key:found", this, rs.get(),
+                                     with_seq_col, s.code());
             // find it and return
             return s;
         }
