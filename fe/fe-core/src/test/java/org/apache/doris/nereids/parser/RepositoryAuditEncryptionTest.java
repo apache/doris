@@ -77,29 +77,6 @@ public class RepositoryAuditEncryptionTest {
     }
 
     @Test
-    public void testCreateResourceMasksAiApiKey() {
-        String sql = "CREATE EXTERNAL RESOURCE \"ai_resource\" PROPERTIES ("
-                + "\"type\" = \"ai\", "
-                + "\"ai.api_key\" = \"sk-test\", "
-                + "\"ai.endpoint\" = \"https://api.test\")";
-        String masked = encrypt(sql);
-        Assertions.assertFalse(masked.contains("sk-test"), masked);
-        Assertions.assertTrue(masked.contains("*XXX"), masked);
-        Assertions.assertTrue(masked.contains("https://api.test"), masked);
-    }
-
-    @Test
-    public void testAlterResourceMasksAiApiKey() {
-        String sql = "ALTER RESOURCE \"ai_resource\" PROPERTIES ("
-                + "\"ai.api_key\" = \"sk-test\", "
-                + "\"ai.endpoint\" = \"https://api.test\")";
-        String masked = encrypt(sql);
-        Assertions.assertFalse(masked.contains("sk-test"), masked);
-        Assertions.assertTrue(masked.contains("*XXX"), masked);
-        Assertions.assertTrue(masked.contains("https://api.test"), masked);
-    }
-
-    @Test
     public void testCreateDatabaseMasksJdbcPassword() {
         String sql = "CREATE DATABASE test_db PROPERTIES ("
                 + "\"iceberg.jdbc.password\" = \"jdbc-secret\", "

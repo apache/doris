@@ -43,7 +43,6 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
-        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ai.api_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("api_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("apikey"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));

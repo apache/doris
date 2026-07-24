@@ -173,17 +173,6 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitAlterRepository(ctx);
     }
 
-    @Override
-    public LogicalPlan visitAlterResource(DorisParser.AlterResourceContext ctx) {
-        if (ctx.propertyClause() != null) {
-            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
-            encryptProperty(visitPropertyClause(propertyClauseContext),
-                    propertyClauseContext.fileProperties.start.getStartIndex(),
-                    propertyClauseContext.fileProperties.stop.getStopIndex());
-        }
-        return super.visitAlterResource(ctx);
-    }
-
     // create table clause
     @Override
     public LogicalPlan visitCreateTable(DorisParser.CreateTableContext ctx) {
@@ -299,17 +288,6 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                     properties.stop.getStopIndex());
         }
         return super.visitTableValuedFunction(ctx);
-    }
-
-    @Override
-    public LogicalPlan visitCreateResource(DorisParser.CreateResourceContext ctx) {
-        if (ctx.properties != null) {
-            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
-            encryptProperty(visitPropertyClause(propertyClauseContext),
-                    propertyClauseContext.fileProperties.start.getStartIndex(),
-                    propertyClauseContext.fileProperties.stop.getStopIndex());
-        }
-        return super.visitCreateResource(ctx);
     }
 
     // create job select tvf
