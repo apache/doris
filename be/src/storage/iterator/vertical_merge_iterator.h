@@ -41,6 +41,12 @@
 namespace doris {
 enum KeysType : int;
 
+// Process-wide diagnostics for lazy-initialized segment contexts that still retain reader or
+// decoded Block resources. Reset is intended for isolated tests and fails while current is nonzero.
+int64_t vertical_compaction_active_segment_contexts();
+int64_t vertical_compaction_active_segment_contexts_peak();
+Status reset_vertical_compaction_active_segment_contexts_peak();
+
 // Row source represent row location in multi-segments
 // use a uint16_t to store info
 // the lower 15 bits means segment_id in segment pool, and the higher 1 bits means agg flag.
@@ -101,11 +107,17 @@ public:
     void advance(int64_t step = 1) {
         DCHECK(_buf_idx + step <= _buffer.size());
         _buf_idx += step;
+        _read_index += step;
     }
 
     uint64_t buf_idx() const { return _buf_idx; }
     uint64_t total_size() const { return _total_size; }
     uint64_t buffered_size() { return _buffer.size(); }
+    bool is_source_exhausted(uint16_t source) const {
+        DCHECK(source < _last_source_positions.size());
+        return source < _last_source_positions.size() &&
+               _read_index > _last_source_positions[source];
+    }
     void set_agg_flag(uint64_t index, bool agg);
     bool get_agg_flag(uint64_t index);
 
@@ -141,6 +153,8 @@ private:
     int _fd = -1;
     PaddedPODArray<UInt16> _buffer;
     uint64_t _total_size = 0;
+    uint64_t _read_index = 0;
+    std::vector<uint64_t> _last_source_positions;
 };
 
 // --------------- VerticalMergeIteratorContext ------------- //
@@ -165,7 +179,7 @@ public:
     VerticalMergeIteratorContext& operator=(const VerticalMergeIteratorContext&) = delete;
     VerticalMergeIteratorContext& operator=(VerticalMergeIteratorContext&&) = delete;
 
-    ~VerticalMergeIteratorContext() = default;
+    ~VerticalMergeIteratorContext();
     Status block_reset(const std::shared_ptr<Block>& block);
     Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info = nullptr);
     bool compare(const VerticalMergeIteratorContext& rhs) const;
@@ -231,9 +245,15 @@ public:
 
     const std::shared_ptr<Block>& block_ptr() const { return _block; }
 
+    // No later row source references this context. The returned IteratorRowRef/RowBatch keeps
+    // its own shared_ptr<Block>, so the segment reader and context-owned blocks can be released.
+    void release_resources();
+
 private:
     // Load next block into _block
     Status _load_next_block();
+    void _mark_active();
+    void _mark_inactive();
 
     RowwiseIteratorUPtr _iter;
     RowsetId _rowset_id;
@@ -260,6 +280,7 @@ private:
     std::list<std::shared_ptr<Block>> _block_list;
     // use to identify whether it's first block load from RowwiseIterator
     bool _is_first_row = true;
+    bool _is_active_context_counted = false;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
 };
@@ -431,6 +452,8 @@ private:
     int64_t _get_size(Block* block) { return block->rows(); }
 
     Status check_all_iter_finished();
+    // Advance the row-source cursor and release its context after the final reference.
+    void consume_row_sources(uint16_t order, size_t count = 1);
 
     // released after build ctx
     std::vector<RowwiseIteratorUPtr> _origin_iters;
