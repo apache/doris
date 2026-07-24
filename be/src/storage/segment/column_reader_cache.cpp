@@ -96,8 +96,7 @@ std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_availabl
 Status ColumnReaderCache::get_column_reader(int32_t col_uid,
                                             std::shared_ptr<ColumnReader>* column_reader,
                                             OlapReaderStatistics* stats,
-                                            const io::IOContext* source_io_ctx,
-                                            std::optional<Field> const_value) {
+                                            const io::IOContext* source_io_ctx) {
     // Attempt to find in cache
     if (auto cached = _lookup({col_uid, {}})) {
         *column_reader = cached;
@@ -123,7 +122,6 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
                               .be_exec_version = _be_exec_version,
                               .tablet_schema = _tablet_schema};
-    opts.const_value = std::move(const_value);
 
     std::shared_ptr<ColumnReader> reader;
     if ((FieldType)meta.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {

@@ -36,20 +36,15 @@ namespace doris {
 
 class ConstantColumnIteratorTest : public testing::Test {};
 
-TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConstantReader) {
+TEST_F(ConstantColumnIteratorTest, ConstantColumnReaderExposesConstantValue) {
     const int64_t kValue = 8888;
-    ColumnReaderOptions opts;
-    opts.const_value = Field::create_field<TYPE_BIGINT>(kValue);
-
-    std::shared_ptr<ColumnReader> reader;
-    auto st = ColumnReader::create(opts, ColumnMetaPB(), 3, io::FileReaderSPtr(), &reader);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, reader);
+    std::shared_ptr<ColumnReader> reader =
+            std::make_shared<ConstantColumnReader>(Field::create_field<TYPE_BIGINT>(kValue));
     EXPECT_TRUE(reader->has_zone_map());
     EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_BIGINT, reader->get_meta_type());
 
     segment_v2::ZoneMap zone_map;
-    st = reader->get_segment_zone_map(&zone_map);
+    auto st = reader->get_segment_zone_map(&zone_map);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(kValue, zone_map.min_value.get<TYPE_BIGINT>());
     EXPECT_EQ(kValue, zone_map.max_value.get<TYPE_BIGINT>());

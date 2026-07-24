@@ -26,7 +26,6 @@
 #include <cstdint> // for uint32_t
 #include <map>
 #include <memory> // for unique_ptr
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -96,12 +95,6 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
-
-    // When set, ColumnReader::create returns a ConstantColumnReader carrying this value instead
-    // of reading on-disk data. Used for read-time-filled constant columns (e.g.
-    // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
-    // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
-    std::optional<Field> const_value = std::nullopt;
 };
 
 struct ColumnIteratorOptions {
@@ -1021,10 +1014,8 @@ private:
     ordinal_t _current_rowid = 0;
 };
 
-// Produces a column whose every row is the same constant Field value.
-// Used for read-time-filled constant hidden columns (e.g. __DORIS_COMMIT_TSO_COL__),
-// where the on-disk value is only a placeholder and the real value comes from the read
-// context (StorageReadOptions).
+// Produces a column whose every row is the same request-scoped constant Field value.
+// It is created directly by Segment and never stored in ColumnReaderCache.
 class ConstantColumnIterator : public ColumnIterator {
 public:
     ConstantColumnIterator() = delete;
@@ -1079,11 +1070,9 @@ private:
     ordinal_t _current_rowid = 0;
 };
 
-// A ColumnReader that represents a single constant value for the whole segment instead of reading
-// on-disk data. Used for read-time-filled constant columns (e.g. __DORIS_COMMIT_TSO_COL__) on a
-// single-version segment, whose on-disk zonemap only reflects the placeholder. It advertises a
-// single-value [v, v] zonemap so segment-level pruning matches against the real value, and produces
-// a ConstantColumnIterator for data reads.
+// A request-scoped ColumnReader that represents one constant value for the whole segment instead
+// of reading on-disk data. It is never stored in ColumnReaderCache. It advertises a single-value
+// [v, v] zonemap and produces a ConstantColumnIterator for data reads.
 class ConstantColumnReader : public ColumnReader {
 public:
     explicit ConstantColumnReader(Field value) : _value(std::move(value)) {}
