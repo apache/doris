@@ -696,6 +696,10 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> staticPartitionColNames = staticPartitions != null
                 ? staticPartitions.keySet()
                 : Sets.newHashSet();
+        Set<String> lowerStaticPartitionColNames = Sets.newHashSet();
+        for (String name : staticPartitionColNames) {
+            lowerStaticPartitionColNames.add(name.toLowerCase());
+        }
 
         // Validate static partition columns against the hive table's partition columns
         if (sink.hasStaticPartition()) {
@@ -707,11 +711,11 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
             bindColumns = table.getBaseSchema(true).stream()
-                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .filter(col -> !lowerStaticPartitionColNames.contains(col.getName().toLowerCase()))
                     .collect(ImmutableList.toImmutableList());
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
-                if (staticPartitionColNames.contains(cn)) {
+                if (lowerStaticPartitionColNames.contains(cn.toLowerCase())) {
                     throw new AnalysisException(String.format(
                             "column %s is a static partition column, should not be in the insert column list", cn));
                 }

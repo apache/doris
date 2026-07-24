@@ -89,6 +89,73 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
         assertEquals(1, p26.size())
         assertEquals("tagD", p26[0][0])
 
+        // 6. Partition column name matching should be case-insensitive.
+        sql """
+            INSERT INTO ${tableName} PARTITION(TS_DATE='2026-07-27')
+            SELECT 'tagE', 'u5', 500;
+        """
+        sql """ refresh catalog ${catalog_name}; """
+        def p27 = sql """ select tag_value, ts_date from ${tableName} where ts_date='2026-07-27'; """
+        assertEquals(1, p27.size())
+        assertEquals("tagE", p27[0][0])
+        assertEquals("2026-07-27", p27[0][1])
+
+        hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
+    }
+
+    def testStaticPartitionMultiColumnWrite = { String catalog_name ->
+        String tableName = "hive_static_multi_par_tbl"
+
+        hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
+        hive_docker """
+            CREATE TABLE ${tableName} (
+                tag_value string,
+                user_id   string,
+                ts        int
+            )
+            PARTITIONED BY (dt string, region string)
+            STORED AS parquet;
+        """
+        sql """ refresh catalog ${catalog_name}; """
+
+        sql """
+            INSERT INTO ${tableName} PARTITION(dt='2026-07-24', region='bj')
+            SELECT 'tagM1', 'u10', 10;
+        """
+        sql """
+            INSERT INTO ${tableName} PARTITION(dt='2026-07-24', region='sh')
+            SELECT 'tagM2', 'u11', 20;
+        """
+        sql """
+            INSERT INTO ${tableName} PARTITION(dt='2026-07-25', region='bj')
+            SELECT 'tagM3', 'u12', 30;
+        """
+        sql """ refresh catalog ${catalog_name}; """
+
+        def beforeOverwrite = sql """
+            select tag_value, dt, region from ${tableName}
+            order by dt, region, tag_value;
+        """
+        assertEquals(3, beforeOverwrite.size())
+        assertEquals("tagM1", beforeOverwrite[0][0]); assertEquals("2026-07-24", beforeOverwrite[0][1]); assertEquals("bj", beforeOverwrite[0][2])
+        assertEquals("tagM2", beforeOverwrite[1][0]); assertEquals("2026-07-24", beforeOverwrite[1][1]); assertEquals("sh", beforeOverwrite[1][2])
+        assertEquals("tagM3", beforeOverwrite[2][0]); assertEquals("2026-07-25", beforeOverwrite[2][1]); assertEquals("bj", beforeOverwrite[2][2])
+
+        sql """
+            INSERT OVERWRITE TABLE ${tableName} PARTITION(dt='2026-07-24', region='bj')
+            SELECT 'tagMX', 'u19', 999;
+        """
+        sql """ refresh catalog ${catalog_name}; """
+
+        def afterOverwrite = sql """
+            select tag_value, dt, region from ${tableName}
+            order by dt, region, tag_value;
+        """
+        assertEquals(3, afterOverwrite.size())
+        assertEquals("tagMX", afterOverwrite[0][0]); assertEquals("2026-07-24", afterOverwrite[0][1]); assertEquals("bj", afterOverwrite[0][2])
+        assertEquals("tagM2", afterOverwrite[1][0]); assertEquals("2026-07-24", afterOverwrite[1][1]); assertEquals("sh", afterOverwrite[1][2])
+        assertEquals("tagM3", afterOverwrite[2][0]); assertEquals("2026-07-25", afterOverwrite[2][1]); assertEquals("bj", afterOverwrite[2][2])
+
         hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
     }
 
@@ -144,6 +211,24 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
             exception "is not a partitioned table"
         }
 
+        // 5.4 partition value must be a literal instead of an expression
+        test {
+            sql """
+                INSERT INTO ${tableName} PARTITION(ts_date=concat('2026-07', '-24'))
+                SELECT 'tagA', 'u1', 100;
+            """
+            exception "must be a literal"
+        }
+
+        // 5.5 case-insensitive partition column name should also be recognized in insert column list validation
+        test {
+            sql """
+                INSERT INTO ${tableName} (tag_value, user_id, ts, ts_date) PARTITION(TS_DATE='2026-07-24')
+                SELECT 'tagA', 'u1', 100, '2026-07-24';
+            """
+            exception "is a static partition column"
+        }
+
         hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
         hive_docker """ DROP TABLE IF EXISTS ${nonParTableName}; """
     }
@@ -175,6 +260,7 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
             sql """set enable_fallback_to_original_planner=false;"""
 
             testStaticPartitionWrite(catalog_name)
+            testStaticPartitionMultiColumnWrite(catalog_name)
             testStaticPartitionErrors(catalog_name)
 
             sql """drop catalog if exists ${catalog_name}"""
