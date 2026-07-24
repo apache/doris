@@ -128,6 +128,9 @@ struct TGetTablesParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   9: optional set<string> reserved_field_9
+  // Columns needed by schema table callers. If unset, the callee returns the
+  // full table status for backward compatibility.
+  10: optional set<string> required_columns
 }
 
 struct TTableStatus {
