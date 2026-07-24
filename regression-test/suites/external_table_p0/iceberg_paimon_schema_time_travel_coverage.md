@@ -11,6 +11,47 @@ The tests use explicit old/new field projections and negative bindings in
 addition to row-shape assertions. This prevents a rename with unchanged values
 from passing accidentally.
 
+The partition-evolution extension also distinguishes result correctness from
+physical pruning. Static predicates are validated across files written by
+different partition specs, while runtime-filter cases require both equal
+results with pruning disabled/enabled and a positive pruning counter.
+
+## Partition evolution matrix
+
+### Iceberg
+
+| Partition operation / transform | Static filter | Runtime filter | Snapshot/tag/branch | Position delete | Equality delete | Deletion vector | Complex schema in same timeline | Format / reader |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Add identity field | Covered | Covered | Covered | Covered | Covered | Covered | Covered | Parquet/ORC, V1/V2 |
+| Drop identity field | Covered | Covered | Covered | Covered | Covered | Covered | Covered | Parquet/ORC, V1/V2 |
+| Add/drop bucket | Covered | Covered by source-column join | Covered | Covered | Covered | Covered | Covered | Parquet/ORC, V1/V2 |
+| Replace bucket with truncate | Covered | Result contract; transform is not RF-prunable | Covered | Covered by delete timeline | Covered by delete timeline | Covered by delete timeline | Covered | Parquet/ORC, V1/V2 |
+| Year → month → day → hour | Covered | Covered for supported temporal transforms | Covered | Day → month covered | Day → month covered | Day → month covered | Covered | Parquet/ORC, V1/V2 |
+| Old spec lacks newly added field | Covered | Covered | Covered | Covered | Covered | Covered | Covered | Parquet/ORC, V1/V2 |
+| New spec lacks dropped field | Covered | Covered | Covered | Covered | Covered | Covered | Covered | Parquet/ORC, V1/V2 |
+| Partition-field alias replacement | Covered by existing position-delete suite | Not RF-prunable separately | Existing metadata coverage | Covered | N/A | N/A | N/A | Parquet |
+
+The Iceberg delete timelines write deletes both before and after spec changes.
+Queries then combine partition predicates, runtime filters and historical
+references so deleted rows cannot be resurrected or over-deleted when Doris
+plans files from several specs.
+
+### Paimon
+
+Paimon does not support changing the partition-key set after table creation.
+Its P0 contract therefore combines supported schema reordering and payload
+evolution with fixed partition keys, and verifies that unsupported key
+mutations fail atomically.
+
+| Paimon partition contract | Static filter | Runtime filter | Snapshot/tag/branch | Delete/upsert/DV | Complex schema | Format / reader |
+| --- | --- | --- | --- | --- | --- | --- |
+| Reorder partition columns in schema | Covered | N/A | Covered by pre-reorder tag | N/A | Add payload field | Parquet |
+| Rename partition key | Rejected atomically | N/A | Historical tag unchanged | Data unchanged | Schema count unchanged | Parquet |
+| Change partition-key type | Rejected atomically | N/A | Historical tag unchanged | Data unchanged | Schema count unchanged | Parquet |
+| Drop partition key | Rejected atomically | N/A | Historical tag unchanged | Data unchanged | Schema count unchanged | Parquet |
+| Fixed key + STRUCT/MAP/ARRAY evolution | Covered | Covered with positive pruning counter | Covered | Append timeline | Add/rename/promote/drop-re-add | Parquet/ORC, JNI/native |
+| Partitioned PK table | Covered | Covered | Covered | Upsert/delete/DV/compaction | Add/rename/promote/drop-re-add | Parquet/ORC, JNI/native |
+
 ## Schema operations
 
 | ID | Operation | Iceberg | Paimon | P0 contract |
@@ -82,10 +123,17 @@ explicit rename plus old snapshot/tag smoke path.
 | `iceberg/test_iceberg_schema_position_dv_time_travel.groovy` | Position delete and DV × top-level/nested evolution, Parquet/ORC |
 | `iceberg/test_iceberg_schema_ref_actions_matrix.groovy` | Rollback, cherry-pick, fast-forward and branch action semantics |
 | `iceberg/test_iceberg_schema_metadata_atomicity_matrix.groovy` | Comment/default/nullability/narrowing/map-key atomicity |
+| `iceberg/test_iceberg_partition_evolution_filter_refs.groovy` | Add/drop/replace specs, all transform families, static filters and snapshot/tag/branch |
+| `iceberg/test_iceberg_partition_evolution_runtime_filter.groovy` | Runtime-filter pruning across specs with missing/new partition fields |
+| `iceberg/test_iceberg_partition_evolution_position_dv.groovy` | Position delete and deletion vector before/after spec changes, filters and refs |
+| `iceberg/test_iceberg_partition_evolution_equality_delete.groovy` | Real equality-delete files before/after add/replace/drop specs |
 | `paimon/test_paimon_schema_time_travel_matrix.groovy` | S01-S18 × T00-T14, PK upsert/delete/DV, cache/readers |
 | `paimon/test_paimon_schema_dual_relation_matrix.groovy` | Dual-snapshot join/UNION/CTE/subquery negative contracts |
 | `paimon/test_paimon_schema_branch_partition_matrix.groovy` | Independent branch evolution, fast-forward and partition restrictions |
 | `paimon/test_paimon_schema_metadata_atomicity_matrix.groovy` | Comment/default/nullability/narrowing atomicity |
+| `paimon/test_paimon_partition_schema_filter_refs.groovy` | Fixed partition key with complex evolution, pruning and historical refs |
+| `paimon/test_paimon_partition_pk_delete_refs.groovy` | Partitioned PK upsert/delete/DV/compaction with filters and refs |
+| `paimon/test_paimon_partition_mutation_atomicity.groovy` | Supported reorder plus atomic rejection of key rename/type/drop |
 | `iceberg/test_iceberg_jdbc_catalog.groovy` | JDBC catalog rename × numeric snapshot/tag smoke |
 | `paimon/test_paimon_jdbc_catalog.groovy` | JDBC catalog rename × numeric snapshot/tag smoke |
 
@@ -105,15 +153,23 @@ back to the exact suite, scenario and file location from Jira instead.
 
 ## Validation status
 
-- The ten REST/filesystem matrix suites pass with no failed, fatal or skipped
-  suite.
-- The two JDBC catalog suites pass with no failed, fatal or skipped suite.
-- The validation covers current and historical schema binding, nested
-  evolution, deletes, branches, tags, dual historical relations, metadata
-  atomicity, reader/cache variants, catalog variants and distributed cluster
-  scheduling.
+- All nineteen matrix suites pass on master
+  `f1460f89230441bc1b6b1872d66bd32a526b25b1` with no failed, fatal or skipped
+  suite: ten original REST/filesystem matrix suites, two JDBC catalog suites
+  and seven partition-evolution extension suites.
+- The REST/filesystem suites, including all seven partition-evolution
+  extensions, support parallel execution. The two existing JDBC catalog suites
+  are validated separately because they initialize shared external catalog
+  fixtures.
+- Distributed validation used one FE and two live BEs. The cases use
+  cluster-reachable external endpoints and contain no fixed backend,
+  backend-local path or single-node scheduling assumption.
+- No additional Doris product issue was reproduced by the partition-evolution
+  extension. Test-fixture and Runtime Filter session preconditions found during
+  development were corrected before the final run and were not recorded as
+  product defects.
 
-The requested schema-change × historical-operation correctness matrix has no
-unimplemented P0 cell. Unsupported format operations and currently incorrect
-Doris behavior are represented by stable negative regression contracts rather
-than being marked as missing.
+The requested schema-change × partition-operation × historical-reference
+matrix has no unimplemented P0 cell. Unsupported format operations and
+currently incorrect Doris behavior are represented by stable negative
+regression contracts rather than being marked as missing.
