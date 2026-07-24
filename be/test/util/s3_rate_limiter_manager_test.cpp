@@ -26,10 +26,138 @@
 
 namespace doris {
 
+extern bvar::Adder<int64_t> s3_get_rate_limit_sleep_ns;
+extern bvar::Adder<int64_t> s3_get_rate_limit_sleep_count;
+extern bvar::Adder<int64_t> s3_get_rate_limit_rejected_count;
 extern bvar::Adder<int64_t> s3_get_bytes_rate_limit_sleep_count;
 extern bvar::Adder<int64_t> s3_get_bytes_rate_limit_rejected_count;
+extern bvar::Adder<int64_t> s3_get_bytes_rate_limit_sleep_ns;
+extern bvar::Adder<int64_t> s3_put_rate_limit_sleep_ns;
+extern bvar::Adder<int64_t> s3_put_rate_limit_sleep_count;
+extern bvar::Adder<int64_t> s3_put_rate_limit_rejected_count;
+extern bvar::Adder<int64_t> s3_put_bytes_rate_limit_sleep_ns;
+extern bvar::Adder<int64_t> s3_put_bytes_rate_limit_sleep_count;
+extern bvar::Adder<int64_t> s3_put_bytes_rate_limit_rejected_count;
 
 namespace {
+
+struct RateLimiterMetricSnapshot {
+    int64_t qps_sleep_ns;
+    int64_t qps_sleep_count;
+    int64_t qps_rejected_count;
+    int64_t bytes_sleep_ns;
+    int64_t bytes_sleep_count;
+    int64_t bytes_rejected_count;
+};
+
+RateLimiterMetricSnapshot metric_snapshot(S3RateLimitType type) {
+    CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT);
+    if (type == S3RateLimitType::GET) {
+        return {.qps_sleep_ns = s3_get_rate_limit_sleep_ns.get_value(),
+                .qps_sleep_count = s3_get_rate_limit_sleep_count.get_value(),
+                .qps_rejected_count = s3_get_rate_limit_rejected_count.get_value(),
+                .bytes_sleep_ns = s3_get_bytes_rate_limit_sleep_ns.get_value(),
+                .bytes_sleep_count = s3_get_bytes_rate_limit_sleep_count.get_value(),
+                .bytes_rejected_count = s3_get_bytes_rate_limit_rejected_count.get_value()};
+    }
+    return {.qps_sleep_ns = s3_put_rate_limit_sleep_ns.get_value(),
+            .qps_sleep_count = s3_put_rate_limit_sleep_count.get_value(),
+            .qps_rejected_count = s3_put_rate_limit_rejected_count.get_value(),
+            .bytes_sleep_ns = s3_put_bytes_rate_limit_sleep_ns.get_value(),
+            .bytes_sleep_count = s3_put_bytes_rate_limit_sleep_count.get_value(),
+            .bytes_rejected_count = s3_put_bytes_rate_limit_rejected_count.get_value()};
+}
+
+void expect_metrics_unchanged(const RateLimiterMetricSnapshot& before,
+                              const RateLimiterMetricSnapshot& after) {
+    EXPECT_EQ(before.qps_sleep_ns, after.qps_sleep_ns);
+    EXPECT_EQ(before.qps_sleep_count, after.qps_sleep_count);
+    EXPECT_EQ(before.qps_rejected_count, after.qps_rejected_count);
+    EXPECT_EQ(before.bytes_sleep_ns, after.bytes_sleep_ns);
+    EXPECT_EQ(before.bytes_sleep_count, after.bytes_sleep_count);
+    EXPECT_EQ(before.bytes_rejected_count, after.bytes_rejected_count);
+}
+
+void expect_only_bytes_sleep_grows(const RateLimiterMetricSnapshot& before,
+                                   const RateLimiterMetricSnapshot& after) {
+    EXPECT_EQ(before.qps_sleep_ns, after.qps_sleep_ns);
+    EXPECT_EQ(before.qps_sleep_count, after.qps_sleep_count);
+    EXPECT_EQ(before.qps_rejected_count, after.qps_rejected_count);
+    EXPECT_LT(before.bytes_sleep_ns, after.bytes_sleep_ns);
+    EXPECT_EQ(before.bytes_sleep_count + 1, after.bytes_sleep_count);
+    EXPECT_EQ(before.bytes_rejected_count, after.bytes_rejected_count);
+}
+
+void expect_only_qps_sleep_grows(const RateLimiterMetricSnapshot& before,
+                                 const RateLimiterMetricSnapshot& after) {
+    EXPECT_LT(before.qps_sleep_ns, after.qps_sleep_ns);
+    EXPECT_EQ(before.qps_sleep_count + 1, after.qps_sleep_count);
+    EXPECT_EQ(before.qps_rejected_count, after.qps_rejected_count);
+    EXPECT_EQ(before.bytes_sleep_ns, after.bytes_sleep_ns);
+    EXPECT_EQ(before.bytes_sleep_count, after.bytes_sleep_count);
+    EXPECT_EQ(before.bytes_rejected_count, after.bytes_rejected_count);
+}
+
+void verify_cpu_aware_bytes_and_legacy_qps_metrics(S3RateLimitType type, S3RateLimitType other_type,
+                                                   int64_t& qps_per_core, int64_t& bytes_per_core) {
+    config::enable_s3_rate_limiter = true;
+    config::s3_rate_limiter_cpu_cores = 1;
+    config::s3_get_qps_max = 0;
+    config::s3_put_qps_max = 0;
+    config::s3_get_bytes_per_second_max = 0;
+    config::s3_put_bytes_per_second_max = 0;
+    config::s3_get_token_per_second = 1000;
+    config::s3_put_token_per_second = 1000;
+    config::s3_get_bucket_tokens = 1;
+    config::s3_put_bucket_tokens = 1;
+    config::s3_get_token_limit = 0;
+    config::s3_put_token_limit = 0;
+
+    auto& manager = S3RateLimiterManager::instance();
+
+    // Enable only the target direction's CPU-aware bytes limiter. Keep a low
+    // legacy QPS configuration in place to prove qps_per_core=0 bypasses it.
+    config::s3_get_qps_per_core = 0;
+    config::s3_put_qps_per_core = 0;
+    config::s3_get_bytes_per_second_per_core = 0;
+    config::s3_put_bytes_per_second_per_core = 0;
+    bytes_per_core = 1000;
+    manager.refresh();
+
+    auto* qps = manager.qps_limiter(type);
+    auto* bytes = manager.bytes_limiter(type);
+    EXPECT_FALSE(qps->is_enabled());
+    ASSERT_TRUE(bytes->is_enabled());
+    EXPECT_EQ(1000, bytes->get_max_speed());
+    EXPECT_EQ(1000, bytes->get_max_burst());
+
+    auto target_before = metric_snapshot(type);
+    auto other_before = metric_snapshot(other_type);
+    EXPECT_GT(bytes->add(bytes->get_max_burst() + 1), 0);
+    auto target_after = metric_snapshot(type);
+    auto other_after = metric_snapshot(other_type);
+    expect_only_bytes_sleep_grows(target_before, target_after);
+    expect_metrics_unchanged(other_before, other_after);
+
+    // Disable CPU-aware bytes and select qps_per_core=-1. The same low legacy
+    // configuration now becomes effective, so only the original QPS metrics grow.
+    qps_per_core = -1;
+    bytes_per_core = 0;
+    manager.refresh();
+
+    EXPECT_TRUE(qps->is_enabled());
+    EXPECT_EQ(1000, qps->get_max_speed());
+    EXPECT_EQ(1, qps->get_max_burst());
+    EXPECT_FALSE(bytes->is_enabled());
+
+    target_before = metric_snapshot(type);
+    other_before = metric_snapshot(other_type);
+    EXPECT_GT(qps->add(qps->get_max_burst() + 1), 0);
+    target_after = metric_snapshot(type);
+    other_after = metric_snapshot(other_type);
+    expect_only_qps_sleep_grows(target_before, target_after);
+    expect_metrics_unchanged(other_before, other_after);
+}
 
 // Saves every rate limiter related config on construction, restores it and re-applies
 // the limiters on destruction so tests do not leak state into each other.
@@ -447,6 +575,20 @@ TEST(S3RateLimiterMetricsTest, bytes_wait_and_rejection_have_distinct_counters) 
     EXPECT_EQ(-1, bytes->add(2));
     EXPECT_EQ(sleep_count_before + 1, s3_get_bytes_rate_limit_sleep_count.get_value());
     EXPECT_EQ(rejected_count_before + 1, s3_get_bytes_rate_limit_rejected_count.get_value());
+}
+
+TEST(S3RateLimiterMetricsTest, get_cpu_aware_bytes_and_legacy_qps_update_separate_metrics) {
+    RateLimiterConfigGuard guard;
+    verify_cpu_aware_bytes_and_legacy_qps_metrics(S3RateLimitType::GET, S3RateLimitType::PUT,
+                                                  config::s3_get_qps_per_core,
+                                                  config::s3_get_bytes_per_second_per_core);
+}
+
+TEST(S3RateLimiterMetricsTest, put_cpu_aware_bytes_and_legacy_qps_update_separate_metrics) {
+    RateLimiterConfigGuard guard;
+    verify_cpu_aware_bytes_and_legacy_qps_metrics(S3RateLimitType::PUT, S3RateLimitType::GET,
+                                                  config::s3_put_qps_per_core,
+                                                  config::s3_put_bytes_per_second_per_core);
 }
 
 TEST(S3RateLimitGuardTest, legacy_count_limit_rejects) {

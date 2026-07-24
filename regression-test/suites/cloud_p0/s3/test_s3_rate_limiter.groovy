@@ -106,6 +106,26 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
         sleep(12000)
     }
 
+    def applyLegacyQpsPhase = { long getQps, long putQps ->
+        Map<String, Object> phase = [
+                "s3_get_qps_per_core": getQps > 0 ? -1 : 0,
+                "s3_put_qps_per_core": putQps > 0 ? -1 : 0,
+                "s3_get_token_per_second": getQps > 0 ? getQps : 1,
+                "s3_put_token_per_second": putQps > 0 ? putQps : 1,
+                "s3_get_bucket_tokens": 1,
+                "s3_put_bucket_tokens": 1,
+                "s3_get_token_limit": 0,
+                "s3_put_token_limit": 0,
+                "s3_get_bytes_per_second_per_core": 0,
+                "s3_put_bytes_per_second_per_core": 0
+        ]
+        phase.each { key, value -> set_be_param(key, value) }
+        set_be_param("enable_s3_rate_limiter", true)
+        phase.each { key, value -> assertBeConfig(key, value) }
+        assertBeConfig("enable_s3_rate_limiter", true)
+        sleep(12000)
+    }
+
     def applyLegacyCountLimitPhase = { long getLimit, long putLimit ->
         Map<String, Object> phase = [
                 "s3_get_qps_per_core": getLimit > 0 ? -1 : 0,
@@ -185,10 +205,12 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
             "s3_put_qps_per_core": 0,
             "s3_get_qps_max": 0,
             "s3_put_qps_max": 0,
-            "s3_get_token_per_second": 1000000000000000000L,
-            "s3_put_token_per_second": 1000000000000000000L,
-            "s3_get_bucket_tokens": 1000000000000000000L,
-            "s3_put_bucket_tokens": 1000000000000000000L,
+            // Keep the legacy QPS settings low. CPU-aware phases must ignore them
+            // unless qps_per_core is explicitly switched back to -1.
+            "s3_get_token_per_second": 1,
+            "s3_put_token_per_second": 1,
+            "s3_get_bucket_tokens": 1,
+            "s3_put_bucket_tokens": 1,
             "s3_get_token_limit": 0,
             "s3_put_token_limit": 0,
             "s3_get_bytes_per_second_per_core": 0,
@@ -274,6 +296,23 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
                     "s3_get_bytes_rate_limit_sleep_count"
             ])
 
+            // Disable CPU-aware GET bytes and switch qps_per_core to -1. The low
+            // legacy QPS config that was ignored above must now throttle the same
+            // internal-vault read. Only the original QPS metrics may grow.
+            applyLegacyQpsPhase(1, 0)
+            clearFileCacheOnAllBackends()
+            before = snapshotMetrics()
+            sql """
+                SELECT count(*), sum(length(payload))
+                FROM test_s3_rate_limiter_get
+                WHERE id < 1000000
+            """
+            after = snapshotMetrics()
+            assertMetricChanges(before, after, [
+                    "s3_get_rate_limit_sleep_ns",
+                    "s3_get_rate_limit_sleep_count"
+            ])
+
             // PUT QPS: concurrent small inserts create independent small segment files
             // for the same tablet, guaranteeing multiple requests against one BE bucket.
             applyLimiterPhase(0, 1, 0, 0)
@@ -298,6 +337,17 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
             assertMetricChanges(before, after, [
                     "s3_put_bytes_rate_limit_sleep_ns",
                     "s3_put_bytes_rate_limit_sleep_count"
+            ])
+
+            // Disable CPU-aware PUT bytes and switch qps_per_core to -1. Concurrent
+            // internal-vault writes must now update only the original PUT QPS metrics.
+            applyLegacyQpsPhase(0, 1)
+            before = snapshotMetrics()
+            runConcurrentSmallInserts(4)
+            after = snapshotMetrics()
+            assertMetricChanges(before, after, [
+                    "s3_put_rate_limit_sleep_ns",
+                    "s3_put_rate_limit_sleep_count"
             ])
 
             // Mixed internal IO: scan uncached vault data while another large segment
