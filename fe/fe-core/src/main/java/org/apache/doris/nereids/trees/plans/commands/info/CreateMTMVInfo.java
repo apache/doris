@@ -75,7 +75,7 @@ import java.util.stream.Collectors;
 public class CreateMTMVInfo extends CreateTableInfo {
     public static final Logger LOG = LogManager.getLogger(CreateMTMVInfo.class);
     public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,"
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM";
+                + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, ELIMINATE_GROUP_BY_KEY";
     private LogicalPlan logicalQuery;
     private List<SimpleColumnDefinition> simpleColumnDefinitions;
     private MTMVPartitionDefinition mvPartitionDefinition;
