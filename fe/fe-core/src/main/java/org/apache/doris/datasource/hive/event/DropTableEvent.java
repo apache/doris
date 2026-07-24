@@ -29,6 +29,7 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONDropTableMessage;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * MetastoreEvent for DROP_TABLE event type
@@ -40,7 +41,7 @@ public class DropTableEvent extends MetastoreTableEvent {
     public DropTableEvent(long eventId, String catalogName, String dbName,
                            String tblName) {
         super(eventId, catalogName, dbName, tblName, MetastoreEventType.DROP_TABLE);
-        this.tableName = tblName;
+        this.tableName = normalizeTableName(tblName);
     }
 
     private DropTableEvent(NotificationEvent event,
@@ -53,7 +54,7 @@ public class DropTableEvent extends MetastoreTableEvent {
             JSONDropTableMessage dropTableMessage =
                     (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getDropTableMessage(event.getMessage());
-            tableName = dropTableMessage.getTable();
+            tableName = normalizeTableName(dropTableMessage.getTable());
         } catch (Exception e) {
             throw new MetastoreNotificationException(e);
         }
@@ -62,6 +63,10 @@ public class DropTableEvent extends MetastoreTableEvent {
     public static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
         return Lists.newArrayList(new DropTableEvent(event, catalogName));
+    }
+
+    private static String normalizeTableName(String tableName) {
+        return tableName.toLowerCase(Locale.ROOT);
     }
 
     @Override

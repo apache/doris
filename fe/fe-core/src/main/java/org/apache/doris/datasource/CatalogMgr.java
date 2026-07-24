@@ -693,31 +693,26 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
-        if (table == null) {
-            if (!ignoreIfExists) {
+        String tableNameToInvalidate;
+        if (ignoreIfExists) {
+            tableNameToInvalidate = db.canonicalLocalTableNameFromRemote(tableName);
+        } else {
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }
-            return;
+            tableNameToInvalidate = table.getName();
         }
 
+        // All current production callers with ignoreIfExists=true are HMS event paths. Skip load-through table
+        // existence validation so local names/object/ID/engine cache cleanup still runs after the table has already
+        // disappeared remotely. Resolve the event's remote name to the same canonical local key used by CREATE_TABLE.
         db.writeLock();
         try {
-            db.unregisterTable(table.getName());
+            db.unregisterTable(tableNameToInvalidate);
         } finally {
             db.writeUnlock();
         }
-    }
-
-    public boolean externalTableExistInLocal(String dbName, String tableName, String catalogName) throws DdlException {
-        CatalogIf catalog = nameToCatalog.get(catalogName);
-        if (catalog == null) {
-            throw new DdlException("No catalog found with name: " + catalogName);
-        }
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new DdlException("Only support ExternalCatalog Tables");
-        }
-        return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
     public void registerExternalTableFromEvent(String dbName, String tableName,
@@ -738,9 +733,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        tblId = Util.genIdByName(catalogName, dbName, tableName);
+        ExternalDatabase<?> externalDatabase = (ExternalDatabase<?>) db;
+        String localTableName = externalDatabase.canonicalLocalTableNameFromRemote(tableName);
+        HMSExternalDatabase hmsDatabase = (HMSExternalDatabase) externalDatabase;
+        long tblId = Util.genIdByName(catalogName, db.getFullName(), localTableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -748,8 +745,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            HMSExternalTable namedTable = ((HMSExternalDatabase) db)
-                    .buildTableForInit(tableName, tableName, tblId, hmsCatalog, (HMSExternalDatabase) db, false);
+            HMSExternalTable namedTable = hmsDatabase
+                    .buildTableForInit(tableName, localTableName, tblId, hmsCatalog, hmsDatabase, false);
             namedTable.setUpdateTime(updateTime);
             db.registerTable(namedTable);
         } finally {

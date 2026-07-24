@@ -29,7 +29,6 @@ import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRouteResolver;
-import org.apache.doris.datasource.metacache.LegacyMetaCacheFactory;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
@@ -94,7 +93,6 @@ public class ExternalMetaCacheMgr {
     private ExecutorService scheduleExecutor;
     private final ExternalMetaCacheRegistry cacheRegistry;
     private final ExternalMetaCacheRouteResolver routeResolver;
-    private final LegacyMetaCacheFactory legacyMetaCacheFactory;
 
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
@@ -128,8 +126,6 @@ public class ExternalMetaCacheMgr {
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
         cacheRegistry = new ExternalMetaCacheRegistry();
         routeResolver = new ExternalMetaCacheRouteResolver(cacheRegistry);
-        legacyMetaCacheFactory = new LegacyMetaCacheFactory(commonRefreshExecutor);
-
         initEngineCaches();
     }
 
@@ -396,8 +392,8 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    public LegacyMetaCacheFactory legacyMetaCacheFactory() {
-        return legacyMetaCacheFactory;
+    public ExecutorService commonRefreshExecutor() {
+        return commonRefreshExecutor;
     }
 
     public static Map<String, String> getCacheStats(CacheStats cacheStats, long estimatedSize) {

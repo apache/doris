@@ -50,7 +50,9 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
-import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -90,9 +92,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -176,11 +178,11 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
-    protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    protected MetaCacheEntry<String, NameCacheValue> databaseNames;
+    protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
+    protected Map<Long, String> dbIdToName = Maps.newConcurrentMap();
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
-    // Map lowercase database names to actual remote database names for case-insensitive lookup
-    private Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -394,18 +396,6 @@ public abstract class ExternalCatalog
     protected abstract void initLocalObjectsImpl();
 
     /**
-     * check if the specified table exist in doris.
-     * Currently only be used for hms event handler.
-     *
-     * @param dbName
-     * @param tblName
-     * @return true if table exists, false otherwise
-     */
-    public boolean tableExistInLocal(String dbName, String tblName) {
-        throw new NotImplementedException("tableExistInLocal not implemented");
-    }
-
-    /**
      * Catalog can't be init when creating because the external catalog may depend on third system.
      * So you have to make sure the client of third system is initialized before any method was called.
      */
@@ -451,21 +441,37 @@ public abstract class ExternalCatalog
     }
 
     private void buildMetaCache() {
-        if (metaCache == null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
-            }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
-                    name,
-                    OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
-                    OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                    Math.max(Config.max_meta_object_cache_num, 1),
-                    ignored -> getFilteredDatabaseNames(),
-                    localDbName -> Optional.ofNullable(
-                            buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
-                                    true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()));
+        if (databaseNames != null && databases != null) {
+            return;
         }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
+        }
+        CacheSpec namesSpec = CacheSpec.of(
+                true,
+                Config.external_cache_expire_time_seconds_after_access,
+                1);
+        // Build one immutable names snapshot so list and lower-case index share the same cache version.
+        databaseNames = new MetaCacheEntry<>(
+                name + ".database_names",
+                ignored -> NameCacheValue.of(getFilteredDatabaseNames()),
+                namesSpec,
+                Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
+                true,
+                MetaCacheEntry.singleKeyStripeCount());
+
+        CacheSpec objectSpec = CacheSpec.of(
+                true,
+                Config.external_cache_expire_time_seconds_after_access,
+                Math.max(Config.max_meta_object_cache_num, 1));
+        // Object entries keep the sync removal listener semantics and therefore do not enable auto refresh.
+        databases = MetaCacheEntry.withSyncRemovalListener(
+                name + ".databases",
+                localDbName -> buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType, true),
+                objectSpec,
+                Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
+                MetaCacheEntry.defaultObjectStripeCount(),
+                (key, value, cause) -> value.resetMetaToUninitialized());
     }
 
     // check if all required properties are set when creating catalog
@@ -558,8 +564,6 @@ public abstract class ExternalCatalog
 
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
-
-        lowerCaseToDatabaseName.clear();
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
         allDatabases = allDatabases.stream().filter(dbName -> {
@@ -577,12 +581,10 @@ public abstract class ExternalCatalog
 
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
-            // Populate lowercase mapping for case-insensitive lookups
-            lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
             // Apply lower_case_database_names mode to local name
             int dbNameMode = getLowerCaseDatabaseNames();
             if (dbNameMode == 1) {
-                localDbName = localDbName.toLowerCase();
+                localDbName = localDbName.toLowerCase(Locale.ROOT);
             } else if (dbNameMode == 2) {
                 // Mode 2: preserve original remote case for display
                 localDbName = remoteDbName;
@@ -597,7 +599,7 @@ public abstract class ExternalCatalog
 
             // Collect lowercased local names and their remote counterparts
             for (Pair<String, String> pair : remoteToLocalPairs) {
-                String lowerCaseLocalName = pair.second.toLowerCase();
+                String lowerCaseLocalName = pair.second.toLowerCase(Locale.ROOT);
                 lowerCaseToRemoteNames.computeIfAbsent(lowerCaseLocalName, k -> Lists.newArrayList()).add(pair.first);
             }
 
@@ -643,7 +645,6 @@ public abstract class ExternalCatalog
             synchronized (this.confLock) {
                 this.cachedConf = null;
             }
-            this.lowerCaseToDatabaseName.clear();
             onClose();
         }
         onRefreshCache(invalidCache);
@@ -667,9 +668,7 @@ public abstract class ExternalCatalog
      * This method is safe to call within synchronized block.
      */
     private void refreshMetaCacheOnly() {
-        if (metaCache != null) {
-            metaCache.invalidateAll();
-        }
+        invalidateAllDatabaseCache();
     }
 
     public final Optional<SchemaCacheValue> getSchema(SchemaCacheKey key) {
@@ -722,7 +721,7 @@ public abstract class ExternalCatalog
     @Override
     public List<String> getDbNames() {
         makeSureInitialized();
-        return metaCache.listNames();
+        return listLocalDatabaseNamesFromCache();
     }
 
     @Override
@@ -767,14 +766,16 @@ public abstract class ExternalCatalog
         } else {
             // Apply case-insensitive lookup for non-system databases
             String localDbName = getLocalDatabaseName(dbName, false);
-            if (localDbName != null) {
-                dbName = localDbName;
+            if (localDbName == null) {
+                return null;
             }
+            dbName = localDbName;
         }
 
-        // must use full qualified name to generate id.
-        // otherwise, if 2 catalogs have the same db name, the id will be the same.
-        return metaCache.getMetaObj(dbName, Util.genIdByName(name, dbName)).orElse(null);
+        return databases.getAndRunIfCurrent(
+                dbName,
+                (localDbName, db) -> !localDbName.equals(dbIdToName.get(db.getId())),
+                (localDbName, db) -> dbIdToName.put(db.getId(), localDbName));
     }
 
     @Nullable
@@ -787,7 +788,11 @@ public abstract class ExternalCatalog
             return null;
         }
 
-        return metaCache.getMetaObjById(dbId).orElse(null);
+        String dbName = dbIdToName.get(dbId);
+        if (dbName == null) {
+            return null;
+        }
+        return databases.get(dbName);
     }
 
     @Override
@@ -847,11 +852,12 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * This method will try getting db from cache only,
-     * If there is no cache, it will return empty.
-     * Different from "getDbNullable()", this method will not visit the remote catalog to get db when it does not exist
-     * in cache.
-     * This is used for replaying the metadata, to avoid exception when trying to get db from remote catalog.
+     * This method tries getting db from cache only.
+     * If there is no cache, it returns empty.
+     * Different from "getDbNullable()", this method does not perform synchronous load-through on a replay miss.
+     * Cache hits may still schedule asynchronous refresh-after-write in the background, but the replay caller never
+     * waits for remote metadata loading.
+     * This is used for replaying metadata to avoid synchronous remote lookup failures on the replay thread.
      *
      * @param dbId
      * @return
@@ -860,11 +866,17 @@ public abstract class ExternalCatalog
         if (!isInitialized()) {
             return Optional.empty();
         }
-        return metaCache.getMetaObjById(dbId);
+        String dbName = dbIdToName.get(dbId);
+        if (dbName == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(databases.getIfPresent(dbName));
     }
 
     /**
-     * Same as "getDbForReplay(long dbId)", use "tryGetMetaObj" to get db from cache only.
+     * Same as "getDbForReplay(long dbId)", but resolves the local name from the cached names snapshot first.
+     * Replay misses still skip synchronous load-through. If the names entry is already hot, cache internals may
+     * schedule asynchronous refresh-after-write, but this method never waits for remote metadata loading.
      *
      * @param dbName
      * @return
@@ -878,13 +890,24 @@ public abstract class ExternalCatalog
             return Optional.empty();
         }
 
-        // Apply case-insensitive lookup with isReplay=true (no remote calls)
+        ExternalDatabase<? extends ExternalTable> exact = databases.getIfPresent(dbName);
+        if (exact != null) {
+            return Optional.of(exact);
+        }
         String localDbName = getLocalDatabaseName(dbName, true);
         if (localDbName == null) {
-            localDbName = dbName;  // Fallback to original name
+            // Replay must remain cache-only. When the names snapshot is cold in mode 2, fall back to
+            // a case-insensitive scan over the current hot object-cache keys instead of reloading names.
+            if (getLowerCaseDatabaseNames() == 2 && getDatabaseNamesValue(false) == null) {
+                ExternalDatabase<? extends ExternalTable> fallback =
+                        databases.findIfPresent(key -> key.equalsIgnoreCase(dbName));
+                if (fallback != null) {
+                    return Optional.of(fallback);
+                }
+            }
+            return Optional.empty();
         }
-
-        return metaCache.tryGetMetaObj(localDbName);
+        return Optional.ofNullable(databases.getIfPresent(localDbName));
     }
 
     /**
@@ -909,16 +932,14 @@ public abstract class ExternalCatalog
         // Because in ut, the database is not created in remote system.
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
             try {
-                List<String> dbNames = getDbNames();
-                if (!dbNames.contains(localDbName)) {
-                    dbNames = getFilteredDatabaseNames().stream()
-                            .map(Pair::value)
-                            .collect(Collectors.toList());
-                    if (!dbNames.contains(localDbName)) {
-                        LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
-                                localDbName);
-                        return null;
-                    }
+                final String lookupLocalDbName = localDbName;
+                // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
+                Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
+                        namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
+                if (!Boolean.TRUE.equals(exists)) {
+                    LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
+                            localDbName);
+                    return null;
                 }
             } catch (RuntimeException e) {
                 // Handle "Found conflicting" exception explicitly
@@ -938,10 +959,12 @@ public abstract class ExternalCatalog
             }
         }
 
-        // Step 3: Resolve remote database name if using meta cache
+        // Step 3: Resolve remote database name when local/remote mapping is active.
         if (remoteDbName == null) {
-            if (Boolean.parseBoolean(getLowerCaseMetaNames()) || !Strings.isNullOrEmpty(getMetaNamesMapping())) {
-                remoteDbName = metaCache.getRemoteName(localDbName);
+            if (Boolean.parseBoolean(getLowerCaseMetaNames())
+                    || !Strings.isNullOrEmpty(getMetaNamesMapping())
+                    || getLowerCaseDatabaseNames() == 1) {
+                remoteDbName = getRemoteDatabaseName(localDbName, false);
                 if (remoteDbName == null) {
                     LOG.warn("Could not resolve remote database name for local database: {}", localDbName);
                     return null;
@@ -1007,14 +1030,16 @@ public abstract class ExternalCatalog
         if (tableAutoAnalyzePolicy == null) {
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
-        if (this.lowerCaseToDatabaseName == null) {
-            this.lowerCaseToDatabaseName = Maps.newConcurrentMap();
-        }
+        this.dbIdToName = Maps.newConcurrentMap();
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
         buildMetaCache();
-        metaCache.addObjForTest(db.getId(), db.getFullName(), db);
+        // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
+        databases.computeAndRun(
+                db.getFullName(),
+                (ignored, current) -> db,
+                () -> dbIdToName.put(db.getId(), db.getFullName()));
     }
 
     /**
@@ -1173,10 +1198,11 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
+        String localDbName = resolveDatabaseNameForInvalidation(dbName);
         if (isInitialized()) {
-            metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
+            invalidateDatabaseCache(localDbName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), localDbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1273,19 +1299,11 @@ public abstract class ExternalCatalog
 
         if (mode == 1) {
             // Mode 1: Store as lowercase
-            finalName = dbName.toLowerCase();
+            finalName = dbName.toLowerCase(Locale.ROOT);
         } else if (mode == 2) {
-            // Mode 2: Case-insensitive comparison
-            finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
-            if (finalName == null && !isReplay) {
-                // Refresh database list and try again
-                try {
-                    getFilteredDatabaseNames();
-                    finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
-                } catch (Exception e) {
-                    LOG.warn("Failed to refresh database list for catalog {}", getName(), e);
-                }
-            }
+            // Route mode-2 lookups through the shared helper so hot-snapshot misses respect the mutable config.
+            finalName = resolveDatabaseNameFromSnapshot(dbName, isReplay,
+                    namesValue -> namesValue.remoteNameForCaseInsensitiveLookup(dbName));
             if (finalName == null && LOG.isDebugEnabled()) {
                 LOG.debug("Failed to get database name from: {}.{}, isReplay={}",
                         getName(), dbName, isReplay);
@@ -1293,6 +1311,132 @@ public abstract class ExternalCatalog
         }
 
         return finalName;
+    }
+
+    private NameCacheValue getDatabaseNamesValue(boolean allowLoad) {
+        if (databaseNames == null) {
+            return null;
+        }
+        return allowLoad ? databaseNames.get("") : databaseNames.getIfPresent("");
+    }
+
+    // Centralize names-negative-lookup handling so all database lookup paths share the same config-driven policy.
+    @Nullable
+    private <T> T resolveDatabaseNameFromSnapshot(String lookupName, boolean isReplay,
+            Function<NameCacheValue, T> resolver) {
+        NameCacheValue cached = getDatabaseNamesValue(false);
+        if (cached == null) {
+            if (isReplay) {
+                return null;
+            }
+            NameCacheValue loaded = getDatabaseNamesValue(true);
+            return loaded == null ? null : resolver.apply(loaded);
+        }
+        T resolved = resolver.apply(cached);
+        if (resolved != null || isReplay || !Config.enable_external_meta_cache_name_miss_refresh) {
+            return resolved;
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("refresh database names after hot-snapshot miss, catalog: {}, lookup: {}",
+                    getName(), lookupName);
+        }
+        invalidateDatabaseNamesOnly();
+        NameCacheValue refreshed = getDatabaseNamesValue(true);
+        return refreshed == null ? null : resolver.apply(refreshed);
+    }
+
+    private List<String> listLocalDatabaseNamesFromCache() {
+        NameCacheValue namesValue = java.util.Objects.requireNonNull(
+                getDatabaseNamesValue(true), "database names cache can not be null");
+        return namesValue.localNames();
+    }
+
+    private String resolveDatabaseNameForInvalidation(String dbName) {
+        int mode = getLowerCaseDatabaseNames();
+        if (mode == 1) {
+            return dbName.toLowerCase(Locale.ROOT);
+        }
+        if (mode != 2 || !isInitialized()) {
+            return dbName;
+        }
+
+        String localDbName = getLocalDatabaseName(dbName, true);
+        if (localDbName != null) {
+            return localDbName;
+        }
+        ExternalDatabase<? extends ExternalTable> cachedDb =
+                databases.findIfPresent(key -> key.equalsIgnoreCase(dbName));
+        if (cachedDb != null) {
+            return cachedDb.getFullName();
+        }
+        return dbIdToName.values().stream()
+                .filter(name -> name.equalsIgnoreCase(dbName))
+                .findFirst()
+                .orElse(dbName);
+    }
+
+    @Nullable
+    protected String getRemoteDatabaseName(String localDbName, boolean isReplay) {
+        // Route local-to-remote resolution through the shared helper so miss reload stays consistent with lookups.
+        return resolveDatabaseNameFromSnapshot(localDbName, isReplay,
+                namesValue -> namesValue.remoteNameOfLocalName(localDbName));
+    }
+
+    protected final void updateDatabaseCache(String remoteDbName, String localDbName,
+            ExternalDatabase<? extends ExternalTable> db) {
+        updateDatabaseCache(remoteDbName, localDbName, db, false);
+    }
+
+    private void updateDatabaseCache(String remoteDbName, String localDbName,
+            ExternalDatabase<? extends ExternalTable> db, boolean forceUpdateCacheState) {
+        buildMetaCache();
+        long dbId = db.getId();
+        // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
+        // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
+        if (forceUpdateCacheState) {
+            databaseNames.compute("", (ignored, current) ->
+                    (current == null ? NameCacheValue.empty() : current).withName(remoteDbName, localDbName));
+        } else {
+            // Keep a cold names entry cold, but still advance its generation so an in-flight pre-event load cannot
+            // publish a stale snapshot after this incremental update.
+            databaseNames.compute("", (ignored, current) ->
+                    current == null ? null : current.withName(remoteDbName, localDbName));
+        }
+        databases.computeAndRun(
+                localDbName,
+                (ignored, current) -> forceUpdateCacheState || current != null ? db : null,
+                () -> dbIdToName.put(dbId, localDbName));
+    }
+
+    protected void invalidateDatabaseCache(String localDbName) {
+        if (databaseNames != null) {
+            // Keep a cold names entry cold, but fence any in-flight pre-drop load from publishing stale state.
+            databaseNames.compute("", (ignored, current) ->
+                    current == null ? null : current.withoutLocalName(localDbName));
+        }
+        if (databases != null) {
+            databases.invalidateKeyAndRun(
+                    localDbName,
+                    () -> dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName)));
+        } else {
+            dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName));
+        }
+    }
+
+    private void invalidateDatabaseNamesOnly() {
+        if (databaseNames != null) {
+            databaseNames.invalidateAll();
+        }
+    }
+
+    private void invalidateAllDatabaseCache() {
+        if (databaseNames != null) {
+            databaseNames.invalidateAll();
+        }
+        if (databases != null) {
+            databases.invalidateAll();
+        }
+        dbIdToName.clear();
     }
 
     public String bindBrokerName() {
@@ -1522,9 +1666,7 @@ public abstract class ExternalCatalog
      * Usually used after creating database in catalog, so that user can see newly created db immediately.
      */
     public void resetMetaCacheNames() {
-        if (metaCache != null) {
-            metaCache.resetNames();
-        }
+        invalidateDatabaseNamesOnly();
     }
 
     // log the refresh external table operation

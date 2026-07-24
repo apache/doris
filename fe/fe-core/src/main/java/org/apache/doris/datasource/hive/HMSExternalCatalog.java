@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -188,16 +187,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return metadataOps.tableExist(dbName, tblName);
     }
 
-    @Override
-    public boolean tableExistInLocal(String dbName, String tblName) {
-        makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) getDbNullable(dbName);
-        if (hmsExternalDatabase == null) {
-            return false;
-        }
-        return hmsExternalDatabase.getTable(tblName).isPresent();
-    }
-
     public HMSCachedClient getClient() {
         makeSureInitialized();
         return ((HiveMetadataOps) metadataOps).getClient();
@@ -211,8 +200,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (isInitialized()) {
-            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                    Util.genIdByName(name, db.getFullName()));
+            // Keep names/object/id cache updates in one helper so HMS incremental sync follows the same ordering.
+            updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
         }
     }
 

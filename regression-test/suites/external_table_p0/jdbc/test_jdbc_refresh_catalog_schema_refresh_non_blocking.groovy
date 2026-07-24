@@ -21,8 +21,8 @@ import java.util.UUID
 // external MySQL environment. Those prerequisites may be unavailable in the
 // default Apache Doris CI pipeline, so the case can be skipped or may not run
 // end-to-end there. That is expected. The case still serves as a valuable
-// reference for manual validation of the MetaCacheEntry refresh blocking fix.
-suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
+// reference for manual validation of the schema refresh non-blocking behavior.
+suite("test_jdbc_refresh_catalog_schema_refresh_non_blocking", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
@@ -34,8 +34,8 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
     String bucket = getS3BucketName()
     String driverUrl = "https://${bucket}.${s3Endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     String nameSuffix = UUID.randomUUID().toString().replace("-", "")
-    String catalogName = "jdbc_manual_miss_load_" + nameSuffix
-    String remoteDbName = "jdbc_manual_miss_load_db_" + nameSuffix.substring(0, 12)
+    String catalogName = "jdbc_schema_refresh_" + nameSuffix
+    String remoteDbName = "jdbc_schema_refresh_db_" + nameSuffix.substring(0, 12)
     String slowTableName = "slow_probe_000000"
     int collisionTableCount = 80
     int hashMod = 512
@@ -43,8 +43,6 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
     int refreshDelayMs = 5000
 
     def mysqlJdbcUrl = "jdbc:mysql://${externalEnvIp}:${mysqlPort}"
-    def configRows = sql """ADMIN SHOW FRONTEND CONFIG LIKE 'enable_external_meta_cache_manual_miss_load';"""
-    String originalManualMissLoadValue = configRows[0][1].toString()
     def debugPointRows = sql """ADMIN SHOW FRONTEND CONFIG LIKE 'enable_debug_points';"""
     // Skip the case when FE debug points are not enabled in the regression environment.
     if (!"true".equalsIgnoreCase(debugPointRows[0][1].toString())) {
@@ -127,14 +125,6 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         }
     }
 
-    def preheatSchemaCache = { List<String> collisionTableNames ->
-        sql """REFRESH CATALOG ${catalogName}"""
-        collisionTableNames.each { tableName ->
-            sql """DESC ${catalogName}.${remoteDbName}.${tableName}"""
-        }
-        assertEquals(collisionTableCount, getSchemaCacheSize())
-    }
-
     // Read the current schema cache size for this catalog from information_schema.
     def getSchemaCacheSize = {
         def statRows = sql """
@@ -146,9 +136,16 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         return ((Number) statRows[0][0]).intValue()
     }
 
-    // Run the blocking reproduction once and assert the refresh latency profile.
-    def runRefreshRace = { boolean manualMissLoadEnabled, long minRefreshMs, long maxRefreshMs ->
-        sql """ADMIN SET FRONTEND CONFIG ('enable_external_meta_cache_manual_miss_load' = '${manualMissLoadEnabled}')"""
+    def preheatSchemaCache = { List<String> collisionTableNames ->
+        sql """REFRESH CATALOG ${catalogName}"""
+        collisionTableNames.each { tableName ->
+            sql """DESC ${catalogName}.${remoteDbName}.${tableName}"""
+        }
+        assertEquals(collisionTableCount, getSchemaCacheSize())
+    }
+
+    // Run the schema-entry manual miss load path once and assert refresh stays non-blocking.
+    def runSchemaRefreshRace = { long minRefreshMs, long maxRefreshMs ->
         try {
             GetDebugPoint().enableDebugPointForAllFEs(
                     "PluginDrivenExternalTable.initSchema.sleep",
@@ -183,7 +180,7 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
                 throw new IllegalStateException("desc thread failed", descFailure)
             }
 
-            logger.info("manualMissLoadEnabled=${manualMissLoadEnabled}, refreshElapsedMs=${refreshElapsedMs}, descElapsedMs=${descElapsedMs}")
+            logger.info("refreshElapsedMs=${refreshElapsedMs}, descElapsedMs=${descElapsedMs}")
             assertTrue(descElapsedMs >= slowSleepMs - 1000)
             assertTrue(refreshElapsedMs >= minRefreshMs)
             assertTrue(refreshElapsedMs <= maxRefreshMs)
@@ -215,19 +212,13 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
 
         recreateRemoteObjects(collisionTableNames)
         preheatSchemaCache(collisionTableNames)
-        def blockedResult = runRefreshRace(false, 8000L, slowSleepMs + 5000L)
-
-        recreateRemoteObjects(collisionTableNames)
-        preheatSchemaCache(collisionTableNames)
-        def manualLoadResult = runRefreshRace(true, 0L, 5000L)
+        runSchemaRefreshRace(0L, 5000L)
 
         // Verify the invalidated slow load did not write back the stale key into schema cache.
         assertEquals(0, getSchemaCacheSize())
         sql """DESC ${catalogName}.${remoteDbName}.${slowTableName}"""
         assertEquals(1, getSchemaCacheSize())
-        assertTrue(((Number) blockedResult[0]).longValue() > ((Number) manualLoadResult[0]).longValue() + 5000L)
     } finally {
-        try_sql("""ADMIN SET FRONTEND CONFIG ('enable_external_meta_cache_manual_miss_load' = '${originalManualMissLoadValue}')""")
         try {
             GetDebugPoint().disableDebugPointForAllFEs("PluginDrivenExternalTable.initSchema.sleep")
         } catch (Throwable t) {
