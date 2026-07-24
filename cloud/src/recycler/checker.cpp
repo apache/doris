@@ -483,7 +483,7 @@ int InstanceChecker::init_obj_store_accessors(const InstanceInfoPB& instance) {
 #ifdef UNIT_TEST
         auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info, true /* is_internal_bucket */);
+        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
@@ -542,8 +542,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
 #ifdef UNIT_TEST
             auto accessor = std::make_shared<MockAccessor>();
 #else
-            auto s3_conf =
-                    S3Conf::from_obj_store_info(vault.obj_info(), true /* is_internal_bucket */);
+            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
                 return -1;

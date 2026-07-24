@@ -108,13 +108,8 @@ struct S3Conf {
     };
 
     Provider provider;
-    // True for Doris internal data traffic, such as instance object info, storage vaults, and
-    // internal stages. User-property and external-stage traffic remains false, regardless of
-    // where the endpoint was originally configured.
-    bool is_internal_bucket = false;
 
     static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
-                                                     bool is_internal_bucket,
                                                      bool skip_aksk = false);
 };
 

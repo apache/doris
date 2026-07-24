@@ -112,7 +112,7 @@ public class S3Util {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
+                .endpointOverride(buildEndpointUri(endpoint))
                 .credentialsProvider(getAwsCredencialsProvider(credential))
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
@@ -238,7 +238,7 @@ public class S3Util {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
+                .endpointOverride(buildEndpointUri(endpoint))
                 .credentialsProvider(credential)
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
@@ -273,7 +273,7 @@ public class S3Util {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30)).build())
-                .endpointOverride(endpoint)
+                .endpointOverride(buildEndpointUri(endpoint))
                 .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
                         sessionToken, roleArn, externalId))
                 .region(Region.of(region))
@@ -394,11 +394,7 @@ public class S3Util {
     public static void validateAndTestEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
-            String urlStr = endpoint;
-            // Add default protocol if not specified
-            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-                urlStr = "http://" + endpoint;
-            }
+            String urlStr = buildEndpointUrl(endpoint);
             endpoint = endpoint.replaceFirst("^http://", "");
             endpoint = endpoint.replaceFirst("^https://", "");
             List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
@@ -432,6 +428,17 @@ public class S3Util {
             }
             SecurityChecker.getInstance().stopSSRFChecking();
         }
+    }
+
+    public static String buildEndpointUrl(String endpoint) {
+        if (endpoint.contains("://")) {
+            return endpoint;
+        }
+        return Config.s3_client_http_scheme + "://" + endpoint;
+    }
+
+    private static URI buildEndpointUri(URI endpoint) {
+        return URI.create(buildEndpointUrl(endpoint.toString()));
     }
 
     /**

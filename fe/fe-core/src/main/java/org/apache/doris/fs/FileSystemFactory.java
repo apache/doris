@@ -50,6 +50,7 @@ import java.util.ServiceLoader;
 public final class FileSystemFactory {
 
     private static final Logger LOG = LogManager.getLogger(FileSystemFactory.class);
+    private static final String S3_CLIENT_HTTP_SCHEME = "s3_client_http_scheme";
 
     // Plugin manager singleton, set at FE startup
     private static volatile FileSystemPluginManager pluginManager;
@@ -95,7 +96,9 @@ public final class FileSystemFactory {
             if (provider.supports(properties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                return provider.create(properties);
+                Map<String, String> effectiveProperties =
+                        "S3".equalsIgnoreCase(provider.name()) ? withS3ClientHttpScheme(properties) : properties;
+                return provider.create(effectiveProperties);
             }
             tried.add(provider.name());
         }
@@ -103,6 +106,12 @@ public final class FileSystemFactory {
                 "No FileSystemProvider found for properties %s. Tried: %s. "
                         + "Ensure the corresponding fe-filesystem-xxx jar is on the classpath.",
                 properties.keySet(), tried));
+    }
+
+    static Map<String, String> withS3ClientHttpScheme(Map<String, String> properties) {
+        Map<String, String> effectiveProperties = new HashMap<>(properties);
+        effectiveProperties.put(S3_CLIENT_HTTP_SCHEME, Config.s3_client_http_scheme);
+        return effectiveProperties;
     }
 
     /**

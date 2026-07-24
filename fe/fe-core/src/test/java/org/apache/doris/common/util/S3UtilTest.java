@@ -17,13 +17,71 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.Config;
+
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.services.s3.S3Client;
+
+import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 
 public class S3UtilTest {
+    private String originalS3ClientHttpScheme;
+
+    @Before
+    public void setUp() {
+        originalS3ClientHttpScheme = Config.s3_client_http_scheme;
+    }
+
+    @After
+    public void tearDown() {
+        Config.s3_client_http_scheme = originalS3ClientHttpScheme;
+    }
+
+    @Test
+    public void testBuildEndpointUrlDefaultsToHttps() {
+        Config.s3_client_http_scheme = "https";
+        Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlUsesConfiguredHttpScheme() {
+        Config.s3_client_http_scheme = "http";
+        Assert.assertEquals("http://127.0.0.1:9000",
+                S3Util.buildEndpointUrl("127.0.0.1:9000"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlPreservesExplicitSchemes() {
+        Config.s3_client_http_scheme = "https";
+        Assert.assertEquals("http://127.0.0.1:9000",
+                S3Util.buildEndpointUrl("http://127.0.0.1:9000"));
+
+        Config.s3_client_http_scheme = "http";
+        Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("https://s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
+    public void testBuildS3ClientAppliesDefaultSchemeAtClientCreation() {
+        Config.s3_client_http_scheme = "https";
+        try (S3Client client = S3Util.buildS3Client(
+                URI.create("minio.local:9000"),
+                "us-east-1",
+                true,
+                StaticCredentialsProvider.create(AwsBasicCredentials.create("ak", "sk")))) {
+            Assert.assertEquals(URI.create("https://minio.local:9000"),
+                    client.serviceClientConfiguration().endpointOverride().orElseThrow());
+        }
+    }
 
     @Test
     public void testExtendGlobNumberRange_simpleRange() {
@@ -457,4 +515,3 @@ public class S3UtilTest {
         Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
 }
-

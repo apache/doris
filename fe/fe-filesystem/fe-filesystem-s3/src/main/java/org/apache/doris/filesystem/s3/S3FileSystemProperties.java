@@ -63,6 +63,7 @@ public final class S3FileSystemProperties
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    public static final String CLIENT_HTTP_SCHEME = "s3_client_http_scheme";
 
     public static final String DEFAULT_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
@@ -179,6 +180,12 @@ public final class S3FileSystemProperties
             description = "The credentials provider type.")
     private String credentialsProviderType = DEFAULT_CREDENTIALS_PROVIDER_TYPE;
 
+    @Getter
+    @ConnectorProperty(names = {CLIENT_HTTP_SCHEME},
+            required = false,
+            description = "The default scheme for endpoints without an explicit scheme.")
+    private String clientHttpScheme = "https";
+
     private final Map<String, String> rawProperties;
     private final Map<String, String> matchedProperties;
 
@@ -211,6 +218,8 @@ public final class S3FileSystemProperties
                         "Either s3.endpoint or s3.region must be set")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
+                .check(() -> !"http".equals(clientHttpScheme) && !"https".equals(clientHttpScheme),
+                        "s3_client_http_scheme must be http or https, got: '" + clientHttpScheme + "'")
                 .validate("Invalid S3 filesystem properties");
     }
 
@@ -258,6 +267,7 @@ public final class S3FileSystemProperties
         putIfNotBlank(kv, "AWS_ROLE_ARN", roleArn);
         putIfNotBlank(kv, "AWS_EXTERNAL_ID", externalId);
         putIfNotBlank(kv, "AWS_BUCKET", bucket);
+        putIfNotBlank(kv, CLIENT_HTTP_SCHEME, clientHttpScheme);
         putIfNotBlank(kv, "AWS_ROOT_PATH", rootPath);
         kv.put("AWS_MAX_CONNECTIONS", maxConnections);
         kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);

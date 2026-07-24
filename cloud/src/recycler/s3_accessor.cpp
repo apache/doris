@@ -189,7 +189,7 @@ private:
 };
 
 std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_info,
-                                                  bool is_internal_bucket, bool skip_aksk) {
+                                                  bool skip_aksk) {
     S3Conf s3_conf;
 
     switch (obj_info.provider()) {
@@ -247,7 +247,6 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     s3_conf.region = obj_info.region();
     s3_conf.bucket = obj_info.bucket();
     s3_conf.prefix = obj_info.prefix();
-    s3_conf.is_internal_bucket = is_internal_bucket;
     s3_conf.use_virtual_addressing = !obj_info.use_path_style();
 
     return s3_conf;
@@ -429,11 +428,7 @@ int S3Accessor::init() {
                                                     config::instance_recycler_worker_pool_size),
                                              (long)aws_config.maxConnections);
 
-        if (conf_.is_internal_bucket) {
-            set_s3_client_default_http_scheme(aws_config, "https");
-        } else {
-            set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
-        }
+        set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
         // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry, /*retry_slow_down=*/false);

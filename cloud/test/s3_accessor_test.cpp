@@ -54,21 +54,6 @@ int main(int argc, char** argv) {
 namespace doris::cloud {
 namespace {
 
-TEST(S3ConfTest, internal_bucket_context_preserves_endpoint) {
-    ObjectStoreInfoPB obj_info;
-    obj_info.set_provider(ObjectStoreInfoPB::S3);
-    obj_info.set_endpoint("127.0.0.1:19000");
-
-    auto external_conf = S3Conf::from_obj_store_info(obj_info, false /* is_internal_bucket */);
-    auto internal_conf = S3Conf::from_obj_store_info(obj_info, true /* is_internal_bucket */);
-    ASSERT_TRUE(external_conf.has_value());
-    ASSERT_TRUE(internal_conf.has_value());
-    EXPECT_FALSE(external_conf->is_internal_bucket);
-    EXPECT_TRUE(internal_conf->is_internal_bucket);
-    EXPECT_EQ(external_conf->endpoint, obj_info.endpoint());
-    EXPECT_EQ(internal_conf->endpoint, obj_info.endpoint());
-}
-
 class S3AccessorTest : public testing::Test {
     void SetUp() override {
         if (cloud::config::test_s3_ak.empty()) {
@@ -395,7 +380,7 @@ TEST_F(S3AccessorTest, path_style_test) {
     for (auto& i : inputs) {
         obj_info.set_endpoint(std::get<0>(i));
         obj_info.set_use_path_style(std::get<1>(i));
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info, false /* is_internal_bucket */);
+        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
         EXPECT_EQ(s3_conf->use_virtual_addressing, !obj_info.use_path_style()) << case_idx;
         std::shared_ptr<S3Accessor> accessor;
         int ret = S3Accessor::create(*s3_conf, &accessor);

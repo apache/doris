@@ -44,11 +44,6 @@ CredProviderType cred_provider_type_from_string(const std::string& type);
 
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
 
-// Configures the S3 client transport scheme. Any scheme embedded in the endpoint override is
-// removed so that the requested scheme is authoritative.
-void set_s3_client_http_scheme(Aws::Client::ClientConfiguration& client_config,
-                               const std::string& scheme);
-
 // Configures the default S3 client transport scheme for endpoints without an explicit scheme.
 void set_s3_client_default_http_scheme(Aws::Client::ClientConfiguration& client_config,
                                        const std::string& scheme);

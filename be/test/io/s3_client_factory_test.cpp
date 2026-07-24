@@ -124,6 +124,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 }
 
 TEST_F(S3ClientFactoryTest, SetS3ClientDefaultHttpScheme) {
+    S3ClientFactory::instance();
     Aws::Client::ClientConfiguration client_config;
     client_config.endpointOverride = "example.com:9000";
 
@@ -146,35 +147,6 @@ TEST_F(S3ClientFactoryTest, SetS3ClientDefaultHttpScheme) {
     set_s3_client_default_http_scheme(client_config, "http");
     EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
     EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
-
-    client_config.endpointOverride = "internal.example.com:9000";
-    set_s3_client_http_scheme(client_config, "https");
-    EXPECT_EQ(client_config.endpointOverride, "internal.example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
-
-    client_config.endpointOverride = "http://internal.example.com:9000";
-    set_s3_client_http_scheme(client_config, "https");
-    EXPECT_EQ(client_config.endpointOverride, "internal.example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
-}
-
-TEST_F(S3ClientFactoryTest, InternalObjectStoreConfPreservesEndpoint) {
-    cloud::ObjectStoreInfoPB obj_info;
-    obj_info.set_provider(cloud::ObjectStoreInfoPB::S3);
-    obj_info.set_endpoint("127.0.0.1:19000");
-
-    const auto s3_conf = S3Conf::get_s3_conf(obj_info);
-    EXPECT_EQ(s3_conf.client_conf.endpoint, "127.0.0.1:19000");
-    EXPECT_TRUE(s3_conf.client_conf.is_internal_bucket);
-
-    S3ClientConf user_conf;
-    user_conf.endpoint = "127.0.0.1:19000";
-    EXPECT_FALSE(user_conf.is_internal_bucket);
-
-    auto internal_conf = user_conf;
-    internal_conf.use_virtual_addressing = false;
-    internal_conf.is_internal_bucket = true;
-    EXPECT_NE(user_conf.get_hash(), internal_conf.get_hash());
 }
 
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
@@ -190,7 +162,6 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRoleArnProviderType) {
     S3Conf s3_conf;
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf).ok());
     ASSERT_EQ(s3_conf.client_conf.endpoint, properties.at("AWS_ENDPOINT"));
-    ASSERT_FALSE(s3_conf.client_conf.is_internal_bucket);
     ASSERT_EQ(s3_conf.client_conf.cred_provider_type, CredProviderType::Default);
 
     properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "WEB_IDENTITY";

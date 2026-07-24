@@ -166,7 +166,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         // Standard AWS S3 access uses region-only routing without an explicit endpoint.
         if (StringUtils.isNotBlank(endpointStr)) {
             if (!endpointStr.contains("://")) {
-                endpointStr = "https://" + endpointStr;
+                endpointStr = s3Properties.getClientHttpScheme() + "://" + endpointStr;
             }
             builder.endpointOverride(URI.create(endpointStr));
         }

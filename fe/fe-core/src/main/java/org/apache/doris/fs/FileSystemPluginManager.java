@@ -128,7 +128,11 @@ public class FileSystemPluginManager {
     public FileSystem createFileSystem(Map<String, String> properties) throws IOException {
         for (FileSystemProvider provider : providers) {
             if (provider.supports(properties)) {
-                return provider.create(properties);
+                Map<String, String> effectiveProperties =
+                        "S3".equalsIgnoreCase(provider.name())
+                                ? FileSystemFactory.withS3ClientHttpScheme(properties)
+                                : properties;
+                return provider.create(effectiveProperties);
             }
         }
         throw new IOException("No FileSystemProvider supports the given properties: "

@@ -71,6 +71,7 @@ class S3FileSystemPropertiesTest {
         raw.put("s3.root.path", "root");
         raw.put("s3.connection.maximum", "64");
         raw.put("use_path_style", "true");
+        raw.put("s3_client_http_scheme", "http");
 
         S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
 
@@ -81,6 +82,7 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("token", properties.getSessionToken());
         Assertions.assertEquals("bucket", properties.getBucket());
         Assertions.assertEquals("root", properties.getRootPath());
+        Assertions.assertEquals("http", properties.getClientHttpScheme());
 
         Assertions.assertEquals("https://minio.local", properties.matchedProperties().get("s3.endpoint"));
         Assertions.assertEquals("us-west-2", properties.matchedProperties().get("region"));
@@ -96,6 +98,7 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("root", fsKv.get("AWS_ROOT_PATH"));
         Assertions.assertEquals("64", fsKv.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("true", fsKv.get("use_path_style"));
+        Assertions.assertEquals("http", fsKv.get("s3_client_http_scheme"));
     }
 
     @Test
@@ -270,5 +273,18 @@ class S3FileSystemPropertiesTest {
 
         Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
         Assertions.assertTrue(exception.getMessage().contains("Unsupported s3.credentials_provider_type"));
+    }
+
+    @Test
+    void of_rejectsUnsupportedClientHttpScheme() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "minio.local");
+        raw.put("s3_client_http_scheme", "ftp");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("s3_client_http_scheme must be http or https"));
     }
 }

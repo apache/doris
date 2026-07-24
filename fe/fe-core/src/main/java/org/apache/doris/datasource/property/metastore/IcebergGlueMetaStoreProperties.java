@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -75,7 +76,9 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     private void appendS3Props(Map<String, String> props) {
         props.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
         props.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
-        props.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
+        if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
+            props.put(S3FileIOProperties.ENDPOINT, S3Util.buildEndpointUrl(s3Properties.getEndpoint()));
+        }
         props.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
         props.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
     }

@@ -519,11 +519,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
-    if (s3_conf.is_internal_bucket) {
-        set_s3_client_default_http_scheme(aws_config, "https");
-    } else {
-        set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
-    }
+    set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
@@ -661,7 +657,6 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
 
                     .role_arn = info.role_arn(),
                     .external_id = info.external_id(),
-                    .is_internal_bucket = true,
             },
             .sse_enabled = info.sse_enabled(),
     };
