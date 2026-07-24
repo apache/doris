@@ -1430,6 +1430,69 @@ TEST(RecyclerTest, next_recycle_rowset_tablet_key_overwrites_existing_buffer) {
     EXPECT_TRUE(std::get<std::string>(std::get<0>(out[4])).empty());
 }
 
+TEST(RecyclerTest, recycle_rowsets_only_marks_prepare_rowsets_as_recycled) {
+    config::retention_seconds = 0;
+    auto old_enable_mark = config::enable_mark_delete_rowset_before_recycle;
+    config::enable_mark_delete_rowset_before_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_mark_delete_rowset_before_recycle = old_enable_mark;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_only_marks_prepare");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_only_marks_prepare");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    constexpr int64_t index_id = 10001;
+    constexpr int64_t tablet_id = 10002;
+    auto prepare_rowset =
+            create_rowset("recycle_rowsets_only_marks_prepare", tablet_id, index_id, 1, schema);
+    auto compact_rowset =
+            create_rowset("recycle_rowsets_only_marks_prepare", tablet_id, index_id, 1, schema);
+    ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), prepare_rowset,
+                                    RecycleRowsetPB::PREPARE, true),
+              0);
+    ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), compact_rowset,
+                                    RecycleRowsetPB::COMPACT, true),
+              0);
+
+    std::atomic<int> marked_prepare_rowset_count = 0;
+    std::atomic<int> marked_non_prepare_rowset_count = 0;
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+    };
+    sp->set_call_back("InstanceRecycler::batch_mark_rowsets_as_recycled", [&](auto&& args) {
+        auto* type = try_any_cast<RecycleRowsetPB::Type*>(args[0]);
+        if (*type == RecycleRowsetPB::PREPARE) {
+            ++marked_prepare_rowset_count;
+        } else {
+            ++marked_non_prepare_rowset_count;
+        }
+    });
+    sp->enable_processing();
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(marked_prepare_rowset_count.load(), 1);
+    EXPECT_EQ(marked_non_prepare_rowset_count.load(), 0);
+}
+
 TEST(RecyclerTest, recycle_rowsets_tablet_batch_limit_recycles_remaining_in_next_round) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -1649,16 +1712,13 @@ TEST(RecyclerTest, recycle_rowsets_limit_per_tablet_batch) {
     };
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
     EXPECT_EQ(count_recycle_rowsets(tablet_id0), 3);
     EXPECT_EQ(count_recycle_rowsets(tablet_id1), 3);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
     EXPECT_EQ(count_recycle_rowsets(tablet_id0), 1);
     EXPECT_EQ(count_recycle_rowsets(tablet_id1), 1);
 
-    ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
     EXPECT_EQ(count_recycle_rowsets(tablet_id0), 0);
     EXPECT_EQ(count_recycle_rowsets(tablet_id1), 0);
@@ -9186,6 +9246,172 @@ TEST(RecyclerTest, abort_job_for_related_rowset_when_tablet_recycled) {
     // Should return 0 (success) because tablet is already recycled
     ASSERT_EQ(ret, 0)
             << "Should return 0 when tablet is already recycled (parallel recycle scenario)";
+}
+
+TEST(RecyclerTest, abort_exact_job_and_reject_expired_job_for_related_rowset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string test_instance_id = "instance_id_recycle_test";
+    InstanceInfoPB instance;
+    instance.set_instance_id(test_instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("abort_exact_job_and_reject_expired_job_for_related_rowset");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("abort_exact_job_and_reject_expired_job_for_related_rowset");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t table_id = 22000;
+    constexpr int64_t index_id = 22001;
+    constexpr int64_t partition_id = 22002;
+    constexpr int64_t tablet_id = 22003;
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id), 0);
+
+    TabletIndexPB tablet_idx;
+    ASSERT_EQ(get_tablet_idx(txn_kv.get(), test_instance_id, tablet_id, tablet_idx), 0);
+
+    TabletJobInfoPB job;
+    job.mutable_idx()->CopyFrom(tablet_idx);
+    auto* first_compaction = job.add_compaction();
+    first_compaction->set_id("job_a");
+    first_compaction->set_expiration(current_time + 1000);
+    auto* target_compaction = job.add_compaction();
+    target_compaction->set_id("job_b");
+    target_compaction->set_expiration(current_time + 1000);
+
+    auto job_key = job_tablet_key({test_instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                   tablet_idx.partition_id(), tablet_idx.tablet_id()});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(job_key, job.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    RowsetMetaCloudPB rowset_meta;
+    rowset_meta.set_tablet_id(tablet_id);
+    rowset_meta.set_job_id("job_b");
+    rowset_meta.set_rowset_id_v2("rowset_b");
+    ASSERT_EQ(recycler.abort_job_for_related_rowset(rowset_meta), 0);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_val;
+    ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+    TabletJobInfoPB remaining_job;
+    ASSERT_TRUE(remaining_job.ParseFromString(job_val));
+    ASSERT_EQ(remaining_job.compaction_size(), 1);
+    EXPECT_EQ(remaining_job.compaction(0).id(), "job_a");
+
+    job.Clear();
+    first_compaction = job.add_compaction();
+    first_compaction->set_id("job_a");
+    first_compaction->set_expiration(current_time + 1000);
+    target_compaction = job.add_compaction();
+    target_compaction->set_id("job_b");
+    target_compaction->set_expiration(current_time - 1000);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(job_key, job.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(recycler.abort_job_for_related_rowset(rowset_meta), -1);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(remaining_job.ParseFromString(job_val));
+    ASSERT_EQ(remaining_job.compaction_size(), 2);
+    EXPECT_EQ(remaining_job.compaction(0).id(), "job_a");
+    EXPECT_EQ(remaining_job.compaction(1).id(), "job_b");
+}
+
+TEST(RecyclerTest, abort_schema_change_from_new_tablet_rowset) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string test_instance_id = "instance_id_recycle_test";
+    InstanceInfoPB instance;
+    instance.set_instance_id(test_instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("abort_schema_change_from_new_tablet_rowset");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("abort_schema_change_from_new_tablet_rowset");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t table_id = 23000;
+    constexpr int64_t base_index_id = 23001;
+    constexpr int64_t new_index_id = 23002;
+    constexpr int64_t partition_id = 23003;
+    constexpr int64_t base_tablet_id = 23004;
+    constexpr int64_t new_tablet_id = 23005;
+
+    TabletIndexPB base_tablet_idx;
+    base_tablet_idx.set_table_id(table_id);
+    base_tablet_idx.set_index_id(base_index_id);
+    base_tablet_idx.set_partition_id(partition_id);
+    base_tablet_idx.set_tablet_id(base_tablet_id);
+
+    TabletIndexPB new_tablet_idx;
+    new_tablet_idx.set_table_id(table_id);
+    new_tablet_idx.set_index_id(new_index_id);
+    new_tablet_idx.set_partition_id(partition_id);
+    new_tablet_idx.set_tablet_id(new_tablet_id);
+
+    TabletJobInfoPB job;
+    job.mutable_idx()->CopyFrom(base_tablet_idx);
+    auto* schema_change = job.mutable_schema_change();
+    schema_change->set_id("schema_change_job");
+    schema_change->set_initiator("BE1");
+    schema_change->set_expiration(current_time + 1000);
+    schema_change->mutable_new_tablet_idx()->CopyFrom(new_tablet_idx);
+
+    auto base_job_key = job_tablet_key(
+            {test_instance_id, table_id, base_index_id, partition_id, base_tablet_id});
+    auto new_job_key =
+            job_tablet_key({test_instance_id, table_id, new_index_id, partition_id, new_tablet_id});
+
+    doris::TabletMetaCloudPB new_tablet_meta;
+    new_tablet_meta.set_tablet_id(new_tablet_id);
+    new_tablet_meta.set_tablet_state(doris::TabletStatePB::PB_NOTREADY);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(meta_tablet_idx_key({test_instance_id, new_tablet_id}),
+             new_tablet_idx.SerializeAsString());
+    txn->put(meta_tablet_key(
+                     {test_instance_id, table_id, new_index_id, partition_id, new_tablet_id}),
+             new_tablet_meta.SerializeAsString());
+    txn->put(base_job_key, job.SerializeAsString());
+    txn->put(new_job_key, job.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    RowsetMetaCloudPB rowset_meta;
+    rowset_meta.set_tablet_id(new_tablet_id);
+    rowset_meta.set_job_id(schema_change->id());
+    rowset_meta.set_rowset_id_v2("new_tablet_output_rowset");
+    ASSERT_EQ(recycler.abort_job_for_related_rowset(rowset_meta), 0);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string base_job_val;
+    ASSERT_EQ(txn->get(base_job_key, &base_job_val), TxnErrorCode::TXN_OK);
+    TabletJobInfoPB base_job;
+    ASSERT_TRUE(base_job.ParseFromString(base_job_val));
+    EXPECT_FALSE(base_job.has_schema_change());
+
+    std::string new_job_val;
+    ASSERT_EQ(txn->get(new_job_key, &new_job_val), TxnErrorCode::TXN_OK);
+    TabletJobInfoPB new_job;
+    ASSERT_TRUE(new_job.ParseFromString(new_job_val));
+    EXPECT_FALSE(new_job.has_schema_change());
 }
 
 TEST(RecyclerTest, recycle_tablet_with_delete_file_failure) {
