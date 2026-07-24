@@ -140,8 +140,8 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
 
-        long markerGeneration = IvmRefreshManager.markIvmBaselineBroken(mtmv);
-        Assertions.assertEquals(markerGeneration, IvmRefreshManager.markIvmBaselineBroken(mtmv));
+        long markerGeneration = IvmIncrRefreshManager.markIvmBaselineBroken(mtmv);
+        Assertions.assertEquals(markerGeneration, IvmIncrRefreshManager.markIvmBaselineBroken(mtmv));
         Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
 
         Assertions.assertFalse(mtmv.markIvmBinlogBroken());
@@ -149,11 +149,11 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
 
         IvmPlanSignature signature = new IvmPlanSignature("current plan", "current-signature");
         JobException exception = Assertions.assertThrows(JobException.class,
-                () -> IvmRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, signature));
+                () -> IvmIncrRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, signature));
         Assertions.assertTrue(exception.getMessage().contains("Base table metadata changed"));
         Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
 
-        IvmRefreshManager.finishIvmFullRefresh(
+        IvmIncrRefreshManager.finishIvmFullRefresh(
                 mtmv, mtmv.getIvmBinlogBrokenGeneration(), signature);
         Assertions.assertFalse(mtmv.getIvmInfo().isBinlogBroken());
         Assertions.assertEquals(signature.getSha256(), mtmv.getIvmInfo().getPlanSignature());
@@ -164,10 +164,10 @@ public class IvmBinlogBrokenTest extends TestWithFeService {
         String db = "ivm_broken_complete_refresh_signature";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
-        long markerGeneration = IvmRefreshManager.markIvmBaselineBroken(mtmv);
+        long markerGeneration = IvmIncrRefreshManager.markIvmBaselineBroken(mtmv);
 
         Assertions.assertThrows(NullPointerException.class,
-                () -> IvmRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, null));
+                () -> IvmIncrRefreshManager.finishIvmFullRefresh(mtmv, markerGeneration, null));
         Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken());
     }
 

@@ -69,7 +69,7 @@ import java.util.Set;
  *
  * <p>Non-aggregate nodes are handled by the linear and outer-join handlers. Aggregate
  * nodes return an apply plan from {@link #rewriteAggregate(LogicalAggregate,
- * IvmDeltaRewriteVisitor, IvmRefreshContext)} with aggregate-level dml_factor and sequence slots.
+ * IvmDeltaRewriteVisitor, IvmIncrRefreshContext)} with aggregate-level dml_factor and sequence slots.
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
@@ -129,7 +129,7 @@ class IvmAggDeltaHandler {
      * the aggregate also has no delta.
      */
     Optional<IvmDeltaRewriteResult> rewriteAggregate(LogicalAggregate<? extends Plan> agg,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext context) {
         Optional<IvmDeltaRewriteResult> childResult = agg.child().accept(visitor, context);
         if (!childResult.isPresent()) {
             return Optional.empty();
@@ -274,7 +274,7 @@ class IvmAggDeltaHandler {
      * prevents inserting delete-sign rows for groups that never existed in the MV.
      */
     LogicalProject<?> buildApplyPlan(LogicalAggregate<?> normalizedAgg,
-            DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx,
+            DeltaPlanParts delta, IvmAggMeta aggMeta, IvmIncrRefreshContext ctx,
             IvmDeltaRewriteState rewriteState, long maxSeqSuffix) {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(
@@ -347,7 +347,7 @@ class IvmAggDeltaHandler {
         return newAgg.withSourceRepeat(sourceRepeat.get());
     }
 
-    private LogicalOlapScan buildMvScan(MTMV mtmv, IvmRefreshContext ctx) {
+    private LogicalOlapScan buildMvScan(MTMV mtmv, IvmIncrRefreshContext ctx) {
         return new LogicalOlapScan(
                 ctx.getConnectContext().getStatementContext().getNextRelationId(),
                 mtmv,

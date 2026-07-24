@@ -27,7 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
-import org.apache.doris.mtmv.ivm.IvmRefreshManager;
+import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -247,7 +247,7 @@ public class ExplainRefreshMTMVCommandTest {
         MTMVRefreshInfo refreshInfo = Mockito.mock(MTMVRefreshInfo.class);
         Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
         Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
-        IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
+        IvmIncrRefreshManager manager = Mockito.mock(IvmIncrRefreshManager.class);
         InsertIntoTableCommand insertCommand = Mockito.mock(InsertIntoTableCommand.class);
         Mockito.when(manager.buildInsertCommand(mtmv)).thenReturn(insertCommand);
         Mockito.when(insertCommand.getExplainPlan(Mockito.any())).thenReturn(insertCommand);
@@ -267,7 +267,7 @@ public class ExplainRefreshMTMVCommandTest {
     @Test
     public void testGetExplainPlanMissingMvFails() throws Exception {
         TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(
-                newRefreshInfo(RefreshMode.INCREMENTAL), Mockito.mock(IvmRefreshManager.class));
+                newRefreshInfo(RefreshMode.INCREMENTAL), Mockito.mock(IvmIncrRefreshManager.class));
 
         try (MockedStatic<Env> mockedEnv = mockEnvWithMissingMtmv()) {
             Assertions.assertThrows(AnalysisException.class,
@@ -288,7 +288,7 @@ public class ExplainRefreshMTMVCommandTest {
         Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
         Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
         TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(
-                newRefreshInfo(RefreshMode.INCREMENTAL), Mockito.mock(IvmRefreshManager.class));
+                newRefreshInfo(RefreshMode.INCREMENTAL), Mockito.mock(IvmIncrRefreshManager.class));
 
         try (MockedStatic<Env> mockedEnv = mockEnvWithMtmv(mtmv)) {
             ConnectContext explainCtx = command.getExplainConnectContext(new ConnectContext());
@@ -357,7 +357,7 @@ public class ExplainRefreshMTMVCommandTest {
         Mockito.when(refreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.PARTITIONS);
         Mockito.when(mtmv.getRefreshInfo()).thenReturn(refreshInfo);
         TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(
-                newRefreshInfo(RefreshMode.PARTITIONS), Mockito.mock(IvmRefreshManager.class));
+                newRefreshInfo(RefreshMode.PARTITIONS), Mockito.mock(IvmIncrRefreshManager.class));
 
         try (MockedStatic<Env> mockedEnv = mockEnvWithMtmv(mtmv)) {
             ConnectContext explainCtx = command.getExplainConnectContext(new ConnectContext());
@@ -401,15 +401,15 @@ public class ExplainRefreshMTMVCommandTest {
     }
 
     private static class TestRefreshMTMVCommand extends RefreshMTMVCommand {
-        private final IvmRefreshManager manager;
+        private final IvmIncrRefreshManager manager;
 
-        private TestRefreshMTMVCommand(RefreshMTMVInfo info, IvmRefreshManager manager) {
+        private TestRefreshMTMVCommand(RefreshMTMVInfo info, IvmIncrRefreshManager manager) {
             super(info);
             this.manager = manager;
         }
 
         @Override
-        IvmRefreshManager createIvmRefreshManager() {
+        IvmIncrRefreshManager createIvmIncrRefreshManager() {
             return manager;
         }
 

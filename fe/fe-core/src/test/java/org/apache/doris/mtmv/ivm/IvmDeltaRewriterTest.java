@@ -71,7 +71,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false), connectContext);
         Assertions.assertNotNull(rewritten);
-        return new IvmRefreshManager().buildInsertCommand(
+        return new IvmIncrRefreshManager().buildInsertCommand(
                 (org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten, mtmv);
     }
 
@@ -158,10 +158,10 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testContextRejectsNulls() {
         MTMV mtmv = mockMtmv();
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(null, new ConnectContext(), null, false));
+                () -> new IvmIncrRefreshContext(null, new ConnectContext(), null, false));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(mtmv, null, null, false));
-        Assertions.assertTrue(new IvmRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult(), true)
+                () -> new IvmIncrRefreshContext(mtmv, null, null, false));
+        Assertions.assertTrue(new IvmIncrRefreshContext(mtmv, new ConnectContext(), new IvmRewriteResult(), true)
                 .isIncludeExhaustedStreams());
     }
 
