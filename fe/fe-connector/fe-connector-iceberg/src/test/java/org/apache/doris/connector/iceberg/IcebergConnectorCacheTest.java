@@ -18,8 +18,8 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
-import org.apache.doris.connector.cache.PartitionViewCacheKey;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.ManifestFile;
@@ -499,16 +499,16 @@ public class IcebergConnectorCacheTest {
         // re-run -> a loads assert below red.
         IcebergConnector connector =
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = connector.listPartitionsViewCacheForTest();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = connector.listPartitionsViewCacheForTest();
         Assertions.assertNotNull(cache);
         int[] loads = {0};
         Supplier<List<ConnectorPartitionInfo>> loader = () -> {
             loads[0]++;
             return Collections.emptyList();
         };
-        PartitionViewCacheKey db1t1 = new PartitionViewCacheKey("db1", "t1", 1L, 1L);
-        PartitionViewCacheKey db1t2 = new PartitionViewCacheKey("db1", "t2", 1L, 1L);
-        PartitionViewCacheKey db2t1 = new PartitionViewCacheKey("db2", "t1", 1L, 1L);
+        ConnectorTableKey db1t1 = new ConnectorTableKey("db1", "t1", 1L, 1L);
+        ConnectorTableKey db1t2 = new ConnectorTableKey("db1", "t2", 1L, 1L);
+        ConnectorTableKey db2t1 = new ConnectorTableKey("db2", "t1", 1L, 1L);
 
         // REFRESH TABLE db1.t1 -> only db1.t1 re-loads.
         cache.get(db1t1, loader);

@@ -55,8 +55,8 @@ import org.apache.doris.connector.api.pushdown.ConnectorIn;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
-import org.apache.doris.connector.cache.PartitionViewCacheKey;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.hms.HiveShowCreateTableRenderer;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
@@ -229,7 +229,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // default (harmless for the direct-construction tests, which inject their file sizes and never list).
     private final HiveFileListingCache fileListingCache;
 
-    // PERF-06 (S6): cross-query DERIVED partition-view cache A (generic ConnectorPartitionViewCache), injected by
+    // PERF-06 (S6): cross-query DERIVED partition-view cache A (generic ConnectorMetadataCache), injected by
     // the owning HiveConnector; null = no cross-query derived layer (the convenience/test ctors below pass null,
     // matching every existing direct-construction test). Layered ABOVE the raw per-name HMS listing served by
     // CachingHmsClient: a hit skips both the derived-view BUILD (the per-name HiveWriteUtils.toPartitionValues
@@ -238,7 +238,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // handle carries no schema version, so both axes are pinned "unversioned". Consumed only by listPartitions:
     // getMvccPartitionView returns Optional.empty() for a real hive handle (the SPI default), so fe-core's generic
     // MTMV model already falls back to listPartitions for hive — there is no second enumeration hook to wrap.
-    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache;
+    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
         this(hmsClient, properties, context, NO_ICEBERG_SIBLING, NO_HUDI_SIBLING, NO_SIBLING_OWNER);
@@ -273,7 +273,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
             HiveFileListingCache fileListingCache,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
         this.hmsClient = hmsClient;
         this.properties = properties;
         this.context = context;
@@ -1167,7 +1167,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (partitionViewCache == null || filter.isPresent()) {
             return listPartitionsUncached(hiveHandle);
         }
-        PartitionViewCacheKey key = new PartitionViewCacheKey(
+        ConnectorTableKey key = new ConnectorTableKey(
                 hiveHandle.getDbName(), hiveHandle.getTableName(), -1L, -1L);
         return partitionViewCache.get(key, () -> listPartitionsUncached(hiveHandle));
     }

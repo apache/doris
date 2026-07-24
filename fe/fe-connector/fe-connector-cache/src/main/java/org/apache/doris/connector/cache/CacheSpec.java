@@ -67,6 +67,23 @@ public final class CacheSpec {
         return new CacheSpec(enable, ttlSecond, capacity);
     }
 
+    /**
+     * Build an ENABLED spec from a connector-resolved TTL under the "{@code <= 0} disables" contract.
+     *
+     * <p>A connector that resolves its own single {@code ttl-second} knob (iceberg's shared
+     * {@code meta.cache.iceberg.table.ttl-second}, paimon's snapshot cache) treats any non-positive TTL as
+     * "disable caching, always read live". That is NOT the raw {@link CacheSpec} contract, which reads
+     * {@code ttlSecond == -1} as {@link #CACHE_NO_TTL} ("no expiration", still ENABLED) and only
+     * {@code ttlSecond == 0} as {@link #CACHE_TTL_DISABLE_CACHE} ("disabled"). This factory folds any
+     * non-positive TTL to the disable sentinel so a negative operator value disables the cache rather than
+     * silently becoming a never-expiring one. It is exactly the
+     * {@code ttlSecond > 0 ? of(true, ttlSecond, capacity) : of(true, CACHE_TTL_DISABLE_CACHE, capacity)}
+     * expression each per-catalog cache used to inline.
+     */
+    public static CacheSpec ofConnectorTtl(long ttlSecond, long capacity) {
+        return of(true, ttlSecond > 0 ? ttlSecond : CACHE_TTL_DISABLE_CACHE, capacity);
+    }
+
     public static PropertySpec.Builder propertySpecBuilder() {
         return new PropertySpec.Builder();
     }

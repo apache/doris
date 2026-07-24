@@ -247,7 +247,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // window onto the handle). Select the files the window touches via the ported IncrementalRelation family
         // instead of the latest-snapshot partition scan below. NOTE: this selects FILES only — row-level
         // filtering to (begin, end] is a LATER step (an FE-side synthetic _hoodie_commit_time predicate), so a
-        // bare @incr read would over-read until that lands (harmless while the connector is dormant). The COW-vs-
+        // bare @incr read would over-read until that lands (a tracked gap on the now-live path). The COW-vs-
         // MOR relation choice is driven by the SAME isCow the snapshot path uses (metaClient.getTableType(),
         // hoodie.properties-authoritative): this SUBSUMES the legacy RO-as-RT flip (LogicalHudiScan:251-260 /
         // HudiScanNode:187-199), which existed only because legacy classifies from the hive inputFormat (a MOR

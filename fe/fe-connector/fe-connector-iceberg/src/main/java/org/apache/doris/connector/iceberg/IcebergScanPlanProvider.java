@@ -796,7 +796,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * pushdown does not apply (a metadata table has no snapshot-summary count). The serialized {@code
      * FileScanTask} bytes are consumed verbatim by BE's {@code IcebergSysTableJniScanner}
      * ({@code deserializeFromBase64(...).asDataTask().rows()}); FE unit tests cannot reach the BE classloader, so
-     * the cross-version byte compatibility is covered by the P6.8 docker e2e. Dormant until P6.6.
+     * the cross-version byte compatibility is covered by the P6.8 docker e2e. Live since the iceberg SPI cutover.
      */
     private List<ConnectorScanRange> planSystemTableScan(IcebergTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,

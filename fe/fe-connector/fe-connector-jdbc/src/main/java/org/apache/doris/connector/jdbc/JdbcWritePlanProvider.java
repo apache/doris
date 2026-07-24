@@ -126,6 +126,12 @@ public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
      * {@link #appendExplainInfo} so the EXPLAIN SQL is identical to the one sent to BE. Resolves
      * the local -> remote column name mapping via the metadata column handles (same client +
      * properties as the legacy {@code getWriteConfig}, which called its own getColumnHandles).
+     *
+     * <p>The {@code new JdbcConnectorMetadata} is a cheap stateless wrapper; its
+     * {@link JdbcConnectorMetadata#getColumnHandles} resolves the raw remote-column fetch through the
+     * per-statement scope memo ({@code ConnectorStatementScopes.JDBC_COLUMNS}), so it shares the single
+     * {@code getJdbcColumnsInfo} round-trip with the read path and with the sibling
+     * planWrite/appendExplainInfo call of the same statement — EXPLAIN INSERT no longer double-fetches.
      */
     private String buildInsertSql(ConnectorSession session, JdbcTableHandle jdbcHandle,
             List<ConnectorColumn> columns) {

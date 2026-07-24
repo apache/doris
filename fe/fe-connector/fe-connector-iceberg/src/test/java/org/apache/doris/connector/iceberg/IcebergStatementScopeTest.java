@@ -32,6 +32,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Tests for {@link IcebergStatementScope}: the per-statement table memo keying (catalog id + db + table +
@@ -103,6 +104,34 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void underNullSessionLoadsEveryTime() {
+        // Offline / direct-construction (null session): sharedTable loads every time, byte-identical to the
+        // pre-scope behavior. The null branch now lives in the shared helper; assert it still holds at the seam.
+        AtomicInteger loads = new AtomicInteger();
+        IcebergStatementScope.sharedTable(null, "db1", "t", () -> {
+            loads.incrementAndGet();
+            return table("t");
+        });
+        IcebergStatementScope.sharedTable(null, "db1", "t", () -> {
+            loads.incrementAndGet();
+            return table("t");
+        });
+        Assertions.assertEquals(2, loads.get(), "null session -> load every time");
+    }
+
+    @Test
+    public void sharedTableKeyReproducesLegacyPrefixByteForByte() {
+        // PARITY (PR-2): sharedTable now delegates to ConnectorStatementScopes.resolveInStatement; the memo key it
+        // hands the scope MUST stay byte-identical to the pre-delegation
+        // "iceberg.table:" + catalogId + ":" + db + ":" + table + ":" + queryId, or funnel hits/misses shift.
+        // MUTATION: a different namespace, a dropped field, or a reordered field -> key differs -> red.
+        KeyCapturingScope scope = new KeyCapturingScope();
+        IcebergStatementScope.sharedTable(new ScopeSession(7L, "q1", scope), "db1", "t", () -> table("t"));
+        Assertions.assertEquals("iceberg.table:7:db1:t:q1", scope.lastKey,
+                "delegated key must reproduce the legacy iceberg.table prefix byte-for-byte");
+    }
+
+    @Test
     public void rewritableDeleteSupplyIsSharedPerStatementAndIsolatedPerCatalog() {
         // The scan seam and the write seam of one statement (same catalog + queryId) share ONE supply map; a
         // cross-catalog MERGE keeps each catalog's supply isolated. MUTATION: dropping the catalog id from the
@@ -117,6 +146,17 @@ public class IcebergStatementScopeTest {
         Map<String, List<TIcebergDeleteFileDesc>> supplyOtherCatalog =
                 IcebergStatementScope.rewritableDeleteSupply(new ScopeSession(2L, "q1", scope));
         Assertions.assertNotSame(supplyScan, supplyOtherCatalog, "a different catalog (cross-catalog MERGE) is isolated");
+    }
+
+    /** A scope that records the last key handed to {@link #computeIfAbsent}, for the byte-key parity assertion. */
+    private static final class KeyCapturingScope implements ConnectorStatementScope {
+        private String lastKey;
+
+        @Override
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            lastKey = key;
+            return loader.get();
+        }
     }
 
     /** Minimal {@link ConnectorSession} carrying a catalog id, queryId and scope for the key + memo assertions. */
@@ -139,6 +179,14 @@ public class IcebergStatementScopeTest {
         @Override
         public String getQueryId() {
             return queryId;
+        }
+
+        @Override
+        public String getSessionId() {
+            // Deliberately != queryId. The memo key MUST use the per-EXECUTION queryId (cross-query isolation), not
+            // the stable per-connection sessionId; a queryId->sessionId swap in the key would share a table across
+            // queries of one connection and MUST turn sharedTableKeyReproducesLegacyPrefixByteForByte red.
+            return "session-" + queryId;
         }
 
         @Override

@@ -31,8 +31,8 @@ import java.util.Collections;
  * concrete handle type is invisible across the plugin classloader split.
  *
  * <p>ownsHandle must be TRUE for this connector's own {@link HudiTableHandle} and FALSE for any other connector's
- * handle (e.g. an iceberg sibling's), so the gateway routes correctly. Dormant until hms enters
- * {@code SPI_READY_TYPES}: no production path asks this connector yet, so this is a Rule-9 routing guard.
+ * handle (e.g. an iceberg sibling's), so the gateway routes correctly. With hms live, the flipped gateway routes
+ * real hudi handles here, so this is a Rule-9 routing guard.
  */
 public class HudiConnectorOwnsHandleTest {
 

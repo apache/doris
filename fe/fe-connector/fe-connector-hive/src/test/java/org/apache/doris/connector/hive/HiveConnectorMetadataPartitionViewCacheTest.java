@@ -23,7 +23,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
 
 /**
  * PERF-06 (S6) tests for the cross-query DERIVED partition-view cache ("cache A", the generic
- * {@link ConnectorPartitionViewCache}) wired into {@link HiveConnectorMetadata#listPartitions}. Hive does NOT
+ * {@link ConnectorMetadataCache}) wired into {@link HiveConnectorMetadata#listPartitions}. Hive does NOT
  * override {@code getMvccPartitionView} for a real hive handle (it returns the SPI default
  * {@code Optional.empty()} — fe-core's generic MTMV model already falls back to {@code listPartitions}), so —
  * like paimon's single typed field — there is exactly ONE enumeration hook to wrap.
@@ -66,7 +66,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
             "year=2024/month=01");
 
     private static HiveConnectorMetadata metadataWithCache(CountingHmsClient client,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
         return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext(),
                 () -> {
                     throw new UnsupportedOperationException();
@@ -80,8 +80,8 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
                 new HiveFileListingCache(Collections.emptyMap()), cache);
     }
 
-    private static ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache() {
-        return new ConnectorPartitionViewCache<>("hive", Collections.emptyMap());
+    private static ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache() {
+        return new ConnectorMetadataCache<>("hive", "partition_view", Collections.emptyMap());
     }
 
     private static HiveTableHandle handle() {
@@ -101,7 +101,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
         // round-trip. MUTATION: not consulting the cache (compute directly every call) -> the seam runs twice
         // -> red.
         CountingHmsClient client = new CountingHmsClient(PARTITIONS);
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         HiveConnectorMetadata md = metadataWithCache(client, cache);
         HiveTableHandle h = handle();
 
@@ -120,7 +120,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
         // so the next query re-enumerates live. MUTATION: invalidateTable not wired -> the second call hits the
         // stale entry -> listPartitionNamesCalls stays 1 -> red.
         CountingHmsClient client = new CountingHmsClient(PARTITIONS);
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         HiveConnectorMetadata md = metadataWithCache(client, cache);
         HiveTableHandle h = handle();
 
@@ -135,7 +135,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
         // WHY: REFRESH CATALOG (HiveConnector.invalidateAll -> cache.invalidateAll) must drop the cached list.
         // MUTATION: invalidateAll not wired -> the second call hits -> listPartitionNamesCalls stays 1 -> red.
         CountingHmsClient client = new CountingHmsClient(PARTITIONS);
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         HiveConnectorMetadata md = metadataWithCache(client, cache);
         HiveTableHandle h = handle();
 
@@ -155,7 +155,7 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
         // the second filtered call hits (count stays 1) -> red; or a bypassed call populating the cache -> the
         // following empty-filter call hits instead of missing -> red.
         CountingHmsClient client = new CountingHmsClient(PARTITIONS);
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         HiveConnectorMetadata md = metadataWithCache(client, cache);
         HiveTableHandle h = handle();
 

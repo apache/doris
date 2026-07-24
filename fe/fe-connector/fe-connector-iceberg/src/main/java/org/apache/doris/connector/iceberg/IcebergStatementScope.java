@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.api.ConnectorStatementScopes;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
 import org.apache.iceberg.Table;
@@ -57,13 +58,11 @@ final class IcebergStatementScope {
      * (the caller wraps this in {@code executeAuthenticated}).
      */
     static Table sharedTable(ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {
-        if (session == null) {
-            // No session (offline / direct-construction tests): load every time, like ConnectorStatementScope.NONE.
-            return loader.get();
-        }
-        String key = "iceberg.table:" + session.getCatalogId() + ":" + dbName + ":" + tableName
-                + ":" + session.getQueryId();
-        return session.getStatementScope().computeIfAbsent(key, loader);
+        // Delegates to the shared per-statement resolver. The ICEBERG_TABLE namespace reproduces the historical
+        // "iceberg.table:" key prefix byte-for-byte, so the funnel keeps identical hits / misses / NONE fall-through
+        // (proved by IcebergStatementScopeTest#sharedTableKeyReproducesLegacyPrefixByteForByte).
+        return ConnectorStatementScopes.resolveInStatement(
+                session, ConnectorStatementScopes.ICEBERG_TABLE, dbName, tableName, loader);
     }
 
     /**
