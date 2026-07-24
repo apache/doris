@@ -76,12 +76,13 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
-option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
     set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
 endif()
 
 if (DISPLAY_BUILD_TIME)
@@ -160,12 +161,17 @@ option(ENABLE_TDE "Enable TDE feature module" OFF)
 set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
 option(ENABLE_TLS "Enable TLS feature module" OFF)
 set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under be/src")
+option(ENABLE_VARIANT_NESTED_GROUP "Enable Variant NestedGroup feature module" OFF)
+set(VARIANT_NESTED_GROUP_MODULE_DIR "" CACHE STRING "Variant NestedGroup feature module directory under be/src")
 
 if (ENABLE_TDE AND "${TDE_MODULE_DIR}" STREQUAL "")
     message(FATAL_ERROR "ENABLE_TDE requires TDE_MODULE_DIR")
 endif()
 if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
     message(FATAL_ERROR "ENABLE_TLS requires TLS_MODULE_DIR")
+endif()
+if (ENABLE_VARIANT_NESTED_GROUP AND "${VARIANT_NESTED_GROUP_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_VARIANT_NESTED_GROUP requires VARIANT_NESTED_GROUP_MODULE_DIR")
 endif()
 
 # Allow env to override when reconfiguring (avoid picking /usr/local).
@@ -174,27 +180,6 @@ if (DEFINED ENV{ENABLE_PAIMON_CPP})
 endif()
 if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
-endif()
-
-option(BUILD_RUST_READERS "Build Rust-based format readers (Lance, etc.)" OFF)
-if (DEFINED ENV{BUILD_RUST_READERS})
-    set(BUILD_RUST_READERS "$ENV{BUILD_RUST_READERS}" CACHE BOOL "" FORCE)
-endif()
-# Auto-enable if pre-built Rust library exists (from zigbuild or manylinux2014)
-if (NOT BUILD_RUST_READERS)
-    if (EXISTS "${SRC_DIR}/rust/doris-native/target/x86_64-unknown-linux-gnu/release/libdoris_ffi.a"
-        OR EXISTS "${SRC_DIR}/rust/doris-native/target/release/libdoris_ffi.a")
-        set(BUILD_RUST_READERS ON)
-        message(STATUS "Auto-enabling BUILD_RUST_READERS: pre-built library found")
-    endif()
-endif()
-if (BUILD_RUST_READERS)
-    # rust.cmake detects pre-built .a or builds via Corrosion.
-    # If neither exists, it sets BUILD_RUST_READERS=OFF and returns.
-    include(cmake/rust.cmake)
-endif()
-if (BUILD_RUST_READERS)
-    add_definitions(-DBUILD_RUST_READERS)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -257,7 +242,19 @@ SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
-target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+target_compile_options(orc PRIVATE -fno-omit-frame-pointer -Wno-implicit-fallthrough -w)
+foreach(orc_tool
+        orc-contents
+        orc-metadata
+        orc-statistics
+        orc-scan
+        orc-memory
+        timezone-dump
+        csv-import)
+    if (TARGET ${orc_tool})
+        target_compile_options(${orc_tool} PRIVATE -fno-omit-frame-pointer)
+    endif()
+endforeach()
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
@@ -273,7 +270,7 @@ set(USE_BTHREAD OFF)
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
 
-set(clucene_options -w -Wall)
+set(clucene_options -fno-omit-frame-pointer -w -Wall)
 if (COMPILER_CLANG)
     set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
@@ -439,7 +436,7 @@ if (USE_JEMALLOC)
     add_definitions(-DUSE_JEMALLOC)
 endif()
 
-# Compile with libunwind
+# libunwind symbolization uses DWARF aranges for fast address-to-line lookup.
 if (USE_UNWIND)
     add_definitions(-DUSE_UNWIND)
     if (COMPILER_CLANG)
@@ -719,10 +716,6 @@ if (ENABLE_PAIMON_CPP)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
 endif()
 
-if (BUILD_RUST_READERS)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} doris_ffi_lib)
-endif()
-
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 # Add all external dependencies. They should come after the palo libs.
@@ -773,6 +766,20 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RE
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
+    if (OS_LINUX)
+        # The fully static link resolves __cxa_throw/__cxa_rethrow/
+        # _Unwind_RaiseException to libstdc++.a's/libgcc_eh.a's strong
+        # definitions, silently bypassing the ASAN runtime's weak interceptors,
+        # so __asan_handle_no_return() never runs when un-instrumented
+        # third-party code (libthrift, ...) throws. The unwound instrumented
+        # frames keep their stack-shadow poison and the next deep call over the
+        # same stack range aborts with the kCurrentStackFrameMagic CHECK
+        # (the thrift retry/reopen crashes; same family as google/glog#978 and
+        # google/sanitizers#1010). Redirect every reference to wrappers that
+        # restore the shadow cleanup. See be/src/common/asan_cxa_throw_wrap.cpp.
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -Wl,--wrap=__cxa_throw -Wl,--wrap=__cxa_rethrow
+            -Wl,--wrap=_Unwind_RaiseException)
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${LSAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")

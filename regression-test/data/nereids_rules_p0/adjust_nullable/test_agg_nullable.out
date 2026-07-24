@@ -4,7 +4,7 @@
 
 -- !agg_nullable_shape --
 PhysicalResultSink
---PhysicalProject[AND[k IS NULL,NULL] AS `k > 10 and k < 5`]
+--PhysicalProject[AND[s.k IS NULL,NULL] AS `k > 10 and k < 5`]
 ----hashAgg[GLOBAL]
 ------PhysicalEmptyRelation
 

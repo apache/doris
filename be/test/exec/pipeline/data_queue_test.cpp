@@ -221,57 +221,59 @@ public:
 
 // Initial state: no data, no finish.
 TEST_F(DataQueueTest, InitialState) {
-    EXPECT_FALSE(data_queue->has_more_data());
-    EXPECT_FALSE(data_queue->is_all_finish());
-    EXPECT_FALSE(data_queue->remaining_has_data());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = false, has_data = false)");
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_EQ(queue_block.block, nullptr);
+    EXPECT_FALSE(queue_block.eos);
 }
 
 // Push one block and retrieve it.
 TEST_F(DataQueueTest, SinglePushPop) {
-    EXPECT_TRUE(data_queue->push_block(make_block(), 0).ok());
-    EXPECT_TRUE(data_queue->has_more_data());
+    EXPECT_TRUE(data_queue->push_block(make_block(), 0, false).ok());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = false, has_data = true)");
 
-    // Find the queue with data.
-    EXPECT_TRUE(data_queue->remaining_has_data());
-
-    std::unique_ptr<Block> out;
-    int child_idx = -1;
-    EXPECT_TRUE(data_queue->get_block_from_queue(&out, &child_idx).ok());
-    EXPECT_NE(out, nullptr);
-    EXPECT_EQ(child_idx, 0);
-    EXPECT_FALSE(data_queue->has_more_data());
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_NE(queue_block.block, nullptr);
+    EXPECT_FALSE(queue_block.eos);
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = false, has_data = false)");
 }
 
-// is_all_finish only becomes true after all children call set_finish.
+// is_all_finish only becomes true after all children push eos.
 TEST_F(DataQueueTest, IsAllFinishAfterAllChildren) {
-    data_queue->set_finish(0);
-    EXPECT_FALSE(data_queue->is_all_finish());
-    data_queue->set_finish(1);
-    EXPECT_FALSE(data_queue->is_all_finish());
-    data_queue->set_finish(2);
-    EXPECT_TRUE(data_queue->is_all_finish());
+    EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
+    auto first_queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_FALSE(first_queue_block.eos);
+    EXPECT_TRUE(data_queue->push_block(nullptr, 1, true).ok());
+    auto second_queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_FALSE(second_queue_block.eos);
+    EXPECT_TRUE(data_queue->push_block(nullptr, 2, true).ok());
+    auto last_queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_TRUE(last_queue_block.eos);
 }
 
-// set_finish is idempotent.
-TEST_F(DataQueueTest, SetFinishIdempotent) {
-    data_queue->set_finish(0);
-    data_queue->set_finish(0); // second call must not double-decrement
-    data_queue->set_finish(1);
-    data_queue->set_finish(2);
-    EXPECT_TRUE(data_queue->is_all_finish());
+// eos push is idempotent.
+TEST_F(DataQueueTest, EosPushIdempotent) {
+    EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
+    EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
+    EXPECT_TRUE(data_queue->push_block(nullptr, 1, true).ok());
+    EXPECT_TRUE(data_queue->push_block(nullptr, 2, true).ok());
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_TRUE(queue_block.eos);
 }
 
-// child_idx returned by get_block_from_queue reflects the actual queue.
-TEST_F(DataQueueTest, ChildIdxReturned) {
+// DataQueueBlock can return a popped block to the originating child free list.
+TEST_F(DataQueueTest, ReturnBlockToChildFreeList) {
     // Push to child 1 only.
-    EXPECT_TRUE(data_queue->push_block(make_block(), 1).ok());
-    data_queue->remaining_has_data(); // advance _flag_queue_idx to find child 1
+    EXPECT_TRUE(data_queue->push_block(make_block(), 1, false).ok());
 
-    std::unique_ptr<Block> out;
-    int child_idx = -1;
-    EXPECT_TRUE(data_queue->get_block_from_queue(&out, &child_idx).ok());
-    EXPECT_NE(out, nullptr);
-    EXPECT_EQ(child_idx, 1);
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_NE(queue_block.block, nullptr);
+    queue_block.block->clear();
+    auto* returned_block = queue_block.block.get();
+    data_queue->push_free_block(std::move(queue_block));
+
+    auto reused_block = data_queue->get_free_block(1);
+    EXPECT_EQ(reused_block.get(), returned_block);
 }
 
 // get_free_block returns a new block when free list is empty, reuses when not.
@@ -282,7 +284,9 @@ TEST_F(DataQueueTest, FreeBlockReuse) {
 
     // Return it to the free list.
     block->clear(); // ensure rows == 0
-    data_queue->push_free_block(std::move(block), 0);
+    DataQueueBlock queue_block;
+    queue_block.block = std::move(block);
+    data_queue->push_free_block(std::move(queue_block));
 
     // Second call: must return the recycled block.
     auto block2 = data_queue->get_free_block(0);
@@ -292,7 +296,9 @@ TEST_F(DataQueueTest, FreeBlockReuse) {
 // In low-memory mode push_free_block discards blocks and max drops to 1.
 TEST_F(DataQueueTest, LowMemoryMode) {
     // Pre-populate the free list.
-    data_queue->push_free_block(Block::create_unique(), 0);
+    DataQueueBlock queue_block;
+    queue_block.block = Block::create_unique();
+    data_queue->push_free_block(std::move(queue_block));
 
     data_queue->set_low_memory_mode();
 
@@ -303,7 +309,9 @@ TEST_F(DataQueueTest, LowMemoryMode) {
 
     // push_free_block now discards.
     block->clear();
-    data_queue->push_free_block(std::move(block), 0);
+    DataQueueBlock low_memory_block;
+    low_memory_block.block = std::move(block);
+    data_queue->push_free_block(std::move(low_memory_block));
     auto block2 = data_queue->get_free_block(0);
     // Still gets a fresh allocation (free list stays empty).
     EXPECT_NE(block2, nullptr);
@@ -311,15 +319,17 @@ TEST_F(DataQueueTest, LowMemoryMode) {
 
 // terminate() finishes all children and clears pending blocks from sub-queues.
 TEST_F(DataQueueTest, Terminate) {
-    EXPECT_TRUE(data_queue->push_block(make_block(), 0).ok());
-    EXPECT_TRUE(data_queue->push_block(make_block(), 1).ok());
+    EXPECT_TRUE(data_queue->push_block(make_block(), 0, false).ok());
+    EXPECT_TRUE(data_queue->push_block(make_block(), 1, false).ok());
 
     data_queue->terminate();
 
-    EXPECT_TRUE(data_queue->is_all_finish());
-    // remaining_has_data() checks blocks_in_queue per sub-queue,
-    // which clear_blocks() resets to 0.
-    EXPECT_FALSE(data_queue->remaining_has_data());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = true, has_data = false)");
+    source_dep->block();
+    EXPECT_TRUE(source_dep->ready());
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_EQ(queue_block.block, nullptr);
+    EXPECT_TRUE(queue_block.eos);
 }
 
 // set_max_blocks_in_sub_queue propagates to every sub-queue.
@@ -327,12 +337,12 @@ TEST_F(DataQueueTest, SetMaxBlocksInSubQueue) {
     data_queue->set_max_blocks_in_sub_queue(5);
     // Push 5 blocks to child 0 — sink must stay ready (not over the limit yet).
     for (int i = 0; i < 5; i++) {
-        EXPECT_TRUE(data_queue->push_block(make_block(), 0).ok());
+        EXPECT_TRUE(data_queue->push_block(make_block(), 0, false).ok());
     }
     EXPECT_TRUE(sink_deps[0]->ready());
 
     // 6th push exceeds limit → sink blocked.
-    EXPECT_TRUE(data_queue->push_block(make_block(), 0).ok());
+    EXPECT_TRUE(data_queue->push_block(make_block(), 0, false).ok());
     EXPECT_FALSE(sink_deps[0]->ready());
 }
 
@@ -341,8 +351,26 @@ TEST_F(DataQueueTest, SourceReadyOnPush) {
     source_dep->block(); // start blocked
     EXPECT_FALSE(source_dep->ready());
 
-    EXPECT_TRUE(data_queue->push_block(make_block(), 0).ok());
+    EXPECT_TRUE(data_queue->push_block(make_block(), 0, false).ok());
     EXPECT_TRUE(source_dep->ready());
+}
+
+TEST_F(DataQueueTest, SourceReadyOnEosOnly) {
+    source_dep->block();
+    EXPECT_FALSE(source_dep->ready());
+
+    EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
+    EXPECT_TRUE(source_dep->ready());
+}
+
+TEST_F(DataQueueTest, EosOnlyAfterAllChildren) {
+    EXPECT_TRUE(data_queue->push_block(nullptr, 0, true).ok());
+    EXPECT_TRUE(data_queue->push_block(nullptr, 1, true).ok());
+    EXPECT_TRUE(data_queue->push_block(nullptr, 2, true).ok());
+
+    auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+    EXPECT_EQ(queue_block.block, nullptr);
+    EXPECT_TRUE(queue_block.eos);
 }
 
 // ---------------------------------------------------------------------------
@@ -355,19 +383,9 @@ TEST_F(DataQueueTest, MultiTest) {
         while (true) {
             bool eos = false;
             if (source_dep->ready()) {
-                Defer set_eos {[&]() {
-                    if (data_queue->remaining_has_data()) {
-                        eos = false;
-                    } else if (data_queue->is_all_finish()) {
-                        eos = !data_queue->remaining_has_data();
-                    } else {
-                        eos = false;
-                    }
-                }};
-                std::unique_ptr<Block> output_block;
-                int child_idx = 0;
-                EXPECT_TRUE(data_queue->get_block_from_queue(&output_block, &child_idx));
-                if (output_block) {
+                auto queue_block = TEST_TRY(data_queue->get_block_from_queue());
+                eos = queue_block.eos;
+                if (queue_block.block) {
                     output_count++;
                 }
             }
@@ -392,11 +410,11 @@ TEST_F(DataQueueTest, MultiTest) {
         int i = 0;
         while (i < 50) {
             if (sink_deps[id]->ready()) {
-                EXPECT_TRUE(data_queue->push_block(std::move(input_blocks[id][i]), id).ok());
+                EXPECT_TRUE(data_queue->push_block(std::move(input_blocks[id][i]), id, false).ok());
                 i++;
             }
         }
-        data_queue->set_finish(id);
+        EXPECT_TRUE(data_queue->push_block(nullptr, id, true).ok());
     };
 
     std::thread input1(input_func, 0);
@@ -409,7 +427,7 @@ TEST_F(DataQueueTest, MultiTest) {
     output1.join();
 
     EXPECT_EQ(output_count, 150);
-    EXPECT_TRUE(data_queue->is_all_finish());
+    EXPECT_EQ(data_queue->debug_string(), "(is_all_finish = true, has_data = false)");
 }
 
 // ./run-be-ut.sh --run --filter=DataQueueTest.*

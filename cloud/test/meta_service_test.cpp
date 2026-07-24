@@ -2078,6 +2078,7 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
 
     // commit txn
     CommitTxnRequest req;
+    int64_t version_update_time_ms = 0;
     {
         brpc::Controller cntl;
         req.set_cloud_unique_id("test_cloud_unique_id");
@@ -2110,6 +2111,9 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_version_update_time_ms());
+        ASSERT_GT(res.version_update_time_ms(), 0);
+        version_update_time_ms = res.version_update_time_ms();
         // std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
@@ -2211,18 +2215,24 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         std::string ver_val;
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
         VersionPB version;
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p2});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p1});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 3);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         // table version
         std::string table_ver_key = table_version_key({mock_instance, db_id, t1});
@@ -10506,6 +10516,52 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
         }
     }
 
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_credential_provider_bucket");
+        vault.mutable_obj_info()->set_prefix("test_credential_provider_prefix");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::CONTAINER);
+
+        vault.set_name("s3_vault_with_credential_provider");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        {
+            InstanceInfoPB instance;
+            get_test_instance(instance);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "5"}), &val),
+                      TxnErrorCode::TXN_OK);
+            StorageVaultPB get_obj;
+            get_obj.ParseFromString(val);
+            ASSERT_TRUE(get_obj.obj_info().ak().empty()) << get_obj.obj_info().ak();
+            ASSERT_TRUE(get_obj.obj_info().sk().empty()) << get_obj.obj_info().sk();
+            ASSERT_FALSE(get_obj.obj_info().has_role_arn());
+            ASSERT_FALSE(get_obj.obj_info().has_external_id());
+            ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER)
+                    << get_obj.obj_info().cred_provider_type();
+            ASSERT_EQ(get_obj.obj_info().bucket(), "test_credential_provider_bucket")
+                    << get_obj.obj_info().bucket();
+            ASSERT_EQ(get_obj.obj_info().prefix(), "test_credential_provider_prefix")
+                    << get_obj.obj_info().prefix();
+            ASSERT_EQ(get_obj.id(), "5") << get_obj.id();
+        }
+    }
+
     LOG(INFO) << "instance:" << instance.ShortDebugString();
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
@@ -10985,15 +11041,96 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
-            << res.status().msg();
-    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
     ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+}
+
+TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
+    auto meta_service = get_meta_service();
+
+    const bool old_enable_recycle_delete_rowset_key_check =
+            config::enable_recycle_delete_rowset_key_check;
+    config::enable_recycle_delete_rowset_key_check = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycle_delete_rowset_key_check = old_enable_recycle_delete_rowset_key_check;
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::string instance_id = "commit_rowset_recycle_key_test_instance_id";
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto put_recycle_rowset = [&](const doris::RowsetMetaCloudPB& rowset) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleRowsetPB recycle_rowset;
+        recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset);
+        recycle_rowset.set_type(RecycleRowsetPB::PREPARE);
+        std::string recycle_rs_val;
+        ASSERT_TRUE(recycle_rowset.SerializeToString(&recycle_rs_val));
+        txn->put(recycle_rowset_key({instance_id, rowset.tablet_id(), rowset.rowset_id_v2()}),
+                 recycle_rs_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    {
+        int64_t table_id = 1;
+        int64_t partition_id = 1;
+        int64_t tablet_id = 1;
+        int64_t db_id = 100201;
+        std::string label = "test_commit_rowset_tmp_and_recycle_key_conflict";
+        create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(123);
+        rowset.mutable_load_id()->set_lo(456);
+        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+
+        ASSERT_NO_FATAL_FAILURE(put_recycle_rowset(rowset));
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("mutually exclusive") != std::string::npos)
+                << res.status().msg();
+    }
+
+    {
+        int64_t table_id = 2;
+        int64_t partition_id = 2;
+        int64_t tablet_id = 2;
+        int64_t db_id = 100202;
+        std::string label = "test_commit_rowset_without_tmp_or_recycle_key";
+        create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(789);
+        rowset.mutable_load_id()->set_lo(101112);
+
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
+                << res.status().msg();
+    }
 }
 
 TEST(MetaServiceTest, AlterObjInfoTest) {

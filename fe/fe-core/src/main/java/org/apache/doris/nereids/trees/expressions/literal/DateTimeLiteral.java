@@ -246,32 +246,27 @@ public class DateTimeLiteral extends DateLiteral {
         // Microseconds have 7 digits.
         long sevenDigit = microSecond % 10;
         microSecond = microSecond / 10;
-        if (sevenDigit >= 5 && (this instanceof DateTimeV2Literal || this instanceof TimestampTzLiteral)) {
+        if (sevenDigit >= 5) {
             DateTimeLiteral result;
-            if (this instanceof DateTimeV2Literal) {
-                result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-                this.microSecond = result.microSecond;
-            } else if (this instanceof TimestampTzLiteral) {
-                result = (TimestampTzLiteral) ((TimestampTzLiteral) this).plusMicroSeconds(1);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-                this.microSecond = result.microSecond;
-            }
+            result = this.plusMicroSeconds(1);
+            this.second = result.second;
+            this.minute = result.minute;
+            this.hour = result.hour;
+            this.day = result.day;
+            this.month = result.month;
+            this.year = result.year;
+            this.microSecond = result.microSecond;
         }
 
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("datetime literal [" + s + "] is out of range");
         }
+    }
+
+    // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
+    // completely. use multiplyExact to be aware of multiplication overflow possibility.
+    public DateTimeLiteral plusMicroSeconds(long microSeconds) {
+        return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
     private static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
@@ -318,6 +313,10 @@ public class DateTimeLiteral extends DateLiteral {
     @Override
     public Long getValue() {
         return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+    }
+
+    public long timePartToMicroSecond() {
+        return ((hour * 60L + minute) * 60L + second) * 1000L * 1000L + microSecond;
     }
 
     @Override
@@ -434,31 +433,31 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days));
+        return fromJavaDateType(toJavaDateType().plusDays(days), 0);
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months));
+        return fromJavaDateType(toJavaDateType().plusMonths(months), 0);
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
+        return fromJavaDateType(toJavaDateType().plusWeeks(weeks), 0);
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years));
+        return fromJavaDateType(toJavaDateType().plusYears(years), 0);
     }
 
     public Expression plusHours(long hours) {
-        return fromJavaDateType(toJavaDateType().plusHours(hours));
+        return fromJavaDateType(toJavaDateType().plusHours(hours), 0);
     }
 
     public Expression plusMinutes(long minutes) {
-        return fromJavaDateType(toJavaDateType().plusMinutes(minutes));
+        return fromJavaDateType(toJavaDateType().plusMinutes(minutes), 0);
     }
 
     public Expression plusSeconds(long seconds) {
-        return fromJavaDateType(toJavaDateType().plusSeconds(seconds));
+        return fromJavaDateType(toJavaDateType().plusSeconds(seconds), 0);
     }
 
     public long getHour() {
@@ -494,7 +493,7 @@ public class DateTimeLiteral extends DateLiteral {
                 ((int) getHour()), ((int) getMinute()), ((int) getSecond()), (int) getMicroSecond() * 1000);
     }
 
-    public static Expression fromJavaDateType(LocalDateTime dateTime) {
+    public static DateTimeLiteral fromJavaDateType(LocalDateTime dateTime, int precision) {
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }

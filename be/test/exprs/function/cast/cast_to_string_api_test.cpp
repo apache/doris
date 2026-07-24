@@ -69,22 +69,22 @@ TEST(CastToStringTest, test) {
         EXPECT_EQ(str, "1234567.89");
     }
     {
-        Decimal64 num = -123456789012345678;
+        Decimal64 num = int64_t(-123456789012345678);
         std::string str = CastToString::from_decimal(num, 4);
         EXPECT_EQ(str, "-12345678901234.5678");
     }
     {
-        Decimal128V2 num = 1234567890123;
+        Decimal128V2 num = int64_t(1234567890123);
         std::string str = CastToString::from_decimal(num, 6);
         EXPECT_EQ(str, "1234.567890");
     }
     {
-        Decimal128V3 num = 1234567890567890;
+        Decimal128V3 num = int64_t(1234567890567890);
         std::string str = CastToString::from_decimal(num, 8);
         EXPECT_EQ(str, "12345678.90567890");
     }
     {
-        Decimal256 num {1234567890567890};
+        Decimal256 num {int64_t(1234567890567890)};
         std::string str = CastToString::from_decimal(num, 10);
         EXPECT_EQ(str, "123456.7890567890");
     }

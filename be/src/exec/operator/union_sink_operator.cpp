@@ -93,51 +93,28 @@ Status UnionSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status UnionSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     if (local_state.low_memory_mode()) {
         set_low_memory_mode(state);
     }
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    if (local_state._output_block == nullptr) {
-        local_state._output_block =
-                local_state._shared_state->data_queue.get_free_block(_cur_child_id);
-    }
-    if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
-        if (in_block->rows() > 0) {
-            local_state._output_block->swap(*in_block);
-            RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
-                    std::move(local_state._output_block), _cur_child_id));
-        }
+    auto output_block = local_state._shared_state->data_queue.get_free_block(_cur_child_id);
+    if (is_child_passthrough(_cur_child_id)) { //pass_through
+        output_block->swap(*in_block);
     } else if (_get_first_materialized_child_idx() != children_count() &&
                _cur_child_id < children_count()) { //need materialized
-        RETURN_IF_ERROR(materialize_child_block(state, _cur_child_id, in_block,
-                                                local_state._output_block.get()));
+        RETURN_IF_ERROR(
+                materialize_child_block(state, _cur_child_id, in_block, output_block.get()));
     } else {
         return Status::InternalError("maybe can't reach here, execute const expr: {}, {}, {}",
                                      _cur_child_id, _get_first_materialized_child_idx(),
                                      children_count());
     }
-    if (UNLIKELY(eos)) {
-        //if _cur_child_id eos, need check to push block
-        //Now here can't check _output_block rows, even it's row==0, also need push block
-        //because maybe sink is eos and queue have none data, if not push block
-        //the source can't can_read again and can't set source finished
-        if (local_state._output_block) {
-            RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
-                    std::move(local_state._output_block), _cur_child_id));
-        }
 
-        local_state._shared_state->data_queue.set_finish(_cur_child_id);
-        return Status::OK();
-    }
-    // not eos and block rows is enough to output,so push block
-    if (local_state._output_block && (local_state._output_block->rows() >= state->batch_size())) {
-        RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
-                std::move(local_state._output_block), _cur_child_id));
-    }
-    return Status::OK();
+    return local_state._shared_state->data_queue.push_block(std::move(output_block), _cur_child_id,
+                                                            eos);
 }
 
 } // namespace doris

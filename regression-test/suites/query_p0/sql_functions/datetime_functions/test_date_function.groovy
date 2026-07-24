@@ -496,6 +496,7 @@ suite("test_date_function") {
     check_fold_consistency("str_to_date('2026-01-28 11:32:47.1234567', '%Y-%m-%d %T.%f')")
     check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456789', '%Y-%m-%d %T.%f')")
     check_fold_consistency("str_to_date('2026-01-28 11:32:47', '%Y-%m-%d %T')")
+    testFoldConst("select str_to_date('2024-01-01', concat('%Y-%m', '-%d'))")
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """
     qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""

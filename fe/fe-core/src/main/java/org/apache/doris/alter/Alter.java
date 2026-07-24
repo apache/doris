@@ -94,6 +94,8 @@ import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
@@ -413,20 +415,26 @@ public class Alter {
                         table.getDbName(), table.getName(), renameTableOp.getNewTableName());
             } else if (alterOp instanceof AddColumnOp) {
                 AddColumnOp addColumn = (AddColumnOp) alterOp;
-                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
+                table.getCatalog().addColumn(
+                        table, addColumn.getColumnPath(), addColumn.getColumn(), addColumn.getColPos());
             } else if (alterOp instanceof AddColumnsOp) {
                 AddColumnsOp addColumns = (AddColumnsOp) alterOp;
                 table.getCatalog().addColumns(table, addColumns.getColumns());
             } else if (alterOp instanceof DropColumnOp) {
                 DropColumnOp dropColumn = (DropColumnOp) alterOp;
-                table.getCatalog().dropColumn(table, dropColumn.getColName());
+                table.getCatalog().dropColumn(table, dropColumn.getColumnPath());
             } else if (alterOp instanceof RenameColumnOp) {
                 RenameColumnOp columnRename = (RenameColumnOp) alterOp;
                 table.getCatalog().renameColumn(
-                        table, columnRename.getColName(), columnRename.getNewColName());
+                        table, columnRename.getColumnPath(), columnRename.getNewColName());
             } else if (alterOp instanceof ModifyColumnOp) {
                 ModifyColumnOp modifyColumn = (ModifyColumnOp) alterOp;
-                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+                table.getCatalog().modifyColumn(
+                        table, modifyColumn.getColumnPath(), modifyColumn.getColumn(), modifyColumn.getColPos());
+            } else if (alterOp instanceof ModifyColumnCommentOp) {
+                ModifyColumnCommentOp modifyColumnComment = (ModifyColumnCommentOp) alterOp;
+                table.getCatalog().modifyColumnComment(
+                        table, modifyColumnComment.getColumnPath(), modifyColumnComment.getComment());
             } else if (alterOp instanceof ReorderColumnsOp) {
                 ReorderColumnsOp reorderColumns = (ReorderColumnsOp) alterOp;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
@@ -647,9 +655,11 @@ public class Alter {
                 ModifyPartitionOp clause = ((ModifyPartitionOp) alterOp);
                 Map<String, String> properties = clause.getProperties();
                 List<String> partitionNames = clause.getPartitionNames();
+                OlapTable olapTable = (OlapTable) tableIf;
+                checkModifyPartitionStoragePolicyResource(
+                        olapTable, partitionNames, properties, clause.isTempPartition());
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
                         db, tableName, partitionNames, properties);
-                OlapTable olapTable = (OlapTable) tableIf;
                 olapTable.writeLockOrDdlException();
                 try {
                     modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
@@ -913,6 +923,57 @@ public class Alter {
             } else {
                 Preconditions.checkState(false);
             }
+        }
+    }
+
+    private void checkModifyPartitionStoragePolicyResource(OlapTable olapTable, List<String> partitionNames,
+            Map<String, String> properties, boolean isTempPartition) throws DdlException, AnalysisException {
+        if (!PropertyAnalyzer.hasStoragePolicy(properties)) {
+            return;
+        }
+
+        String newStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
+        if (Strings.isNullOrEmpty(newStoragePolicy)) {
+            return;
+        }
+        Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(newStoragePolicy);
+
+        Optional<Policy> newPolicy = Env.getCurrentEnv().getPolicyMgr()
+                .findPolicy(newStoragePolicy, PolicyTypeEnum.STORAGE);
+        if (!newPolicy.isPresent() || !(newPolicy.get() instanceof StoragePolicy)) {
+            return;
+        }
+
+        olapTable.readLock();
+        try {
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName, isTempPartition);
+                if (partition == null) {
+                    continue;
+                }
+
+                DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
+                String oldStoragePolicy = dataProperty.getStoragePolicy();
+                if (Strings.isNullOrEmpty(oldStoragePolicy) || oldStoragePolicy.equals(newStoragePolicy)) {
+                    continue;
+                }
+
+                Optional<Policy> oldPolicy = Env.getCurrentEnv().getPolicyMgr()
+                        .findPolicy(oldStoragePolicy, PolicyTypeEnum.STORAGE);
+                if (!oldPolicy.isPresent() || !(oldPolicy.get() instanceof StoragePolicy)) {
+                    continue;
+                }
+
+                String newResource = ((StoragePolicy) newPolicy.get()).getStorageResource();
+                String oldResource = ((StoragePolicy) oldPolicy.get()).getStorageResource();
+                if (!newResource.equals(oldResource)) {
+                    throw new AnalysisException("currently do not support change origin "
+                            + "storage policy to another one with different resource: ");
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
         }
     }
 

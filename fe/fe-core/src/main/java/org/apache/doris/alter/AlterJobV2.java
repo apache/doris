@@ -255,7 +255,7 @@ public abstract class AlterJobV2 implements Writable {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
             ctx.setCloudCluster(cloudClusterName);
-            // currently used for CloudReplica.getCurrentClusterId
+            // currently used for CloudSystemInfoService.getCurrentClusterId
             // later maybe used for managing all workload in BE.
             ctx.setCurrentUserIdentity(this.userIdentity);
         }

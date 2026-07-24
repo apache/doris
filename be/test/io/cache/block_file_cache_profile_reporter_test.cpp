@@ -52,6 +52,18 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.inverted_index_remote_io_timer = multiplier * 26;
     stats.inverted_index_peer_io_timer = multiplier * 27;
     stats.inverted_index_io_timer = multiplier * 28;
+    stats.remote_only_on_miss_triggered = multiplier * 29;
+    stats.remote_only_on_miss_threshold_bytes = multiplier * 30;
+    stats.num_cross_cg_peer_io_total = multiplier * 31;
+    stats.bytes_read_from_cross_cg_peer = multiplier * 32;
+    stats.cross_cg_peer_io_timer = multiplier * 33;
+    stats.num_same_cg_peer_io_total = multiplier * 34;
+    stats.bytes_read_from_same_cg_peer = multiplier * 35;
+    stats.same_cg_peer_io_timer = multiplier * 36;
+    stats.num_peer_race_peer_win = multiplier * 37;
+    stats.num_peer_race_s3_win = multiplier * 38;
+    stats.num_peer_lazy_fetch = multiplier * 39;
+    stats.peer_lazy_fetch_timer = multiplier * 40;
     return stats;
 }
 
@@ -89,6 +101,19 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.inverted_index_remote_io_timer, expected.inverted_index_remote_io_timer);
     EXPECT_EQ(actual.inverted_index_peer_io_timer, expected.inverted_index_peer_io_timer);
     EXPECT_EQ(actual.inverted_index_io_timer, expected.inverted_index_io_timer);
+    EXPECT_EQ(actual.remote_only_on_miss_triggered, expected.remote_only_on_miss_triggered);
+    EXPECT_EQ(actual.remote_only_on_miss_threshold_bytes,
+              expected.remote_only_on_miss_threshold_bytes);
+    EXPECT_EQ(actual.num_cross_cg_peer_io_total, expected.num_cross_cg_peer_io_total);
+    EXPECT_EQ(actual.bytes_read_from_cross_cg_peer, expected.bytes_read_from_cross_cg_peer);
+    EXPECT_EQ(actual.cross_cg_peer_io_timer, expected.cross_cg_peer_io_timer);
+    EXPECT_EQ(actual.num_same_cg_peer_io_total, expected.num_same_cg_peer_io_total);
+    EXPECT_EQ(actual.bytes_read_from_same_cg_peer, expected.bytes_read_from_same_cg_peer);
+    EXPECT_EQ(actual.same_cg_peer_io_timer, expected.same_cg_peer_io_timer);
+    EXPECT_EQ(actual.num_peer_race_peer_win, expected.num_peer_race_peer_win);
+    EXPECT_EQ(actual.num_peer_race_s3_win, expected.num_peer_race_s3_win);
+    EXPECT_EQ(actual.num_peer_lazy_fetch, expected.num_peer_lazy_fetch);
+    EXPECT_EQ(actual.peer_lazy_fetch_timer, expected.peer_lazy_fetch_timer);
 }
 
 } // namespace
@@ -134,6 +159,10 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
     EXPECT_EQ(profile->get_counter("CacheGetOrSetTimer")->value(),
               after_second_report.cache_get_or_set_timer);
     EXPECT_EQ(profile->get_counter("LockWaitTimer")->value(), after_second_report.lock_wait_timer);
+    EXPECT_EQ(profile->get_counter("CrossCGPeerIOTime")->value(),
+              after_second_report.cross_cg_peer_io_timer);
+    EXPECT_EQ(profile->get_counter("PeerLazyFetchTime")->value(),
+              after_second_report.peer_lazy_fetch_timer);
 }
 
 } // namespace doris

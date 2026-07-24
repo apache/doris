@@ -24,8 +24,11 @@
 #include <gen_cpp/Types_types.h>
 
 #include <memory>
+#include <optional>
 #include <ostream>
+#include <set>
 
+#include "common/compare.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -61,6 +64,7 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
@@ -80,7 +84,85 @@ const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name
 const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
         TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
 
-VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
+namespace {
+
+enum class RawComparisonOp : uint8_t { EQ, NE, LT, LE, GT, GE };
+
+std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name, bool reverse) {
+    RawComparisonOp op;
+    if (function_name == "eq") {
+        op = RawComparisonOp::EQ;
+    } else if (function_name == "ne") {
+        op = RawComparisonOp::NE;
+    } else if (function_name == "lt") {
+        op = RawComparisonOp::LT;
+    } else if (function_name == "le") {
+        op = RawComparisonOp::LE;
+    } else if (function_name == "gt") {
+        op = RawComparisonOp::GT;
+    } else if (function_name == "ge") {
+        op = RawComparisonOp::GE;
+    } else {
+        return std::nullopt;
+    }
+    if (!reverse || op == RawComparisonOp::EQ || op == RawComparisonOp::NE) {
+        return op;
+    }
+    switch (op) {
+    case RawComparisonOp::LT:
+        return RawComparisonOp::GT;
+    case RawComparisonOp::LE:
+        return RawComparisonOp::GE;
+    case RawComparisonOp::GT:
+        return RawComparisonOp::LT;
+    case RawComparisonOp::GE:
+        return RawComparisonOp::LE;
+    case RawComparisonOp::EQ:
+    case RawComparisonOp::NE:
+        break;
+    }
+    __builtin_unreachable();
+}
+
+template <typename T, PrimitiveType PT>
+void execute_raw_comparison(const uint8_t* values, size_t num_values, const Field& literal,
+                            RawComparisonOp op, uint8_t* matches) {
+    const T rhs = literal.get<PT>();
+    for (size_t row = 0; row < num_values; ++row) {
+        if (matches[row] == 0) {
+            continue;
+        }
+        const T lhs = unaligned_load<T>(values + row * sizeof(T));
+        bool keep = false;
+        switch (op) {
+        case RawComparisonOp::EQ:
+            keep = Compare::equal(lhs, rhs);
+            break;
+        case RawComparisonOp::NE:
+            keep = Compare::not_equal(lhs, rhs);
+            break;
+        case RawComparisonOp::LT:
+            keep = Compare::less(lhs, rhs);
+            break;
+        case RawComparisonOp::LE:
+            keep = Compare::less_equal(lhs, rhs);
+            break;
+        case RawComparisonOp::GT:
+            keep = Compare::greater(lhs, rhs);
+            break;
+        case RawComparisonOp::GE:
+            keep = Compare::greater_equal(lhs, rhs);
+            break;
+        }
+        matches[row] = static_cast<uint8_t>(keep);
+    }
+}
+
+} // namespace
+
+VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
+    _function_name = _fn.name.function_name;
+}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
@@ -208,6 +290,35 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
+ZoneMapFilterResult VectorizedFnCall::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return _function->evaluate_zonemap_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_zonemap_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_zonemap_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    return _function->evaluate_dictionary_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_dictionary_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_dictionary_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_bloom_filter(
+        const BloomFilterEvalContext& ctx) const {
+    return _function->evaluate_bloom_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_bloom_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_bloom_filter(_children);
+}
+
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
                                      const Selector* selector, size_t count,
                                      ColumnPtr& result_column, ColumnPtr* arg_column) const {
@@ -306,6 +417,71 @@ Status VectorizedFnCall::execute_column_impl(VExprContext* context, const Block*
     return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 
+bool VectorizedFnCall::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                       int column_id) const {
+    if (data_type == nullptr || !raw_comparison_op(_function_name, false).has_value()) {
+        return false;
+    }
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    if (!slot_literal.has_value() || slot_literal->slot_index != column_id ||
+        slot_literal->literal.is_null()) {
+        return false;
+    }
+    const auto raw_type = remove_nullable(data_type);
+    if (!remove_nullable(slot_literal->slot_type)->equals(*raw_type) ||
+        !remove_nullable(slot_literal->literal_type)->equals(*raw_type)) {
+        return false;
+    }
+    const auto primitive_type = raw_type->get_primitive_type();
+    return primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT ||
+           primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
+}
+
+Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                                     size_t value_width,
+                                                     const DataTypePtr& data_type, int column_id,
+                                                     uint8_t* matches) const {
+    if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+        return Status::NotSupported("Expression {} cannot evaluate raw fixed-width values",
+                                    expr_name());
+    }
+    DORIS_CHECK(values != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    DORIS_CHECK(slot_literal.has_value());
+    const auto op = raw_comparison_op(_function_name, slot_literal->literal_on_left);
+    DORIS_CHECK(op.has_value());
+    const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
+    const size_t expected_width = primitive_type == TYPE_INT || primitive_type == TYPE_FLOAT
+                                          ? sizeof(uint32_t)
+                                          : sizeof(uint64_t);
+    if (value_width != expected_width) {
+        return Status::Corruption("Raw expression width {} does not match expected {}", value_width,
+                                  expected_width);
+    }
+    switch (primitive_type) {
+    case TYPE_INT:
+        execute_raw_comparison<int32_t, TYPE_INT>(values, num_values, slot_literal->literal, *op,
+                                                  matches);
+        break;
+    case TYPE_BIGINT:
+        execute_raw_comparison<int64_t, TYPE_BIGINT>(values, num_values, slot_literal->literal, *op,
+                                                     matches);
+        break;
+    case TYPE_FLOAT:
+        execute_raw_comparison<float, TYPE_FLOAT>(values, num_values, slot_literal->literal, *op,
+                                                  matches);
+        break;
+    case TYPE_DOUBLE:
+        execute_raw_comparison<double, TYPE_DOUBLE>(values, num_values, slot_literal->literal, *op,
+                                                    matches);
+        break;
+    default:
+        __builtin_unreachable();
+    }
+    return Status::OK();
+}
+
 const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }
@@ -344,6 +520,22 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
 
 bool VectorizedFnCall::can_push_down_to_index() const {
     return _function->can_push_down_to_index();
+}
+
+bool VectorizedFnCall::is_deterministic() const {
+    static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+    return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
+}
+
+bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
+    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {
+            "eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "is_null_pred", "is_not_null_pred"};
+    // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
+    // predicate. Keep function calls unsafe by default and opt in only operations that are total
+    // for their input domain; child checks then reject expressions such as gt(mod(x, -1), 0).
+    return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
+           VExpr::is_safe_to_execute_on_selected_rows();
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {
@@ -556,8 +748,9 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, AnnRangeSearchEvaluationResult& evaluation_result) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        AnnRangeSearchEvaluationResult& evaluation_result) {
     evaluation_result = {};
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
@@ -609,6 +802,20 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         return Status::InvalidArgument(
                 "Ann range search query dimension {} does not match index dimension {}",
                 range_search_runtime.dim, index_dim);
+    }
+
+    const auto& user_params = range_search_runtime.user_params;
+    if (user_params.should_fallback_ann_index_by_small_candidate(origin_num, rows_of_segment)) {
+        VLOG_DEBUG << fmt::format(
+                "Ann range search input rows {} reach small candidate threshold, "
+                "rows_of_segment: {}, absolute_threshold: {}, percent_threshold: {}, "
+                "will not use ann index to filter",
+                origin_num, rows_of_segment, user_params.ann_index_candidate_rows_threshold,
+                user_params.ann_index_candidate_rows_percent_threshold);
+        ann_index_stats.fall_back_brute_force_cnt += 1;
+        ann_index_stats.range_fallback_by_small_candidate_cnt += 1;
+        ann_index_stats.range_fallback_small_candidate_rows += origin_num;
+        return Status::OK();
     }
 
     auto stats = std::make_unique<segment_v2::AnnIndexStats>();

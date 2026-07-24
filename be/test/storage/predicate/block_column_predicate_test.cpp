@@ -32,7 +32,7 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/type_limit.h"
@@ -77,7 +77,7 @@ public:
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto value = Field::create_field<TYPE_INT>(5);
     int rows = 10;
@@ -97,13 +97,13 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
 
     selected_size = single_column_block_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value.template get<TYPE_INT>());
 }
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -131,13 +131,13 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -165,13 +165,13 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 10);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -208,7 +208,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 4);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[2]], 2);
@@ -237,7 +237,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -274,7 +274,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
 
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 
@@ -2699,6 +2699,74 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         EXPECT_FALSE(false_predicate->evaluate_and(&stat));
         or_block_column_pred.add_column_predicate(std::move(false_predicate));
         EXPECT_FALSE(or_block_column_pred.evaluate_and(&stat));
+    }
+}
+
+// Verifies the core algorithm of SegmentIterator::_can_prune_segment_by_tso: on a
+// single-version binlog segment the tso column (__DORIS_BINLOG_TSO__) is replaced at
+// read time with a constant commit_tso, so whole-segment pruning is decided by matching the
+// tso predicates against a degenerate zonemap (min == max == commit_tso). evaluate_and()
+// returns false iff commit_tso fails the predicates, i.e. the whole segment can be pruned.
+TEST_F(BlockColumnPredicateTest, tso_whole_segment_prune_by_commit_tso) {
+    // The user-visible raw commit tso (~4.66e17). Physical time part is ~1.78e12.
+    constexpr int64_t kCommitTso = 466872251335573505L;
+
+    auto make_tso_zone_map = [](int64_t commit_tso) {
+        return segment_v2::ZoneMap {.min_value = Field::create_field<TYPE_BIGINT>(commit_tso),
+                                    .max_value = Field::create_field<TYPE_BIGINT>(commit_tso),
+                                    .has_null = false,
+                                    .has_not_null = true};
+    };
+    // Mirrors _can_prune_segment_by_tso: returns true if the segment can be pruned.
+    auto can_prune = [&](const AndBlockColumnPredicate& preds) {
+        return !preds.evaluate_and(make_tso_zone_map(kCommitTso));
+    };
+
+    auto make_gt = [](int64_t value) {
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
+                        0, "", Field::create_field<TYPE_BIGINT>(value)));
+        return SingleColumnBlockPredicate::create_unique(pred);
+    };
+    auto make_le = [](int64_t value) {
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LE>(
+                        0, "", Field::create_field<TYPE_BIGINT>(value)));
+        return SingleColumnBlockPredicate::create_unique(pred);
+    };
+
+    // `> physical-time-magnitude` (between physical time and raw tso): commit_tso satisfies it,
+    // so the segment must NOT be pruned (this is exactly the historical mis-prune case).
+    {
+        AndBlockColumnPredicate preds;
+        preds.add_column_predicate(make_gt(1790000000000L));
+        EXPECT_FALSE(can_prune(preds));
+    }
+    // `> 0`: commit_tso satisfies it, segment kept.
+    {
+        AndBlockColumnPredicate preds;
+        preds.add_column_predicate(make_gt(0));
+        EXPECT_FALSE(can_prune(preds));
+    }
+    // `> upper-bound (> commit_tso)`: commit_tso fails it, whole segment can be pruned.
+    {
+        AndBlockColumnPredicate preds;
+        preds.add_column_predicate(make_gt(kCommitTso));
+        EXPECT_TRUE(can_prune(preds));
+    }
+    // Range `commit_tso < tso <= commit_tso+10`: commit_tso fails the lower bound, pruned.
+    {
+        AndBlockColumnPredicate preds;
+        preds.add_column_predicate(make_gt(kCommitTso));
+        preds.add_column_predicate(make_le(kCommitTso + 10));
+        EXPECT_TRUE(can_prune(preds));
+    }
+    // Range `commit_tso-10 < tso <= commit_tso`: commit_tso satisfies both, kept.
+    {
+        AndBlockColumnPredicate preds;
+        preds.add_column_predicate(make_gt(kCommitTso - 10));
+        preds.add_column_predicate(make_le(kCommitTso));
+        EXPECT_FALSE(can_prune(preds));
     }
 }
 

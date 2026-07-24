@@ -38,6 +38,9 @@ suite("test_paimon_deletion_vector", "p0,external") {
 
         def test_cases = { String force ->
             sql """ set force_jni_scanner=${force} """
+            // Force tiny splits so both native and JNI paths read Paimon DV tables through multiple
+            // scanner ranges while still returning the same filtered rows.
+            sql """ set file_split_size=1 """
             qt_1 """select count(*) from deletion_vector_orc;"""
             qt_2 """select count(*) from deletion_vector_parquet;"""
             qt_3 """select count(*) from deletion_vector_orc where id > 2;"""
@@ -47,10 +50,16 @@ suite("test_paimon_deletion_vector", "p0,external") {
             qt_7 """select * from deletion_vector_table_1_0 order by id;"""
             qt_8 """select count(*) from deletion_vector_table_1_0;"""
             qt_9 """select count(*) from deletion_vector_table_1_0 where id > 2;"""
+            qt_10 """select * from deletion_vector_orc where id > 2 order by id limit 1;"""
+            qt_11 """select * from deletion_vector_parquet where id > 2 order by id limit 1;"""
+            qt_12 """select count(*) from (select * from deletion_vector_orc where id > 2 union all select * from deletion_vector_orc where id > 2) t;"""
+            qt_13 """select count(*) from (select * from deletion_vector_parquet where id > 2 union all select * from deletion_vector_parquet where id > 2) t;"""
         }
 
         def test_table_count_push_down = { String force ->
             sql """ set force_jni_scanner=${force} """
+            // DV tables cannot use table-level count pushdown because deleted rows must be applied;
+            // the no-DV v1.0 table keeps the positive pushdown baseline.
             explain {
                 sql("select count(*) from deletion_vector_orc;")
                 contains "pushdown agg=COUNT (-1)"
@@ -68,6 +77,8 @@ suite("test_paimon_deletion_vector", "p0,external") {
         def test_not_table_count_push_down = { String force ->
             sql """ set enable_count_push_down_for_external_table=false; """
             sql """ set force_jni_scanner=${force} """
+            // With count pushdown disabled, all DV and non-DV tables must report NONE regardless
+            // of the selected scanner path.
             explain {
                 sql("select count(*) from deletion_vector_orc;")
                 contains "pushdown agg=NONE"
@@ -90,6 +101,7 @@ suite("test_paimon_deletion_vector", "p0,external") {
         test_not_table_count_push_down("true")
     } finally {
         sql """ set enable_count_push_down_for_external_table=true; """
+        sql """unset variable file_split_size"""
         sql """set force_jni_scanner=false"""
     }
 

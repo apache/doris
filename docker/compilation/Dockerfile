@@ -15,24 +15,22 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM centos:7 AS builder
+FROM almalinux:8 AS builder
 
-# Switch repos to point to to vault.centos.org because CentOS 7 is EOL
-RUN sed -i \
-  -e 's/^mirrorlist/#mirrorlist/' \
-  -e 's/^#baseurl/baseurl/' \
-  -e 's/mirror\.centos\.org/vault.centos.org/' \
-  /etc/yum.repos.d/*.repo
-
-# install epel repo for ccache
-RUN yum install epel-release -y && yum install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm -y && yum clean all && yum makecache
+# enable PowerTools for static libraries
+RUN dnf install -y dnf-plugins-core \
+    && dnf config-manager --set-enabled powertools \
+    && dnf clean all \
+    && dnf makecache
 
 # install dependencies
-RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
-    wget git python2 bison java-1.8.0-openjdk-devel
+RUN dnf install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
+    wget git python2 bison java-1.8.0-openjdk-devel glibc-langpack-en diffutils
+
+RUN if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python2 /usr/bin/python; fi
 
 # clean cache
-RUN yum clean all
+RUN dnf clean all
 
 # install jdk17
 RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/openjdk-17.0.2_linux-x64_bin.tar.gz \
@@ -54,6 +52,12 @@ RUN wget https://nodejs.org/download/release/latest-v14.x/node-v14.21.3-linux-x6
     && cd /tmp/ && tar -xf node-v14.21.3-linux-x64.tar.gz \
     && cp -r node-v14.21.3-linux-x64/* /usr/local/ \
     && rm /tmp/node-v14.21.3-linux-x64.tar.gz && rm -rf node-v14.21.3-linux-x64
+
+# install Rust for lance-c
+ARG RUST_TOOLCHAIN="1.91.0"
+RUN wget https://sh.rustup.rs -q -O /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+    && rm /tmp/rustup-init.sh
 
 # install ldb-toolchain
 ## 0.18
@@ -77,7 +81,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/clang-format && \
 ENV REPOSITORY_URL="https://doris-thirdparty-hk-1308700295.cos.ap-hongkong.myqcloud.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
     JAVA_HOME="/usr/lib/jvm/java-1.8.0/" \
-    PATH="/var/local/ldb-toolchain/bin/:$PATH"
+    PATH="/root/.cargo/bin:/var/local/ldb-toolchain/bin/:$PATH"
     # USE_AVX2=0
 
 # install ccache
@@ -111,7 +115,7 @@ ENV JAVA_HOME="/usr/lib/jvm/jdk-17.0.2/" \
     MAVEN_HOME="/usr/share/maven" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
-    PATH="/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
+    PATH="/usr/local/bin:/root/.cargo/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 

@@ -465,6 +465,8 @@ public class DynamicPartitionUtil {
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
+        String storagePolicy = properties.get(DynamicPartitionProperty.STORAGE_POLICY);
+        String storageMedium = properties.get(DynamicPartitionProperty.STORAGE_MEDIUM);
 
         if (!(Strings.isNullOrEmpty(enable)
                 && Strings.isNullOrEmpty(timeUnit)
@@ -475,7 +477,9 @@ public class DynamicPartitionUtil {
                 && Strings.isNullOrEmpty(buckets)
                 && Strings.isNullOrEmpty(createHistoryPartition)
                 && Strings.isNullOrEmpty(historyPartitionNum)
-                && Strings.isNullOrEmpty(reservedHistoryPeriods))) {
+                && Strings.isNullOrEmpty(reservedHistoryPeriods)
+                && Strings.isNullOrEmpty(storagePolicy)
+                && Strings.isNullOrEmpty(storageMedium))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }

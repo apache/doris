@@ -43,21 +43,26 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
-// MetaServiceResponseStatus has two status-code channels:
-// - aux_code: the real code encoded as int32, readable by new clients if their enum knows it.
-// - code: a legacy fallback enum value, readable by old proto2 clients without falling back to OK.
 inline MetaServiceCode get_legacy_code(MetaServiceCode code) {
     switch (code) {
+    // These retry signals are handled inside MetaService. Map unresolved failures to the
+    // corresponding operation error so callers receive a stable read/commit/create category.
     case MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE:
         return MetaServiceCode::KV_TXN_GET_ERR;
     case MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE:
         return MetaServiceCode::KV_TXN_COMMIT_ERR;
     case MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE:
         return MetaServiceCode::KV_TXN_CREATE_ERR;
+    // The commit outcome is uncertain after the store reports MAYBE_COMMITTED. Map it to a
+    // commit error when MetaService cannot resolve the outcome through its internal retries.
     case MetaServiceCode::KV_TXN_MAYBE_COMMITTED:
         return MetaServiceCode::KV_TXN_COMMIT_ERR;
+    // MS_TOO_BUSY is a overload signal. Map it to KV_TXN_CONFLICT so the BE's existing
+    // conflict-retry path can retry the request.
     case MetaServiceCode::MS_TOO_BUSY:
         return MetaServiceCode::KV_TXN_CONFLICT;
+    // Represent an exhausted MetaService conflict-retry path and prevent another BE-side
+    // conflict-retry loop.
     case MetaServiceCode::KV_TXN_CONFLICT:
         return MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES;
     default:

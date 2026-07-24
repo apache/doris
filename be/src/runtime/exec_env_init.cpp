@@ -305,6 +305,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("PeerRaceS3ThreadPool")
+                              .set_min_threads(config::min_peer_race_s3_thread_num)
+                              .set_max_threads(config::max_peer_race_s3_thread_num)
+                              .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
@@ -513,7 +517,6 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
         exit(-1);
     }
-    std::unordered_set<std::string> cache_path_set;
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
         throw Exception(
@@ -521,23 +524,16 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                                    doris::config::file_cache_path, rest.msg()));
     }
 
-    doris::Status cache_status;
-    for (auto& cache_path : cache_paths) {
-        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-            continue;
-        }
-
-        cache_status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                cache_path.path, cache_path.init_settings());
-        if (!cache_status.ok()) {
-            if (!doris::config::ignore_broken_disk) {
-                throw Exception(
-                        Status::FatalError("failed to init file cache, err: {}", cache_status));
-            }
-            LOG(WARNING) << "failed to init file cache, err: " << cache_status;
-        }
-        cache_path_set.emplace(cache_path.path);
+    auto cache_status = doris::io::FileCacheFactory::instance()->create_file_caches(
+            cache_paths, [](const std::string&, const Status& status) {
+                if (!doris::config::ignore_broken_disk) {
+                    return false;
+                }
+                LOG(WARNING) << "failed to init file cache, err: " << status;
+                return true;
+            });
+    if (!cache_status.ok()) {
+        throw Exception(Status::FatalError("failed to init file cache, err: {}", cache_status));
     }
 }
 
@@ -628,6 +624,17 @@ Status ExecEnv::init_mem_env() {
     } else {
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
+#ifdef __APPLE__
+    // On macOS, rlim_cur can be RLIM_INFINITY (INT64_MAX), which causes
+    // fd_number / 100 * percentage to overflow and crash cast_set<uint32_t>.
+    // Linux kernels cap this via fs.nr_open (default 1M), so only macOS needs this.
+    {
+        constexpr uint64_t max_fd = UINT32_MAX >> 2;
+        if (fd_number > max_fd) {
+            fd_number = max_fd;
+        }
+    }
+#endif
 
     int64_t segment_cache_capacity = 0;
     if (config::is_cloud_mode()) {
@@ -857,7 +864,8 @@ void ExecEnv::destroy() {
     SAFE_STOP(_stream_load_recorder_manager);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
-    // stop pipline step 2, cgroup execution
+    // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still
+    // report status through FragmentMgr's async thread pool.
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
@@ -870,6 +878,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
+    // Workload group schedulers own the query pipeline, scan, and memtable flush queues.
+    // Release them after fragment/load resources have stopped submitting cleanup work.
+    if (_workload_group_manager) {
+        _workload_group_manager->destroy_schedulers();
+    }
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // _id_manager must be destoried before tablet schema cache
@@ -894,6 +907,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
@@ -949,6 +963,7 @@ void ExecEnv::destroy() {
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
     _s3_file_system_thread_pool.reset(nullptr);
+    _peer_race_s3_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _segment_prefetch_thread_pool.reset(nullptr);

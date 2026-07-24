@@ -48,6 +48,15 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_local, MetricUnit::BY
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_remote, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_stale_hit_total, MetricUnit::REQUESTS,
+                                     "Query cache decisions that reused a stale entry by "
+                                     "incremental merge.");
+DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_incremental_fallback_total, MetricUnit::REQUESTS,
+                                     "Query cache decisions that could have merged incrementally "
+                                     "but fell back to a full recompute.");
+DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_write_back_total, MetricUnit::REQUESTS,
+                                     "Query cache entries handed to the cache to be written back "
+                                     "(full or merged); admission may still turn one down.");
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_success_total, MetricUnit::REQUESTS, "",
                                      push_requests_total, Labels({{"status", "SUCCESS"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_fail_total, MetricUnit::REQUESTS, "",
@@ -243,6 +252,9 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERAT
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_peer, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(inverted_index_bytes_read_from_remote, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(segment_footer_index_bytes_read_from_remote,
+                                     MetricUnit::BYTES);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(udf_close_bthread_count, MetricUnit::OPERATIONS);
 
@@ -288,6 +300,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_local);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_remote);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_stale_hit_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_incremental_fallback_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_write_back_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_success_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_fail_total);
@@ -427,6 +442,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_peer);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, inverted_index_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_footer_index_bytes_read_from_remote);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, udf_close_bthread_count);
 

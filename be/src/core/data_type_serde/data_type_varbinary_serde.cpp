@@ -18,8 +18,77 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
 #include "core/column/column_varbinary.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 
 namespace doris {
+namespace {
+
+class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,
+                                       public ParquetBinaryValueConsumer {
+public:
+    explicit VarbinaryParquetConsumer(IColumn& column)
+            : _column(assert_cast<ColumnVarbinary&>(column)) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            _column.insert_data(reinterpret_cast<const char*>(values + row * value_width),
+                                value_width);
+        }
+        return Status::OK();
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            _column.insert_data(values[row].data, values[row].size);
+        }
+        return Status::OK();
+    }
+
+    Status consume_plain_byte_array(const char* encoded_data, const uint32_t* payload_offsets,
+                                    const uint32_t* value_offsets, size_t num_values,
+                                    const std::vector<ParquetSelectionRange>&) override {
+        for (size_t row = 0; row < num_values; ++row) {
+            _column.insert_data(encoded_data + payload_offsets[row],
+                                value_offsets[row + 1] - value_offsets[row]);
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnVarbinary& _column;
+};
+
+} // namespace
+
+Status DataTypeVarbinarySerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                       const ParquetDecodeContext& context) const {
+    VarbinaryParquetConsumer consumer(column);
+    return source.decode_dictionary(consumer, consumer);
+}
+
+Status DataTypeVarbinarySerDe::read_column_from_parquet(IColumn& column,
+                                                        ParquetDecodeSource& source,
+                                                        const ParquetDecodeContext& context,
+                                                        size_t num_values,
+                                                        ParquetMaterializationState& state) const {
+    VarbinaryParquetConsumer consumer(column);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+            return source.decode_binary_values(num_values, consumer);
+        }
+        if (context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY) {
+            return source.decode_fixed_values(num_values, consumer);
+        }
+        return Status::NotSupported("Unsupported Parquet physical type for VARBINARY");
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        RETURN_IF_ERROR(read_parquet_dictionary(*state.typed_dictionary, source, context));
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
+}
 
 void DataTypeVarbinarySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                      Arena& arena, int32_t col_id, int64_t row_num,
@@ -58,22 +127,56 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
         const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 builder.type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
                 continue;
             }
             const auto& string_view = varbinary_column_data[i];
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data(), string_view.size()),
-                                             column.get_name(), builder.type()->name()));
+                                             column, builder));
         }
         return Status::OK();
     };
     if (array_builder->type()->id() == arrow::Type::BINARY) {
         auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
         return lambda_function(builder);
+    } else if (array_builder->type()->id() == arrow::Type::LARGE_BINARY) {
+        auto& builder = assert_cast<arrow::LargeBinaryBuilder&>(*array_builder);
+        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            const auto& string_view = varbinary_column_data[i];
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data()),
+                                   cast_set<int64_t, size_t, false>(string_view.size())),
+                    column, builder));
+        }
+        return Status::OK();
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return lambda_function(builder);
+    } else if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const int byte_width =
+                static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
+        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            const auto& string_view = varbinary_column_data[i];
+            if (string_view.size() != byte_width) {
+                return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}",
+                                               byte_width, string_view.size());
+            }
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data())), column,
+                    builder));
+        }
+        return Status::OK();
     } else {
         return Status::InvalidArgument("Unsupported arrow type for varbinary column: {}",
                                        array_builder->type()->name());

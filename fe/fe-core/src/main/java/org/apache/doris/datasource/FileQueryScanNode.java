@@ -181,7 +181,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setSlotId(slot.getId().asInt());
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -210,7 +210,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setSlotId(slot.getId().asInt());
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
@@ -226,6 +226,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
+    }
+
+    protected boolean isFileSlot(TColumnCategory category) {
+        return category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -476,8 +480,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 pathPartitionKeys, partitionValuesFromPath.getIsNull());
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        // set file format type, and the type might fall back to native format in setScanParams
-        rangeDesc.setFormatType(getFileFormatType());
+        // Seed connector-specific setup with the scan-level default. A connector may then
+        // override it with the actual format carried by an individual split.
+        rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
         rangeDesc.setFileCacheAdmission(admissionResult);
 

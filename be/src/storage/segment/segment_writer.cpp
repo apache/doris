@@ -943,6 +943,10 @@ Status SegmentWriter::finalize_columns_data() {
 
 Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
+    // Record each index range separately. Vertical compaction writes column groups as
+    // data+index pairs, so a single [first index, EOF) range would include later column data.
+    // This SegmentWriter path is shared by cloud load, non-vertical compaction, schema change
+    // final output, and vertical compaction via VerticalBetaRowsetWriter.
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_inverted_index());
@@ -978,24 +982,36 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
             *index_size = _file_writer->bytes_appended() - index_start;
         }
     }
+    uint64_t file_index_end = _file_writer->bytes_appended();
+    _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
     // reset all column writers and data_conveter
     clear();
 
     return Status::OK();
 }
 
-Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
+Status SegmentWriter::finalize_footer(uint64_t* segment_file_size,
+                                      SegmentIndexFileCacheInfo* index_file_cache_info) {
+    uint64_t footer_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
+    // The closed size completes the preload range recorded above. Local temporary rowsets, such as
+    // schema-change internal sorting output, are filtered by SegmentIndexFileCacheLoader.
+    _index_file_cache_info.segment_file_size = *segment_file_size;
+    _index_file_cache_info.add_index_range(footer_start, *segment_file_size - footer_start);
+    if (index_file_cache_info != nullptr) {
+        *index_file_cache_info = _index_file_cache_info;
+    }
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
     return Status::OK();
 }
 
-Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                               SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
@@ -1005,27 +1021,14 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());
-    // Get the index start before finalize_footer since this function would write new data.
-    uint64_t index_start = _file_writer->bytes_appended();
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer(segment_file_size, index_file_cache_info));
 
     if (timer.elapsed_time() > 5000000000l) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
                   << ", segmemt_size " << *segment_file_size;
-    }
-    // When the cache type is not ttl(expiration time == 0), the data should be split into normal cache queue
-    // and index cache queue
-    if (auto* cache_builder = _file_writer->cache_builder(); cache_builder != nullptr &&
-                                                             cache_builder->_expiration_time == 0 &&
-                                                             config::is_cloud_mode()) {
-        auto size = *index_size + *segment_file_size;
-        auto holder = cache_builder->allocate_cache_holder(index_start, size, _tablet->tablet_id());
-        for (auto& segment : holder->file_blocks) {
-            static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
-        }
     }
     return Status::OK();
 }
@@ -1242,14 +1245,6 @@ Status SegmentWriter::_generate_short_key_index(std::vector<IOlapColumnDataAcces
         last_key = std::move(key);
     }
     return Status::OK();
-}
-
-inline bool SegmentWriter::_is_mow() {
-    return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
-}
-
-inline bool SegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 
 } // namespace segment_v2

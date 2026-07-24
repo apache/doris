@@ -69,6 +69,7 @@
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
+#include "format/table/iceberg_position_delete_sys_table_reader.h"
 #include "format/table/iceberg_reader.h"
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
@@ -82,9 +83,6 @@
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
 #include "format/text/text_reader.h"
-#ifdef BUILD_RUST_READERS
-#include "format/lance/lance_rust_reader.h"
-#endif
 #include "io/cache/block_file_cache_profile.h"
 #include "load/group_commit/wal/wal_reader.h"
 #include "runtime/descriptors.h"
@@ -100,6 +98,20 @@ class ShardedKVCache;
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
+
+bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
+    return range.__isset.table_format_params &&
+           range.table_format_params.table_format_type == "iceberg" &&
+           range.table_format_params.__isset.iceberg_params &&
+           range.table_format_params.iceberg_params.__isset.content &&
+           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
+            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
+}
+} // namespace
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
@@ -355,6 +367,11 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
+        // Preserve a safe prefix of the row-level conjunct order. Considering later predicates
+        // after an unsafe one could prune the split before the unsafe predicate is evaluated.
+        if (!expr->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
         if (_check_partition_prune_expr(expr)) {
             _runtime_filter_partition_prune_ctxs.emplace_back(conjunct);
         }
@@ -795,7 +812,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
-        if (LIKELY(column_ptr->is_nullable())) {
+        if (LIKELY(is_column_nullable(*column_ptr))) {
             const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
@@ -1041,6 +1058,7 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
+        const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1078,8 +1096,31 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                if (_state->query_options().__isset.enable_paimon_cpp_reader &&
-                    _state->query_options().enable_paimon_cpp_reader) {
+                const auto& paimon_params = range.table_format_params.paimon_params;
+                bool use_paimon_cpp_reader = false;
+                if (paimon_params.__isset.reader_type) {
+                    switch (paimon_params.reader_type) {
+                    case TPaimonReaderType::PAIMON_CPP:
+                        use_paimon_cpp_reader = true;
+                        break;
+                    case TPaimonReaderType::PAIMON_JNI:
+                        break;
+                    case TPaimonReaderType::PAIMON_NATIVE:
+                        return Status::InternalError(
+                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
+                                "possibly caused by FE/BE protocol mismatch");
+                    default:
+                        return Status::InternalError(
+                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
+                                "caused by FE/BE protocol mismatch");
+                    }
+                } else {
+                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
+                    use_paimon_cpp_reader =
+                            _state->query_options().__isset.enable_paimon_cpp_reader &&
+                            _state->query_options().enable_paimon_cpp_reader;
+                }
+                if (use_paimon_cpp_reader) {
                     auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range, _params);
                     if (!_is_load && !_push_down_conjuncts.empty()) {
@@ -1143,6 +1184,17 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1155,6 +1207,17 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1246,16 +1309,6 @@ Status FileScanner::_get_next_reader() {
             }
             break;
         }
-#ifdef BUILD_RUST_READERS
-        case TFileFormatType::FORMAT_LANCE: {
-            auto lance_reader = LanceRustReader::create_unique(_file_slot_descs, _state, _profile,
-                                                               range, _params);
-            init_status = lance_reader->init_reader();
-            _cur_reader = std::move(lance_reader);
-            need_to_get_parsed_schema = true;
-            break;
-        }
-#endif
         case TFileFormatType::FORMAT_ES_HTTP: {
             _cur_reader = EsHttpReader::create_unique(_file_slot_descs, _state, _profile, range,
                                                       *_params, _real_tuple_desc);
@@ -1771,7 +1824,6 @@ Status FileScanner::_init_expr_ctxes() {
         if (is_file_slot) {
             _is_file_slot.emplace(slot_id);
             _file_slot_descs.emplace_back(it->second);
-            _file_col_names.push_back(it->second->col_name());
         }
 
         _column_descs.push_back(col_desc);
@@ -1890,25 +1942,7 @@ bool FileScanner::_should_enable_condition_cache() {
         return false;
     }
 
-    // Runtime filters are query-local dynamic predicates. Some ready RF implementations can hash
-    // their payload into get_digest(), but FileScanner cannot rely on that for all RFs reaching the
-    // native reader. In particular, ScanLocalState computes _condition_cache_digest during open(),
-    // while FileScanner may append late-arrival RFs in _process_late_arrival_conjuncts()
-    // immediately before initializing Parquet/ORC readers.
-    //
-    // Reading a weaker cache entry would be safe by itself: if a cached bitmap only represented
-    // static predicate P, false granules for P are also false for P AND RF. The unsafe part is
-    // writing. On cache miss, native readers mark survivor granules using all pushed-down
-    // predicates, including late RFs. Without a read-only cache mode, this would insert a bitmap for
-    // P AND RF under a digest that only represents P.
-    //
-    // Example:
-    //   Q1 static predicate: k = 1, late RF payload: partition_key IN ('2024-02-01')
-    //   Q2 static predicate: k = 1, late RF payload: partition_key IN ('2024-03-01')
-    // If both scans share the same file/range/digest, reusing Q1's bitmap for Q2 can skip row
-    // ranges according to the wrong RF payload. Keep RF predicate pushdown enabled for reader-side
-    // filtering, but do not persist its result in condition cache.
-    return !_contains_runtime_filter(_conjuncts) && !_contains_runtime_filter(_push_down_conjuncts);
+    return true;
 }
 
 bool FileScanner::_should_enable_condition_cache_for_load() const {
@@ -1937,6 +1971,12 @@ bool FileScanner::_should_push_down_predicates_for_query(TFileFormatType::type f
 void FileScanner::_init_reader_condition_cache() {
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
+
+    // _process_late_arrival_conjuncts() runs before the Parquet/ORC reader is initialized. Rebuild
+    // the key here so a newly arrived cache-safe RF is represented by both its semantics and its
+    // payload. If any current conjunct cannot produce a reliable digest, this becomes zero and the
+    // existing safety gate below disables condition cache.
+    _condition_cache_digest = _current_condition_cache_digest();
 
     if (!_should_enable_condition_cache() || !_cur_reader) {
         return;
@@ -2077,6 +2117,19 @@ void FileScanner::update_realtime_counters() {
 
     _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
     _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
+}
+
+bool FileScanner::_should_update_load_counters() const {
+    if (_is_load) {
+        return true;
+    }
+    // TVF based loads (e.g. http_stream, group commit relay) plan the load source as a
+    // tvf query scan without src tuple desc, so _is_load is false. But rows filtered by
+    // the load's WHERE clause still need to be reported as unselected rows. FILE_STREAM
+    // is only reachable from such load entries, never from normal queries, so use it to
+    // identify these scanners.
+    return (_params->__isset.file_type && _params->file_type == TFileType::FILE_STREAM) ||
+           (_current_range.__isset.file_type && _current_range.file_type == TFileType::FILE_STREAM);
 }
 
 void FileScanner::_collect_profile_before_close() {

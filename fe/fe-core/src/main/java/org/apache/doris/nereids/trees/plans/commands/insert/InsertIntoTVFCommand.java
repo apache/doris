@@ -175,11 +175,6 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     private void deleteExistingFilesInFE(String tvfName, Map<String, String> props)
             throws Exception {
-        String filePath = props.get("file_path");
-        // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
-        String parentDir = FileSystemUtil.extractParentDirectory(filePath);
-        LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
-
         // Copy props for building StorageProperties (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
         fsCopyProps.remove("file_path");
@@ -192,6 +187,12 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
+        // Concrete filesystems only accept their native schemes; normalize legacy compatibility
+        // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
+        String filePath = storageProps.validateAndNormalizeUri(props.get("file_path"));
+        // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
+        String parentDir = FileSystemUtil.extractParentDirectory(filePath);
+        LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
         try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageProps)) {
             fs.delete(Location.of(parentDir), true);
         } catch (java.io.IOException e) {

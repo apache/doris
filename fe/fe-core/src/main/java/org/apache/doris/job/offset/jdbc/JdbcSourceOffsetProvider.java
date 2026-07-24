@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
@@ -88,7 +89,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     List<SnapshotSplit> finishedSplits = new ArrayList<>();
 
     volatile JdbcOffset currentOffset;
-    Map<String, String> endBinlogOffset;
+    volatile Map<String, String> endBinlogOffset;
 
     @SerializedName("chw")
     // tableID -> splitId -> chunk of highWatermark
@@ -107,13 +108,19 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     transient volatile String cloudCluster;
 
+    // Route fetchEndOffset/compareOffset to the bound BE (synced from job, not persisted).
+    transient volatile long boundBackendId;
+
     /** Split progress (cdc-fetch view), >= committedSplitProgress. Rebuilt on restart. */
     transient SplitProgress cdcSplitProgress = new SplitProgress();
 
     /** Cache of Job.syncTables, set by initSplitProgress / replayIfNeed. */
     transient List<String> cachedSyncTables;
 
-    /** Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits. */
+    /**
+     * Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits
+     * and compound binlog updates to currentOffset/endBinlogOffset/hasMoreData.
+     */
     protected final transient Object splitsLock = new Object();
 
     /**
@@ -247,16 +254,26 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
             }
         } else {
-            BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
-            binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
-            binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            synchronized (splitsLock) {
+                BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
+                binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
+                binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                currentOffset = newOffset;
+                hasMoreData = true;
+            }
+            return;
         }
         this.currentOffset = newOffset;
     }
 
     @Override
+    public void setBoundBackendId(long boundBackendId) {
+        this.boundBackendId = boundBackendId;
+    }
+
+    @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -275,22 +292,14 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         "Failed to get end offset from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
-            String response = result.getResponse();
-            try {
-                ResponseBody<Map<String, String>> responseObj = objectMapper.readValue(
-                        response,
-                        new TypeReference<ResponseBody<Map<String, String>>>() {
-                        }
-                );
-                Map<String, String> newEndOffset = responseObj.getData();
+            Map<String, String> newEndOffset = parseCdcResponseData(
+                    result.getResponse(), new TypeReference<Map<String, String>>() {});
+            synchronized (splitsLock) {
                 // null→value also counts as a change: upstream may have advanced while fetch was blocked.
                 if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
                     hasMoreData = true;
                 }
                 endBinlogOffset = newEndOffset;
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse end offset response: {}", response);
-                throw new JobException(response);
             }
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/fetchEndOffset jobId={} backend={}:{} timeout_sec={}",
@@ -309,6 +318,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
 
+        JdbcOffset currentOffsetAtCompare;
+        Map<String, String> endOffsetAtCompare;
         synchronized (splitsLock) {
             if (currentOffset.snapshotSplit()) {
                 if (!remainingSplits.isEmpty()) {
@@ -329,19 +340,33 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (CollectionUtils.isNotEmpty(remainingSplits)) {
                 return true;
             }
+            currentOffsetAtCompare = currentOffset;
+            endOffsetAtCompare = endBinlogOffset;
         }
-        if (MapUtils.isEmpty(endBinlogOffset)) {
+        if (MapUtils.isEmpty(endOffsetAtCompare)) {
             return false;
         }
         try {
-            if (!currentOffset.snapshotSplit()) {
-                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            if (!currentOffsetAtCompare.snapshotSplit()) {
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffsetAtCompare.getSplits().get(0);
                 if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
                     // snapshot to binlog phase
                     return true;
                 }
-                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
-                return hasMoreData;
+                Map<String, String> currentBinlogOffset = new HashMap<>(binlogSplit.getStartingOffset());
+                int compareResult = compareOffset(endOffsetAtCompare, currentBinlogOffset);
+                synchronized (splitsLock) {
+                    if (currentOffset != currentOffsetAtCompare || endBinlogOffset != endOffsetAtCompare) {
+                        // The stale result cannot prove that the latest offsets have caught up.
+                        hasMoreData = true;
+                        return true;
+                    }
+                    if (compareResult < 0) {
+                        endBinlogOffset = currentBinlogOffset;
+                    }
+                    hasMoreData = compareResult > 0;
+                    return hasMoreData;
+                }
             } else {
                 // snapshot means has data to consume
                 return true;
@@ -352,9 +377,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
+    protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
         CompareOffsetRequest requestParams =
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties,
                         getFrontendAddress(), offsetFirst, offsetSecond);
@@ -374,18 +399,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         "Failed to compare offset ," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
-            String response = result.getResponse();
-            try {
-                ResponseBody<Integer> responseObj = objectMapper.readValue(
-                        response,
-                        new TypeReference<ResponseBody<Integer>>() {
-                        }
-                );
-                return responseObj.getData() > 0;
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse compare offset response: {}", response);
-                throw new JobException("Failed to parse compare offset response: " + response);
-            }
+            Integer cmp = parseCdcResponseData(
+                    result.getResponse(), new TypeReference<Integer>() {});
+            return cmp;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/compareOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
@@ -635,21 +651,30 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     // ============ Async split progress (driven by scheduler each tick) ============
 
     /**
-     * One-time setup at CREATE.
-     * - initial/snapshot mode: init split progress; scheduler will drive advanceSplits() each tick.
-     * - latest mode (and other non-splitting modes): open the remote reader (e.g. PG slot) so the
-     *   binlog phase can start immediately; no snapshot splitting will happen.
+     * One-time setup at CREATE. Opens the remote reader for every mode (see initSourceReader) so
+     * source-side problems fail fast, then:
+     * - initial/snapshot mode: also init split progress; scheduler will drive advanceSplits() each tick.
+     * - latest mode (and other non-splitting modes): nothing further; the binlog phase can start
+     *   immediately and no snapshot splitting will happen.
      */
     @Override
     public void initOnCreate(List<String> syncTables) throws JobException {
-        if (!checkNeedSplitChunks(sourceProperties)) {
-            initSourceReader();
-            return;
+        // Open the reader for every mode so connectivity / auth / slot / publication problems fail
+        // the CREATE JOB instead of surfacing later as a paused, non-progressing job.
+        initSourceReader();
+        if (checkNeedSplitChunks(sourceProperties)) {
+            synchronized (splitsLock) {
+                this.cachedSyncTables = syncTables;
+                this.committedSplitProgress = new SplitProgress();
+                this.cdcSplitProgress = new SplitProgress();
+            }
         }
+    }
+
+    @Override
+    public int pendingSplitCount() {
         synchronized (splitsLock) {
-            this.cachedSyncTables = syncTables;
-            this.committedSplitProgress = new SplitProgress();
-            this.cdcSplitProgress = new SplitProgress();
+            return remainingSplits.size();
         }
     }
 
@@ -857,14 +882,36 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (code != TStatusCode.OK) {
                 throw new JobException("fetchSplits backend error: " + result.getStatus().getErrorMsgs(0));
             }
-            ResponseBody<List<SnapshotSplit>> resp = objectMapper.readValue(
-                    result.getResponse(),
-                    new TypeReference<ResponseBody<List<SnapshotSplit>>>() {});
-            return resp.getData();
+            return parseCdcResponseData(
+                    result.getResponse(), new TypeReference<List<SnapshotSplit>>() {});
         } catch (TimeoutException te) {
             throw new JobException("fetchSplits RPC timeout: jobId=" + getJobId() + " table=" + table);
         } catch (Exception ex) {
             throw new JobException("fetchSplits failed: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Decode a remote response envelope. A failure is returned as {@code {code:1, data:"<message>"}}
+     * over HTTP 200, while success carries the typed payload in {@code data}. Decode the envelope
+     * with a lenient {@link JsonNode} data field first so a failure throws the raw response (which
+     * carries the real error in {@code data}) instead of a misleading type-mismatch from forcing the
+     * success type onto an error string. Package-private for unit testing.
+     */
+    <T> T parseCdcResponseData(String response, TypeReference<T> dataType) throws JobException {
+        ResponseBody<JsonNode> body;
+        try {
+            body = objectMapper.readValue(response, new TypeReference<ResponseBody<JsonNode>>() {});
+        } catch (JsonProcessingException e) {
+            throw new JobException(response);
+        }
+        if (body.getCode() != RestApiStatusCode.OK.code) {
+            throw new JobException(response);
+        }
+        try {
+            return objectMapper.convertValue(body.getData(), dataType);
+        } catch (Exception e) {
+            throw new JobException(response);
         }
     }
 
@@ -925,13 +972,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public void onTaskCommitted(long scannedRows, long loadBytes) {
-        if (scannedRows == 0 && loadBytes == 0) {
-            hasMoreData = false;
-        }
-    }
-
-    @Override
     public boolean hasReachedEnd() {
         if (!isSnapshotOnlyMode()) {
             return false;
@@ -948,7 +988,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * For example, PG slots need to be created first;
      * otherwise, conflicts will occur in multi-backends scenarios.
      */
-    private void initSourceReader() throws JobException {
+    protected void initSourceReader() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
@@ -999,10 +1039,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    public void cleanMeta(Long jobId) throws JobException {
+    public void cleanMeta(Long jobId, long runtimeBackendId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        // Dropping the slot only succeeds on the BE owning the live reader (it stops its own engine
+        // first, freeing the slot). Prefer the runtime BE (covers the unbound snapshot phase), then
+        // the bound BE; both may be alive but not load-available, so route by isAlive. Only when
+        // neither is alive fall back to a random BE to drop the now-inactive slot.
+        Backend backend = aliveBackend(runtimeBackendId);
+        if (backend == null) {
+            backend = aliveBackend(boundBackendId);
+        }
+        if (backend == null) {
+            backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
+        }
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -1025,6 +1075,14 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Close job error: ", ex);
         }
+    }
+
+    private static Backend aliveBackend(long backendId) {
+        if (backendId <= 0) {
+            return null;
+        }
+        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+        return be != null && be.isAlive() ? be : null;
     }
 
     private String getFrontendAddress() {

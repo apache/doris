@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/closure_guard.h>
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -47,8 +48,10 @@ class ExecEnv;
 class RuntimeFilterMergeControllerEntity;
 class TDataSink;
 class TPipelineFragmentParams;
+class QueryCacheRuntime;
 
 class Dependency;
+struct LocalExchangeSharedState;
 
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
@@ -227,6 +230,9 @@ private:
     std::atomic<int> _total_tasks = 0;
 
     std::unique_ptr<RuntimeProfile> _fragment_level_profile;
+    // This is used by loading process to report Fragment exec status to FE, FE need fragment status to
+    // check if the loading process is finished. And during the report, BE will send the loading message to FE,
+    // for example the loading error, commit rows num etc.
     bool _is_report_success = false;
 
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -243,10 +249,6 @@ private:
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     std::atomic_bool _is_fragment_instance_closed = false;
-
-    // If this is set to false, and '_is_report_success' is false as well,
-    // This executor will not report status to FE on being cancelled.
-    bool _is_report_on_cancel;
 
     // 0 indicates reporting is in progress or not required
     std::atomic_bool _disable_period_report = true;
@@ -320,8 +322,11 @@ private:
 
     std::mutex _state_map_lock;
 
-    int _operator_id = 0;
-    int _sink_operator_id = 0;
+    // Start from -1 so all operator IDs are negative. This avoids collision with
+    // unpaired sinks (OlapTableSink etc.) whose hardcoded dest_id=0 would otherwise
+    // match the first operator's ID when FE-planned LocalExchangeNode is the root.
+    int _operator_id = -1;
+    int _sink_operator_id = -1;
     /**
      * Some states are shared by tasks in different pipeline task (e.g. local exchange , broadcast join).
      *
@@ -342,6 +347,27 @@ private:
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 
+    // Deferred exchanger creation info for FE-planned local exchanges.
+    // Exchanger sender count depends on the upstream pipeline's final num_tasks,
+    // which is only known after the full plan tree is built (child operators like
+    // serial ExchangeNode may reduce num_tasks). So we defer exchanger creation
+    // until after _build_pipelines completes.
+    struct DeferredExchangerInfo {
+        std::shared_ptr<LocalExchangeSharedState> shared_state;
+        PipelinePtr upstream_pipe;
+        TLocalPartitionType::type partition_type;
+        int num_partitions;
+        int free_blocks_limit;
+        int local_exchange_id;
+        int sink_id;
+    };
+    std::vector<DeferredExchangerInfo> _deferred_exchangers;
+    Status _create_deferred_local_exchangers();
+    // After _build_pipelines, propagate _num_instances from FE-planned LOCAL_EXCHANGE
+    // pipelines upward through the DAG to ancestor pipelines that inherited reduced
+    // num_tasks from a serial operator.
+    void _propagate_local_exchange_num_tasks();
+
     //Here are two types of runtime states:
     //    - _runtime state is at the Fragment level.
     //    - _task_runtime_states is at the task level, unique to each task.
@@ -353,6 +379,12 @@ private:
 
     TPipelineFragmentParams _params;
     int32_t _parallel_instances = 0;
+
+    // Query cache context of this fragment, shared by the olap scan operator
+    // and the cache source operator so both consume the same per-instance
+    // cache decision (HIT / INCREMENTAL / MISS). Created lazily when the
+    // fragment carries a query_cache_param. See QueryCacheRuntime.
+    std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
 
     std::atomic<bool> _need_notify_close = false;
     // Holds the brpc ClosureGuard for async wait-close during recursive CTE rerun.

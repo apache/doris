@@ -29,6 +29,7 @@
 
 namespace doris {
 class FileScanner;
+class FileScannerV2;
 } // namespace doris
 
 namespace doris {
@@ -53,9 +54,14 @@ public:
     int max_scanners_concurrency(RuntimeState* state) const override;
     int min_scanners_concurrency(RuntimeState* state) const override;
     ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
+#ifdef BE_TEST
+    static bool TEST_should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
+                                                const TFileScanRangeParams& scan_params);
+#endif
 
 private:
     friend class FileScanner;
+    friend class FileScannerV2;
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::UNACCEPTABLE;
     }
@@ -63,10 +69,9 @@ private:
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
     bool _push_down_topn(const RuntimePredicate& predicate) override;
+    static bool _should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
+                                            const TFileScanRangeParams& scan_params);
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::UNACCEPTABLE;
-    }
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"

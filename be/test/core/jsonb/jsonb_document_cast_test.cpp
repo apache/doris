@@ -105,21 +105,21 @@ protected:
 
         {
             JsonbWriter writer;
-            Decimal64 dec = 1234567890123456789;
+            Decimal64 dec = int64_t(1234567890123456789);
             writer.writeDecimal(dec, 18, 2);
             to_jsonbs(writer);
         }
 
         {
             JsonbWriter writer;
-            Decimal128V3 dec = 1234567890123456789;
+            Decimal128V3 dec = int64_t(1234567890123456789);
             writer.writeDecimal(dec, 38, 3);
             to_jsonbs(writer);
         }
 
         {
             JsonbWriter writer;
-            Decimal256 dec {1234567890123456789};
+            Decimal256 dec {int64_t(1234567890123456789)};
             writer.writeDecimal(dec, 76, 3);
             to_jsonbs(writer);
         }

@@ -19,11 +19,13 @@
 
 #include <filesystem>
 
+#include "common/config.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "util/defer_op.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -156,6 +158,201 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
         ++src_it;
         ++dst_it;
     }
+}
+
+TEST_F(CacheLRUDumperTest, test_parse_multiple_groups_without_mutating_repeated_fields) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_tail_record_num] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 10001;
+
+    LRUQueue src_queue;
+    std::string queue_name = "normal";
+    std::lock_guard<std::mutex> lock(_mutex);
+    UInt128Wrapper hash(987654321ULL);
+
+    for (size_t i = 0; i < 10001; ++i) {
+        src_queue.add(hash, i * 4096, 4096 + i, lock);
+    }
+
+    dumper->do_dump_queue(src_queue, queue_name);
+
+    std::string filename = fmt::format("{}lru_dump_{}.tail", test_dir, queue_name);
+    std::ifstream in(filename, std::ios::binary);
+    ASSERT_TRUE(in);
+
+    size_t entry_num = 0;
+    ASSERT_TRUE(dumper->parse_dump_footer(in, filename, entry_num).ok());
+    ASSERT_EQ(entry_num, 10001);
+    ASSERT_EQ(dumper->_parse_meta.group_offset_size_size(), 2);
+
+    UInt128Wrapper parsed_hash;
+    size_t offset = 0;
+    size_t size = 0;
+    for (size_t i = 0; i < entry_num; ++i) {
+        ASSERT_TRUE(dumper->parse_one_lru_entry(in, filename, parsed_hash, offset, size).ok());
+        EXPECT_EQ(parsed_hash, hash);
+        EXPECT_EQ(offset, i * 4096);
+        EXPECT_EQ(size, 4096 + i);
+    }
+
+    EXPECT_EQ(dumper->_parse_meta.group_offset_size_size(), 2);
+    EXPECT_EQ(dumper->_parse_group_index, 2);
+    EXPECT_EQ(dumper->_parse_entry_index, 1);
+}
+
+TEST_F(CacheLRUDumperTest, test_lru_log_record_disabled_keeps_existing_backlog) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 2;
+    config::file_cache_background_lru_log_queue_max_size = 10;
+
+    UInt128Wrapper hash(123456789ULL);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0, 4096);
+    ASSERT_EQ(recorder->lru_log_queue_size(FileCacheType::NORMAL), 1);
+
+    config::file_cache_background_lru_dump_tail_record_num = 0;
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 4096, 4096);
+
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::NORMAL), 1);
+    EXPECT_EQ(recorder->get_lru_log_queue(FileCacheType::NORMAL).size_approx(), 1);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 1);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::NORMAL).get_elements_num_unsafe(), 1);
+}
+
+TEST_F(CacheLRUDumperTest, test_lru_log_record_queue_hard_cap) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_log_queue_max_size = 2;
+
+    UInt128Wrapper hash(987654321ULL);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 0, 4096);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 4096, 4096);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 8192, 4096);
+
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::INDEX), 2);
+    EXPECT_EQ(recorder->get_lru_log_queue(FileCacheType::INDEX).size_approx(), 2);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::INDEX), 2);
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::INDEX), 0);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 2);
+}
+
+TEST_F(CacheLRUDumperTest, test_shadow_queue_keeps_tail_when_replay_exceeds_limit) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 3;
+    config::file_cache_background_lru_log_queue_max_size = 10;
+
+    UInt128Wrapper hash(112233ULL);
+    for (size_t offset = 0; offset < 5; ++offset) {
+        recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, offset,
+                                     4096);
+    }
+
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 5);
+    auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+    ASSERT_EQ(shadow_queue.get_elements_num_unsafe(), 3);
+    auto stats = mock_cache->get_stats_unsafe();
+    EXPECT_EQ(stats["lru_recorder_normal_shadow_queue_curr_elements"], 3);
+
+    std::vector<size_t> offsets;
+    for (auto it = shadow_queue.begin(); it != shadow_queue.end(); ++it) {
+        offsets.push_back(it->offset);
+    }
+    EXPECT_EQ(offsets, std::vector<size_t>({2, 3, 4}));
+}
+
+TEST_F(CacheLRUDumperTest, test_remove_event_trims_existing_oversized_shadow_queue) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 2;
+    config::file_cache_background_lru_log_queue_max_size = 10;
+
+    UInt128Wrapper hash(556677ULL);
+    {
+        std::lock_guard lru_log_lock(recorder->_mutex_lru_log);
+        auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+        for (size_t offset = 0; offset < 4; ++offset) {
+            shadow_queue.add(hash, offset, 4096, lru_log_lock);
+        }
+    }
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::REMOVE, hash, 3, 4096);
+
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 1);
+    auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+    ASSERT_EQ(shadow_queue.get_elements_num_unsafe(), 2);
+
+    std::vector<size_t> offsets;
+    for (auto it = shadow_queue.begin(); it != shadow_queue.end(); ++it) {
+        offsets.push_back(it->offset);
+    }
+    EXPECT_EQ(offsets, std::vector<size_t>({1, 2}));
+}
+
+TEST_F(CacheLRUDumperTest, test_update_shadow_queue_metric_does_not_trim_queue) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_tail_record_num] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 1;
+
+    UInt128Wrapper hash(778899ULL);
+    {
+        std::lock_guard lru_log_lock(recorder->_mutex_lru_log);
+        auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::INDEX);
+        for (size_t offset = 0; offset < 3; ++offset) {
+            shadow_queue.add(hash, offset, 4096, lru_log_lock);
+        }
+    }
+
+    recorder->update_shadow_queue_element_count_metrics();
+
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 3);
+    auto stats = mock_cache->get_stats_unsafe();
+    EXPECT_EQ(stats["lru_recorder_index_shadow_queue_curr_elements"], 3);
+}
+
+TEST_F(CacheLRUDumperTest, test_remove_event_still_obeys_replay_queue_cap) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_log_queue_max_size = 1;
+
+    UInt128Wrapper hash(445566ULL);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 0, 4096);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::REMOVE, hash, 0, 4096);
+
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::INDEX), 1);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::INDEX), 1);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 1);
 }
 
 } // namespace doris::io

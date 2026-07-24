@@ -215,6 +215,7 @@ public class OperationType {
     public static final short OP_DROP_FUNCTION = 131;
     public static final short OP_ADD_GLOBAL_FUNCTION = 132;
     public static final short OP_DROP_GLOBAL_FUNCTION = 133;
+    public static final short OP_ADD_FUNCTIONS = 134;
 
     // modify database/table/tablet/replica meta
     public static final short OP_SET_REPLICA_VERSION = 141;
@@ -423,6 +424,8 @@ public class OperationType {
     public static final short OP_DROP_AUTHENTICATION_INTEGRATION = 495;
     public static final short OP_CREATE_ROLE_MAPPING = 496;
     public static final short OP_DROP_ROLE_MAPPING = 497;
+
+    public static final short OP_TABLE_STREAM_CLEANUP = 498;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;

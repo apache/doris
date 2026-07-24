@@ -97,7 +97,19 @@ public:
     // eg, for file scanner, return the current file path.
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
+#ifdef BE_TEST
+    static uint64_t TEST_build_condition_cache_digest(uint64_t seed,
+                                                      const VExprContextSPtrs& conjuncts);
+#endif
+
 protected:
+    // Rebuild the condition-cache digest from the scanner's current conjunct snapshot. The local
+    // state's digest is used only as a safety gate: zero means condition cache was disabled during
+    // scan-node open (for example by TopN or an expression without a reliable digest).
+    uint64_t _current_condition_cache_digest() const;
+    static uint64_t _build_condition_cache_digest(uint64_t seed,
+                                                  const VExprContextSPtrs& conjuncts);
+
     virtual Status _prepare_impl() {
         _has_prepared = true;
         return Status::OK();
@@ -125,13 +137,20 @@ protected:
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 
+    // Whether rows filtered/unselected by this scanner should be reported to the load
+    // counters in RuntimeState. Only the scanner reading the load source data should
+    // report, otherwise rows filtered by query predicates (e.g. in INSERT INTO ... SELECT
+    // or DELETE FROM ... WHERE) would be mixed into load counters and make
+    // num_rows_load_success() negative.
+    virtual bool _should_update_load_counters() const { return _is_load; }
+
     // Check if scanner is already closed, if not, mark it as closed.
     // Returns true if the scanner was successfully marked as closed (first time).
     // Returns false if the scanner was already closed.
     bool _try_close();
 
     // Filter the output block finally.
-    Status _filter_output_block(Block* block);
+    virtual Status _filter_output_block(Block* block);
 
     Status _do_projections(Block* origin_block, Block* output_block);
 
@@ -212,6 +231,11 @@ public:
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
+    virtual size_t _last_block_rows_read(const Block& block) const { return block.rows(); }
+    virtual size_t _last_block_bytes_read(const Block& block) const {
+        return block.allocated_bytes();
+    }
+
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
 
@@ -239,6 +263,9 @@ protected:
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
+    // Exact append-only RF delta for readers that preserve state across multiple splits. It must
+    // not be reconstructed by position from the cost-sorted full conjunct snapshot.
+    VExprContextSPtrs _late_arrival_rf_conjuncts;
     VExprContextSPtrs _projections;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<VExprContextSPtrs> _intermediate_projections;

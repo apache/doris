@@ -27,8 +27,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
+#include "core/block/block.h"
 #include "core/column/column_variant.cpp"
 #include "core/column/common_column_test.h"
 #include "core/column/subcolumn_tree.h"
@@ -40,9 +43,11 @@
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
+#include "gen_cpp/data.pb.h"
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 #include "testutil/variant_util.h"
+#include "util/block_compression.h"
 
 using namespace doris;
 namespace doris {
@@ -1061,6 +1066,33 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     }
 }
 
+TEST_F(ColumnVariantTest, visible_root_does_not_hide_sparse_fields) {
+    auto source = ColumnVariant::create(0, false);
+    VariantMap mixed;
+    mixed.try_emplace(PathInData(), FieldWithDataType {.field = get_jsonb_field("array_int")});
+    mixed.try_emplace(PathInData("n"), FieldWithDataType {.field = VariantUtil::get_field("int")});
+    mixed.try_emplace(PathInData("word"),
+                      FieldWithDataType {.field = VariantUtil::get_field("string")});
+    source->try_insert(Field::create_field<TYPE_VARIANT>(std::move(mixed)));
+    source->finalize();
+
+    auto destination = ColumnVariant::create(1, false);
+    destination->try_insert(
+            VariantUtil::construct_variant_map({{"k", VariantUtil::get_field("int")}}));
+    destination->insert_range_from(*source, 0, 1);
+    destination->finalize();
+
+    EXPECT_EQ(destination->get_subcolumns().get_root()->data.get_least_common_base_type_id(),
+              PrimitiveType::TYPE_JSONB);
+    const auto& sparse_offsets = destination->serialized_sparse_column_offsets();
+    EXPECT_LT(sparse_offsets[0], sparse_offsets[1]);
+
+    DataTypeSerDe::FormatOptions options;
+    std::string json;
+    destination->serialize_one_row_to_string(1, &json, options);
+    EXPECT_EQ(json, R"({"n":20,"word":"str"})");
+}
+
 TEST_F(ColumnVariantTest, is_variable_length) {
     EXPECT_TRUE(column_variant->is_variable_length());
 }
@@ -2023,6 +2055,58 @@ TEST_F(ColumnVariantTest, clone_finalized) {
     };
     auto cloned_object = VariantUtil::construct_advanced_varint_column();
     test_func(std::move(cloned_object));
+}
+
+TEST_F(ColumnVariantTest, clone_finalized_deep_copies_columns) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    source_column->finalize(ColumnVariant::FinalizeMode::READ_MODE);
+
+    auto cloned = source_column->clone_finalized();
+    auto* cloned_variant = assert_cast<ColumnVariant*>(cloned.get());
+    EXPECT_TRUE(cloned_variant->is_finalized());
+
+    for (const auto& source_subcolumn : source_column->get_subcolumns()) {
+        const auto* cloned_subcolumn =
+                cloned_variant->get_subcolumns().find_exact(source_subcolumn->path);
+        ASSERT_NE(cloned_subcolumn, nullptr);
+        EXPECT_NE(source_subcolumn->data.get_finalized_column_ptr().get(),
+                  cloned_subcolumn->data.get_finalized_column_ptr().get())
+                << source_subcolumn->path.get_path();
+    }
+    EXPECT_NE(source_column->get_sparse_column().get(), cloned_variant->get_sparse_column().get());
+    EXPECT_NE(source_column->get_doc_value_column().get(),
+              cloned_variant->get_doc_value_column().get());
+}
+
+TEST_F(ColumnVariantTest, serialize_does_not_finalize_source_column) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    ASSERT_FALSE(source_column->is_finalized());
+
+    const int be_exec_version = BeExecVersionManager::get_newest_version();
+    const auto size =
+            dt_variant->get_uncompressed_serialized_bytes(*source_column, be_exec_version);
+    EXPECT_FALSE(source_column->is_finalized());
+
+    auto buffer = std::make_unique<char[]>(size);
+    dt_variant->serialize(*source_column, buffer.get(), be_exec_version);
+    EXPECT_FALSE(source_column->is_finalized());
+}
+
+TEST_F(ColumnVariantTest, block_serialize_does_not_finalize_source_column) {
+    auto source_column = VariantUtil::construct_advanced_varint_column();
+    ASSERT_FALSE(source_column->is_finalized());
+
+    Block block({{source_column->get_ptr(), dt_variant, "variant_col"}});
+    PBlock pblock;
+    size_t uncompressed_bytes = 0;
+    size_t compressed_bytes = 0;
+    int64_t compress_time = 0;
+    auto status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
+                                  &uncompressed_bytes, &compressed_bytes, &compress_time,
+                                  segment_v2::NO_COMPRESSION);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(source_column->is_finalized());
+    EXPECT_GT(pblock.column_values().size(), 0);
 }
 
 TEST_F(ColumnVariantTest, sanitize) {

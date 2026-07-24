@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -52,6 +53,7 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 class BetaRowsetWriterV2;
 class LoadStreamStub;
+class WorkloadGroup;
 
 class Block;
 
@@ -62,13 +64,14 @@ class DeltaWriterV2 {
 
 public:
     DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                  RuntimeState* state);
+                  std::shared_ptr<WorkloadGroup> workload_group);
 
     ~DeltaWriterV2();
 
     Status init();
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status write(const Block* block, const TabletAddRowsPayload& rows,
+                 const std::function<Status()>& cancel_check, bool* memtable_flushed = nullptr);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
@@ -85,14 +88,14 @@ private:
     Status _build_current_tablet_schema(int64_t index_id,
                                         const OlapTableSchemaParam* table_schema_param,
                                         const TabletSchema& ori_tablet_schema);
+    int64_t _table_id() const;
 
     void _update_profile(RuntimeProfile* profile);
-
-    RuntimeState* _state = nullptr;
 
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
+    std::shared_ptr<WorkloadGroup> _workload_group;
     std::shared_ptr<BetaRowsetWriterV2> _rowset_writer;
     TabletSchemaSPtr _tablet_schema;
     bool _delta_written_success = false;

@@ -97,7 +97,8 @@ public class StreamLoadHandler {
     public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(Backend::isLoadAvailable)
+                .stream().filter(backend -> backend.isLoadAvailable() && !backend.isDecommissioned()
+                        && !backend.isDecommissioning())
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -136,11 +137,19 @@ public class StreamLoadHandler {
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
             ctx.setCurrentUserIdentity(resolveCloudLoadUserIdentity(userName));
         }
-        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
+        if (request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
-            ctx.setCloudCluster(backend.getCloudClusterName());
+            String computeGroup = backend.getCloudClusterName();
+            // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
+            // stream loads must still validate compute group privilege, existence, and status.
+            if (request.isSetToken() || request.isSetAuthCode() || Strings.isNullOrEmpty(userName)) {
+                ctx.setCloudCluster(computeGroup);
+            } else {
+                ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(computeGroup, ctx);
+            }
+            request.setCloudCluster(computeGroup);
             return;
         }
         if (!Strings.isNullOrEmpty(request.getCloudCluster())) {

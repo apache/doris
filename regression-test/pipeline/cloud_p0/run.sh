@@ -49,6 +49,8 @@ need_collect_log=false
 
 # monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
+start_system_resource_monitor
+trap 'stop_system_resource_monitor' EXIT
 
 # shellcheck disable=SC2329
 run() {
@@ -74,8 +76,11 @@ run() {
     sed -i "s/oss-cn-hongkong.aliyuncs.com/oss-cn-hongkong-internal.aliyuncs.com/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+    # Run the regression suite under JDK 17: the Arrow Flight SQL JDBC driver (arrow 19)
+    # is Java 11+ bytecode and cannot be loaded by a JDK 8 runtime.
+    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')"
     export JAVA_HOME
+    export PATH="${JAVA_HOME}/bin:${PATH}"
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
         --teamcity \
         --run \
@@ -111,6 +116,7 @@ timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-18
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 if print_running_pipeline_tasks; then :; fi
+stop_system_resource_monitor
 # shellcheck source=/dev/null
 source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if get_jstack_and_jmap_of_fe; then echo "INFO: get_jstack_and_jmap_of_fe done."; fi

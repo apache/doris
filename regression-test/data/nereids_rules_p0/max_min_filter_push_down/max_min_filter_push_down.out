@@ -30,7 +30,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------filter((abs(value1) > 39))
+------filter((abs(max_min_filter_push_down1.value1) > 39))
 --------PhysicalOlapScan[max_min_filter_push_down1]
 
 -- !min_commute --

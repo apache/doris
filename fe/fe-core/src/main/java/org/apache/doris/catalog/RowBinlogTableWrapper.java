@@ -17,7 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Pair;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * A lightweight wrapper base for read binlog<Row> of table
@@ -27,7 +33,12 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
     private final MaterializedIndexMeta rowBinlogMeta;
 
     public RowBinlogTableWrapper(OlapTable originTable) {
-        super(originTable, originTable.getName(), originTable.getRowBinlogMeta().getSchema(), KeysType.DUP_KEYS);
+        this(originTable, Maps.newHashMap());
+    }
+
+    public RowBinlogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
+        super(originTable, originTable.getName(), originTable.getRowBinlogMeta().getSchema(), KeysType.DUP_KEYS,
+                partitionOffsetMap);
         this.rowBinlogMeta = originTable.getRowBinlogMeta();
         Preconditions.checkNotNull(rowBinlogMeta, "row binlog meta is null, table=%s", originTable.getName());
         this.setBaseIndexId(rowBinlogMeta.getIndexId());
@@ -39,8 +50,8 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
     }
 
     public static boolean isRowBinlogSyntheticColumn(Column column) {
-        return column.getName().equals(Column.BINLOG_LSN_COL)
-                || column.getName().equals(Column.BINLOG_TIMESTAMP_COL);
+        return column.getName().equals(Column.BINLOG_TSO_COL)
+                || column.getName().equals(Column.BINLOG_LSN_COL);
     }
 
     @Override
@@ -55,5 +66,24 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
             return partition.getIndex(originTable.getBaseIndexId());
         }
         return null;
+    }
+
+    @Override
+    public KeysType getKeysType() {
+        return KeysType.DUP_KEYS;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!super.equals(obj)) {
+            return false;
+        }
+        RowBinlogTableWrapper other = (RowBinlogTableWrapper) obj;
+        return rowBinlogMeta.equals(other.rowBinlogMeta);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), rowBinlogMeta.getRowBinlogIndexId());
     }
 }

@@ -72,6 +72,9 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DEFINE_Bool(enable_arrow_input_validation, "true");
+
 DEFINE_Int32(cdc_client_port, "9096");
 
 DEFINE_String(cdc_client_java_opts, "");
@@ -273,6 +276,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to enable stream load forward endpoint for cloud group commit
+DEFINE_mBool(enable_group_commit_streamload_be_forward, "false");
 // whether to check md5sum when download
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
@@ -407,6 +412,7 @@ DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DEFINE_Int32(storage_page_cache_shard_size, "256");
+DEFINE_mInt32(file_cache_mem_storage_shard_num, "1024");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -460,6 +466,10 @@ DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
 DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
+
+// Enable PDEP-based bit unpacking. Disable it on CPUs where PDEP is microcoded and slower than
+// the scalar implementation, such as AMD Zen+ and Zen 2.
+DEFINE_Bool(enable_bmi2_optimizations, "true");
 
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
@@ -647,8 +657,10 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
@@ -714,7 +726,7 @@ DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
-// not introduce seeks.  The literature seems to agree that with 8 MB reads, random
+// not introduce seeks. The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
@@ -857,6 +869,11 @@ DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
 
 // Whether to enable adaptive flush thread adjustment
 DEFINE_mBool(enable_adaptive_flush_threads, "true");
+
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DEFINE_mBool(enable_table_memtable_flush_backpressure, "true");
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DEFINE_mInt32(table_memtable_flush_pending_count_limit, "10");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1071,6 +1088,8 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
+DEFINE_Validator(orc_natural_read_size_mb,
+                 [](const int config) -> bool { return config > 0 && config <= 1024; });
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
@@ -1088,6 +1107,9 @@ DEFINE_String(tmp_file_dir, "tmp");
 
 DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
+
+DEFINE_Int32(min_peer_race_s3_thread_num, "0");
+DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
 
 DEFINE_Bool(enable_time_lut, "true");
 
@@ -1166,12 +1188,22 @@ DEFINE_Int32(blocking_pipeline_executor_size, "0");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
+// Controls storage-layer parse target for plain non-doc VARIANT columns:
+// 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
+// NestedGroup, deprecated flatten-nested, and persistent doc mode keep their required paths.
+DEFINE_mInt32(variant_storage_parse_mode, "0");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
-DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+// Deeper arrays will be stored as JSONB
+DEFINE_mInt32(variant_nested_group_max_depth, "10");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "true");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
+DEFINE_Validator(variant_storage_parse_mode,
+                 [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1193,6 +1225,8 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_mBool(enable_file_cache_query_limit, "false");
+// Whether segment footer and segment metadata count toward file cache query limit.
+DEFINE_mBool(enable_file_cache_query_limit_segment_meta, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
@@ -1229,6 +1263,7 @@ DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
+DEFINE_mInt64(file_cache_background_block_lru_update_queue_max_size, "500000");
 DEFINE_mBool(enable_file_cache_async_touch_on_get_or_set, "false");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
@@ -1239,7 +1274,8 @@ DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
-DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+DEFINE_mInt64(file_cache_background_lru_log_queue_max_size, "500000");
+DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
 DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
@@ -1322,6 +1358,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DEFINE_Bool(enable_row_store_compact_jsonb, "false");
+
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
 DEFINE_Int64(max_external_file_meta_cache_num, "1000");
@@ -1339,7 +1379,6 @@ DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
-DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
 DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 
@@ -1411,6 +1450,12 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Max WAL count for one table before rejecting async group commit loads.
+// 0 means no limit.
+DEFINE_mInt32(group_commit_max_wal_num_per_table, "10");
+// Max time(ms) to wait for creating group commit plan fragment.
+// 0 means no timeout, default 2min.
+DEFINE_mInt32(group_commit_create_plan_timeout_ms, "120000");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
@@ -1501,6 +1546,9 @@ DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 
 DEFINE_mInt64(s3_put_token_limit, "0");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
+DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
@@ -1663,6 +1711,12 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
+// Max number of incremental merges accumulated on one query cache entry before
+// a full recompute is forced. Each incremental merge appends the delta partial
+// blocks to the entry, so the entry gets more fragmented (and the upstream merge
+// aggregation does more work) as deltas accumulate; a periodic full recompute
+// compacts the entry back to a minimal set of blocks.
+DEFINE_mInt32(query_cache_max_incremental_merge_count, "8");
 
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
@@ -1740,12 +1794,10 @@ DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
 // Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
 DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
-
-// Chunk size for ANN/vector index building per training/adding batch
-// 1M By default.
-DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
-DEFINE_Validator(ann_index_build_chunk_size,
-                 [](const int64_t config) -> bool { return config > 0; });
+// Minimum segment rows required to persist an ANN index. 0 keeps the default behavior.
+DEFINE_mInt64(ann_index_build_min_segment_rows, "0");
+DEFINE_Validator(ann_index_build_min_segment_rows,
+                 [](const int64_t config) -> bool { return config >= 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
 

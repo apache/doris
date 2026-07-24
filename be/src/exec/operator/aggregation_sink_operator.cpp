@@ -170,7 +170,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
 
     if (!Base::_shared_state->probe_expr_ctxs.empty() /* has GROUP BY */
         && (p._aggregate_evaluators.size() == 1 &&
-            p._aggregate_evaluators[0]->function()->is_simple_count()) /* only one count(*) */
+            p._aggregate_evaluators[0]->is_simple_count()) /* only one count(*) */
         && !_should_limit_output /* no limit optimization */ &&
         !Base::_shared_state->enable_spill /* spill not enabled */) {
         _shared_state->use_simple_count = true;
@@ -283,8 +283,8 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
 Status AggSinkLocalState::_destroy_agg_status(AggregateDataPtr data) {
     auto& shared_state = *Base::_shared_state;
     for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
-        shared_state.aggregate_evaluators[i]->function()->destroy(
-                data + shared_state.offsets_of_aggregate_states[i]);
+        shared_state.aggregate_evaluators[i]->destroy(data +
+                                                      shared_state.offsets_of_aggregate_states[i]);
     }
     return Status::OK();
 }
@@ -330,8 +330,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                 auto column = block->get_by_position(col_id).column;
 
                 size_t buffer_size =
-                        Base::_shared_state->aggregate_evaluators[i]->function()->size_of_data() *
-                        rows;
+                        Base::_shared_state->aggregate_evaluators[i]->size_of_data() * rows;
                 if (_deserialize_buffer.size() < buffer_size) {
                     _deserialize_buffer.resize(buffer_size);
                 }
@@ -339,7 +338,6 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                 {
                     SCOPED_TIMER(_deserialize_data_timer);
                     Base::_shared_state->aggregate_evaluators[i]
-                            ->function()
                             ->deserialize_and_merge_vec_selected(
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
@@ -389,24 +387,20 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                     }
                     auto column = block->get_by_position(col_id).column;
 
-                    size_t buffer_size = Base::_shared_state->aggregate_evaluators[i]
-                                                 ->function()
-                                                 ->size_of_data() *
-                                         rows;
+                    size_t buffer_size =
+                            Base::_shared_state->aggregate_evaluators[i]->size_of_data() * rows;
                     if (_deserialize_buffer.size() < buffer_size) {
                         _deserialize_buffer.resize(buffer_size);
                     }
 
                     {
                         SCOPED_TIMER(_deserialize_data_timer);
-                        Base::_shared_state->aggregate_evaluators[i]
-                                ->function()
-                                ->deserialize_and_merge_vec(
-                                        _places.data(),
-                                        Base::_parent->template cast<AggSinkOperatorX>()
-                                                ._offsets_of_aggregate_states[i],
-                                        _deserialize_buffer.data(), column.get(),
-                                        Base::_shared_state->agg_arena_pool, rows);
+                        Base::_shared_state->aggregate_evaluators[i]->deserialize_and_merge_vec(
+                                _places.data(),
+                                Base::_parent->template cast<AggSinkOperatorX>()
+                                        ._offsets_of_aggregate_states[i],
+                                _deserialize_buffer.data(), column.get(),
+                                Base::_shared_state->agg_arena_pool, rows);
                     }
                 } else {
                     RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
@@ -444,13 +438,10 @@ Status AggSinkLocalState::_merge_without_key(Block* block) {
             auto column = block->get_by_position(col_id).column;
 
             SCOPED_TIMER(_deserialize_data_timer);
-            Base::_shared_state->aggregate_evaluators[i]
-                    ->function()
-                    ->deserialize_and_merge_from_column(
-                            _agg_data->without_key +
-                                    Base::_parent->template cast<AggSinkOperatorX>()
-                                            ._offsets_of_aggregate_states[i],
-                            *column, Base::_shared_state->agg_arena_pool);
+            Base::_shared_state->aggregate_evaluators[i]->deserialize_and_merge_from_column(
+                    _agg_data->without_key + Base::_parent->template cast<AggSinkOperatorX>()
+                                                     ._offsets_of_aggregate_states[i],
+                    *column, Base::_shared_state->agg_arena_pool);
         } else {
             RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                     block,
@@ -956,15 +947,14 @@ Status AggSinkOperatorX::_calc_aggregate_evaluators() {
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
-        const auto& agg_function = _aggregate_evaluators[i]->function();
+        const auto* agg_function = _aggregate_evaluators[i];
         // aggreate states are aligned based on maximum requirement
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
 
         // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
         if (i + 1 < _aggregate_evaluators.size()) {
-            size_t alignment_of_next_state =
-                    _aggregate_evaluators[i + 1]->function()->align_of_data();
+            size_t alignment_of_next_state = _aggregate_evaluators[i + 1]->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
                 return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }
@@ -988,7 +978,7 @@ Status AggSinkOperatorX::_check_agg_fn_output() {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status AggSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

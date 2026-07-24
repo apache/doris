@@ -29,6 +29,7 @@
 #include <roaring/roaring.hh>
 
 #include "core/column/column_variant.h"
+#include "storage/iterator/olap_data_convertor.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_statistics.h"
@@ -48,7 +49,7 @@ TEST(NestedGroupProviderTest, DefaultReadProviderIsDisabled) {
     EXPECT_FALSE(provider->should_enable_nested_group_read_path());
 }
 
-TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
+TEST(NestedGroupProviderTest, DefaultWriteProviderRejectsNestedGroupWritePath) {
     auto write_provider = create_nested_group_write_provider();
     ASSERT_TRUE(write_provider != nullptr);
 
@@ -66,6 +67,23 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
             write_provider->prepare(*column_variant, nullptr, opts, nullptr, nullptr, &statistics);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
+
+    TabletColumn tablet_column;
+    OlapBlockDataConvertor converter;
+    int column_id = 0;
+    status = write_provider->prepare(*column_variant, &tablet_column, opts, &converter, &column_id,
+                                     &statistics);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(status.to_string().find("not available"), std::string::npos);
+
+    NestedGroupsMap nested_groups;
+    status = write_provider->prepare_with_built_groups(nested_groups, &tablet_column, opts,
+                                                       &converter, &column_id, &statistics);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(status.to_string().find("not available"), std::string::npos);
+
     EXPECT_EQ(0, write_provider->estimate_buffer_size());
     EXPECT_TRUE(write_provider->finish().ok());
     EXPECT_TRUE(write_provider->write_data().ok());

@@ -393,6 +393,8 @@ Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filenam
     RETURN_IF_ERROR(check_ifstream_status(in, filename));
     _parse_meta.Clear();
     _current_parse_group.Clear();
+    _parse_group_index = 0;
+    _parse_entry_index = 0;
     if (!_parse_meta.ParseFromString(meta_serialized)) {
         std::string warn_msg = std::string(
                 fmt::format("LRU dump file meta parse failed, file={}, skip restore", filename));
@@ -407,13 +409,13 @@ Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filenam
 
 Status CacheLRUDumper::parse_one_lru_entry(std::ifstream& in, std::string& filename,
                                            UInt128Wrapper& hash, size_t& offset, size_t& size) {
-    // Read next group if current is empty
-    if (_current_parse_group.entries_size() == 0) {
-        if (_parse_meta.group_offset_size_size() == 0) {
+    // Read next group if current group has been fully consumed.
+    if (_parse_entry_index >= _current_parse_group.entries_size()) {
+        if (_parse_group_index >= _parse_meta.group_offset_size_size()) {
             return Status::EndOfFile("No more entries");
         }
 
-        auto group_info = _parse_meta.group_offset_size(0);
+        const auto& group_info = _parse_meta.group_offset_size(_parse_group_index++);
         in.seekg(group_info.offset(), std::ios::beg);
         std::string group_serialized(group_info.size(), '\0');
         in.read(&group_serialized[0], group_serialized.size());
@@ -431,20 +433,16 @@ Status CacheLRUDumper::parse_one_lru_entry(std::ifstream& in, std::string& filen
             LOG(WARNING) << warn_msg;
             return Status::InternalError(warn_msg);
         }
-
-        // Remove processed group info
-        _parse_meta.mutable_group_offset_size()->erase(_parse_meta.group_offset_size().begin());
+        _parse_entry_index = 0;
     }
 
     // Get next entry from current group
     VLOG_DEBUG << "After deserialization: " << _current_parse_group.DebugString();
-    auto entry = _current_parse_group.entries(0);
+    const auto& entry = _current_parse_group.entries(_parse_entry_index++);
     hash = UInt128Wrapper((static_cast<uint128_t>(entry.hash().high()) << 64) | entry.hash().low());
     offset = entry.offset();
     size = entry.size();
 
-    // Remove processed entry
-    _current_parse_group.mutable_entries()->erase(_current_parse_group.entries().begin());
     return Status::OK();
 }
 

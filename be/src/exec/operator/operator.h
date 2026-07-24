@@ -188,7 +188,6 @@ public:
             RuntimeState* /*state*/) const;
 
 protected:
-    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
     [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
 
     OperatorPtr _child = nullptr;
@@ -417,8 +416,6 @@ public:
 
         _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), profile::SPILL_WRITE_FILE_CURRENT_BYTES, TUnit::BYTES, 1);
-        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
-                Base::custom_profile(), profile::SPILL_WRITE_FILE_CURRENT_COUNT, TUnit::UNIT, 1);
     }
 
     // Total time of spill, including spill task scheduling time,
@@ -441,9 +438,6 @@ public:
     // Total bytes of spill data written to disk file(after serialized)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     RuntimeProfile::Counter* _spill_file_total_count = nullptr;
-    RuntimeProfile::Counter* _spill_file_current_count = nullptr;
-    // Spilled file total size
-    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Current spilled file size
     RuntimeProfile::Counter* _spill_file_current_size = nullptr;
 
@@ -604,8 +598,8 @@ public:
     virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const { return false; }
 
     Status init(const TDataSink& tsink) override;
-    [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
-                                      const bool use_global_hash_shuffle,
+    [[nodiscard]] virtual Status init(RuntimeState* state, TLocalPartitionType::type type,
+                                      const int num_buckets,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
@@ -620,7 +614,14 @@ public:
         return result.value()->is_finished();
     }
 
-    [[nodiscard]] virtual Status sink(RuntimeState* state, Block* block, bool eos) = 0;
+    [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
+        RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_no_column_string64());
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return sink_impl(state, block, eos);
+    }
+
+    [[nodiscard]] virtual Status sink_impl(RuntimeState* state, Block* block, bool eos) = 0;
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
@@ -801,8 +802,6 @@ public:
     RuntimeProfile::Counter*& _spill_write_rows_count = _write_counters.spill_write_rows_count;
 
     // Sink-only counters
-    // Spilled file total size
-    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Total bytes written to spill files (required by SpillFileWriter)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     // Total number of spill files created (required by SpillFileWriter)
@@ -853,7 +852,7 @@ public:
     Status init(const TDataSink& tsink) override {
         throw Exception(Status::FatalError("should not reach here!"));
     }
-    virtual Status init(ExchangeType type) {
+    virtual Status init(TLocalPartitionType::type type) {
         throw Exception(Status::FatalError("should not reach here!"));
     }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
@@ -877,7 +876,15 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status terminate(RuntimeState* state) override;
-    [[nodiscard]] virtual Status get_block(RuntimeState* state, Block* block, bool* eos) = 0;
+    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
+        RETURN_IF_ERROR(get_block_impl(state, block, eos));
+        RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_no_column_string64());
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status get_block_impl(RuntimeState* state, Block* block, bool* eos) = 0;
 
     Status close(RuntimeState* state) override;
 
@@ -1070,7 +1077,7 @@ public:
 
     virtual ~StreamingOperatorX() = default;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     virtual Status pull(RuntimeState* state, Block* block, bool* eos) = 0;
 };
@@ -1096,7 +1103,7 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    [[nodiscard]] Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, Block* block, bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, Block* input_block, bool eos) const = 0;
@@ -1170,7 +1177,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return true; }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         *eos = _eos;
         return Status::OK();
     }
@@ -1225,7 +1232,7 @@ class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
 public:
     DummySinkOperatorX(int op_id, int node_id, int dest_id)
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
         return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
                            : Status::OK();
     }

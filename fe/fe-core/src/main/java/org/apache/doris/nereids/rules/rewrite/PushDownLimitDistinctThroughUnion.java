@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -64,15 +65,21 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
                 logicalLimit(logicalAggregate(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
                         .when(agg -> agg.isDistinct()))
                         .then(limit -> {
+                            // limit + offset overflowing the long range means no child can hold that
+                            // many rows, so pushing the limit below the union cannot reduce anything;
+                            // skip the rewrite. The parent limit still applies the original limit/offset.
+                            if (Utils.addOverflows(limit.getLimit(), limit.getOffset())) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalUnion> agg = limit.child();
                             LogicalUnion union = agg.child();
 
                             List<Plan> newChildren = new ArrayList<>();
-                            for (Plan child : union.children()) {
+                            for (int childIdx = 0; childIdx < union.arity(); ++childIdx) {
                                 Map<Expression, Expression> replaceMap = new HashMap<>();
                                 for (int i = 0; i < union.getOutputs().size(); ++i) {
                                     NamedExpression output = union.getOutputs().get(i);
-                                    replaceMap.put(output, child.getOutput().get(i));
+                                    replaceMap.put(output, union.getRegularChildOutput(childIdx).get(i));
                                 }
 
                                 List<Expression> newGroupBy = agg.getGroupByExpressions().stream()
@@ -82,7 +89,8 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
                                         .map(expr -> ExpressionUtils.replaceNameExpression(expr, replaceMap))
                                         .collect(Collectors.toList());
 
-                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(newGroupBy, newOutputs, child);
+                                LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(
+                                        newGroupBy, newOutputs, union.child(childIdx));
                                 LogicalLimit<Plan> newLimit = limit.withLimitChild(limit.getLimit() + limit.getOffset(),
                                         0, newAgg);
 

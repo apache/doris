@@ -18,55 +18,101 @@
 package org.apache.doris.filesystem.oss;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Alibaba Cloud OSS.
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by an endpoint containing {@code aliyuncs.com}. Translates OSS-specific
- * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},
- * while {@link OssObjStorage} overrides cloud-specific operations (presigned URL, STS)
- * using the Alibaba Cloud native SDK.
+ * <p>Identified by an endpoint containing {@code aliyuncs.com}. OSS-specific property
+ * keys are consumed by {@link OssObjStorage}, which uses the Alibaba Cloud native SDK.
  */
-public class OssFileSystemProvider implements FileSystemProvider {
+public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemProperties> {
+
+    private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
+    private static final String STORAGE_TYPE_OSS = "OSS";
+    private static final String STORAGE_TYPE_OSS_HDFS = "OSS_HDFS";
+    private static final String PROVIDER_KEY = "provider";
+    private static final String FS_OSS_SUPPORT = "fs.oss.support";
+    private static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
+    private static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
+    // OSS-HDFS (JindoFS) endpoints live on the *.oss-dls.aliyuncs.com host; they contain
+    // "aliyuncs.com" but are served by OssHdfsFileSystemProvider, not native OSS.
+    private static final String OSS_HDFS_ENDPOINT_MARKER = "oss-dls.aliyuncs.com";
+    private static final String[] ENDPOINT_NAMES = {
+            OssFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "OSS_ENDPOINT"};
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        if ("OSS".equals(properties.get("_STORAGE_TYPE_"))) {
+        // OSS-HDFS (JindoFS) is served by OssHdfsFileSystemProvider. Routing is first-match-wins over
+        // an unordered list, so native OSS must positively disclaim any OSS-HDFS config to stay disjoint.
+        if (STORAGE_TYPE_OSS_HDFS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))) {
+            return false;
+        }
+        if (STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))) {
             return true;
         }
-        String endpoint = properties.get("OSS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
+        // Explicit OSS-HDFS flags outrank even fs.oss.support in the kernel's
+        // StorageProperties.createPrimary; mirror that precedence here.
+        if (Boolean.parseBoolean(properties.getOrDefault(FS_OSS_HDFS_SUPPORT, "false"))
+                || Boolean.parseBoolean(properties.getOrDefault(DEPRECATED_OSS_HDFS_SUPPORT, "false"))) {
+            return false;
         }
-        return endpoint != null && endpoint.contains("aliyuncs.com");
+        if (isExplicitOss(properties)) {
+            return true;
+        }
+        String endpoint = firstPresent(properties, ENDPOINT_NAMES);
+        if (endpoint == null || !endpoint.contains("aliyuncs.com")) {
+            return false;
+        }
+        return !endpoint.contains(OSS_HDFS_ENDPOINT_MARKER);
+    }
+
+    @Override
+    public OssFileSystemProperties bind(Map<String, String> properties) {
+        return OssFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(OssFileSystemProperties properties) throws IOException {
+        return new OssFileSystem(new OssObjStorage(properties));
     }
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> props = new HashMap<>(properties);
-        if (properties.containsKey("OSS_ENDPOINT")) {
-            props.put("AWS_ENDPOINT", properties.get("OSS_ENDPOINT"));
-        }
-        if (properties.containsKey("OSS_ACCESS_KEY")) {
-            props.put("AWS_ACCESS_KEY", properties.get("OSS_ACCESS_KEY"));
-        }
-        if (properties.containsKey("OSS_SECRET_KEY")) {
-            props.put("AWS_SECRET_KEY", properties.get("OSS_SECRET_KEY"));
-        }
-        props.put("use_path_style", "false");
-        return new S3FileSystem(new OssObjStorage(props));
+        return create(bind(properties));
     }
 
     @Override
     public String name() {
         return "OSS";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(OssFileSystemProperties.class);
+    }
+
+    private boolean isExplicitOss(Map<String, String> properties) {
+        return STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(PROVIDER_KEY))
+                || Boolean.parseBoolean(properties.getOrDefault(FS_OSS_SUPPORT, "false"));
+    }
+
+    private String firstPresent(Map<String, String> properties, String[] names) {
+        for (String name : names) {
+            if (StringUtils.isNotBlank(properties.get(name))) {
+                return properties.get(name);
+            }
+        }
+        return null;
     }
 }

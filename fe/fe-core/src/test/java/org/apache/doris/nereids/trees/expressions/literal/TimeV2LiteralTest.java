@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
@@ -172,6 +173,17 @@ public class TimeV2LiteralTest {
         expression = literal.uncheckedCastTo(StringType.INSTANCE);
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("00:00:00.000", ((StringLiteral) expression).value);
+    }
+
+    @Test
+    public void testCastNegativeTimeToDateTimeV2KeepsSign() {
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(0), "-00:00:01");
+
+        DateTimeV2Literal dateTime = (DateTimeV2Literal) literal.uncheckedCastTo(DateTimeV2Type.of(0));
+
+        Assertions.assertEquals(23, dateTime.getHour());
+        Assertions.assertEquals(59, dateTime.getMinute());
+        Assertions.assertEquals(59, dateTime.getSecond());
     }
 
 }

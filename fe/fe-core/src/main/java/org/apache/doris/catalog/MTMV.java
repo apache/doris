@@ -280,7 +280,21 @@ public class MTMV extends OlapTable {
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
         writeMvLock();
         try {
+            boolean containsExcludedTriggerTables = mvProperties.containsKey(
+                    PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
+            Set<TableNameInfo> oldExcludedTriggerTables = containsExcludedTriggerTables
+                    ? parseExcludedTriggerTables()
+                    : Sets.newHashSet();
             this.mvProperties.putAll(mvProperties);
+            if (containsExcludedTriggerTables) {
+                Set<TableNameInfo> newExcludedTriggerTables = parseExcludedTriggerTables();
+                if (!oldExcludedTriggerTables.equals(newExcludedTriggerTables)) {
+                    // excluded_trigger_tables changes the refresh baseline semantics. Invalidate the old
+                    // snapshots so the next AUTO refresh rebuilds a complete baseline with the new rules.
+                    this.schemaChangeVersion++;
+                    this.refreshSnapshot = new MTMVRefreshSnapshot();
+                }
+            }
             return this.mvProperties;
         } finally {
             writeMvUnlock();
@@ -341,20 +355,24 @@ public class MTMV extends OlapTable {
     }
 
     public Set<TableNameInfo> getExcludedTriggerTables() {
-        Set<TableNameInfo> res = Sets.newHashSet();
         readMvLock();
         try {
-            if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-                return res;
-            }
-            String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-            for (String alias : split) {
-                res.add(new TableNameInfo(alias));
-            }
-            return res;
+            return parseExcludedTriggerTables();
         } finally {
             readMvUnlock();
         }
+    }
+
+    private Set<TableNameInfo> parseExcludedTriggerTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
+        if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
+            return res;
+        }
+        String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
+        for (String alias : split) {
+            res.add(new TableNameInfo(alias));
+        }
+        return res;
     }
 
     public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
@@ -446,6 +464,17 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    public boolean hasCompleteRefreshSnapshot() {
+        Set<String> partitionNames = getPartitionNames();
+        readMvLock();
+        try {
+            // A refresh baseline is complete only when every current MV partition has a snapshot.
+            return refreshSnapshot.getPartitionSnapshots().keySet().containsAll(partitionNames);
+        } finally {
+            readMvUnlock();
+        }
     }
 
     public long getSchemaChangeVersion() {

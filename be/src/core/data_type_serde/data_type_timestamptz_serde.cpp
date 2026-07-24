@@ -18,13 +18,110 @@
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
 
 #include <arrow/builder.h>
+#include <cctz/time_zone.h>
 
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
+#include "core/data_type_serde/parquet_timestamp.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
+#include "util/unaligned.h"
 namespace doris {
+
+namespace {
+
+Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
+                                                int64_t timestamp_micros) {
+    static constexpr int64_t MICROS_PER_SECOND = 1000000;
+    static const auto UTC = cctz::utc_time_zone();
+
+    int64_t epoch_seconds = timestamp_micros / MICROS_PER_SECOND;
+    int64_t micros_of_second = timestamp_micros % MICROS_PER_SECOND;
+    if (micros_of_second < 0) {
+        micros_of_second += MICROS_PER_SECOND;
+        --epoch_seconds;
+    }
+
+    TimestampTzValue timestamp_tz;
+    timestamp_tz.from_unixtime(epoch_seconds, UTC);
+    timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    if (!timestamp_tz.is_valid_date()) {
+        return Status::DataQualityError(
+                "Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range: micros={}",
+                timestamp_micros);
+    }
+    data.push_back(timestamp_tz);
+    return Status::OK();
+}
+
+ParquetTimeUnit decoded_parquet_time_unit(const DecodedColumnView& view) {
+    if (view.time_unit == DecodedTimeUnit::MILLIS) {
+        return ParquetTimeUnit::MILLIS;
+    }
+    if (view.time_unit == DecodedTimeUnit::NANOS) {
+        return ParquetTimeUnit::NANOS;
+    }
+    return ParquetTimeUnit::MICROS;
+}
+
+class TimestampTzParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    TimestampTzParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                               ParquetMaterializationState* state = nullptr)
+            : _data(assert_cast<ColumnTimeStampTz&>(column).get_data()),
+              _context(context),
+              _state(state) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        const size_t old_size = _data.size();
+        for (size_t row = 0; row < num_values; ++row) {
+            int64_t timestamp_micros;
+            Status status;
+            if (_context.physical_type == ParquetPhysicalType::INT96) {
+                DORIS_CHECK_EQ(value_width, sizeof(ParquetInt96Timestamp));
+                status = parquet_int96_timestamp_micros(
+                        unaligned_load<ParquetInt96Timestamp>(values +
+                                                              row * sizeof(ParquetInt96Timestamp)),
+                        &timestamp_micros);
+            } else {
+                DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
+                DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+                status = parquet_timestamp_micros(
+                        _context.time_unit, unaligned_load<int64_t>(values + row * sizeof(int64_t)),
+                        &timestamp_micros);
+            }
+            if (status.ok()) {
+                status = append_timestamptz_from_utc_epoch_micros(_data, timestamp_micros);
+            }
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnTimeStampTz::Container& _data;
+    const ParquetDecodeContext& _context;
+    ParquetMaterializationState* _state;
+};
+
+class RejectTimestampTzBinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as TIMESTAMPTZ");
+    }
+};
+
+} // namespace
 
 // The implementation of these functions mainly refers to data_type_datetimev2_serde.cpp
 
@@ -201,8 +298,8 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     static const auto& UTC = cctz::utc_time_zone();
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(
+                    checkArrowStatus(timestamp_builder.AppendNull(), column, *array_builder));
         } else {
             int64_t timestamp = 0;
             const auto& tz = col_data[i];
@@ -215,8 +312,8 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
                 uint32_t millisecond = tz.microsecond() / 1000;
                 timestamp = (timestamp * 1000) + millisecond;
             }
-            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(
+                    checkArrowStatus(timestamp_builder.Append(timestamp), column, *array_builder));
         }
     }
     return Status::OK();
@@ -244,6 +341,100 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
     }
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("TIMESTAMPTZ decoded reader expects INT64 or INT96 source"));
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+
+    auto& data = assert_cast<ColumnTimeStampTz&>(column).get_data();
+    const auto old_size = data.size();
+    if (view.value_kind == DecodedValueKind::INT96) {
+        const auto* values = reinterpret_cast<const ParquetInt96Timestamp*>(view.values);
+        for (int64_t row = 0; row < view.row_count; ++row) {
+            if (decoded_column_view_row_is_null(view, row)) {
+                data.push_back(TimestampTzValue());
+                continue;
+            }
+            int64_t timestamp_micros;
+            auto status = parquet_int96_timestamp_micros(values[row], &timestamp_micros);
+            if (status.ok()) {
+                status = append_timestamptz_from_utc_epoch_micros(data, timestamp_micros);
+            }
+            if (!status.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(TimestampTzValue());
+            continue;
+        }
+        int64_t timestamp_micros;
+        auto status = parquet_timestamp_micros(decoded_parquet_time_unit(view), values[row],
+                                               &timestamp_micros);
+        if (status.ok()) {
+            status = append_timestamptz_from_utc_epoch_micros(data, timestamp_micros);
+        }
+        if (!status.ok()) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return status;
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::read_parquet_dictionary(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context) const {
+    TimestampTzParquetConsumer consumer(column, context);
+    RejectTimestampTzBinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_parquet(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context,
+        size_t num_values, ParquetMaterializationState& state) const {
+    if (context.physical_type != ParquetPhysicalType::INT64 &&
+        context.physical_type != ParquetPhysicalType::INT96) {
+        return Status::NotSupported("TIMESTAMPTZ expects Parquet INT64 or INT96");
+    }
+    TimestampTzParquetConsumer consumer(column, context, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        TimestampTzParquetConsumer dictionary_consumer(*state.typed_dictionary, context, &state);
+        RejectTimestampTzBinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
 }
 
 std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {

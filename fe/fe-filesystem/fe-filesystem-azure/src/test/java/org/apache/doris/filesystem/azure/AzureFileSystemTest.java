@@ -601,7 +601,7 @@ class AzureFileSystemTest {
         Mockito.when(mockStorage.uploadPart(
                         ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                         ArgumentMatchers.anyInt(), ArgumentMatchers.any()))
-                .thenAnswer(inv -> new org.apache.doris.filesystem.spi.UploadPartResult(
+                .thenAnswer(inv -> new org.apache.doris.filesystem.UploadPartResult(
                         inv.getArgument(2), "etag-" + inv.<Integer>getArgument(2)));
 
         // PART_SIZE is 8 MiB; write 8 MiB + 1 byte ⇒ one full part flushed mid-write,
@@ -635,7 +635,7 @@ class AzureFileSystemTest {
         Mockito.when(mockStorage.uploadPart(
                         ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                         ArgumentMatchers.anyInt(), ArgumentMatchers.any()))
-                .thenReturn(new org.apache.doris.filesystem.spi.UploadPartResult(1, "etag-1"))
+                .thenReturn(new org.apache.doris.filesystem.UploadPartResult(1, "etag-1"))
                 .thenThrow(new IOException("network blip on part 2"));
 
         // 2 full parts ⇒ second flush triggers the failure.

@@ -21,7 +21,9 @@
 #include <gmock/gmock.h>
 
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "io/fs/file_reader.h"
 #include "storage/segment/segment.h"
@@ -45,16 +47,28 @@ public:
 
     // Mock methods for footer - make it virtual and public
     MOCK_METHOD(Status, _get_segment_footer,
-                (std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*), ());
+                (std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*, const io::IOContext*),
+                (override));
 
     // Helper methods for test setup
     void add_column_uid_mapping(int32_t col_uid, int32_t footer_ordinal) {
-        _tablet_schema->_cols.push_back(std::make_shared<TabletColumn>());
-        _tablet_schema->_cols.back()->set_unique_id(col_uid);
-        _tablet_schema->_field_uniqueid_to_index[col_uid] = footer_ordinal;
+        (void)footer_ordinal;
+        TabletColumn column;
+        column.set_unique_id(col_uid);
+        column.set_name(std::to_string(col_uid));
+        _tablet_schema->append_column(column);
     }
 
     void set_footer(std::shared_ptr<SegmentFooterPB> footer) { _footer = footer; }
+
+    void set_file_reader_for_test(io::FileReaderSPtr file_reader) {
+        _file_reader = std::move(file_reader);
+    }
+
+    Status parse_footer_for_test(std::shared_ptr<SegmentFooterPB>& footer,
+                                 OlapReaderStatistics* stats = nullptr) {
+        return _parse_footer(footer, stats);
+    }
 
     void set_column_raw_data_bytes(int32_t uid, uint64_t bytes) {
         _column_uid_to_raw_bytes[uid] = bytes;
