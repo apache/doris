@@ -9,18 +9,20 @@
 3. Read `tasklist.md` ← 勾到哪、下一个 PERF 是谁
 4. 需要发现细节 → 伞形空间 `connectors/hudi.md` / `data/connector-audits.json` hudi 节
 
-## 当前状态（2026-07-24，设计定稿，owner 已确认范围，**未动产品代码**）
-- 调研（13-agent workflow `wf_3a0b9aca-966`：9 侦察 + 综合 + 3 红队）+ 设计 + 红队复核**全部完成**。
-- owner 拍板本轮范围 = **旗舰 memo + 文档清理 + HMS 缓存层（按 hive 补齐 fresh/cached 拆分 + REFRESH 失效）**。
-- 设计蓝图见 `designs/round-1-memo-hms-cache-design.md`（自测已核实：metaClient 非 AutoCloseable、scope 关 AutoCloseable、CachingHmsClient/fresh/flush API、hive fresh/cached 模板、hudi 三分区入口）。
+## 当前状态（2026-07-24，Piece A + C 已完成+提交+验证；Piece B 已细化到可编码，未动）
+- 调研（13-agent workflow `wf_3a0b9aca-966`）+ 设计 + 红队 + owner 范围拍板**全部完成**。
+- **✅ Piece A（文档清理）已提交** commit `1cb0f95f8ed`（4 处 stale "dormant hms" 注释改词，纯 doc）。
+- **✅ Piece C（HMS 缓存层）已提交** commit `e26ab33b001`（wrap `CachingHmsClient` + `collectPartitions` fresh/cached 拆分 + `HudiConnector.invalidate*` flush；无 pom 改动；`HudiConnectorHmsCacheTest` 8 测试；hudi 全模块 **183 测试 0 失败**）。
+- **⏳ Piece B（旗舰 memo）未动** —— 因它触及连接器最易 SIGABRT 的 schema/field-id/演进派生 + 需 session 穿线 + 测试改造，在长 session 尾部收尾风险高，**已 checkpoint 交下一轮**（owner 决定继续或新 session）。
 
-## ⚠ 下一步 = 实施本轮 3 块（各自独立 commit，动每个文件前按 HEAD 重 grep）
-按风险从低到高：
-- **Piece A（文档清理，纯 doc 零风险，先做）**：清 stale "dormant until hms enters SPI_READY_TYPES" 注释（设计 §1-A 列了 file + 勿动清单）。commit `[docs](catalog) fe-connector-hudi: drop stale dormant-hms comments`。
-- **Piece C（HMS 缓存层）**：wrap `CachingHmsClient` + `collectPartitions` 加 `bypassCache`（SHOW/TVF→fresh、剪枝/MTMV→cached）+ override `HudiConnector.invalidate*` flush。设计 §1-C。commit `[perf](catalog) fe-connector-hudi: cache HMS client with fresh listing + REFRESH flush`。
-- **Piece B（旗舰 memo）**：`HUDI_METACLIENT` 常量 + `HudiStatementScope` + 不可变投影 {instant, schema, allHistoricalSchemas}；改挂 getSchema/latestInstant/getScanNodeProperties/planScan(schema-only)。设计 §1-B。commit `[perf](catalog) fe-connector-hudi: per-statement metaClient/schema projection memo`。
+## ⚠ 下一步 = 实施 Piece B（旗舰）——**完整可编码蓝图见** [`designs/round-1-pieceB-flagship-impl-notes.md`](./designs/round-1-pieceB-flagship-impl-notes.md)
+精要（细节见蓝图，含已侦察的测试交互坑）：
+- **Scope B：planScan 一行不碰**（它必建自己 metaClient 做 fsView，读不读 memo 只省 schema 读不省 build，且是刚稳定的读热路径 + 红队 focus）→ 风险最低、build 收敛同样达成（~5→~3）。
+- 新增（0 fe-core）：`ConnectorStatementScopes.HUDI_METACLIENT` 常量 + `HudiStatementScope.sharedTableFacts` + 不可变投影 `HudiTableFacts`{instant, latestColumns, resolvedInternalSchema, historicalSchemas} + loader（一次 metaClient 导出全部 fact）。
+- 改挂 3 个元数据侧消费点（全有 session）：`getTableSchema(2-arg latest)` / `beginQuerySnapshot` / `getScanNodeProperties(plain)` 读 memo；`getSchemaFromMetaClient`/`latestInstant` 方法保留（3-arg at-instant / collectPartitions 仍用）。`buildSchemaEvolutionProp` 拆重载。
+- **⚠ 测试坑（蓝图已列）**：`HudiSchemaAtInstantTest` 的 **2-arg control 会挂须改**（改挂后 2-arg 不再经 getSchemaFromMetaClient）；`HudiColumnFieldIdTest`/`HudiSchemaParityTest` 大概率纯函数不受影响（动码前 grep 确认）。补 build-count 守门 + parity + NONE 对照测试。
 
-**实施铁律**（红队 load-bearing，违反=parity 回归）：①不 memo Configuration ②planScan 只读 memo schema、保留自己 lastInstant ③latest-only、at-instant 延后。详见设计 §3。
+**实施铁律**（红队 load-bearing，违反=parity 回归）：①不 memo Configuration ②planScan 一律不碰 ③latest-only、at-instant 保持独立 build。
 
 ## 验证（每块后）
 - `mvn install -pl :fe-connector-api,:fe-connector-hudi,:fe-connector-hive -am -Dmaven.build.cache.enabled=false`（install 非 test）→ 抓 `BUILD SUCCESS`+`Tests run:`。

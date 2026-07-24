@@ -17,3 +17,14 @@
   - **HMS 缓存层 owner 拍板做全套**：wrap `CachingHmsClient` + 按 hive 补 fresh/cached 拆分（SHOW/TVF→`listPartitionNamesFresh`、剪枝/MTMV→cached）+ override `HudiConnector.invalidate*` flush（网关已 forEachBuiltSibling 转发 REFRESH）——否则 hive-sync 表 SHOW PARTITIONS 陈旧最多 24h 且 REFRESH 清不掉（红队 BLOCKER）。
   - **文档清理**：清 stale "dormant hms" 注释一批。
 - **下一步**：实施 3 块（序 A→C→B，各独立 commit），动每个文件前按 HEAD 重 grep，守红队 3 修正 + 铁律 A（0 fe-core）+ 无 pom 改动。
+
+---
+
+## 2026-07-24 (2) — Piece A（文档）+ Piece C（HMS 缓存）实现+提交+验证；Piece B checkpoint 交下轮
+
+- **做了什么**：
+  - **Piece A**（commit `1cb0f95f8ed`）：4 处 stale "dormant until hms enters SPI_READY_TYPES" 注释改词（HudiConnectorMetadata / HudiScanPlanProvider / HudiConnectorOwnsHandleTest / HudiReadOnlyWriteRejectTest），纯 doc；保留同词异义两处（schema_id "dormant/inert"、"never add hudi"）；hive-side stale 注释留其自身模块 cleanup（不扩 blast radius）。
+  - **Piece C**（commit `e26ab33b001`）：`HudiConnector.createClient` 经新 package-private `wrapWithCache` 包 `CachingHmsClient`；`collectPartitions` 加 `bypassCache`——`listPartitionNames`/`listPartitionValues`（SHOW/TVF 展示）走 `listPartitionNamesFresh` 绕缓存、`listPartitions`（剪枝/MTMV）走缓存；override `invalidateTable/Db/All` no-force-build flush（网关 forEachBuiltSibling 已转发 REFRESH 到 sibling）。**无 pom 改动**（hms 已直接依赖 + Caffeine 3.2.3 随 hudi-common）。新 `HudiConnectorHmsCacheTest` 8 测试（wrap / fresh-vs-cached 三入口 / 三 flush 钩子 / unbuilt no-op）。`mvn install -pl :fe-connector-hudi -am` **BUILD SUCCESS，hudi 全模块 183 测试 0 失败**（既有分区列举测试因 default listPartitionNamesFresh→listPartitionNames 仍绿）。
+- **Piece B（旗舰）checkpoint 未动**：动码前把它细化到可编码（`designs/round-1-pieceB-flagship-impl-notes.md`），并侦察出关键测试交互坑（`HudiSchemaAtInstantTest` 2-arg control 因改挂会挂须改）。因它触及连接器最易 SIGABRT 的 schema/field-id/演进派生 + 需 session 穿线 + 测试改造，判定在长 session 尾部收尾风险高 → 按 owner"caution over speed"+ checkpoint 纪律交下一轮/新 session。
+- **结论/决定**：**Scope B 定案**——planScan 一行不碰（省 build 不受影响、避开读热路径 + 红队 Issue-2）。旗舰 build 收敛 ~5→~3 由元数据侧 3 消费点收敛达成。
+- **下一步**：按 `round-1-pieceB-flagship-impl-notes.md` 实现旗舰 memo（新 session 保证预算），动码前按 HEAD 重 grep + 复核 HudiColumnFieldIdTest/HudiSchemaParityTest 是否纯函数不受影响。

@@ -7,11 +7,12 @@
 
 | ID | 主题 | 覆盖发现 | 依赖 | 状态 |
 |---|---|---|---|---|
-| **PERF-H01** | 陈旧 "dormant hms" 注释清理（纯 doc） | 陈旧注释 | — | ⏳ |
-| **PERF-H02** | HMS 缓存层：wrap `CachingHmsClient` + fresh/cached 拆分 + REFRESH flush | HD-P04（+新鲜度修正） | — | ⏳ |
-| **PERF-H03** | 旗舰：每语句不可变投影 memo（metaClient/schema） | HD-P01 + HD-P02 | — | ⏳ |
+| **PERF-H01** | 陈旧 "dormant hms" 注释清理（纯 doc） | 陈旧注释 | — | ✅ commit `1cb0f95f8ed` |
+| **PERF-H02** | HMS 缓存层：wrap `CachingHmsClient` + fresh/cached 拆分 + REFRESH flush | HD-P04（+新鲜度修正） | — | ✅ commit `e26ab33b001`（183 测试绿） |
+| **PERF-H03** | 旗舰：每语句不可变投影 memo（metaClient/schema） | HD-P01 + HD-P02 | — | ⏳ 蓝图就绪 `designs/round-1-pieceB-flagship-impl-notes.md`，未动码 |
 
-> 三项独立，建议实施序 A(H01)→C(H02)→B(H03)（风险从低到高）。全程 0 fe-core、无 pom 改动。
+> 三项独立，实施序 A(H01)→C(H02)→B(H03)（风险从低到高）。全程 0 fe-core、无 pom 改动。
+> **PERF-H03 蓝图关键**：Scope B（planScan 不碰）；改挂 getTableSchema(2-arg)/beginQuerySnapshot/getScanNodeProperties 读投影 memo；HudiSchemaAtInstantTest 2-arg control 须改。
 
 ## 延后（记录，勿抢跑 — 设计 §4）
 

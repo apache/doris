@@ -33,7 +33,7 @@
 
 | ID | 优先级 | 覆盖发现 | 主题（一句话） | 目标兄弟空间 | 依赖 | 状态 |
 |---|---|---|---|---|---|---|
-| **WS-HUDI** | **P1 旗舰** | HD-P01/02/03/04/05 | 缓存最薄连接器：metaClient 每 pass 重建 ~5x、schema 3x、裸 `ThriftHmsClient` → 每语句投影 memo + HMS 缓存（fresh 拆分+REFRESH）| `plan-doc/perf-hotpath-hudi/` | D1 | 🚧 设计定稿（round-1：memo+HMS+doc），owner 确认范围，实施中 |
+| **WS-HUDI** | **P1 旗舰** | HD-P01/02/03/04/05 | 缓存最薄连接器：metaClient 每 pass 重建 ~5x、schema 3x、裸 `ThriftHmsClient` → 每语句投影 memo + HMS 缓存（fresh 拆分+REFRESH）| `plan-doc/perf-hotpath-hudi/` | D1 | 🚧 round-1 实施中：✅文档✅HMS缓存(183测试绿) / ⏳旗舰memo(蓝图就绪未动码) |
 | **WS-MC** | P1（小） | MC-1（+MC-2） | 每次 handle 解析冗余 ODPS `tables().exists()` 远程探测 → metadata 内 `Map<(db,table),Handle>` + 去冗余探测 | `plan-doc/perf-hotpath-maxcompute/` | D1 | ⏳ |
 | **WS-ES** | P1（小） | ES-F1/F2（+ES-F3） | `fetchMetadataState` 2x/查询 + mapping 重取 2x → per-scan hoist + mapping/field-context 承载决策 | `plan-doc/perf-hotpath-es/` | D1 | ⏳ |
 | **WS-DOC** | 低（doc-only） | 陈旧注释一批 | 修 `ConnectorPartitionViewCache` "no consumers yet" + hive/hudi/mc 的 "dormant / 未在 SPI_READY_TYPES / never called" 陈旧注释 | `plan-doc/cleanup-stale-connector-docs/`（或随手做） | — | ⏳ |
