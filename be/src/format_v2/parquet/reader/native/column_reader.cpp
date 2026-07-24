@@ -1316,6 +1316,14 @@ ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::materialize_dictionary_values(
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictionary_values(
         const DataTypePtr& target_type) {
+    bool has_dict = false;
+    auto status = _chunk_reader->load_dictionary_page(&has_dict);
+    if (!status.ok()) {
+        return ResultError(std::move(status));
+    }
+    if (!has_dict) {
+        return ResultError(Status::NotSupported("Parquet column has no reusable dictionary"));
+    }
     Decoder* dictionary_decoder = _chunk_reader->dictionary_decoder();
     if (dictionary_decoder == nullptr || dictionary_decoder->dictionary_size() == 0) {
         return ResultError(Status::NotSupported("Parquet column has no reusable dictionary"));
@@ -1329,15 +1337,6 @@ Result<MutableColumnPtr> ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::dictio
     // Materialize the typed dictionary once and keep it in _materialization_state. Later row-level
     // filtering decodes only ids and flattens surviving values from this same dictionary.
     return materialize_dictionary_values(ids.get(), target_type);
-}
-
-template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool* loaded,
-                                                                            bool* has_dict) {
-    // _chunk_reader init will load first page header to check whether has dict page
-    *loaded = true;
-    *has_dict = _chunk_reader->has_dict();
-    return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

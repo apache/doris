@@ -212,7 +212,7 @@ public:
     level_t max_rep_level() const { return _max_rep_level; }
     level_t max_def_level() const { return _max_def_level; }
 
-    bool has_dict() const { return _has_dict; };
+    Status load_dictionary_page(bool* has_dict);
 
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
@@ -334,8 +334,7 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
-    // for check dict page.
-    Status _parse_first_page_header();
+    Status _ensure_dictionary_page_loaded();
     Status _decode_dict_page();
 
     void _reserve_decompress_buf(size_t size);

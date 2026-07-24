@@ -386,6 +386,7 @@ public:
 
     Status read_bytes(const uint8_t** buf, uint64_t offset, size_t bytes_to_read,
                       const io::IOContext*) override {
+        ++_read_count;
         if (offset > _data.size() || bytes_to_read > _data.size() - offset) {
             return Status::IOError("out of bounds");
         }
@@ -393,6 +394,7 @@ public:
         return Status::OK();
     }
     Status read_bytes(Slice& slice, uint64_t offset, const io::IOContext*) override {
+        ++_read_count;
         if (offset > _data.size() || slice.size > _data.size() - offset) {
             return Status::IOError("out of bounds");
         }
@@ -401,9 +403,11 @@ public:
     }
     std::string path() override { return "memory.parquet"; }
     int64_t mtime() const override { return 0; }
+    size_t read_count() const { return _read_count; }
 
 private:
     std::vector<uint8_t> _data;
+    size_t _read_count = 0;
 };
 
 class NativeDecoderMemoryFileReader final : public io::FileReader {
@@ -419,10 +423,12 @@ public:
     size_t size() const override { return _data.size(); }
     bool closed() const override { return _closed; }
     int64_t mtime() const override { return 1; }
+    size_t read_count() const { return _read_count; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext*) override {
+        ++_read_count;
         if (offset > _data.size() || result.size > _data.size() - offset) {
             return Status::IOError("native decoder memory read exceeds file");
         }
@@ -435,6 +441,7 @@ private:
     std::vector<uint8_t> _data;
     io::Path _path;
     bool _closed = false;
+    size_t _read_count = 0;
 };
 
 std::shared_ptr<::parquet::ColumnDescriptor> descriptor(::parquet::Type::type physical_type) {
@@ -484,6 +491,38 @@ std::vector<uint8_t> serialize_page(tparquet::PageHeader header,
     DORIS_CHECK(serializer.serialize(&header, &bytes).ok());
     bytes.insert(bytes.end(), payload.begin(), payload.end());
     return bytes;
+}
+
+TEST(ParquetV2NativeDecoderTest, ColumnChunkInitDoesNotReadFirstDataPage) {
+    tparquet::PageHeader header;
+    header.type = tparquet::PageType::DATA_PAGE;
+    header.__set_compressed_page_size(sizeof(int32_t));
+    header.__set_uncompressed_page_size(sizeof(int32_t));
+    header.__isset.data_page_header = true;
+    header.data_page_header.__set_num_values(1);
+    header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+    header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+    auto bytes = serialize_page(header, std::vector<uint8_t>(sizeof(int32_t)));
+    MemoryBufferedReader stream(bytes);
+
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(1);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<false, false> reader(&stream, &chunk, &field, nullptr, 1, nullptr, context);
+
+    ASSERT_TRUE(reader.init().ok());
+    EXPECT_EQ(stream.read_count(), 0);
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    EXPECT_GT(stream.read_count(), 0);
 }
 
 Status materialize_level_only_page(bool data_page_v2, tparquet::Type::type physical_type,
@@ -540,6 +579,7 @@ Status materialize_level_only_page(bool data_page_v2, tparquet::Type::type physi
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, VALUE_COUNT,
                                                  nullptr, page_context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     const auto load_status = chunk_reader.load_page_data();
     EXPECT_TRUE(load_status.ok()) << load_status;
     RETURN_IF_ERROR(load_status);
@@ -616,6 +656,7 @@ Status load_scripted_page(tparquet::PageHeader header, const std::vector<uint8_t
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
                                                  context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     return chunk_reader.load_page_data();
 }
 
@@ -638,6 +679,7 @@ Status load_malformed_nested_page(tparquet::PageHeader header, const std::vector
     ColumnChunkReader<true, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
                                                 context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     RETURN_IF_ERROR(chunk_reader.load_page_data());
     std::vector<level_t> rep_levels;
     size_t result_rows = 0;
@@ -673,6 +715,7 @@ Status materialize_plain_int96(const std::vector<ParquetInt96Timestamp>& values,
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, values.size(),
                                                  nullptr, page_context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     RETURN_IF_ERROR(chunk_reader.load_page_data());
 
     DataTypeDateTimeV2 type(6);
@@ -729,6 +772,7 @@ Status materialize_selected_plain_fixed(
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, logical_values,
                                                  nullptr, page_context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     RETURN_IF_ERROR(chunk_reader.load_page_data());
 
     ParquetDecodeContext decode_context;
@@ -843,6 +887,7 @@ Status materialize_selected_dictionary_fixed(
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, logical_values,
                                                  nullptr, page_context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     RETURN_IF_ERROR(chunk_reader.load_page_data());
 
     ParquetDecodeContext decode_context;
@@ -945,6 +990,7 @@ Status materialize_selected_dictionary_strings(const std::vector<std::string>& d
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, logical_values,
                                                  nullptr, page_context);
     RETURN_IF_ERROR(chunk_reader.init());
+    RETURN_IF_ERROR(chunk_reader.parse_page_header());
     RETURN_IF_ERROR(chunk_reader.load_page_data());
 
     DataTypeString type;
@@ -992,6 +1038,7 @@ TEST(ParquetV2NativeDecoderTest, RawExprMapsNullableSparseRowsDirectly) {
     ColumnChunkReader<false, false> chunk_reader(&reader, &chunk, &field, nullptr, LOGICAL_VALUES,
                                                  nullptr, page_context);
     ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.parse_page_header().ok());
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
 
     const std::vector<uint16_t> null_runs {1, 1, 2, 1, 2};
@@ -1340,8 +1387,10 @@ TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce)
     ScalarColumnReader<false, false> reader(row_ranges, 2, chunk, nullptr, nullptr, nullptr);
     ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
                         .ok());
+    EXPECT_EQ(file->read_count(), 0);
     auto dictionary_result = reader.dictionary_values(field.data_type);
     ASSERT_TRUE(dictionary_result.has_value()) << dictionary_result.error();
+    EXPECT_GT(file->read_count(), 0);
     EXPECT_EQ(reader.dictionary_materialization_count_for_test(), 1);
 
     FilterMap filter;
@@ -1358,6 +1407,83 @@ TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce)
     EXPECT_EQ(reader.dictionary_materialization_count_for_test(), 1);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(**matched_values).get_data(),
               (ColumnInt32::Container {20, 10}));
+}
+
+TEST(ParquetV2NativeDecoderTest, IndexedSkipLoadsDictionaryBeforeJumpingToDataPage) {
+    const std::array<int32_t, 2> dictionary {10, 20};
+    std::vector<uint8_t> dictionary_payload(sizeof(dictionary));
+    memcpy(dictionary_payload.data(), dictionary.data(), dictionary_payload.size());
+    tparquet::PageHeader dictionary_header;
+    dictionary_header.type = tparquet::PageType::DICTIONARY_PAGE;
+    dictionary_header.__set_compressed_page_size(dictionary_payload.size());
+    dictionary_header.__set_uncompressed_page_size(dictionary_payload.size());
+    dictionary_header.__isset.dictionary_page_header = true;
+    dictionary_header.dictionary_page_header.__set_num_values(dictionary.size());
+    dictionary_header.dictionary_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+
+    std::vector<uint8_t> bytes(1, 0);
+    const auto dictionary_page = serialize_page(dictionary_header, dictionary_payload);
+    bytes.insert(bytes.end(), dictionary_page.begin(), dictionary_page.end());
+
+    auto make_data_page = [] {
+        tparquet::PageHeader header;
+        header.type = tparquet::PageType::DATA_PAGE;
+        header.__set_compressed_page_size(1);
+        header.__set_uncompressed_page_size(1);
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(1);
+        header.data_page_header.__set_encoding(tparquet::Encoding::RLE_DICTIONARY);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+        return serialize_page(header, {0});
+    };
+    const size_t first_data_offset = bytes.size();
+    const auto first_data_page = make_data_page();
+    bytes.insert(bytes.end(), first_data_page.begin(), first_data_page.end());
+    const size_t second_data_offset = bytes.size();
+    const auto second_data_page = make_data_page();
+    bytes.insert(bytes.end(), second_data_page.begin(), second_data_page.end());
+
+    tparquet::OffsetIndex offset_index;
+    tparquet::PageLocation first_location;
+    first_location.__set_offset(first_data_offset);
+    first_location.__set_compressed_page_size(first_data_page.size());
+    first_location.__set_first_row_index(0);
+    tparquet::PageLocation second_location;
+    second_location.__set_offset(second_data_offset);
+    second_location.__set_compressed_page_size(second_data_page.size());
+    second_location.__set_first_row_index(1);
+    offset_index.__set_page_locations({first_location, second_location});
+
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(2);
+    chunk.meta_data.__set_total_compressed_size(bytes.size() - 1);
+    chunk.meta_data.__set_dictionary_page_offset(1);
+    chunk.meta_data.__set_data_page_offset(first_data_offset);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    MemoryBufferedReader stream(bytes);
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<false, true> reader(&stream, &chunk, &field, &offset_index, 2, nullptr,
+                                          context);
+
+    ASSERT_TRUE(reader.init().ok());
+    EXPECT_EQ(stream.read_count(), 0);
+    ASSERT_TRUE(reader.next_page().ok());
+    EXPECT_GT(stream.read_count(), 0);
+    bool has_dict = false;
+    const size_t reads_after_seek = stream.read_count();
+    ASSERT_TRUE(reader.load_dictionary_page(&has_dict).ok());
+    EXPECT_TRUE(has_dict);
+    EXPECT_EQ(stream.read_count(), reads_after_seek);
+    ASSERT_NE(reader.dictionary_decoder(), nullptr);
+    EXPECT_EQ(reader.dictionary_decoder()->dictionary_size(), dictionary.size());
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    EXPECT_EQ(reader.page_start_row(), 1);
 }
 
 TEST(ParquetV2NativeDecoderTest, DictionaryRepeatedRunsGatherDirectlyIntoDestination) {
@@ -2846,6 +2972,7 @@ TEST(ParquetV2NativeDecoderTest, DecompressionScratchStaysActiveUntilPageExhaust
                                            static_cast<size_t>(LARGE_VALUE_COUNT) + 1, nullptr,
                                            context);
     ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
     ASSERT_TRUE(reader.load_page_data().ok());
     ASSERT_GT(reader.active_decoder_scratch_bytes(), 1UL << 20);
     ASSERT_TRUE(reader.skip_values(LARGE_VALUE_COUNT).ok());
@@ -3094,11 +3221,13 @@ TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMis
         if (with_offset_index) {
             ColumnChunkReader<false, true> reader_with_index(&reader, &chunk, &field, &offset_index,
                                                              1, nullptr, context);
-            return reader_with_index.init();
+            RETURN_IF_ERROR(reader_with_index.init());
+            return reader_with_index.parse_page_header();
         }
         ColumnChunkReader<false, false> sequential_reader(&reader, &chunk, &field, nullptr, 1,
                                                           nullptr, context);
-        return sequential_reader.init();
+        RETURN_IF_ERROR(sequential_reader.init());
+        return sequential_reader.parse_page_header();
     };
 
     tparquet::PageHeader v2;
@@ -3167,7 +3296,8 @@ TEST(ParquetV2NativeDecoderTest, NestedV2PageRejectsOffsetIndexRowSpanMismatch) 
 
     ColumnChunkReader<true, true> reader(&stream, &chunk, &field, &offset_index,
                                          /*total_rows=*/2, nullptr, context);
-    const auto status = reader.init();
+    ASSERT_TRUE(reader.init().ok());
+    const auto status = reader.parse_page_header();
     EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 
@@ -3376,6 +3506,7 @@ TEST(ParquetV2NativeDecoderTest, NestedV1ContinuationRemainsValidAfterFirstRowSt
     ColumnChunkReader<true, false> chunk_reader(&reader, &chunk, &field, nullptr, 1, nullptr,
                                                 context);
     ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.parse_page_header().ok());
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
     std::vector<level_t> levels;
     size_t rows = 0;
@@ -3431,6 +3562,7 @@ TEST(ParquetV2NativeDecoderTest, NestedV1IgnoresUnverifiableOffsetIndexRows) {
     ColumnChunkReader<true, true> chunk_reader(&stream, &chunk, &field, &offset_index, 1, nullptr,
                                                context);
     ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.parse_page_header().ok());
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
     std::vector<level_t> levels;
     size_t rows = 0;
@@ -3479,6 +3611,7 @@ TEST(ParquetV2NativeDecoderTest, NestedV1DiscardedOffsetIndexStopsAtLogicalChunk
     ColumnChunkReader<true, true> chunk_reader(&stream, &chunk, &field, &offset_index, 1, nullptr,
                                                context, &padded_range);
     ASSERT_TRUE(chunk_reader.init().ok());
+    ASSERT_TRUE(chunk_reader.parse_page_header().ok());
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
     std::vector<level_t> levels;
     size_t rows = 0;
@@ -3636,6 +3769,7 @@ TEST(ParquetV2NativeDecoderTest, OptionalV2FixedWidthPageRejectsExtentBeforeAllo
         ColumnChunkReader<false, false> reader(&stream, &chunk, &field, nullptr, 1, nullptr,
                                                context);
         ASSERT_TRUE(reader.init().ok());
+        ASSERT_TRUE(reader.parse_page_header().ok());
         EXPECT_TRUE(reader.load_page_data().is<ErrorCode::CORRUPTION>());
         EXPECT_LT(reader.retained_decoder_scratch_bytes(), 64UL << 10);
     }
@@ -3681,6 +3815,7 @@ TEST(ParquetV2NativeDecoderTest, RepeatedV2FixedWidthPageRejectsExtentBeforeAllo
     ParquetPageReadContext context(false, "");
     ColumnChunkReader<true, false> reader(&stream, &chunk, &field, nullptr, 1, nullptr, context);
     ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
     EXPECT_TRUE(reader.load_page_data().is<ErrorCode::CORRUPTION>());
     EXPECT_LT(reader.retained_decoder_scratch_bytes(), 64UL << 10);
 }
@@ -3719,6 +3854,7 @@ TEST(ParquetV2NativeDecoderTest, VariableWidthDataPagePreflightsCompressedExtent
     ParquetPageReadContext context(false, "");
     ColumnChunkReader<false, false> reader(&stream, &chunk, &field, nullptr, 1, nullptr, context);
     ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
     EXPECT_TRUE(reader.load_page_data().is<ErrorCode::CORRUPTION>());
     EXPECT_LT(reader.retained_decoder_scratch_bytes(), 64UL << 10);
     EXPECT_TRUE(load_scripted_page(header, payload, tparquet::CompressionCodec::SNAPPY, true,
@@ -3919,6 +4055,7 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsIndexPageBeforeInitializingData
                                                  context);
     const auto init_status = chunk_reader.init();
     ASSERT_TRUE(init_status.ok()) << init_status;
+    ASSERT_TRUE(chunk_reader.parse_page_header().ok());
     EXPECT_EQ(chunk_reader.remaining_num_values(), 1);
     ASSERT_TRUE(chunk_reader.load_page_data().ok());
 }
@@ -3960,6 +4097,7 @@ TEST(ParquetV2NativeDecoderTest, ColumnChunkSkipsUnknownAuxiliaryPage) {
                                                  context);
     const auto init_status = chunk_reader.init();
     ASSERT_TRUE(init_status.ok()) << init_status;
+    ASSERT_TRUE(chunk_reader.parse_page_header().ok());
     EXPECT_EQ(chunk_reader.remaining_num_values(), 1);
 }
 
