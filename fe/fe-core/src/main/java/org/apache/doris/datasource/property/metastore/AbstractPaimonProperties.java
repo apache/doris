@@ -31,7 +31,6 @@ import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.options.OptionsUtils;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -60,6 +59,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     public abstract String getPaimonCatalogType();
 
     private static final String USER_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_JNI_PROPERTY_PREFIX = "paimon.jni.";
     /** The suffix after this prefix is passed to Paimon as a dynamic table option. */
     public static final String TABLE_OPTION_PREFIX = "paimon.table-option.";
     private static final SupportedTableOptions SUPPORTED_TABLE_OPTIONS = SupportedTableOptions.build();
@@ -90,6 +90,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
                 if (StringUtils.isNotBlank(newKey)) {
                     boolean excluded = isTableOptionProperty(k)
+                            || k.toLowerCase(Locale.ROOT).startsWith(DORIS_JNI_PROPERTY_PREFIX)
                             || userStoragePrefixes.stream().anyMatch(k::startsWith);
                     if (!excluded) {
                         catalogOptions.set(newKey, v);
@@ -144,6 +145,28 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         return tableOptionsMap;
     }
 
+    /**
+     * Returns Catalog table options which are not explicitly configured by the Paimon table.
+     *
+     * <p>The comparison is based on Paimon {@link ConfigOption}s so canonical and fallback keys
+     * follow the same precedence rule.
+     */
+    public Map<String, String> getTableOptionsForCopy(Map<String, String> currentTableOptions) {
+        if (tableOptionsMap.isEmpty() || currentTableOptions.isEmpty()) {
+            return tableOptionsMap;
+        }
+
+        Options existingOptions = new Options(currentTableOptions);
+        Map<String, String> optionsForCopy = new LinkedHashMap<>();
+        tableOptionsMap.forEach((key, value) -> {
+            ConfigOption<?> option = SUPPORTED_TABLE_OPTIONS.find(key);
+            if (!existingOptions.contains(option)) {
+                optionsForCopy.put(key, value);
+            }
+        });
+        return Collections.unmodifiableMap(optionsForCopy);
+    }
+
     public static boolean isTableOptionProperty(String key) {
         return key.toLowerCase(Locale.ROOT).startsWith(TABLE_OPTION_PREFIX);
     }
@@ -180,47 +203,26 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     }
 
     private static final class SupportedTableOptions {
+        /** Canonical and fallback option names which support direct lookup. */
         private final Map<String, ConfigOption<?>> exactOptions;
-        private final Map<String, ConfigOption<?>> prefixOptions;
 
-        private SupportedTableOptions(Map<String, ConfigOption<?>> exactOptions,
-                Map<String, ConfigOption<?>> prefixOptions) {
+        private SupportedTableOptions(Map<String, ConfigOption<?>> exactOptions) {
             this.exactOptions = exactOptions;
-            this.prefixOptions = prefixOptions;
         }
 
         private static SupportedTableOptions build() {
             Map<String, ConfigOption<?>> exactOptions = new HashMap<>();
-            Map<String, ConfigOption<?>> prefixOptions = new HashMap<>();
             for (ConfigOption<?> option : CoreOptions.getOptions()) {
-                addOption(exactOptions, prefixOptions, option.key(), option);
+                exactOptions.put(option.key(), option);
                 for (FallbackKey fallbackKey : option.fallbackKeys()) {
-                    addOption(exactOptions, prefixOptions, fallbackKey.getKey(), option);
+                    exactOptions.put(fallbackKey.getKey(), option);
                 }
             }
-            return new SupportedTableOptions(
-                    Collections.unmodifiableMap(exactOptions), Collections.unmodifiableMap(prefixOptions));
-        }
-
-        private static void addOption(Map<String, ConfigOption<?>> exactOptions,
-                Map<String, ConfigOption<?>> prefixOptions, String key, ConfigOption<?> option) {
-            exactOptions.put(key, option);
-            if (OptionsUtils.canBePrefixMap(option)) {
-                prefixOptions.put(key, option);
-            }
+            return new SupportedTableOptions(Collections.unmodifiableMap(exactOptions));
         }
 
         private ConfigOption<?> find(String key) {
-            ConfigOption<?> option = exactOptions.get(key);
-            if (option != null) {
-                return option;
-            }
-            for (Map.Entry<String, ConfigOption<?>> entry : prefixOptions.entrySet()) {
-                if (OptionsUtils.filterPrefixMapKey(entry.getKey(), key)) {
-                    return entry.getValue();
-                }
-            }
-            return null;
+            return exactOptions.get(key);
         }
     }
 

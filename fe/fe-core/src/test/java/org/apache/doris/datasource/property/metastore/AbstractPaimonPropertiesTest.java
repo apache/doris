@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,8 +91,9 @@ public class AbstractPaimonPropertiesTest {
     void testExtractAndValidateTableOptions() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.jni.enable_jni_io_manager", "true");
         input.put("paimon.table-option.read.batch-size", "4096");
-        input.put("paimon.table-option.file.compression.per.level.0", "lz4");
+        input.put("paimon.table-option.file.compression.per.level", "0:lz4,1:zstd");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
         testProps.initNormalizeAndCheckProps();
@@ -99,8 +101,47 @@ public class AbstractPaimonPropertiesTest {
 
         Assertions.assertEquals("4096", testProps.getTableOptionsMap().get("read.batch-size"));
         Assertions.assertEquals(
-                "lz4", testProps.getTableOptionsMap().get("file.compression.per.level.0"));
+                "0:lz4,1:zstd", testProps.getTableOptionsMap().get("file.compression.per.level"));
         Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("table-option.read.batch-size"));
+        Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("jni.enable_jni_io_manager"));
+    }
+
+    @Test
+    void testPaimonTableOptionsTakePrecedenceOverCatalogOptions() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.read.batch-size", "4096");
+        input.put("paimon.table-option.write.batch-size", "2048");
+        input.put("paimon.table-option.file.compression.per.level", "0:lz4,1:zstd");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+        testProps.initNormalizeAndCheckProps();
+
+        Map<String, String> currentTableOptions = new HashMap<>();
+        currentTableOptions.put("read.batch-size", "1024");
+        currentTableOptions.put("orc.write.batch-size", "512");
+        currentTableOptions.put("file.compression.per.level", "0:snappy");
+
+        Map<String, String> optionsForCopy =
+                testProps.getTableOptionsForCopy(currentTableOptions);
+
+        Assertions.assertFalse(optionsForCopy.containsKey("read.batch-size"));
+        Assertions.assertFalse(optionsForCopy.containsKey("write.batch-size"));
+        Assertions.assertFalse(optionsForCopy.containsKey("file.compression.per.level"));
+    }
+
+    @Test
+    void testCatalogTableOptionsFillMissingPaimonTableOptions() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.read.batch-size", "4096");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+        testProps.initNormalizeAndCheckProps();
+
+        Map<String, String> optionsForCopy =
+                testProps.getTableOptionsForCopy(Collections.singletonMap(
+                        "path", "s3://tmp/warehouse/test.db/test"));
+
+        Assertions.assertEquals("4096", optionsForCopy.get("read.batch-size"));
     }
 
     @Test
@@ -114,6 +155,19 @@ public class AbstractPaimonPropertiesTest {
                 IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
 
         Assertions.assertTrue(exception.getMessage().contains("option-does-not-exist"));
+    }
+
+    @Test
+    void testRejectPrefixMapTableOption() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.file.compression.per.level.0", "lz4");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+
+        Assertions.assertTrue(exception.getMessage().contains("file.compression.per.level.0"));
     }
 
     @Test

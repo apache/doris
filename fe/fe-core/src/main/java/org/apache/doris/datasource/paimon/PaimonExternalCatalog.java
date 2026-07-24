@@ -136,7 +136,8 @@ public class PaimonExternalCatalog extends ExternalCatalog {
             }
             return executionAuthenticator.execute(() -> {
                 Table table = catalog.getTable(identifier);
-                Map<String, String> tableOptions = paimonProperties.getTableOptionsMap();
+                Map<String, String> tableOptions =
+                        paimonProperties.getTableOptionsForCopy(table.options());
                 return tableOptions.isEmpty() ? table : table.copy(tableOptions);
             });
         } catch (Exception e) {

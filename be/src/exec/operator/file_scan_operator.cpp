@@ -116,9 +116,14 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
+    // JNI reader selection is stored per split, but this scan-level selector cannot inspect the
+    // split yet. Older FEs may omit both the scan-level Paimon marker and split-level reader_type,
+    // so keep JNI scans on V1 until scanner selection can distinguish every compatibility shape.
     return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
            !is_load && scan_params.format_type != TFileFormatType::FORMAT_WAL &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
+           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
+           scan_params.format_type != TFileFormatType::FORMAT_LANCE &&
+           scan_params.format_type != TFileFormatType::FORMAT_JNI && !is_transactional_hive;
 }
 
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
