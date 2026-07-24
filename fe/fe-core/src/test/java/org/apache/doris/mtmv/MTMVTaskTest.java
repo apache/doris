@@ -39,12 +39,12 @@ import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmInfo;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
-import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshResult;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -375,7 +375,7 @@ public class MTMVTaskTest {
                     });
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
                     Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
-                    Mockito.anyString(), Mockito.any())).thenAnswer(new Answer<StmtExecutor>() {
+                    Mockito.anyString())).thenAnswer(new Answer<StmtExecutor>() {
                         @Override
                         public StmtExecutor answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(2);
