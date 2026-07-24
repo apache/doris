@@ -496,8 +496,7 @@ public:
               _light_work_pool(4, 32, "load_stream_test_light") {}
 
     void close_load(MockSinkClient& client, const std::vector<PTabletID>& tablets_to_commit = {},
-                    uint32_t sender_id = NORMAL_SENDER_ID,
-                    int num_incremental_streams = 0) {
+                    uint32_t sender_id = NORMAL_SENDER_ID, int num_incremental_streams = 0) {
         butil::IOBuf append_buf;
         PStreamHeader header;
         header.mutable_load_id()->set_hi(1);
@@ -1394,8 +1393,7 @@ TEST_F(LoadStreamMgrTest, incremental_close_race_orhpans_streams) {
     config::enable_debug_points = true;
     auto* debug_points = DebugPoints::instance();
     debug_points->add(debug_point_name);
-    ASSERT_TRUE(debug_points->is_enable(debug_point_name))
-            << "debug point was not registered!";
+    ASSERT_TRUE(debug_points->is_enable(debug_point_name)) << "debug point was not registered!";
 
     // Send one incremental CLOSE_LOAD from each sender.  The last one
     // makes _close_load_cnt == _total_streams (all_received).
@@ -1413,9 +1411,8 @@ TEST_F(LoadStreamMgrTest, incremental_close_race_orhpans_streams) {
     // On the fixed code the latch drains all delayed streams, so no
     // orphan remains and LoadStream is properly destroyed.
     auto remaining = _load_stream_mgr->get_load_stream_num();
-    EXPECT_EQ(remaining, 0)
-            << "stream leak detected! LoadStream should be cleaned up. "
-            << "remaining=" << remaining;
+    EXPECT_EQ(remaining, 0) << "stream leak detected! LoadStream should be cleaned up. "
+                            << "remaining=" << remaining;
 
     debug_points->remove(debug_point_name);
     config::enable_debug_points = saved_debug_points;

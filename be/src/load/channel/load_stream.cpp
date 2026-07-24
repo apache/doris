@@ -525,8 +525,7 @@ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
     return true;
 }
 
-std::vector<int64_t> LoadStream::mark_eos_sent_and_collect(int64_t stream_id,
-                                                          bool is_incremental) {
+std::vector<int64_t> LoadStream::mark_eos_sent_and_collect(int64_t stream_id, bool is_incremental) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     std::vector<int64_t> to_close;
     // A non-incremental stream is closed as soon as its own CLOSE_LOAD (and EOS)
