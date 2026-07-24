@@ -171,7 +171,6 @@ inline QueryExecutionContext create_segment_context(const QueryExecutionContext&
     }
 
     seg_ctx.binding_fields = original_ctx.binding_fields;
-    seg_ctx.null_resolver = original_ctx.null_resolver;
 
     return seg_ctx;
 }

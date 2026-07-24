@@ -24,7 +24,8 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionContext& context,
                                  const std::string& binding_key, size_t k,
                                  const std::shared_ptr<roaring::Roaring>& roaring,
-                                 const CollectionSimilarityPtr& similarity, bool use_wand) {
+                                 const CollectionSimilarityPtr& similarity, bool use_wand,
+                                 const roaring::Roaring* excluded_docs) {
     TopKCollector final_collector(k);
 
     for_each_index_segment(
@@ -32,8 +33,13 @@ void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionCo
                 float initial_threshold = final_collector.threshold();
 
                 TopKCollector seg_collector(k);
-                auto callback = [&seg_collector](uint32_t doc_id, float score) -> float {
-                    return seg_collector.collect(doc_id, score);
+                auto callback = [initial_threshold, &seg_collector, excluded_docs, seg_base](
+                                        uint32_t doc_id, float score) -> float {
+                    // Filter global NULL documents before segment Top-K truncation.
+                    if (excluded_docs != nullptr && excluded_docs->contains(doc_id + seg_base)) {
+                        return std::max(initial_threshold, seg_collector.threshold());
+                    }
+                    return std::max(initial_threshold, seg_collector.collect(doc_id, score));
                 };
 
                 if (use_wand) {
