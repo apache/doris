@@ -7,20 +7,19 @@ Each directory corresponds to one case in `segment_flusher_format_test.cpp`. The
 new Segment with the current implementation and compares it with the checked-in `.dat` file.
 A full run of both format-test suites requires the executed and checked-in Segment file manifests
 to match exactly; focused runs still verify every case they execute.
-The checked-in manifest contains 76 case directories and 154 `segment_*.dat` files: 74 ordinary
+The checked-in manifest contains 77 case directories and 156 `segment_*.dat` files: 75 ordinary
 cases produce two Segments each, and two SegmentCreator cases produce three each.
 Stable writer paths use complete file-byte equality. Partial-update paths open both files and
 compare every logical and hidden column, RowStore bytes, complete physical-column metadata after
-normalizing only top-level order and page offsets, and primary-key index entries, row count,
-bounds, and Bloom lookups. This allows the accepted physical write-order change without hiding a
-content or metadata change.
+normalizing only top-level order and page offsets, the otherwise complete Segment footer,
+primary-key index entries, row count, bounds, and the decompressed primary-key Bloom payload. This
+allows the accepted physical write-order change without hiding a content or metadata change.
 
-V2/V3 compound inverted-index and ANN files must be readable and nonempty. The test reopens both
-repeat-run artifacts and compares portable content signatures: the complete inverted-index
-field/term-to-row and null-row bitmaps, and every ANN input vector's top-1 row ID. Their raw bytes are not
-compared because CLucene embeds a wall-clock generation and other serialized bytes can depend on
-the CPU architecture and third-party library implementation. The test creator does not own V1's
-per-index files, so V1 coverage is limited to its Segment metadata.
+V1 per-index and V2/V3 compound inverted-index files, plus V2/V3 ANN files, must be readable and
+nonempty. The test reopens both repeat-run artifacts and compares portable content signatures: the
+complete inverted-index field/term-to-row and null-row bitmaps, and every ANN input vector's top-1
+row ID. Their raw bytes are not compared because CLucene embeds a wall-clock generation and other
+serialized bytes can depend on the CPU architecture and third-party library implementation.
 
 Every keyed schema contains all 20 OLAP key types in one composite key. It is equivalent to the
 legal explicit table property `"short_key" = "20"`; VARCHAR is last. The 24 key/table cases cover
@@ -44,10 +43,11 @@ Each named vertical mode asserts that the vertical SegmentFlusher path ran once 
 Compression-threshold decisions after transformation are intentionally not cross-version golden
 oracles because that behavior is allowed to change.
 
-The MOW row-binlog cases assert that sequence-aware history lookups pass the sequence suffix and
-distinguish lower and higher incoming sequence values. The BEFORE-image case decodes each generated
-Segment and checks an existing-key UPDATE, an existing-key DELETE with historical values, and a
-missing-key DELETE with null BEFORE values.
+The MOW row-binlog cases assert that sequence-aware history lookups pass the sequence suffix,
+distinguish lower and higher incoming sequence values, preserve provided partial-update values, and
+fill only missing values from history. The BEFORE-image cases decode each generated Segment and
+check existing and missing keys. A cluster-key plus sequence case stores history in an order that
+differs from primary-key order and verifies the decoded physical row location and historical values.
 
 To regenerate the files, run both format-test suites against the pre-refactor implementation and
 write into a new staging directory. The test never overwrites this checked-in directory directly:

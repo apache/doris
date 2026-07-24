@@ -115,7 +115,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
         RowsetSharedPtr rowset;
         auto st = tablet->lookup_row_key(key, tablet->tablet_schema().get(), _seq_column != nullptr,
                                          specified_rowsets, &loc, _mow_context->max_version,
-                                         segment_caches, &rowset);
+                                         segment_caches, &rowset, /*with_rowid=*/false);
         if (st.is<KEY_NOT_FOUND>()) {
             // it's an insert row
             _has_default_or_nullable = true;
