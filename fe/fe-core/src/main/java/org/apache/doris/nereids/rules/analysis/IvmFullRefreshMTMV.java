@@ -26,9 +26,10 @@ import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -128,8 +129,9 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
                     child = new NullLiteral(oldSlot.getDataType());
                 }
             } else {
-                throw new AnalysisException("IVM full refresh stream scan missing column "
-                        + oldSlot.getName() + " for table " + scan.getTable().getName());
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM full refresh stream scan missing column "
+                                + oldSlot.getName() + " for table " + scan.getTable().getName());
             }
             if (child.nullable() != oldSlot.nullable()) {
                 child = oldSlot.nullable() ? new Nullable(child) : new NonNullable(child);
