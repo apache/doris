@@ -94,6 +94,10 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     (*params)["paimon_split"] = paimon_params.paimon_split;
     (*params)["paimon_predicate"] = *paimon_predicate;
     (*params)["serialized_table"] = _scan_params->serialized_table;
+    if (_scan_params->__isset.serialized_table_cache_key &&
+        !_scan_params->serialized_table_cache_key.empty()) {
+        (*params)["serialized_table_cache_key"] = _scan_params->serialized_table_cache_key;
+    }
 
     if (_scan_params->__isset.paimon_options && !_scan_params->paimon_options.empty()) {
         for (const auto& kv : _scan_params->paimon_options) {

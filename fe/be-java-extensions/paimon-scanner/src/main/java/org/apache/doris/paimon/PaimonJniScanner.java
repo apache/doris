@@ -95,7 +95,9 @@ public class PaimonJniScanner extends JniScanner {
     private final Map<String, String> hadoopOptionParams;
     private final String paimonSplit;
     private final String paimonPredicate;
+    private final String tableCacheKey;
     private Table table;
+    private PaimonTableCache.TableCacheEntry tableCacheEntry;
     private RecordReader<InternalRow> reader;
     private IOManager ioManager;
     private String ioManagerTempDirs;
@@ -134,6 +136,9 @@ public class PaimonJniScanner extends JniScanner {
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
+        tableCacheKey = params.get("serialized_table_cache_key");
+        Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
+                "Missing required Paimon scanner parameter: serialized_table_cache_key");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
@@ -156,8 +161,7 @@ public class PaimonJniScanner extends JniScanner {
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
-                initTable();
-                initReader();
+                initTableAndReader();
                 return null;
             });
             resetDatetimeV2Precision();
@@ -367,6 +371,7 @@ public class PaimonJniScanner extends JniScanner {
                 }
             }
         } finally {
+            releaseCachedTable();
             markScannerClosedForMetrics();
         }
         if (exception != null) {
@@ -864,6 +869,31 @@ public class PaimonJniScanner extends JniScanner {
             // fail fast instead of allowing an invalid batch size to reach Paimon's read loop.
             throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
                     + "' must be an integer between 1 and 65536, but was " + value, e);
+        }
+    }
+
+    private void initTableAndReader() throws IOException {
+        PaimonTableCache.TableCacheEntry cachedEntry = PaimonTableCache.acquire(tableCacheKey);
+        if (cachedEntry != null) {
+            tableCacheEntry = cachedEntry;
+            table = cachedEntry.table();
+            paimonAllFieldNames = cachedEntry.fieldNames();
+            initReader();
+            return;
+        }
+        initTable();
+        initReader();
+        PaimonTableCache.TableCacheEntry candidate =
+                new PaimonTableCache.TableCacheEntry(table, paimonAllFieldNames);
+        if (PaimonTableCache.publish(tableCacheKey, candidate)) {
+            tableCacheEntry = candidate;
+        }
+    }
+
+    private void releaseCachedTable() {
+        if (tableCacheEntry != null) {
+            PaimonTableCache.release(tableCacheKey, tableCacheEntry);
+            tableCacheEntry = null;
         }
     }
 
