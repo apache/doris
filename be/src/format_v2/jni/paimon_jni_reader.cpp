@@ -59,7 +59,7 @@ Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
                 "missing paimon_split for paimon jni reader, possibly caused by FE/BE protocol "
                 "mismatch");
     }
-    if (!range.table_format_params.paimon_params.__isset.reader_type ||
+    if (range.table_format_params.paimon_params.__isset.reader_type &&
         range.table_format_params.paimon_params.reader_type != TPaimonReaderType::PAIMON_JNI) {
         return Status::InternalError(
                 "invalid reader_type for paimon jni reader, possibly caused by FE/BE protocol "
