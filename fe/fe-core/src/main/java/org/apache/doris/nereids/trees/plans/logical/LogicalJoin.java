@@ -704,11 +704,32 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public void computeFd(Builder builder) {
-        if (!joinType.isLeftSemiOrAntiJoin()) {
-            builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
-        }
-        if (!joinType.isRightSemiOrAntiJoin()) {
-            builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+        switch (joinType) {
+            case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
+            case CROSS_JOIN:
+                builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+                builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+                break;
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+            case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
+                builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
+                break;
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+            case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
+                builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
+                break;
+            case FULL_OUTER_JOIN:
+                // Both sides are nullable; null extension invalidates FDs from either side.
+                break;
+            default:
+                break;
         }
     }
 
