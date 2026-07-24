@@ -34,12 +34,18 @@ import java.util.Set;
 
 class IvmRewriteContextTest {
     @Test
-    void testNormalizeModeAllowsNullMtmv() {
-        IvmRewriteContext context = IvmRewriteContext.normalize();
+    void testCreateModeAllowsNullMtmv() {
+        IvmRewriteContext context = IvmRewriteContext.create();
 
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE, context.getMode());
+        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE, context.getMode());
+        Assertions.assertTrue(context.isCreate());
         Assertions.assertNull(context.getMtmv());
         Assertions.assertFalse(context.isIncludeExhaustedStreams());
+    }
+
+    @Test
+    void testNormalizeModeRequiresMtmv() {
+        Assertions.assertThrows(NullPointerException.class, () -> IvmRewriteContext.normalize(null));
     }
 
     @Test

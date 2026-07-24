@@ -33,13 +33,16 @@ import java.util.Set;
  * Statement-level input for all internal IVM rewrite flows.
  *
  * <p>The context is installed on the statement and selects which IVM path is active:
- * normalize when an IVM materialized view is analyzed, incremental when an incremental
- * refresh plan is generated, and full when a complete refresh plan uses IVM stream scans.
+ * create when an IVM materialized view is created, normalize when an IVM materialized view is analyzed,
+ * incremental when an incremental refresh plan is generated, and full when a complete refresh plan uses IVM
+ * stream scans.
  * It contains rewrite configuration only; per-statement rewrite artifacts are stored in
  * {@link IvmRewriteResult}.
  */
 public class IvmRewriteContext {
     public enum Mode {
+        /** Normalize an IVM materialized-view query during CREATE MATERIALIZED VIEW. */
+        CREATE,
         /** Normalize the materialized-view query and collect its IVM layout metadata. */
         NORMALIZE,
         /** Rewrite the normalized query into an incremental refresh delta plan. */
@@ -62,7 +65,7 @@ public class IvmRewriteContext {
             Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
             Optional<StreamReadMode> fullRefreshNonPctReadMode) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
-        this.mtmv = mode == Mode.NORMALIZE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
+        this.mtmv = mode == Mode.CREATE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.includeExhaustedStreams = includeExhaustedStreams;
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = new HashMap<>();
         Objects.requireNonNull(fullRefreshResetPartitionIds, "fullRefreshResetPartitionIds can not be null")
@@ -73,8 +76,8 @@ public class IvmRewriteContext {
                 fullRefreshNonPctReadMode, "fullRefreshNonPctReadMode can not be null");
     }
 
-    public static IvmRewriteContext normalize() {
-        return new IvmRewriteContext(Mode.NORMALIZE, null, false);
+    public static IvmRewriteContext create() {
+        return new IvmRewriteContext(Mode.CREATE, null, false);
     }
 
     public static IvmRewriteContext normalize(MTMV mtmv) {
@@ -98,6 +101,10 @@ public class IvmRewriteContext {
 
     public Mode getMode() {
         return mode;
+    }
+
+    public boolean isCreate() {
+        return mode == Mode.CREATE;
     }
 
     public MTMV getMtmv() {

@@ -312,7 +312,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         checkUserSpecifiedKeysForIvm();
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.normalize()) : Optional.empty());
+                this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.create()) : Optional.empty());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());

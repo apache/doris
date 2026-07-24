@@ -114,7 +114,7 @@ class IvmNormalizeMTMVTest {
     @Test
     void testIvmRewriteContextEnablesNormalizeWithoutSessionVariable() {
         JobContext jobContext = newJobContextForRoot(scan, false, Collections.emptySet(),
-                Optional.of(new IvmRewriteContext(IvmRewriteContext.Mode.NORMALIZE, null, false)));
+                Optional.of(new IvmRewriteContext(IvmRewriteContext.Mode.CREATE, null, false)));
         Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
@@ -931,7 +931,7 @@ class IvmNormalizeMTMVTest {
         statementContext.setExcludedTriggerTables(excludedTriggerTables);
         Optional<IvmRewriteContext> effectiveIvmRewriteContext = ivmRewriteContext.isPresent()
                 ? ivmRewriteContext
-                : enableIvmNormalRewrite ? Optional.of(IvmRewriteContext.normalize()) : Optional.empty();
+                : enableIvmNormalRewrite ? Optional.of(IvmRewriteContext.create()) : Optional.empty();
         statementContext.setIvmRewriteContext(effectiveIvmRewriteContext);
         CascadesContext cascadesContext = CascadesContext.initContext(statementContext, root, PhysicalProperties.ANY);
         return new JobContext(cascadesContext, PhysicalProperties.ANY);
