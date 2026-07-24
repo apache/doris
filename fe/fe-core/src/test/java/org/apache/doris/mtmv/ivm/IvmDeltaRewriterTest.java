@@ -185,6 +185,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     @Test
     void testAggJoinWithTwoDeltaBranchesKeepsAggInputsBound() {
+        ConnectContext connectContext = newConnectContext();
         LogicalOlapScan leftScan = buildScanForTable(201, "agg_join_left_tbl");
         LogicalOlapScan rightScan = buildScanForTable(202, "agg_join_right_tbl");
         LogicalProject<LogicalOlapScan> leftProject = new LogicalProject<>(
@@ -207,7 +208,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                         new Alias(new Sum(new Add(join.getOutput().get(0), join.getOutput().get(1))),
                                 "total")),
                 true, Optional.empty(), join);
-        PlanBundle bundle = normalizeAggPlan(agg);
+        PlanBundle bundle = normalizeAggPlan(agg, connectContext);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         mtmv.setId(201_001L);
         registerTestStream(leftScan.getTable(), mtmv.getId());
