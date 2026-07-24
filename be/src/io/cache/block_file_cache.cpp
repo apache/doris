@@ -26,6 +26,7 @@
 #include <exception>
 #include <fstream>
 #include <unordered_set>
+#include <utility>
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -537,7 +538,8 @@ Status BlockFileCache::initialize() {
 Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lock) {
     DCHECK(!_is_initialized);
     _is_initialized = true;
-    if (config::file_cache_background_lru_dump_tail_record_num > 0) {
+    const bool memory_storage = is_memory_storage();
+    if (!memory_storage && config::file_cache_background_lru_dump_tail_record_num > 0) {
         // requirements:
         // 1. restored data should not overwrite the last dump
         // 2. restore should happen before load and async load
@@ -547,6 +549,9 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
         restore_lru_queues_from_disk(cache_lock);
     }
     RETURN_IF_ERROR(_storage->init(this));
+    if (memory_storage) {
+        LOG(INFO) << "Skip LRU dump and restore for memory storage, path=" << _cache_base_path;
+    }
 
     if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
         if (auto* meta_store = fs_storage->get_meta_store()) {
@@ -561,10 +566,13 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     _cache_background_block_lru_update_thread =
             std::thread(&BlockFileCache::run_background_block_lru_update, this);
 
-    // Initialize LRU dump thread and restore queues
-    _cache_background_lru_dump_thread = std::thread(&BlockFileCache::run_background_lru_dump, this);
-    _cache_background_lru_log_replay_thread =
-            std::thread(&BlockFileCache::run_background_lru_log_replay, this);
+    if (!memory_storage) {
+        // Initialize LRU dump thread and restore queues
+        _cache_background_lru_dump_thread =
+                std::thread(&BlockFileCache::run_background_lru_dump, this);
+        _cache_background_lru_log_replay_thread =
+                std::thread(&BlockFileCache::run_background_lru_log_replay, this);
+    }
 
     return Status::OK();
 }
@@ -1263,19 +1271,22 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     }
     // use this strategy in scenarios where there is insufficient disk capacity or insufficient number of inodes remaining
     // directly eliminate 5 times the size of the space
-    if (_disk_resource_limit_mode) {
-        size = 5 * size;
-    }
+    const bool disk_resource_limit_mode = _disk_resource_limit_mode.load(std::memory_order_relaxed);
+    const size_t eviction_size = disk_resource_limit_mode ? 5 * size : size;
 
     auto query_context = config::enable_file_cache_query_limit &&
                                          (context.query_id.hi != 0 || context.query_id.lo != 0)
                                  ? get_query_context(context.query_id, cache_lock)
                                  : nullptr;
     if (!query_context) {
-        return try_reserve_for_lru(hash, nullptr, context, offset, size, cache_lock);
+        return try_reserve_for_lru(hash, nullptr, context, offset, eviction_size, cache_lock);
     } else if (query_context->get_cache_size(cache_lock) + size <=
                query_context->get_max_cache_size()) {
-        return try_reserve_for_lru(hash, query_context, context, offset, size, cache_lock);
+        if (!try_reserve_for_lru(hash, nullptr, context, offset, eviction_size, cache_lock)) {
+            return false;
+        }
+        query_context->reserve(hash, offset, size, cache_lock);
+        return true;
     }
     int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
@@ -1292,12 +1303,12 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     size_t max_size = queue.get_max_size();
     auto is_overflow = [&] {
-        return _disk_resource_limit_mode ? removed_size < size
-                                         : cur_cache_size + size - removed_size > _capacity ||
-                                                   (queue_size + size - removed_size > max_size) ||
-                                                   (query_context_cache_size + size -
-                                                            (removed_size + ghost_remove_size) >
-                                                    query_context->get_max_cache_size());
+        return disk_resource_limit_mode ? removed_size < eviction_size
+                                        : cur_cache_size + size - removed_size > _capacity ||
+                                                  (queue_size + size - removed_size > max_size) ||
+                                                  (query_context_cache_size + size -
+                                                           (removed_size + ghost_remove_size) >
+                                                   query_context->get_max_cache_size());
     };
 
     /// Select the cache from the LRU queue held by query for expulsion.
@@ -1344,7 +1355,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
     if (is_overflow() &&
-        !try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)) {
+        !try_reserve_from_other_queue(context.cache_type, eviction_size, cur_time, cache_lock)) {
         return false;
     }
     query_context->reserve(hash, offset, size, cache_lock);
@@ -1522,7 +1533,7 @@ bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size, size_t c
         ret = (removed_size < need_size);
         return ret;
     }
-    if (_disk_resource_limit_mode) {
+    if (_disk_resource_limit_mode.load(std::memory_order_relaxed)) {
         ret = (removed_size < need_size);
     } else {
         ret = (cur_cache_size + need_size - removed_size > _capacity);
@@ -1681,7 +1692,9 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.meta.type = type;
         key.meta.expiration_time = expiration_time;
         key.meta.tablet_id = tablet_id;
-        if (sync) {
+        // Memory payloads are replaced in place by key, so a stale key-only async delete could
+        // erase a newer payload downloaded after this block's metadata is removed.
+        if (sync || is_memory_storage()) {
             int64_t duration_ns = 0;
             Status st;
             {
@@ -1980,13 +1993,41 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
     return 0;
 }
 
+namespace {
+
+const char* file_cache_storage_type_to_string(FileCacheStorageType type) {
+    switch (type) {
+    case FileCacheStorageType::DISK:
+        return "disk";
+    case FileCacheStorageType::MEMORY:
+        return "memory";
+    }
+    DORIS_CHECK(false) << "Unknown file cache storage type: " << type;
+    __builtin_unreachable();
+}
+
+} // namespace
+
+bool BlockFileCache::is_memory_storage() const {
+    return _storage->get_type() == FileCacheStorageType::MEMORY;
+}
+
+size_t BlockFileCache::calc_size_percentage_unlocked(std::lock_guard<std::mutex>&) const {
+    if (_capacity == 0) {
+        return 0;
+    }
+    return static_cast<size_t>(static_cast<double>(_cur_cache_size) /
+                               static_cast<double>(_capacity) * 100);
+}
+
 std::string BlockFileCache::reset_capacity(size_t new_capacity) {
     using namespace std::chrono;
     int64_t space_released = 0;
     size_t old_capacity = 0;
+    size_t size_percentage = 0;
     std::stringstream ss;
     ss << "finish reset_capacity, path=" << _cache_base_path;
-    auto adjust_start_time = steady_clock::time_point();
+    auto adjust_start_time = steady_clock::now();
     {
         SCOPED_CACHE_LOCK(_mutex, this);
         if (new_capacity < _capacity && new_capacity < _cur_cache_size) {
@@ -1998,14 +2039,20 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                     if (need_remove_size <= 0) {
                         break;
                     }
+                    auto* cell = get_cell(entry_key, entry_offset, cache_lock);
+                    if (!cell->releasable()) {
+                        TEST_SYNC_POINT_CALLBACK(
+                                "BlockFileCache::reset_capacity::before_lock_busy_block");
+                        std::lock_guard block_lock(cell->file_block->_mutex);
+                        // The last holder can release the block before this lock is acquired.
+                        if (!cell->releasable()) {
+                            cell->file_block->set_deleting();
+                            continue;
+                        }
+                    }
                     need_remove_size -= entry_size;
                     space_released += entry_size;
                     queue_released += entry_size;
-                    auto* cell = get_cell(entry_key, entry_offset, cache_lock);
-                    if (!cell->releasable()) {
-                        cell->file_block->set_deleting();
-                        continue;
-                    }
                     to_evict.push_back(cell);
                 }
                 for (auto& cell : to_evict) {
@@ -2023,17 +2070,22 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
             ss << " index_queue released " << queue_released;
             queue_released = remove_blocks(_ttl_queue);
             ss << " ttl_queue released " << queue_released;
-
-            _disk_resource_limit_mode = true;
-            _disk_limit_mode_metrics->set_value(1);
             ss << " total_space_released=" << space_released;
         }
         old_capacity = _capacity;
         _capacity = new_capacity;
+        size_percentage = calc_size_percentage_unlocked(cache_lock);
         _cache_capacity_metrics->set_value(_capacity);
+        _cur_cache_size_metrics->set_value(_cur_cache_size);
+        _disk_limit_mode_metrics->set_value(
+                _disk_resource_limit_mode.load(std::memory_order_relaxed));
+        _need_evict_cache_in_advance_metrics->set_value(
+                _need_evict_cache_in_advance.load(std::memory_order_relaxed));
     }
-    auto use_time = duration_cast<milliseconds>(steady_clock::time_point() - adjust_start_time);
+    auto use_time = duration_cast<milliseconds>(steady_clock::now() - adjust_start_time);
     LOG(INFO) << "Finish tag deleted block. path=" << _cache_base_path
+              << " storage_type=" << file_cache_storage_type_to_string(_storage->get_type())
+              << " size_percent=" << size_percentage
               << " use_time=" << cast_set<int64_t>(use_time.count());
     ss << " old_capacity=" << old_capacity << " new_capacity=" << new_capacity;
     LOG(INFO) << ss.str();
@@ -2041,13 +2093,48 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
 }
 
 void BlockFileCache::check_disk_resource_limit() {
-    if (_storage->get_type() != FileCacheStorageType::DISK) {
+    // ATTN: due to that can be changed dynamically, set it to default value if it's invalid
+    // FIXME: reject with config validator
+    if (config::file_cache_enter_disk_resource_limit_mode_percent <=
+        config::file_cache_exit_disk_resource_limit_mode_percent) {
+        LOG_WARNING("config error, set to default value")
+                .tag("enter", config::file_cache_enter_disk_resource_limit_mode_percent)
+                .tag("exit", config::file_cache_exit_disk_resource_limit_mode_percent);
+        config::file_cache_enter_disk_resource_limit_mode_percent = 88;
+        config::file_cache_exit_disk_resource_limit_mode_percent = 80;
+    }
+    size_t size_percentage = 0;
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        size_percentage = calc_size_percentage_unlocked(cache_lock);
+    }
+    auto is_insufficient = [](size_t percentage) {
+        return std::cmp_greater_equal(percentage,
+                                      config::file_cache_enter_disk_resource_limit_mode_percent);
+    };
+    const bool previous_mode = _disk_resource_limit_mode.load(std::memory_order_relaxed);
+    bool current_mode = previous_mode;
+    if (is_memory_storage()) {
+        bool is_size_insufficient = is_insufficient(size_percentage);
+        if (is_size_insufficient) {
+            current_mode = true;
+        } else if (current_mode &&
+                   size_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) {
+            current_mode = false;
+        }
+        _disk_resource_limit_mode.store(current_mode, std::memory_order_relaxed);
+        _disk_limit_mode_metrics->set_value(current_mode);
+        if (previous_mode != current_mode) {
+            LOG(INFO) << "Memory file cache resource limit mode changed: file_cache="
+                      << get_base_path() << " enabled=" << current_mode
+                      << " size_percent=" << size_percentage;
+        }
         return;
     }
 
-    bool previous_mode = _disk_resource_limit_mode;
     if (_capacity > _cur_cache_size) {
-        _disk_resource_limit_mode = false;
+        current_mode = false;
+        _disk_resource_limit_mode.store(current_mode, std::memory_order_relaxed);
         _disk_limit_mode_metrics->set_value(0);
     }
     std::pair<int, int> percent;
@@ -2057,37 +2144,24 @@ void BlockFileCache::check_disk_resource_limit() {
         return;
     }
     auto [space_percentage, inode_percentage] = percent;
-    auto is_insufficient = [](const int& percentage) {
-        return percentage >= config::file_cache_enter_disk_resource_limit_mode_percent;
-    };
     DCHECK_GE(space_percentage, 0);
     DCHECK_LE(space_percentage, 100);
     DCHECK_GE(inode_percentage, 0);
     DCHECK_LE(inode_percentage, 100);
-    // ATTN: due to that can be changed dynamically, set it to default value if it's invalid
-    // FIXME: reject with config validator
-    if (config::file_cache_enter_disk_resource_limit_mode_percent <
-        config::file_cache_exit_disk_resource_limit_mode_percent) {
-        LOG_WARNING("config error, set to default value")
-                .tag("enter", config::file_cache_enter_disk_resource_limit_mode_percent)
-                .tag("exit", config::file_cache_exit_disk_resource_limit_mode_percent);
-        config::file_cache_enter_disk_resource_limit_mode_percent = 88;
-        config::file_cache_exit_disk_resource_limit_mode_percent = 80;
-    }
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
     if (is_space_insufficient || is_inode_insufficient) {
-        _disk_resource_limit_mode = true;
-        _disk_limit_mode_metrics->set_value(1);
-    } else if (_disk_resource_limit_mode &&
+        current_mode = true;
+    } else if (current_mode &&
                (space_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
-        _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
+        current_mode = false;
     }
-    if (previous_mode != _disk_resource_limit_mode) {
+    _disk_resource_limit_mode.store(current_mode, std::memory_order_relaxed);
+    _disk_limit_mode_metrics->set_value(current_mode);
+    if (previous_mode != current_mode) {
         // add log for disk resource limit mode switching
-        if (_disk_resource_limit_mode) {
+        if (current_mode) {
             LOG(WARNING) << "Entering disk resource limit mode: file_cache=" << get_base_path()
                          << " space_percent=" << space_percentage
                          << " inode_percent=" << inode_percentage
@@ -2101,7 +2175,7 @@ void BlockFileCache::check_disk_resource_limit() {
                       << " inode_percent=" << inode_percentage << " exit threshold="
                       << config::file_cache_exit_disk_resource_limit_mode_percent;
         }
-    } else if (_disk_resource_limit_mode) {
+    } else if (current_mode) {
         // print log for disk resource limit mode running, but less frequently
         LOG_EVERY_N(WARNING, 10) << "file_cache=" << get_base_path()
                                  << " space_percent=" << space_percentage
@@ -2113,25 +2187,6 @@ void BlockFileCache::check_disk_resource_limit() {
 }
 
 void BlockFileCache::check_need_evict_cache_in_advance() {
-    if (_storage->get_type() != FileCacheStorageType::DISK) {
-        return;
-    }
-
-    std::pair<int, int> percent;
-    int ret = disk_used_percentage(_cache_base_path, &percent);
-    if (ret != 0) {
-        LOG_ERROR("").tag("file cache path", _cache_base_path).tag("error", strerror(errno));
-        return;
-    }
-    auto [space_percentage, inode_percentage] = percent;
-    int size_percentage = static_cast<int>(_cur_cache_size * 100 / _capacity);
-    auto is_insufficient = [](const int& percentage) {
-        return percentage >= config::file_cache_enter_need_evict_cache_in_advance_percent;
-    };
-    DCHECK_GE(space_percentage, 0);
-    DCHECK_LE(space_percentage, 100);
-    DCHECK_GE(inode_percentage, 0);
-    DCHECK_LE(inode_percentage, 100);
     // ATTN: due to that can be changed dynamically, set it to default value if it's invalid
     // FIXME: reject with config validator
     if (config::file_cache_enter_need_evict_cache_in_advance_percent <=
@@ -2142,23 +2197,62 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_enter_need_evict_cache_in_advance_percent = 78;
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
-    bool previous_mode = _need_evict_cache_in_advance;
+    size_t size_percentage = 0;
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        size_percentage = calc_size_percentage_unlocked(cache_lock);
+    }
+    auto is_insufficient = [](size_t percentage) {
+        return std::cmp_greater_equal(percentage,
+                                      config::file_cache_enter_need_evict_cache_in_advance_percent);
+    };
+    const bool previous_mode = _need_evict_cache_in_advance.load(std::memory_order_relaxed);
+    bool current_mode = previous_mode;
+    if (is_memory_storage()) {
+        bool is_size_insufficient = is_insufficient(size_percentage);
+        if (is_size_insufficient) {
+            current_mode = true;
+        } else if (current_mode &&
+                   size_percentage < config::file_cache_exit_need_evict_cache_in_advance_percent) {
+            current_mode = false;
+        }
+        _need_evict_cache_in_advance.store(current_mode, std::memory_order_relaxed);
+        _need_evict_cache_in_advance_metrics->set_value(current_mode);
+        if (previous_mode != current_mode) {
+            LOG(INFO) << "Memory file cache evict-in-advance mode changed: file_cache="
+                      << get_base_path() << " enabled=" << current_mode
+                      << " size_percent=" << size_percentage;
+        }
+        return;
+    }
+
+    std::pair<int, int> percent;
+    int ret = disk_used_percentage(_cache_base_path, &percent);
+    if (ret != 0) {
+        LOG_ERROR("").tag("file cache path", _cache_base_path).tag("error", strerror(errno));
+        return;
+    }
+    auto [space_percentage, inode_percentage] = percent;
+    DCHECK_GE(space_percentage, 0);
+    DCHECK_LE(space_percentage, 100);
+    DCHECK_GE(inode_percentage, 0);
+    DCHECK_LE(inode_percentage, 100);
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
     bool is_size_insufficient = is_insufficient(size_percentage);
     if (is_space_insufficient || is_inode_insufficient || is_size_insufficient) {
-        _need_evict_cache_in_advance = true;
-        _need_evict_cache_in_advance_metrics->set_value(1);
-    } else if (_need_evict_cache_in_advance &&
+        current_mode = true;
+    } else if (current_mode &&
                (space_percentage < config::file_cache_exit_need_evict_cache_in_advance_percent) &&
                (inode_percentage < config::file_cache_exit_need_evict_cache_in_advance_percent) &&
                (size_percentage < config::file_cache_exit_need_evict_cache_in_advance_percent)) {
-        _need_evict_cache_in_advance = false;
-        _need_evict_cache_in_advance_metrics->set_value(0);
+        current_mode = false;
     }
-    if (previous_mode != _need_evict_cache_in_advance) {
+    _need_evict_cache_in_advance.store(current_mode, std::memory_order_relaxed);
+    _need_evict_cache_in_advance_metrics->set_value(current_mode);
+    if (previous_mode != current_mode) {
         // add log for evict cache in advance mode switching
-        if (_need_evict_cache_in_advance) {
+        if (current_mode) {
             LOG(WARNING) << "Entering evict cache in advance mode: "
                          << "file_cache=" << get_base_path()
                          << " space_percent=" << space_percentage
@@ -2175,7 +2269,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
                       << " size_percent=" << size_percentage << " exit threshold="
                       << config::file_cache_exit_need_evict_cache_in_advance_percent;
         }
-    } else if (_need_evict_cache_in_advance) {
+    } else if (current_mode) {
         // print log for evict cache in advance mode running, but less frequently
         LOG_EVERY_N(WARNING, 10) << "file_cache=" << get_base_path()
                                  << " space_percent=" << space_percentage
@@ -2197,7 +2291,7 @@ void BlockFileCache::run_background_monitor() {
         if (config::enable_evict_file_cache_in_advance) {
             check_need_evict_cache_in_advance();
         } else {
-            _need_evict_cache_in_advance = false;
+            _need_evict_cache_in_advance.store(false, std::memory_order_relaxed);
             _need_evict_cache_in_advance_metrics->set_value(0);
         }
 
@@ -2327,7 +2421,7 @@ void BlockFileCache::run_background_evict_in_advance() {
         batch = config::file_cache_evict_in_advance_batch_bytes;
 
         // Skip if eviction not needed or too many pending recycles
-        if (!_need_evict_cache_in_advance ||
+        if (!_need_evict_cache_in_advance.load(std::memory_order_relaxed) ||
             _recycle_keys.size_approx() >=
                     config::file_cache_evict_in_advance_recycle_keys_num_threshold) {
             continue;
@@ -2415,7 +2509,8 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     std::vector<FileBlockCell*> to_evict;
     auto collect_eliminate_fragments = [&](LRUQueue& queue) {
         for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-            if (!_disk_resource_limit_mode || removed_size >= size) {
+            if (!_disk_resource_limit_mode.load(std::memory_order_relaxed) ||
+                removed_size >= size) {
                 break;
             }
             auto* cell = get_cell(entry_key, entry_offset, cache_lock);
@@ -2448,7 +2543,7 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     std::string reason = "async load";
     remove_file_blocks(to_evict, cache_lock, true, reason);
 
-    return !_disk_resource_limit_mode || removed_size >= size;
+    return !_disk_resource_limit_mode.load(std::memory_order_relaxed) || removed_size >= size;
 }
 
 void BlockFileCache::clear_need_update_lru_blocks() {
@@ -2516,6 +2611,9 @@ size_t BlockFileCache::replay_lru_logs_once() {
 }
 
 void BlockFileCache::dump_lru_queues(bool force) {
+    if (is_memory_storage()) {
+        return;
+    }
     std::unique_lock dump_lock(_dump_lru_queues_mtx);
     if (config::file_cache_background_lru_dump_tail_record_num > 0 &&
         !ExecEnv::GetInstance()->get_is_upgrading()) {
@@ -2552,6 +2650,11 @@ void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& c
 
 std::map<std::string, double> BlockFileCache::get_stats() {
     std::map<std::string, double> stats;
+    size_t size_percentage = 0;
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        size_percentage = calc_size_percentage_unlocked(cache_lock);
+    }
     stats["hits_ratio"] = (double)_hit_ratio->get_value();
     stats["hits_ratio_5m"] = (double)_hit_ratio_5m->get_value();
     stats["hits_ratio_1h"] = (double)_hit_ratio_1h->get_value();
@@ -2594,8 +2697,12 @@ std::map<std::string, double> BlockFileCache::get_stats() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] =
+            (double)_need_evict_cache_in_advance.load(std::memory_order_relaxed);
+    stats["disk_resource_limit_mode"] =
+            (double)_disk_resource_limit_mode.load(std::memory_order_relaxed);
+    stats["size_percentage"] = (double)size_percentage;
+    stats["storage_type"] = (double)_storage->get_type();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
@@ -2647,8 +2754,14 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] =
+            (double)_need_evict_cache_in_advance.load(std::memory_order_relaxed);
+    stats["disk_resource_limit_mode"] =
+            (double)_disk_resource_limit_mode.load(std::memory_order_relaxed);
+    stats["size_percentage"] = _capacity == 0 ? 0
+                                              : static_cast<double>(_cur_cache_size) /
+                                                        static_cast<double>(_capacity) * 100;
+    stats["storage_type"] = (double)_storage->get_type();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();

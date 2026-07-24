@@ -35,6 +35,9 @@ size_t file_cache_type_index(FileCacheType type) {
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
                                           const UInt128Wrapper hash, const size_t offset,
                                           const size_t size) {
+    if (_mgr->is_memory_storage()) {
+        return;
+    }
     if (config::file_cache_background_lru_dump_tail_record_num <= 0) {
         return;
     }

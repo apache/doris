@@ -242,4 +242,31 @@ TEST_F(FileCacheActionTest, clear_value_uses_async_remove) {
     EXPECT_TRUE(_cache->get_blocks_by_key(hash).empty());
 }
 
+TEST_F(FileCacheActionTest, reset_memory_capacity_without_memory_directory) {
+    reset_file_cache_factory();
+    std::filesystem::remove_all("memory");
+    doris::io::FileCacheSettings settings;
+    settings.storage = "memory";
+    settings.capacity = 1024 * 1024;
+    settings.max_file_block_size = 64 * 1024;
+    settings.query_queue_size = 1024 * 1024;
+    settings.query_queue_elements = 16;
+    auto* factory = doris::io::FileCacheFactory::instance();
+    ASSERT_TRUE(factory->create_file_cache("memory", settings).ok());
+    _cache = factory->get_by_path("memory");
+    ASSERT_NE(_cache, nullptr);
+
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+    req._params["op"] = "reset";
+    req._params["path"] = "memory";
+    req._params["capacity"] = std::to_string(2 * 1024 * 1024);
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(_cache->capacity(), 2 * 1024 * 1024);
+    EXPECT_EQ(factory->get_capacity(), 2 * 1024 * 1024);
+}
+
 } // namespace doris
