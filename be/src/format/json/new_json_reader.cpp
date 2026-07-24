@@ -1029,7 +1029,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assert_mutable().get();
         RETURN_IF_ERROR(_simdjson_write_data_to_column<false>(
-                val, slot_descs[column_index]->type(), column_ptr,
+                val, slot_descs[column_index]->get_data_type_ptr(), column_ptr,
                 slot_descs[column_index]->col_name(), _serdes[column_index], valid));
         if (!(*valid)) {
             return Status::OK();
@@ -1143,7 +1143,40 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         }
     }
 
-    auto primitive_type = type_desc->get_primitive_type();
+    auto primitive_type = remove_nullable(type_desc)->get_primitive_type();
+    bool cast_json_number_to_bool = primitive_type == TYPE_BOOLEAN;
+    if (!cast_json_number_to_bool && _is_load &&
+        value.type() == simdjson::ondemand::json_type::number && _state != nullptr &&
+        _params.__isset.dest_tuple_id && _params.__isset.dest_sid_to_src_sid_without_trans) {
+        auto* dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
+        if (dest_tuple_desc != nullptr) {
+            SlotId src_slot_id = -1;
+            auto lower_column_name = to_lower(column_name);
+            for (auto* slot_desc : _file_slot_descs) {
+                if (to_lower(slot_desc->col_name()) == lower_column_name) {
+                    src_slot_id = slot_desc->id();
+                    break;
+                }
+            }
+            if (src_slot_id != -1) {
+                for (const auto& [dest_slot_id, mapped_src_slot_id] :
+                     _params.dest_sid_to_src_sid_without_trans) {
+                    if (mapped_src_slot_id != src_slot_id) {
+                        continue;
+                    }
+                    for (auto* slot_desc : dest_tuple_desc->slots()) {
+                        if (slot_desc->id() == dest_slot_id) {
+                            cast_json_number_to_bool =
+                                    remove_nullable(slot_desc->type())->get_primitive_type() ==
+                                    TYPE_BOOLEAN;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
     if (_is_load || !is_complex_type(primitive_type)) {
         if (value.type() == simdjson::ondemand::json_type::string) {
             std::string_view value_string;
@@ -1161,6 +1194,23 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             }
 
             Slice slice {value_string.data(), value_string.size()};
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
+
+        } else if (cast_json_number_to_bool &&
+                   value.type() == simdjson::ondemand::json_type::number) {
+            bool is_nonzero = false;
+            for (char c : value.raw_json_token()) {
+                if (c == 'e' || c == 'E') {
+                    break;
+                }
+                if (c >= '1' && c <= '9') {
+                    is_nonzero = true;
+                    break;
+                }
+            }
+            const char* str_value = is_nonzero ? "1" : "0";
+            Slice slice {str_value, 1};
             RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
                                                                        _serde_options));
 
@@ -1534,9 +1584,9 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 return Status::OK();
             }
         } else {
-            RETURN_IF_ERROR(_simdjson_write_data_to_column<true>(json_value, slot_desc->type(),
-                                                                 column_ptr, slot_desc->col_name(),
-                                                                 _serdes[i], valid));
+            RETURN_IF_ERROR(_simdjson_write_data_to_column<true>(
+                    json_value, slot_desc->get_data_type_ptr(), column_ptr, slot_desc->col_name(),
+                    _serdes[i], valid));
             if (!(*valid)) {
                 return Status::OK();
             }
