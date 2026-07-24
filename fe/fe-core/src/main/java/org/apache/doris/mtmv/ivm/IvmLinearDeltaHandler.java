@@ -114,7 +114,7 @@ class IvmLinearDeltaHandler {
     }
 
     Optional<IvmDeltaRewriteResult> rewriteProject(LogicalProject<? extends Plan> project,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext ctx) {
         Optional<IvmDeltaRewriteResult> childResult = project.child().accept(visitor, ctx);
         if (!childResult.isPresent()) {
             return Optional.empty();
@@ -144,18 +144,18 @@ class IvmLinearDeltaHandler {
     }
 
     Optional<IvmDeltaRewriteResult> rewriteFilter(LogicalFilter<? extends Plan> filter,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext ctx) {
         return rewritePassThroughPlan(filter, visitor, ctx, false);
     }
 
     Optional<IvmDeltaRewriteResult> rewriteSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext ctx) {
         return rewritePassThroughPlan(alias, visitor, ctx, true);
     }
 
     private Optional<IvmDeltaRewriteResult> rewritePassThroughPlan(UnaryPlan<? extends Plan> plan,
             IvmDeltaRewriteVisitor visitor,
-            IvmRefreshContext ctx, boolean remapHiddenSlotsFromOutput) {
+            IvmIncrRefreshContext ctx, boolean remapHiddenSlotsFromOutput) {
         Optional<IvmDeltaRewriteResult> childResult = plan.child().accept(visitor, ctx);
         if (!childResult.isPresent()) {
             return Optional.empty();
@@ -174,7 +174,7 @@ class IvmLinearDeltaHandler {
     }
 
     Optional<IvmDeltaRewriteResult> rewriteUnion(LogicalUnion union,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext ctx) {
         List<IvmDeltaRewriteResult> childResults = new ArrayList<>();
         for (int i = 0; i < union.children().size(); i++) {
             Optional<IvmDeltaRewriteResult> childResult = union.child(i).accept(visitor, ctx);
@@ -202,7 +202,7 @@ class IvmLinearDeltaHandler {
     }
 
     Optional<IvmDeltaRewriteResult> rewriteRepeat(LogicalRepeat<? extends Plan> repeat,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext ctx) {
         Optional<IvmDeltaRewriteResult> childResult = repeat.child().accept(visitor, ctx);
         if (!childResult.isPresent()) {
             return Optional.empty();

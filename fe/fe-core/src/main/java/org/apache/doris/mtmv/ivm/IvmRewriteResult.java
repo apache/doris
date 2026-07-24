@@ -25,7 +25,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Unified IVM rewrite state stored in CascadesContext.
+ * Unified, mutable artifacts produced and consumed by the internal IVM rewrite flows.
+ *
+ * <p>Normalize rewrite populates the normalized plan, row-id determinism, aggregate metadata,
+ * and plan signature. Incremental refresh rewrite consumes those artifacts to build the delta
+ * plan, while full refresh consumes the plan signature when rebuilding the IVM baseline. The
+ * result is statement-scoped and stored in {@code CascadesContext}.
  */
 public class IvmRewriteResult {
     // insertion-ordered so row-ids appear in scan order

@@ -162,7 +162,7 @@ public class IvmDeltaRewriteHelper {
      * while fixing adapter placeholders such as delete_sign, sequence, and version.
      */
     public Plan finalizeQuery(Pair<Plan, List<LogicalProject<?>>> prefixChain,
-            IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
+            IvmDeltaRewriteResult result, IvmIncrRefreshContext ctx) {
         LogicalProject<?> finalProject = makeDeleteSignProject(result, ctx);
         List<LogicalProject<?>> projects = prefixChain.second;
         if (projects.isEmpty()) {
@@ -194,7 +194,7 @@ public class IvmDeltaRewriteHelper {
                 .anyMatch(this::isSinkHiddenColumnPlaceholder);
     }
 
-    private LogicalProject<?> makeDeleteSignProject(IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
+    private LogicalProject<?> makeDeleteSignProject(IvmDeltaRewriteResult result, IvmIncrRefreshContext ctx) {
         List<Slot> output = result.plan.getOutput();
         List<String> insertedColumns = ctx.getMtmv().getInsertedColumnNames();
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(

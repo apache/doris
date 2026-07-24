@@ -35,7 +35,7 @@ import java.util.function.Consumer;
  * <p>TSO positions are now obtained from {@code OlapTableStream} per-partition offsets
  * in {@link IvmDeltaRewriteState} rather than stored here.
  */
-public class IvmRefreshContext {
+public class IvmIncrRefreshContext {
     private final MTMV mtmv;
     private final ConnectContext connectContext;
     private final IvmRewriteResult rewriteResult;
@@ -43,19 +43,19 @@ public class IvmRefreshContext {
     private final String auditStmt;
     private final Consumer<String> queryIdConsumer;
 
-    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
+    public IvmIncrRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
             boolean includeExhaustedStreams) {
         this(mtmv, connectContext, rewriteResult, includeExhaustedStreams, null, null);
     }
 
-    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext,
+    public IvmIncrRefreshContext(MTMV mtmv, ConnectContext connectContext,
             String auditStmt, Consumer<String> queryIdConsumer) {
         this(mtmv, connectContext, null, false,
                 Objects.requireNonNull(auditStmt, "auditStmt can not be null"),
                 Objects.requireNonNull(queryIdConsumer, "queryIdConsumer can not be null"));
     }
 
-    private IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
+    private IvmIncrRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult,
             boolean includeExhaustedStreams, String auditStmt, Consumer<String> queryIdConsumer) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
@@ -119,7 +119,7 @@ public class IvmRefreshContext {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        IvmRefreshContext that = (IvmRefreshContext) o;
+        IvmIncrRefreshContext that = (IvmIncrRefreshContext) o;
         return Objects.equals(mtmv, that.mtmv)
                 && Objects.equals(connectContext, that.connectContext)
                 && Objects.equals(rewriteResult, that.rewriteResult)
@@ -133,7 +133,7 @@ public class IvmRefreshContext {
 
     @Override
     public String toString() {
-        return "IvmRefreshContext{"
+        return "IvmIncrRefreshContext{"
                 + "mtmv=" + mtmv.getName()
                 + '}';
     }
