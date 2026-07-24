@@ -60,7 +60,7 @@ bool is_file_column_position_slot(const TFileScanSlotInfo& slot_info,
     if (slot_info.__isset.is_file_slot) {
         return slot_info.is_file_slot;
     }
-    return true;
+    return !slot_info.__isset.category || slot_info.category != TColumnCategory::PARTITION_KEY;
 }
 
 bool is_hive1_orc_column_name(std::string_view name) {
@@ -102,11 +102,16 @@ void add_name_mapping(std::vector<std::string>* name_mapping, const std::string&
 } // namespace
 
 Status HiveReader::prepare_split(const format::SplitReadOptions& options) {
-    if (options.current_split_format != _format) {
-        return Status::InternalError(
-                "Hive scan expects all splits to use the same file format, "
-                "initialized_format={}, current_split_format={}",
-                static_cast<int>(_format), static_cast<int>(options.current_split_format));
+    {
+        // Keep derived validation visible without overlapping the base scopes on the same timers.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        if (options.current_split_format != _format) {
+            return Status::InternalError(
+                    "Hive scan expects all splits to use the same file format, "
+                    "initialized_format={}, current_split_format={}",
+                    static_cast<int>(_format), static_cast<int>(options.current_split_format));
+        }
     }
     return format::TableReader::prepare_split(options);
 }

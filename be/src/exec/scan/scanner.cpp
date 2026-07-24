@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <iterator>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -145,8 +147,11 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     DCHECK(block->rows() == 0);
                     break;
                 }
-                _num_rows_read += block->rows();
-                _num_byte_read += block->allocated_bytes();
+                // Some scanners apply owned predicates before returning the block. Account the
+                // materialized input, not only survivors, so the per-turn progress bound remains
+                // effective for highly selective predicates.
+                _num_rows_read += _last_block_rows_read(*block);
+                _num_byte_read += _last_block_bytes_read(*block);
             }
 
             // 2. Filter the output block finally.
@@ -228,7 +233,9 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     }
     DCHECK(_applied_rf_num < _total_rf_num);
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(_state, arrived_rf_num));
+    VExprContextSPtrs arrived_conjuncts;
+    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(
+            _state, _applied_rf_num, arrived_rf_num, arrived_conjuncts));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
@@ -238,6 +245,9 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    _late_arrival_rf_conjuncts.insert(_late_arrival_rf_conjuncts.end(),
+                                      std::make_move_iterator(arrived_conjuncts.begin()),
+                                      std::make_move_iterator(arrived_conjuncts.end()));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }

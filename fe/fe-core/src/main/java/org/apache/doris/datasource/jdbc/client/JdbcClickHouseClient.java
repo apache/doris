@@ -39,12 +39,9 @@ public class JdbcClickHouseClient extends JdbcClient {
     protected JdbcClickHouseClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
         try (Connection conn = getConnection()) {
-            String jdbcUrl = conn.getMetaData().getURL();
-            if (!isNewClickHouseDriver(getJdbcDriverVersion())) {
-                this.databaseTermIsCatalog = false;
-            } else {
-                this.databaseTermIsCatalog = "catalog".equalsIgnoreCase(getDatabaseTermFromUrl(jdbcUrl));
-            }
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            this.databaseTermIsCatalog = isDatabaseTermCatalog(
+                    databaseMetaData, databaseMetaData.getDriverVersion());
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to initialize JdbcClickHouseClient: %s", e.getMessage());
         }
@@ -128,7 +125,8 @@ public class JdbcClickHouseClient extends JdbcClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
+        // ClickHouse JDBC V2 filters engines by these vendor-specific table type names.
+        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"};
     }
 
     @Override
@@ -236,14 +234,9 @@ public class JdbcClickHouseClient extends JdbcClient {
         }
     }
 
-    /**
-     * Extract databaseterm parameters from the jdbc url.
-     */
-    private String getDatabaseTermFromUrl(String jdbcUrl) {
-        if (jdbcUrl != null && jdbcUrl.toLowerCase().contains("databaseterm=schema")) {
-            return "schema";
-        }
-        return "catalog";
+    static boolean isDatabaseTermCatalog(DatabaseMetaData databaseMetaData, String driverVersion)
+            throws SQLException {
+        return isNewClickHouseDriver(driverVersion) && databaseMetaData.supportsCatalogsInDataManipulation();
     }
 
     /**

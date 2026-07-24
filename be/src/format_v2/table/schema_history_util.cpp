@@ -77,6 +77,8 @@ void annotate_column_from_field(ColumnDefinition* column, const schema::external
     }
     column->name_mapping =
             field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
+    column->has_name_mapping =
+            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
     if (!field.__isset.nestedField) {
         return;
     }

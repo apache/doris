@@ -38,6 +38,7 @@
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vliteral.h"
@@ -48,6 +49,9 @@
 namespace doris {
 namespace {
 
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
+
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
     range.__set_format_type(format_type);
@@ -56,6 +60,14 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
         table_desc.__set_table_format_type(std::move(table_format));
         range.__set_table_format_params(std::move(table_desc));
     }
+    return range;
+}
+
+TFileRangeDesc iceberg_position_deletes_range(TFileFormatType::type format_type, int content) {
+    auto range = range_with_format("iceberg", format_type);
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_content(content);
+    range.table_format_params.__set_iceberg_params(std::move(iceberg_params));
     return range;
 }
 
@@ -82,6 +94,29 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     paimon_params.__set_paimon_predicate("legacy-predicate");
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
     return range;
+}
+
+TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
+    EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
+                                               TPushAggOp::type::COUNT, std::vector<int32_t> {}));
+
+    // A missing field is an old FE plan with unknown COUNT semantics, not COUNT(*).
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::nullopt));
+    // V1 cannot evaluate COUNT(col) NULL/CAST semantics before replacing the reader with
+    // CountReader, so an explicit argument must use the normal scan path.
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::vector<int32_t> {7}));
+
+    // The COUNT argument field must not affect other storage-layer aggregate operations.
+    EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
+                                                TPushAggOp::type::MINMAX, std::nullopt));
+}
+
+TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
 }
 
 struct RetryableCloseState {
@@ -313,6 +348,27 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
     EXPECT_EQ(digest(seed,
                      runtime_filter_context(std::make_shared<UndigestibleRuntimePredicate>(), 4)),
               0);
+}
+
+// Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
+// formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
+TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    const auto parquet_position_delete = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergPositionDeleteContent);
+    const auto parquet_deletion_vector = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergDeletionVectorContent);
+    const auto orc_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_ORC,
+                                                                    kIcebergPositionDeleteContent);
+    const auto avro_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_AVRO,
+                                                                     kIcebergPositionDeleteContent);
+
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
@@ -574,6 +630,14 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(profile.get_counter("BytesScannedFromRemote")->value(), 13);
     EXPECT_EQ(profile.get_counter("BytesScannedFromPeer")->value(), 17);
     EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
+    TRuntimeProfileTree tree;
+    profile.to_thrift(&tree, 3);
+    ASSERT_FALSE(tree.nodes.empty());
+    const auto& children = tree.nodes[0].child_counters_map;
+    ASSERT_TRUE(children.contains("FileReader"));
+    EXPECT_TRUE(children.at("FileReader").contains("IO"));
+    ASSERT_TRUE(children.contains("IO"));
+    EXPECT_TRUE(children.at("IO").contains("FileCache"));
 }
 
 TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
@@ -583,6 +647,16 @@ TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
     EXPECT_FALSE(
             FileScannerV2::TEST_should_skip_not_found(Status::InternalError("read failed"), true));
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
+}
+
+TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("empty file"), false));
+    // Deletion-vector and Parquet readers also use EOF to unwind an interrupted read. Once either
+    // scanner stop flag is visible, the same status is no longer evidence of an empty file.
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("stop read."), true));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed"), false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
@@ -674,6 +748,23 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
     }
 }
 
+TEST(FileScannerV2Test, AdaptsBranchRuntimeFilterForMasterTableReader) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto node = bool_in_pred_node();
+    auto impl = VDirectInPredicate::create_shared(node, nullptr);
+    impl->add_child(slot_ref(11, 2, int_type, "rf_value"));
+    VExprSPtr expr = VRuntimeFilterWrapper::create_shared(node, std::move(impl), 0.4, false, 7);
+
+    ASSERT_TRUE(FileScannerV2::TEST_adapt_runtime_filter_for_table_reader(&expr).ok());
+    const auto* runtime_filter = dynamic_cast<const RuntimeFilterExpr*>(expr.get());
+    ASSERT_NE(runtime_filter, nullptr);
+    ASSERT_NE(runtime_filter->get_impl(), nullptr);
+    ASSERT_EQ(runtime_filter->get_impl()->get_num_children(), 1);
+    const auto* child =
+            assert_cast<const VSlotRef*>(runtime_filter->get_impl()->children()[0].get());
+    EXPECT_EQ(child->column_id(), 2);
+}
+
 TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto bool_type = std::make_shared<DataTypeUInt8>();
     auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
@@ -692,6 +783,29 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
+}
+
+TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
+    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
+    VExprContextSPtrs conjuncts {
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
+            runtime_filter_context(std::move(unsafe_predicate), 2),
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
+    };
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner.TEST_set_scanner_conjuncts(std::move(conjuncts));
+
+    EXPECT_EQ(scanner.TEST_table_reader_owned_conjunct_count(), 1);
+    EXPECT_EQ(scanner.TEST_scanner_residual_conjunct_count(), 2);
+    const auto* residual_predicates = profile.get_info_string("ScannerResidualPredicates");
+    ASSERT_NE(residual_predicates, nullptr);
+    EXPECT_FALSE(residual_predicates->empty());
+    EXPECT_NE(residual_predicates->find("SlotRef"), std::string::npos) << *residual_predicates;
 }
 
 } // namespace doris

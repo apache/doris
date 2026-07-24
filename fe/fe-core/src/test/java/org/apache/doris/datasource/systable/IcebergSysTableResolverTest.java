@@ -21,7 +21,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -37,8 +36,8 @@ public class IcebergSysTableResolverTest {
     private IcebergExternalDatabase db;
 
     @Test
-    public void testSupportedSysTablesExcludePositionDeletes() {
-        Assertions.assertFalse(IcebergSysTable.SUPPORTED_SYS_TABLES.containsKey(IcebergSysTable.POSITION_DELETES));
+    public void testSupportedSysTablesIncludePositionDeletes() {
+        Assertions.assertTrue(IcebergSysTable.SUPPORTED_SYS_TABLES.containsKey("position_deletes"));
     }
 
     @Test
@@ -61,10 +60,14 @@ public class IcebergSysTableResolverTest {
     }
 
     @Test
-    public void testPositionDeletesKeepsUnsupportedError() throws Exception {
+    public void testPositionDeletesUseNativePath() throws Exception {
         IcebergExternalTable sourceTable = newIcebergTable();
-        Assertions.assertThrows(AnalysisException.class, () ->
-                SysTableResolver.resolveForPlan(sourceTable, "test_ctl", "test_db", "tbl$position_deletes"));
+        Optional<SysTableResolver.SysTablePlan> plan = SysTableResolver.resolveForPlan(
+                sourceTable, "test_ctl", "test_db", "tbl$position_deletes");
+        Assertions.assertTrue(plan.isPresent());
+        Assertions.assertTrue(plan.get().isNative());
+        Assertions.assertTrue(plan.get().getSysExternalTable() instanceof IcebergSysExternalTable);
+        Assertions.assertEquals("tbl$position_deletes", plan.get().getSysExternalTable().getName());
     }
 
     private IcebergExternalTable newIcebergTable() throws Exception {

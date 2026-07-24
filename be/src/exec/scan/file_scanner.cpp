@@ -68,6 +68,7 @@
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
+#include "format/table/iceberg_position_delete_sys_table_reader.h"
 #include "format/table/iceberg_reader.h"
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/lakesoul_jni_reader.h"
@@ -98,6 +99,20 @@ class ShardedKVCache;
 namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
+
+namespace {
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
+
+bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
+    return range.__isset.table_format_params &&
+           range.table_format_params.table_format_type == "iceberg" &&
+           range.table_format_params.__isset.iceberg_params &&
+           range.table_format_params.iceberg_params.__isset.content &&
+           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
+            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
+}
+} // namespace
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
@@ -1060,6 +1075,7 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
+        const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1149,9 +1165,18 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = reader->init_reader();
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state,
                     file_meta_cache_ptr, _state->query_options().enable_parquet_lazy_mat);
 
             if (_row_id_column_iterator_pair.second != -1) {
@@ -1174,9 +1199,18 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = reader->init_reader();
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), file_meta_cache_ptr,
+                    _state->timezone(), _io_ctx, file_meta_cache_ptr,
                     _state->query_options().enable_orc_lazy_mat);
             if (_row_id_column_iterator_pair.second != -1) {
                 RETURN_IF_ERROR(_create_row_id_column_iterator());
@@ -1201,17 +1235,17 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
-            auto reader =
-                    CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                             _file_slot_descs, _state->batch_size(), _io_ctx.get());
+            auto reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                   _file_slot_descs, _state->batch_size(), nullptr,
+                                                   _io_ctx);
             init_status = reader->init_reader(_is_load);
             _cur_reader = std::move(reader);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
             auto reader = TextReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                                    _file_slot_descs, _state->batch_size(),
-                                                    _io_ctx.get());
+                                                    _file_slot_descs, _state->batch_size(), nullptr,
+                                                    _io_ctx);
             init_status = reader->init_reader(_is_load);
             _cur_reader = std::move(reader);
             break;
@@ -1219,7 +1253,7 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_JSON: {
             _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                        _file_slot_descs, &_scanner_eof,
-                                                       _state->batch_size(), _io_ctx.get());
+                                                       _state->batch_size(), nullptr, _io_ctx);
             init_status = ((NewJsonReader*)(_cur_reader.get()))
                                   ->init_reader(_col_default_value_ctx, _is_load);
             break;
@@ -1241,8 +1275,7 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            auto reader =
-                    NativeReader::create_unique(_profile, *_params, range, _io_ctx.get(), _state);
+            auto reader = NativeReader::create_unique(_profile, *_params, range, _io_ctx, _state);
             init_status = reader->init_reader();
             _cur_reader = std::move(reader);
             need_to_get_parsed_schema = false;
@@ -1681,8 +1714,8 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                 case TFileFormatType::FORMAT_PARQUET: {
                     std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                             _profile, *_params, range, 1,
-                            const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(),
-                            _state, file_meta_cache_ptr, false);
+                            const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state,
+                            file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(parquet_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(
@@ -1691,7 +1724,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                 }
                 case TFileFormatType::FORMAT_ORC: {
                     std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
-                            _profile, _state, *_params, range, 1, _state->timezone(), _io_ctx.get(),
+                            _profile, _state, *_params, range, 1, _state->timezone(), _io_ctx,
                             file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(orc_reader->read_by_rows(row_ids));

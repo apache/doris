@@ -262,7 +262,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
                 systableName)
     }
 
-    def test_table_systables = { table ->
+    def test_table_systables = { table, boolean partitioned ->
         test_systable_entries(table, "entries")
         test_systable_entries(table, "all_entries")
         test_systable_files(table, "files")
@@ -278,17 +278,21 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         test_systable_manifests(table, "manifests")
         test_systable_manifests(table, "all_manifests")
         test_systable_partitions(table)
-        // TODO: these table will be supportted in future
-        // test_systable_position_deletes(table)
 
-        test {
-            sql """select * from ${table}\$position_deletes"""
-            exception "SysTable position_deletes is not supported yet"
+        List<List<Object>> positionDeleteDesc = sql """desc ${table}\$position_deletes"""
+        List<String> positionDeleteColumns = positionDeleteDesc.collect { it[0].toString() }
+        List<String> expectedPositionDeleteColumns = ["file_path", "pos", "row"]
+        if (partitioned) {
+            expectedPositionDeleteColumns.add("partition")
         }
+        expectedPositionDeleteColumns.addAll(["spec_id", "delete_file_path"])
+        assertEquals(expectedPositionDeleteColumns, positionDeleteColumns)
+        List<List<Object>> positionDeleteCount = sql """select count(*) from ${table}\$position_deletes"""
+        assertEquals(1, positionDeleteCount.size())
     }
 
-    test_table_systables("test_iceberg_systable_unpartitioned")
-    test_table_systables("test_iceberg_systable_partitioned")
+    test_table_systables("test_iceberg_systable_unpartitioned", false)
+    test_table_systables("test_iceberg_systable_partitioned", true)
 
     sql """drop table if exists test_iceberg_systable_tbl1;"""
     sql """create table test_iceberg_systable_tbl1 (id int);"""
@@ -319,10 +323,17 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
               """
               exception "denied"
         }
+        test {
+              sql """
+                 select file_path, pos from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$position_deletes
+              """
+              exception "denied"
+        }
     }
     sql """grant select_priv on ${catalog_name}.${db_name}.test_iceberg_systable_tbl1 to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots"""
+        sql """select file_path, pos from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$position_deletes"""
     }
     try_sql("DROP USER ${user}")
 

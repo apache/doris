@@ -30,6 +30,7 @@
 #include "core/data_type/data_type.h"
 #include "core/types.h"
 #include "exec/common/util.hpp"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
@@ -82,6 +83,17 @@ Status VRuntimeFilterWrapper::clone_node(VExprSPtr* cloned_expr) const {
                                                   _always_true_filter_rows);
     *cloned_expr = std::move(cloned_runtime_filter);
     return Status::OK();
+}
+
+VExprSPtr VRuntimeFilterWrapper::to_runtime_filter_expr() const {
+    // FileScannerV2 backports master TableReader code, whose localization boundary recognizes the
+    // renamed wrapper type; preserve the same implementation and counters across that boundary.
+    auto runtime_filter =
+            RuntimeFilterExpr::create_shared(clone_texpr_node(), _impl, _ignore_thredhold,
+                                             _null_aware, _filter_id, _sampling_frequency);
+    runtime_filter->attach_profile_counter(_rf_input_rows, _rf_filter_rows,
+                                           _always_true_filter_rows);
+    return runtime_filter;
 }
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,

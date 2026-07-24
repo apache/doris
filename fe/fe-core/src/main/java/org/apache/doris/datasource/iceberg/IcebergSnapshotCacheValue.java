@@ -17,14 +17,34 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
 public class IcebergSnapshotCacheValue {
 
     private final IcebergPartitionInfo partitionInfo;
     private final IcebergSnapshot snapshot;
+    private final Optional<Map<Integer, List<String>>> nameMapping;
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
+        this(partitionInfo, snapshot, Optional.empty());
+    }
+
+    public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
+            Optional<Map<Integer, List<String>>> nameMapping) {
         this.partitionInfo = partitionInfo;
         this.snapshot = snapshot;
+        this.nameMapping = nameMapping.map(mapping -> {
+            Map<Integer, List<String>> copy = new HashMap<>();
+            // Preserve the immutable snapshot contract while remaining compatible with branch-4.1's Java target.
+            mapping.forEach((id, names) -> copy.put(id,
+                    Collections.unmodifiableList(new ArrayList<>(names))));
+            return Collections.unmodifiableMap(copy);
+        });
     }
 
     public IcebergPartitionInfo getPartitionInfo() {
@@ -33,5 +53,9 @@ public class IcebergSnapshotCacheValue {
 
     public IcebergSnapshot getSnapshot() {
         return snapshot;
+    }
+
+    public Optional<Map<Integer, List<String>>> getNameMapping() {
+        return nameMapping;
     }
 }

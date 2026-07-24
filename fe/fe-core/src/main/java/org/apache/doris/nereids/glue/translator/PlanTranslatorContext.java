@@ -55,6 +55,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -113,6 +114,7 @@ public class PlanTranslatorContext {
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
 
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, List<ExprId>> tablePushCountArgumentExprIds = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
     private final RuntimeFilterContextV2 runtimeFilterV2Context;
@@ -382,6 +384,14 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public void setRelationPushCountArgumentExprIds(RelationId relationId, List<ExprId> exprIds) {
+        tablePushCountArgumentExprIds.put(relationId, Lists.newArrayList(exprIds));
+    }
+
+    public List<ExprId> getRelationPushCountArgumentExprIds(RelationId relationId) {
+        return tablePushCountArgumentExprIds.getOrDefault(relationId, Collections.emptyList());
     }
 
     public boolean isTopMaterializeNode() {

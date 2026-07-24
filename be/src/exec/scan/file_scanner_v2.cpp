@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -47,6 +48,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
@@ -54,6 +56,7 @@
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
+#include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
@@ -63,12 +66,16 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
 
 namespace doris {
 namespace {
+
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
 
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
@@ -108,6 +115,15 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
+}
+
+bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
+    return range.__isset.table_format_params &&
+           range.table_format_params.table_format_type == "iceberg" &&
+           range.table_format_params.__isset.iceberg_params &&
+           range.table_format_params.iceberg_params.__isset.content &&
+           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
+            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
@@ -200,12 +216,26 @@ Status rewrite_slot_refs_to_global_index(
     return Status::OK();
 }
 
+Status adapt_runtime_filter_for_table_reader(VExprSPtr* expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (*expr == nullptr) {
+        return Status::OK();
+    }
+    if (auto* branch_wrapper = dynamic_cast<VRuntimeFilterWrapper*>(expr->get());
+        branch_wrapper != nullptr) {
+        *expr = branch_wrapper->to_runtime_filter_expr();
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 #ifdef BE_TEST
 FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                              std::unique_ptr<format::TableReader> table_reader)
-        : Scanner(state, profile), _table_reader(std::move(table_reader)) {}
+        : Scanner(state, profile),
+          _table_reader(std::move(table_reader)),
+          _scanner_profile(profile) {}
 
 Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
                                                const TFileRangeDesc& range) {
@@ -233,6 +263,10 @@ Status FileScannerV2::TEST_rewrite_slot_refs_to_global_index(
     return rewrite_slot_refs_to_global_index(expr, slot_id_to_global_index);
 }
 
+Status FileScannerV2::TEST_adapt_runtime_filter_for_table_reader(VExprSPtr* expr) {
+    return adapt_runtime_filter_for_table_reader(expr);
+}
+
 FileScannerV2::RealtimeCounterDeltas FileScannerV2::TEST_collect_realtime_counter_deltas(
         const io::FileReaderStats& file_reader_stats,
         const io::FileCacheStatistics& file_cache_statistics,
@@ -252,6 +286,10 @@ void FileScannerV2::TEST_report_file_cache_profile(
 
 bool FileScannerV2::TEST_should_skip_not_found(const Status& status, bool ignore_not_found) {
     return _should_skip_not_found(status, ignore_not_found);
+}
+
+bool FileScannerV2::TEST_should_skip_empty(const Status& status, bool stopped) {
+    return _should_skip_empty(status, stopped);
 }
 #endif
 
@@ -301,24 +339,49 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
 
 Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
-    _get_block_timer =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerV2GetBlockTime", 1);
-    _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                     "NotFoundFileNum", TUnit::UNIT, 1);
-    _file_counter =
-            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
-    _file_read_bytes_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                      "FileReadBytes", TUnit::BYTES, 1);
-    _file_read_calls_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                      "FileReadCalls", TUnit::UNIT, 1);
+    _initialize_scanner_residual_conjuncts();
+    auto* profile = _local_state->scanner_profile();
+    _scanner_profile = profile;
+    const auto hierarchy = file_scan_profile::ensure_hierarchy(profile);
+    _scanner_total_timer = hierarchy.scanner;
+    _io_timer = hierarchy.io;
+    _init_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2InitTime",
+                                             file_scan_profile::SCANNER, 1);
+    _open_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2OpenTime",
+                                             file_scan_profile::SCANNER, 1);
+    _get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2GetBlockTime",
+                                                  file_scan_profile::SCANNER, 1);
+    _prepare_split_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2PrepareSplitTime",
+                                                      file_scan_profile::SCANNER, 1);
+    _get_next_range_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2GetNextRangeTime",
+                                                       file_scan_profile::SCANNER, 1);
+    _close_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2CloseTime",
+                                              file_scan_profile::SCANNER, 1);
+    _empty_file_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "EmptyFileNum", TUnit::UNIT,
+                                                       file_scan_profile::SCANNER, 1);
+    _not_found_file_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NotFoundFileNum", TUnit::UNIT,
+                                                           file_scan_profile::SCANNER, 1);
+    _file_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileNumber", TUnit::UNIT,
+                                                 file_scan_profile::SCANNER, 1);
+    _file_read_bytes_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileReadBytes", TUnit::BYTES,
+                                                            file_scan_profile::IO, 1);
+    _file_read_calls_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileReadCalls", TUnit::UNIT,
+                                                            file_scan_profile::IO, 1);
     _file_read_time_counter =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
-    _adaptive_batch_predicted_rows_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "AdaptiveBatchPredictedRows", TUnit::UNIT, 1);
-    _adaptive_batch_actual_bytes_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "AdaptiveBatchActualBytes", TUnit::BYTES, 1);
-    _adaptive_batch_probe_count_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "AdaptiveBatchProbeCount", TUnit::UNIT, 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileReadTime", file_scan_profile::IO, 1);
+    _adaptive_batch_predicted_rows_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AdaptiveBatchPredictedRows", TUnit::UNIT, file_scan_profile::SCANNER, 1);
+    _adaptive_batch_actual_bytes_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AdaptiveBatchActualBytes", TUnit::BYTES, file_scan_profile::SCANNER, 1);
+    _adaptive_batch_probe_count_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AdaptiveBatchProbeCount", TUnit::UNIT, file_scan_profile::SCANNER, 1);
+    _scanner_residual_filter_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "ScannerResidualFilterTime", file_scan_profile::SCANNER, 1);
+    _scanner_residual_rows_filtered_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "ScannerResidualRowsFiltered", TUnit::UNIT, file_scan_profile::SCANNER, 1);
+    _refresh_scanner_residual_profile();
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_init_timer);
     _file_cache_statistics = std::make_unique<io::FileCacheStatistics>();
     _file_reader_stats = std::make_unique<io::FileReaderStats>();
     RETURN_IF_ERROR(_init_io_ctx());
@@ -329,6 +392,8 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
 }
 
 Status FileScannerV2::_open_impl(RuntimeState* state) {
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
@@ -342,6 +407,7 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
 }
 
 Status FileScannerV2::_get_next_scan_range(bool* has_next) {
+    SCOPED_TIMER(_get_next_range_timer);
     DORIS_CHECK(has_next != nullptr);
     RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range));
     if (*has_next) {
@@ -351,8 +417,11 @@ Status FileScannerV2::_get_next_scan_range(bool* has_next) {
 }
 
 Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_get_block_timer);
     while (true) {
         RETURN_IF_CANCELLED(state);
+        RETURN_IF_ERROR(_sync_table_reader_conjuncts());
         if (!_has_prepared_split) {
             RETURN_IF_ERROR(_prepare_next_split(eof));
             if (*eof) {
@@ -361,7 +430,6 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
-            SCOPED_TIMER(_get_block_timer);
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -369,6 +437,20 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                _state->update_num_finished_scan_range(1);
+                _has_prepared_split = false;
+                block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
+                *eof = false;
+                continue;
+            }
+            if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
+                // END_OF_FILE here means the reader discovered a valid split with no data while
+                // opening or probing it, not that the Scanner has exhausted all splits. Examples
+                // are a zero-byte CSV with an explicit schema and a Doris Native file containing
+                // only its 12-byte header. Treat it like V1's empty-file path: finish this range,
+                // discard partial reader state, and let the loop fetch the next split.
+                RETURN_IF_ERROR(_table_reader->abort_split());
+                COUNTER_UPDATE(_empty_file_counter, 1);
                 _state->update_num_finished_scan_range(1);
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
@@ -388,7 +470,38 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
     }
 }
 
+Status FileScannerV2::_filter_output_block(Block* block) {
+    if (_scanner_residual_conjuncts.empty() || block->rows() == 0) {
+        return Status::OK();
+    }
+    SCOPED_TIMER(_scanner_residual_filter_timer);
+    const size_t rows_before_filter = block->rows();
+    auto status = VExprContext::filter_block(_scanner_residual_conjuncts, block, block->columns());
+    if (!status.ok() && _params != nullptr &&
+        _get_current_format_type() == TFileFormatType::FORMAT_ORC) {
+        status.prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    RETURN_IF_ERROR(status);
+    const int64_t filtered_rows = cast_set<int64_t>(rows_before_filter - block->rows());
+    _counter.num_rows_unselected += filtered_rows;
+    if (_scanner_residual_rows_filtered_counter != nullptr) {
+        COUNTER_UPDATE(_scanner_residual_rows_filtered_counter, filtered_rows);
+    }
+    return Status::OK();
+}
+
+size_t FileScannerV2::_last_block_rows_read(const Block& block) const {
+    const auto& stats = _table_reader->last_materialized_block_stats();
+    return stats.has_materialized_input ? stats.rows : block.rows();
+}
+
+size_t FileScannerV2::_last_block_bytes_read(const Block& block) const {
+    const auto& stats = _table_reader->last_materialized_block_stats();
+    return stats.has_materialized_input ? stats.allocated_bytes : block.allocated_bytes();
+}
+
 Status FileScannerV2::_prepare_next_split(bool* eos) {
+    SCOPED_TIMER(_prepare_split_timer);
     while (true) {
         bool has_next = _first_scan_range;
         if (!_first_scan_range) {
@@ -404,9 +517,12 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
 
         const auto format_type = get_range_format_type(*_params, _current_range);
         _init_adaptive_batch_size_state(format_type);
-        if (_should_run_adaptive_batch_size()) {
-            // JNI readers open eagerly in prepare_split(). Seed the probe size first so readers
-            // such as Paimon also use it for their first physical read batch.
+        if (_block_size_predictor != nullptr) {
+            // JNI readers open eagerly in prepare_split(). Always seed the probe before preparing
+            // the next split: its metadata-COUNT decision is not available yet, and the state
+            // exposed by TableReader can still describe the preceding split. Metadata shortcuts
+            // ignore this batch size, while row-scan fallbacks need it for their first physical
+            // read batch.
             _table_reader->set_batch_size(_predict_reader_batch_rows());
         }
         std::map<std::string, Field> partition_values;
@@ -416,6 +532,16 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            _state->update_num_finished_scan_range(1);
+            continue;
+        }
+        if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
+            // Schema discovery can reach EOF before a split becomes prepared. A header-only Native
+            // file follows this path, while a reader that discovers emptiness on its first
+            // get_block() follows the symmetric branch in _get_block_impl(). Both paths must
+            // advance exactly one scan range and preserve later files in the same scan.
+            RETURN_IF_ERROR(_table_reader->abort_split());
+            COUNTER_UPDATE(_empty_file_counter, 1);
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -439,9 +565,25 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
+    std::optional<std::vector<format::GlobalIndex>> push_down_count_columns;
+    const auto& push_down_count_slot_ids = _local_state->get_push_down_count_slot_ids();
+    if (push_down_count_slot_ids.has_value()) {
+        push_down_count_columns.emplace();
+        push_down_count_columns->reserve(push_down_count_slot_ids->size());
+        for (const auto slot_id : *push_down_count_slot_ids) {
+            const auto global_index_it = _slot_id_to_global_index.find(slot_id);
+            if (global_index_it == _slot_id_to_global_index.end()) {
+                return Status::InternalError(
+                        "Pushed-down COUNT argument is not a projected file scan slot, slot_id={}",
+                        slot_id);
+            }
+            push_down_count_columns->push_back(global_index_it->second);
+        }
+    }
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(table_conjuncts),
+            .table_reader_owned_conjunct_count = _table_reader_owned_conjunct_count,
             .format = file_format,
             .scan_params = const_cast<TFileScanRangeParams*>(_params),
             .io_ctx = _io_ctx,
@@ -449,8 +591,12 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .scanner_profile = _local_state->scanner_profile(),
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
+            .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
+    _table_reader_applied_rf_num = _applied_rf_num;
+    // RFs collected before TableReader initialization are already present in the full snapshot.
+    _late_arrival_rf_conjuncts.clear();
     return Status::OK();
 }
 
@@ -463,7 +609,9 @@ Status FileScannerV2::_create_table_reader_for_format(
     } else if (table_format == "hive") {
         *reader = format::hive::HiveReader::create_unique();
     } else if (table_format == "iceberg") {
-        if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
+        if (is_iceberg_position_deletes_sys_table(range)) {
+            *reader = std::make_unique<format::iceberg::IcebergPositionDeleteSysTableV2Reader>();
+        } else if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
             *reader = std::make_unique<format::iceberg::IcebergSysTableJniReader>();
         } else {
             *reader = std::make_unique<format::iceberg::IcebergTableReader>();
@@ -493,15 +641,12 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
     format::FileFormat current_split_format;
     RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
-    VExprContextSPtrs conjuncts;
-    RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
     if (_state->query_options().enable_runtime_filter_partition_prune) {
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
-            .conjuncts = std::move(conjuncts),
             .partition_prune_conjuncts = std::move(partition_prune_conjuncts),
             // A metadata COUNT split may span scheduler turns. Do not enter that irreversible
             // synthetic-row path while a runtime filter can still arrive between batches.
@@ -517,6 +662,14 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
 
 bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not_found) {
     return ignore_not_found && status.is<ErrorCode::NOT_FOUND>();
+}
+
+bool FileScannerV2::_should_skip_empty(const Status& status, bool stopped) {
+    // Several readers use END_OF_FILE both for a valid zero-row split and for an interrupted IO.
+    // For example, DeletionVectorReader returns END_OF_FILE("stop read.") after try_stop() marks
+    // the shared IOContext. That status must unwind the stopped scanner; counting it as an empty
+    // file would incorrectly finish the scan range and increment EmptyFileNum.
+    return !stopped && status.is<ErrorCode::END_OF_FILE>();
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {
@@ -610,6 +763,9 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
             .range = &_current_range,
             .runtime_state = _state,
     };
+    // Field 34 is the rollout boundary for root and nested exact-name precedence.
+    const bool prefer_exact_name_match =
+            !_params->__isset.history_schema_info || supports_iceberg_scan_semantics_v1(_params);
 
     for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
         const auto& slot_info = _params->required_slots[slot_idx];
@@ -630,7 +786,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         // column's nested children.
         RETURN_IF_ERROR(AccessPathParser::build_nested_children(
                 &column, it->second,
-                build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr));
+                build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr,
+                prefer_exact_name_match));
         if (is_partition_slot(slot_info, column.name)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(
@@ -675,15 +832,83 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
 }
 
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
+    return _build_table_conjuncts(_conjuncts, conjuncts);
+}
+
+Status FileScannerV2::_build_table_conjuncts(const VExprContextSPtrs& source,
+                                             VExprContextSPtrs* conjuncts) const {
     DORIS_CHECK(conjuncts != nullptr);
     conjuncts->clear();
-    conjuncts->reserve(_conjuncts.size());
-    for (const auto& conjunct : _conjuncts) {
+    conjuncts->reserve(source.size());
+    for (const auto& conjunct : source) {
         VExprSPtr root;
         RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));
+        RETURN_IF_ERROR(adapt_runtime_filter_for_table_reader(&root));
         conjuncts->push_back(VExprContext::create_shared(std::move(root)));
     }
+    return Status::OK();
+}
+
+size_t FileScannerV2::_safe_conjunct_prefix_size(const VExprContextSPtrs& conjuncts) {
+    for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
+        if (!format::TableReader::is_safe_to_pre_execute(conjuncts[conjunct_index])) {
+            return conjunct_index;
+        }
+    }
+    return conjuncts.size();
+}
+
+void FileScannerV2::_initialize_scanner_residual_conjuncts() {
+    _table_reader_owned_conjunct_count = _safe_conjunct_prefix_size(_conjuncts);
+    // Preserve the entire suffix, not only the unsafe expression. Otherwise a later safe
+    // predicate could run below Scanner before a stateful/error-preserving ordering barrier.
+    _scanner_residual_conjuncts.assign(
+            _conjuncts.begin() + cast_set<ptrdiff_t>(_table_reader_owned_conjunct_count),
+            _conjuncts.end());
+    _refresh_scanner_residual_profile();
+}
+
+void FileScannerV2::_refresh_scanner_residual_profile() {
+    if (_scanner_profile == nullptr || _scanner_residual_conjuncts.empty()) {
+        return;
+    }
+    std::ostringstream predicates;
+    predicates << "[";
+    for (size_t conjunct_index = 0; conjunct_index < _scanner_residual_conjuncts.size();
+         ++conjunct_index) {
+        if (conjunct_index > 0) {
+            predicates << ", ";
+        }
+        predicates << _scanner_residual_conjuncts[conjunct_index]->root()->debug_string();
+    }
+    predicates << "]";
+    _scanner_profile->add_info_string("ScannerResidualPredicates", predicates.str());
+}
+
+Status FileScannerV2::_sync_table_reader_conjuncts() {
+    if (_table_reader == nullptr) {
+        return Status::OK();
+    }
+    if (_table_reader_applied_rf_num == _applied_rf_num) {
+        return Status::OK();
+    }
+    VExprContextSPtrs appended;
+    RETURN_IF_ERROR(_build_table_conjuncts(_late_arrival_rf_conjuncts, &appended));
+    const size_t owned_count = _scanner_residual_conjuncts.empty()
+                                       ? _safe_conjunct_prefix_size(_late_arrival_rf_conjuncts)
+                                       : 0;
+    // Preserve existing expression state and append the identity-tracked RF delta. Cost sorting
+    // may move a late RF ahead of an old stateful predicate in the full scanner snapshot.
+    RETURN_IF_ERROR(_table_reader->append_conjuncts_with_ownership(appended, owned_count));
+    _table_reader_owned_conjunct_count += owned_count;
+    _scanner_residual_conjuncts.insert(
+            _scanner_residual_conjuncts.end(),
+            _late_arrival_rf_conjuncts.begin() + cast_set<ptrdiff_t>(owned_count),
+            _late_arrival_rf_conjuncts.end());
+    _refresh_scanner_residual_profile();
+    _late_arrival_rf_conjuncts.clear();
+    _table_reader_applied_rf_num = _applied_rf_num;
     return Status::OK();
 }
 
@@ -785,10 +1010,17 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
 }
 
 bool FileScannerV2::_should_run_adaptive_batch_size() const {
-    // COUNT pushdown emits synthetic rows from file metadata and does not materialize file columns,
-    // so there is no useful row-width sample to learn from.
-    return _block_size_predictor != nullptr &&
-           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT;
+    DORIS_CHECK(_table_reader != nullptr);
+    return _should_run_adaptive_batch_size(_block_size_predictor != nullptr,
+                                           _table_reader->current_split_uses_metadata_count());
+}
+
+bool FileScannerV2::_should_run_adaptive_batch_size(bool predictor_initialized,
+                                                    bool current_split_uses_metadata_count) {
+    // Metadata COUNT emits synthetic rows and has no physical row width to learn from. A raw COUNT
+    // opcode is not sufficient here: unsupported argument counts, mappings, filters, or deletes
+    // make TableReader fall back to materializing normal rows, which still need adaptive batching.
+    return predictor_initialized && !current_split_uses_metadata_count;
 }
 
 size_t FileScannerV2::_predict_reader_batch_rows() {
@@ -804,20 +1036,24 @@ void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
     if (!_should_run_adaptive_batch_size()) {
         return;
     }
-    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(block.bytes()));
-    if (block.rows() == 0) {
+    const auto& stats = _table_reader->last_materialized_block_stats();
+    const size_t rows = stats.has_materialized_input ? stats.rows : block.rows();
+    const size_t bytes = stats.has_materialized_input ? stats.bytes : block.bytes();
+    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(bytes));
+    if (rows == 0) {
         return;
     }
-    // The sample is taken after TableReader has finalized file-local columns to table columns.
-    // This matches the memory shape seen by upstream operators and catches very wide nested
-    // columns, such as map/string payloads, after the first probe batch.
+    // Residual predicates run after wide table columns are materialized. Learn from that pre-filter
+    // shape so selective predicates cannot make the next reader batch dangerously large.
     if (!_block_size_predictor->has_history()) {
         COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
     }
-    _block_size_predictor->update(block);
+    _block_size_predictor->update(rows, bytes);
 }
 
 Status FileScannerV2::close(RuntimeState* state) {
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_close_timer);
     if (_is_closed) {
         return Status::OK();
     }
@@ -954,14 +1190,25 @@ void FileScannerV2::_collect_profile_before_close() {
     Scanner::_collect_profile_before_close();
     if (config::enable_file_cache && _state->query_options().enable_file_cache &&
         _profile != nullptr) {
-        _report_file_cache_profile(_profile, *_file_cache_statistics);
+        auto file_cache_delta = io::diff_file_cache_statistics(*_file_cache_statistics,
+                                                               _reported_file_cache_statistics);
+        // Profile collection can run more than once, so publish only the new additive delta.
+        _report_file_cache_profile(_profile, file_cache_delta);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                _file_cache_statistics->bytes_write_into_cache);
+                file_cache_delta.bytes_write_into_cache);
+        _reported_file_cache_statistics = *_file_cache_statistics;
     }
     if (_file_reader_stats != nullptr) {
         COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
         COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
         COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+        const auto read_time = cast_set<int64_t>(_file_reader_stats->read_time_ns);
+        DORIS_CHECK(read_time >= _reported_io_read_time);
+        // Some transports (for example Arrow Flight) record directly into IO, while filesystem
+        // reads arrive through FileReaderStats. Add only the new traced delta so both paths remain
+        // visible without double counting repeated profile publication.
+        COUNTER_UPDATE(_io_timer, read_time - _reported_io_read_time);
+        _reported_io_read_time = read_time;
     }
     // Query profiles can be collected before Scanner::close() runs. Publish condition-cache
     // counters here as well, using deltas so this method and close() cannot double count.
@@ -970,7 +1217,8 @@ void FileScannerV2::_collect_profile_before_close() {
 
 void FileScannerV2::_report_file_cache_profile(
         RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics) {
-    io::FileCacheProfileReporter cache_profile(profile);
+    file_scan_profile::ensure_hierarchy(profile);
+    io::FileCacheProfileReporter cache_profile(profile, file_scan_profile::IO);
     cache_profile.update(&file_cache_statistics);
 }
 
@@ -992,9 +1240,8 @@ void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
     const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
     const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
     if (filtered_delta > 0) {
-        // File readers can evaluate localized conjuncts before a block reaches Scanner. Count
-        // those rows as scanner-level unselected rows so load statistics stay identical no matter
-        // whether a predicate is pushed down or evaluated by Scanner::_filter_output_block().
+        // FileReader and TableReader both report their owned predicate rows through the shared IO
+        // context. Preserve scanner-level load statistics without re-evaluating either predicate.
         _counter.num_rows_unselected += filtered_delta;
         _reported_predicate_filtered_rows = filtered_rows;
     }

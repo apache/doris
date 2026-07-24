@@ -613,7 +613,8 @@ Status CsvReader::_create_file_reader(bool need_schema) {
                     io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                     io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
         }
-        _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+        _file_reader = _io_ctx && _io_ctx->file_reader_stats
+                               ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
                                : file_reader;
     }
