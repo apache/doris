@@ -172,7 +172,9 @@ public class Config extends ConfigBase {
                     + "these variables, it just needs to accept them without error."})
     public static String[] mysql_compat_var_whitelist = {};
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Force SQLServer Jdbc Catalog encrypt to false"})
+    @ConfField(description = {"Force SQLServer Jdbc Catalog encrypt to false. "
+            + "This is a security-sensitive switch (it disables SQLServer JDBC transport encryption), "
+            + "so it can only be set in fe.conf and is not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -3256,9 +3258,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
-                    + "For example: s3_load_endpoint_white_list=a,b,c"})
+                    + "For example: s3_load_endpoint_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {

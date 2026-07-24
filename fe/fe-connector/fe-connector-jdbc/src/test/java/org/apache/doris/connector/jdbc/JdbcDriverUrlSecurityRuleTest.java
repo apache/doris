@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -32,33 +30,33 @@ public class JdbcDriverUrlSecurityRuleTest {
 
     @Test
     public void testBareNameTraversalRejected() {
-        Assertions.assertThrows(DorisConnectorException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> JdbcDorisConnector.checkDriverUrlSecurityRule("../evil.jar"));
     }
 
     @Test
     public void testBareNameWithDirectoryRejected() {
         // A scheme-less driver_url must be a plain file name; any '/' fails the charset check.
-        Assertions.assertThrows(DorisConnectorException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> JdbcDorisConnector.checkDriverUrlSecurityRule("sub/dir/driver.jar"));
     }
 
     @Test
     public void testBareNameSpecialCharsRejected() {
-        Assertions.assertThrows(DorisConnectorException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> JdbcDorisConnector.checkDriverUrlSecurityRule("driver.jar; rm -rf /"));
     }
 
     @Test
     public void testFileUrlTraversalRejected() {
-        Assertions.assertThrows(DorisConnectorException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> JdbcDorisConnector.checkDriverUrlSecurityRule(
                         "file:///opt/doris/plugins/jdbc_drivers/../../etc/evil.jar"));
     }
 
     @Test
     public void testHttpUrlTraversalRejected() {
-        Assertions.assertThrows(DorisConnectorException.class,
+        Assertions.assertThrows(IllegalArgumentException.class,
                 () -> JdbcDorisConnector.checkDriverUrlSecurityRule("http://host/a/../b.jar"));
     }
 

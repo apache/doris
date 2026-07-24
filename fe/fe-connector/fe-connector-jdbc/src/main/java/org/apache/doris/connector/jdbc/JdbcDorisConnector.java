@@ -132,10 +132,11 @@ public class JdbcDorisConnector implements Connector {
 
     /**
      * Mandatory, non-configurable driver_url security rule. It is invoked from
-     * {@link #preCreateValidation} only, which the engine runs exclusively on the user-facing
-     * create path (CatalogFactory calls {@code checkWhenCreating()} only when {@code !isReplay}).
-     * Therefore this rule never runs during metadata/edit-log replay nor at query time, so existing
-     * catalogs are unaffected and FE startup / follower replay can never be blocked by it.
+     * {@link JdbcConnectorProvider#validateProperties} (and from {@link #preCreateValidation}),
+     * i.e. from the engine's {@code checkProperties()} hook, which runs only on the user-facing
+     * CREATE / ALTER CATALOG paths (both guarded by {@code !isReplay}). Therefore the rule never
+     * runs during metadata/edit-log replay nor at query time, so existing catalogs are unaffected
+     * and FE startup / follower replay can never be blocked by it.
      *
      * <p>The rule cannot be turned off:
      * <ul>
@@ -146,19 +147,24 @@ public class JdbcDorisConnector implements Connector {
      * Whether a remote/absolute URL is allowed at all remains governed by the fe.conf-only
      * {@code jdbc_driver_secure_path} / {@code jdbc_driver_url_white_list} configs; this rule only
      * forbids traversal and enforces the bare-name charset.
+     *
+     * <p>Throws {@link IllegalArgumentException} so the engine wraps it into a {@code DdlException}
+     * (and, on ALTER, triggers the property rollback).
      */
-    // package-private for unit testing; conceptually private.
-    static void checkDriverUrlSecurityRule(String driverUrl) {
+    public static void checkDriverUrlSecurityRule(String driverUrl) {
+        if (driverUrl == null || driverUrl.isEmpty()) {
+            return;
+        }
         String probe = driverUrl.replace('\\', '/');
         for (String segment : probe.split("/")) {
             if ("..".equals(segment)) {
-                throw new DorisConnectorException(
+                throw new IllegalArgumentException(
                         "Invalid driver_url: path traversal ('..') is not allowed: " + driverUrl);
             }
         }
         if (!driverUrl.contains("://")) {
             if (!SAFE_DRIVER_FILE_NAME.matcher(driverUrl).matches()) {
-                throw new DorisConnectorException(
+                throw new IllegalArgumentException(
                         "Invalid driver_url: a driver file name must match [A-Za-z0-9._-]+.jar (got: "
                                 + driverUrl + ")");
             }
