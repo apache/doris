@@ -922,6 +922,10 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
         }
+        if (olapTable.hasRowTtl()
+                && rollupSchema.stream().noneMatch(Column::isTtlColumn)) {
+            rollupSchema.add(new Column(olapTable.getTtlColumn()));
+        }
         if (olapTable.getEnableLightSchemaChange()) {
             int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
             for (Column column : rollupSchema) {

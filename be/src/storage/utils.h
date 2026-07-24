@@ -40,6 +40,7 @@ static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
+static const std::string TTL_COL = "__DORIS_TTL_COL__";
 static const std::string BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
 static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
 static const std::string BINLOG_OP_COL = "__DORIS_BINLOG_OP__";

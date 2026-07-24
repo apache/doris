@@ -59,6 +59,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
@@ -629,7 +630,13 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
             _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
             *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
             cast_set<uint32_t>(segment_start_pos), block));
-
+    if (_tablet_schema->has_ttl_col() &&
+        _opts.rowset_ctx->partial_update_info->row_ttl_source_cid() >= 0) {
+        const auto* partial_update_info = _opts.rowset_ctx->partial_update_info.get();
+        RETURN_IF_ERROR(copy_row_ttl_source(&full_block, *_tablet_schema,
+                                            partial_update_info->row_ttl_source_cid(),
+                                            use_default_or_null_flag, row_pos));
+    }
     if (_tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
                 full_block, *_tablet_schema, missing_cids));

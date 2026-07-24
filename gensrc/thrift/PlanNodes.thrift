@@ -1026,6 +1026,7 @@ struct TOlapScanNode {
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  // Field id 29 is reserved (was enable_row_ttl).
 }
 
 struct TEqJoinCondition {

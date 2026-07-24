@@ -124,5 +124,7 @@ message POlapTableSchemaParam {
     optional int32 sequence_map_col_unique_id = 16 [default = -1];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 17 [default = APPEND];
     optional POlapTableIndexSchema row_binlog_index_schema = 18;
+    optional int32 row_ttl_source_column_unique_id = 19 [default = -1];
+    reserved 20; // deprecated row_ttl_duration_us
+    optional ColumnPB row_ttl_source_column = 21;
 };
-

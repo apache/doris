@@ -58,6 +58,7 @@
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/txn/txn_manager.h"
+#include "storage/utils.h"
 #include "util/defer_op.h"
 #include "util/histogram.h"
 #include "util/path_util.h"
@@ -250,6 +251,48 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores,
                                     RuntimeProfile* profile) {
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
+
+    const bool has_row_ttl =
+            (request.tablet_schema.__isset.ttl_col_idx && request.tablet_schema.ttl_col_idx >= 0) ||
+            std::ranges::any_of(request.tablet_schema.columns, [](const TColumn& column) {
+                return column.column_name == TTL_COL;
+            });
+    if (request.tablet_schema.keys_type == TKeysType::AGG_KEYS && has_row_ttl) {
+        return Status::InvalidArgument("Row TTL is not supported for AGG KEY tables");
+    }
+    if (has_row_ttl) {
+        if (!request.tablet_schema.__isset.ttl_col_idx || request.tablet_schema.ttl_col_idx < 0 ||
+            static_cast<size_t>(request.tablet_schema.ttl_col_idx) >=
+                    request.tablet_schema.columns.size()) {
+            return Status::InvalidArgument("Row TTL column index is missing or out of range");
+        }
+        const auto& ttl_column = request.tablet_schema.columns[request.tablet_schema.ttl_col_idx];
+        const auto ttl_type = ttl_column.column_type.type;
+        const bool is_direct_expiration = ttl_type == TPrimitiveType::BIGINT;
+        const bool is_source_time =
+                ttl_type == TPrimitiveType::DATE || ttl_type == TPrimitiveType::DATEV2 ||
+                ttl_type == TPrimitiveType::DATETIME || ttl_type == TPrimitiveType::DATETIMEV2 ||
+                ttl_type == TPrimitiveType::TIMESTAMPTZ;
+        const TAggregationType::type expected_aggregation =
+                request.tablet_schema.keys_type == TKeysType::DUP_KEYS ? TAggregationType::NONE
+                                                                       : TAggregationType::REPLACE;
+        if (ttl_column.column_name != TTL_COL ||
+            (!is_direct_expiration && !is_source_time) || ttl_column.is_key ||
+            !ttl_column.is_allow_null || ttl_column.visible ||
+            ttl_column.aggregation_type != expected_aggregation) {
+            return Status::InvalidArgument(
+                    "Row TTL column must be a hidden nullable temporal or BIGINT value column with {} "
+                    "aggregation",
+                    expected_aggregation == TAggregationType::NONE ? "NONE" : "REPLACE");
+        }
+        const int64_t duration_us = request.tablet_schema.__isset.row_ttl_duration_us
+                                            ? request.tablet_schema.row_ttl_duration_us
+                                            : -1;
+        if ((is_source_time && duration_us < 0) || (is_direct_expiration && duration_us >= 0)) {
+            return Status::InvalidArgument(
+                    "Row TTL duration must be set only for a temporal hidden column");
+        }
+    }
 
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id

@@ -77,6 +77,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -2183,7 +2184,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
                             tbl.getVerticalCompactionNumColumnsPerGroup(),
-                            rowBinlogIndexMeta);
+                            rowBinlogIndexMeta, tbl.getRowTtlDurationMicros());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2412,6 +2413,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = createTableInfo.getProperties();
+        String ttlColProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_COL;
+        String ttlProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL;
+        Map<String, String> rowTtlProperties = new HashMap<>();
+        for (String property : List.of(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                ttlColProperty, ttlProperty)) {
+            if (properties.containsKey(property)) {
+                rowTtlProperties.put(property, properties.remove(property));
+            }
+        }
+        if (!rowTtlProperties.isEmpty()) {
+            olapTable.setTableProperty(new TableProperty(rowTtlProperties));
+        }
 
         if (createTableInfo.isTemp()) {
             properties.put("binlog.enable", "false");

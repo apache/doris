@@ -19,7 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 
 #include "common/consts.h"
@@ -30,6 +32,7 @@
 #include "core/value/bitmap_value.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_common.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/historical_row_retriever.h"
@@ -50,6 +53,41 @@ ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_co
     return skip_bitmap_column_ptr;
 }
 
+std::string resolved_default_value(const TabletColumn& column, int64_t timestamp_ms,
+                                   int32_t nano_seconds, const std::string& timezone) {
+    if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+                  column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
+                 to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
+                         std::string::npos)) {
+        auto pos = to_lower(column.default_value()).find('(');
+        DateV2Value<DateTimeV2ValueType> value;
+        if (pos == std::string::npos) {
+            value.from_unixtime(timestamp_ms / 1000, timezone);
+        } else {
+            int precision = std::stoi(column.default_value().substr(pos + 1));
+            value.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
+        }
+        std::string result = value.to_string();
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
+            result += timezone;
+        }
+        return result;
+    }
+    if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
+                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
+                         std::string::npos)) {
+        DateV2Value<DateV2ValueType> value;
+        value.from_unixtime(timestamp_ms / 1000, timezone);
+        return value.to_string();
+    }
+    if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
+                 to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
+                         std::string::npos)) {
+        return BitmapValue {}.to_string();
+    }
+    return column.default_value();
+}
+
 } // namespace
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
@@ -59,7 +97,9 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                                bool is_strict_mode_, int64_t timestamp_ms_, int32_t nano_seconds_,
                                const std::string& timezone_,
                                const std::string& auto_increment_column,
-                               int32_t sequence_map_col_uid, int64_t cur_max_version) {
+                               int32_t sequence_map_col_uid, int64_t cur_max_version,
+                               int32_t row_ttl_source_uid,
+                               const TabletColumn* row_ttl_source_column) {
     partial_update_mode = unique_key_update_mode;
     partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
@@ -68,6 +108,14 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
     timestamp_ms = timestamp_ms_;
     nano_seconds = nano_seconds_;
     timezone = timezone_;
+    row_ttl_source_column_uid = row_ttl_source_uid;
+    if (tablet_schema.has_ttl_col() &&
+        tablet_schema.column(tablet_schema.ttl_col_idx()).type() !=
+                FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        DORIS_CHECK(row_ttl_source_uid >= 0);
+        DORIS_CHECK(row_ttl_source_column != nullptr);
+        row_ttl_source_column_cid = tablet_schema.field_index(row_ttl_source_column->name());
+    }
     missing_cids.clear();
     update_cids.clear();
 
@@ -109,6 +157,14 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
             }
         }
         _generate_default_values_for_missing_cids(tablet_schema);
+        if (tablet_schema.has_ttl_col() && row_ttl_uses_source_time(tablet_schema) &&
+            row_ttl_source_column_cid < 0) {
+            auto ttl = std::ranges::find(missing_cids, tablet_schema.ttl_col_idx());
+            if (ttl != missing_cids.end() && row_ttl_source_column->has_default_value()) {
+                default_values[std::distance(missing_cids.begin(), ttl)] = resolved_default_value(
+                        *row_ttl_source_column, timestamp_ms, nano_seconds, timezone);
+            }
+        }
     }
     is_strict_mode = is_strict_mode_;
     is_input_columns_contains_auto_inc_column =
@@ -143,6 +199,8 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
     for (const auto& value : default_values) {
         partial_update_info_pb->add_default_values(value);
     }
+    partial_update_info_pb->set_row_ttl_source_column_cid(row_ttl_source_column_cid);
+    partial_update_info_pb->set_row_ttl_source_column_uid(row_ttl_source_column_uid);
 }
 
 void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
@@ -190,6 +248,8 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     for (const auto& value : partial_update_info_pb->default_values()) {
         default_values.push_back(value);
     }
+    row_ttl_source_column_cid = partial_update_info_pb->row_ttl_source_column_cid();
+    row_ttl_source_column_uid = partial_update_info_pb->row_ttl_source_column_uid();
 }
 
 std::string PartialUpdateInfo::summary() const {
@@ -270,43 +330,8 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
     for (unsigned int cur_cid : missing_cids) {
         const auto& column = tablet_schema.column(cur_cid);
         if (column.has_default_value()) {
-            std::string default_value;
-            if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
-                          column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
-                         to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
-                                 std::string::npos)) {
-                auto pos = to_lower(column.default_value()).find('(');
-                if (pos == std::string::npos) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
-                    default_value = dtv.to_string();
-                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
-                        default_value += timezone;
-                    }
-                } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
-                    default_value = dtv.to_string();
-                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
-                        default_value += timezone;
-                    }
-                }
-            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
-                                        std::string::npos)) {
-                DateV2Value<DateV2ValueType> dv;
-                dv.from_unixtime(timestamp_ms / 1000, timezone);
-                default_value = dv.to_string();
-            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
-                                to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
-                                        std::string::npos)) {
-                BitmapValue v = BitmapValue {};
-                default_value = v.to_string();
-            } else {
-                default_value = column.default_value();
-            }
-            default_values.emplace_back(default_value);
+            default_values.emplace_back(
+                    resolved_default_value(column, timestamp_ms, nano_seconds, timezone));
         } else {
             // place an empty string here
             default_values.emplace_back();
@@ -1173,6 +1198,31 @@ Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos, size_t 
 Status BlockAggregator::aggregate_for_flexible_partial_update(
         Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+    if (_tablet_schema.has_ttl_col()) {
+        auto& skip_bitmaps =
+                get_mutable_skip_bitmap_column(block, _tablet_schema.skip_bitmap_col_idx())
+                        ->get_data();
+        const auto* partial_update_info = _writer._opts.rowset_ctx->partial_update_info.get();
+        DORIS_CHECK(partial_update_info != nullptr);
+        const int32_t source_uid = partial_update_info->row_ttl_source_uid();
+        const int32_t ttl_uid = _tablet_schema.column(_tablet_schema.ttl_col_idx()).unique_id();
+        if (row_ttl_uses_source_time(_tablet_schema)) {
+            DORIS_CHECK(source_uid >= 0);
+            for (auto& skip_bitmap : skip_bitmaps) {
+                if (skip_bitmap.contains(source_uid)) {
+                    skip_bitmap.add(ttl_uid);
+                } else {
+                    skip_bitmap.remove(ttl_uid);
+                }
+            }
+        } else {
+            DORIS_CHECK_EQ(source_uid, -1);
+            for (auto& skip_bitmap : skip_bitmaps) {
+                skip_bitmap.add(ttl_uid);
+            }
+        }
+    }
+
     std::vector<IOlapColumnDataAccessor*> key_columns {};
     IOlapColumnDataAccessor* seq_column {nullptr};
 

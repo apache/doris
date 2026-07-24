@@ -388,9 +388,13 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> generatedColumns = Lists.newArrayList();
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
+        List<Column> rowTtlColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : boundSink.getTargetTable().getFullSchema()) {
-            if (column.isGeneratedColumn()) {
+            if (column.isTtlColumn()) {
+                rowTtlColumns.add(column);
+                continue;
+            } else if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
             } else if (column.isMaterializedViewColumn()) {
@@ -491,6 +495,34 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                 }
             }
+        }
+        for (Column ttlColumn : rowTtlColumns) {
+            Preconditions.checkState(table instanceof OlapTable);
+            OlapTable olapTable = (OlapTable) table;
+            String rowTtlCol = olapTable.getRowTtlCol();
+            if (rowTtlCol == null) {
+                if (isPartialUpdate) {
+                    continue;
+                }
+                Alias output = new Alias(new NullLiteral(DataType.fromCatalogType(ttlColumn.getType())),
+                        ttlColumn.getName());
+                columnToOutput.put(ttlColumn.getName(), output);
+                columnToReplaced.put(ttlColumn.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
+                continue;
+            }
+            NamedExpression source = columnToOutput.get(rowTtlCol);
+            if (source == null) {
+                // Existing rows keep the stored source time. SegmentWriter fills new keys from
+                // the source column default.
+                Preconditions.checkState(isPartialUpdate);
+                continue;
+            }
+            Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                    source.toSlot(), DataType.fromCatalogType(ttlColumn.getType())), ttlColumn.getName());
+            columnToOutput.put(ttlColumn.getName(), output);
+            columnToReplaced.put(ttlColumn.getName(), output.toSlot());
+            replaceMap.put(output.toSlot(), output.child());
         }
         // the generated columns can use all ordinary columns,
         // if processed in upper for loop, will lead to not found slot error

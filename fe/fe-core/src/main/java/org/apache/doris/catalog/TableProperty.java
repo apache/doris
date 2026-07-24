@@ -810,6 +810,29 @@ public class TableProperty implements GsonPostProcessable {
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
     }
 
+    public String getRowTtlCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_COL);
+    }
+
+    public boolean getEnableRowTtl() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL, "false"));
+    }
+
+    public long getRowTtlDurationMicros() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL);
+        if (value == null) {
+            return -1;
+        }
+        try {
+            return PropertyAnalyzer.parseRowTtlDurationMicros(value);
+        } catch (AnalysisException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {
         properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS, Integer.toString(groupCommitIntervalMs));
     }

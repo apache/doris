@@ -68,6 +68,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -312,8 +313,10 @@ public class CoordinatorContext {
         queryOptions.setNewVersionPercentile(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
+        Instant queryNow = Instant.now();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
+        queryGlobals.setTimestampMs(queryNow.toEpochMilli());
+        queryGlobals.setNanoSeconds(queryNow.getNano());
         queryGlobals.setTimeZone(timezone);
         queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
 
@@ -346,9 +349,10 @@ public class CoordinatorContext {
 
     public static TQueryGlobals createQueryGlobals(ConnectContext context) {
         TQueryGlobals queryGlobals = new TQueryGlobals();
+        Instant queryNow = Instant.now();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        queryGlobals.setTimestampMs(queryNow.toEpochMilli());
+        queryGlobals.setNanoSeconds(queryNow.getNano());
         queryGlobals.setLoadZeroTolerance(false);
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);

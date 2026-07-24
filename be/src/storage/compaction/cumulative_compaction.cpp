@@ -21,6 +21,7 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <ostream>

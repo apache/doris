@@ -51,6 +51,8 @@ public:
         int64_t output_rows = 0;
         int64_t merged_rows = 0;
         int64_t filtered_rows = 0;
+        // Rows removed by the shared post-merge delete-sign/TTL visibility mask.
+        int64_t post_merge_filtered_rows = 0;
         RowIdConversion* rowid_conversion = nullptr;
         // these data for trans
         int64_t cached_bytes_total = 0;
@@ -84,7 +86,7 @@ public:
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment,
             Statistics* stats_output, std::vector<uint32_t> key_group_cluster_key_idxes,
-            int64_t batch_size, CompactionSampleInfo* sample_info,
+            int64_t row_ttl_gc_now_us, int64_t batch_size, CompactionSampleInfo* sample_info,
             bool enable_sparse_optimization = false);
 
     // for segcompaction

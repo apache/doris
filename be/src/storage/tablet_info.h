@@ -121,6 +121,8 @@ public:
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
     int32_t sequence_map_col_uid() const { return _sequence_map_col_uid; }
+    int32_t row_ttl_source_column_uid() const { return _row_ttl_source_column_uid; }
+    const TabletColumn* row_ttl_source_column() const { return _row_ttl_source_column; }
     std::string debug_string() const;
 
     Status init_unique_key_update_mode(const TOlapTableSchemaParam& tschema);
@@ -146,6 +148,8 @@ private:
     int32_t _nano_seconds {0};
     std::string _timezone;
     int32_t _sequence_map_col_uid {-1};
+    int32_t _row_ttl_source_column_uid {-1};
+    TabletColumn* _row_ttl_source_column = nullptr;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;

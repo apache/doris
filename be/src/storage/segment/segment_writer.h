@@ -114,7 +114,6 @@ public:
     int64_t num_rows_deleted() const { return _num_rows_deleted; }
     int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
-
     uint32_t row_count() const { return _row_count; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size,

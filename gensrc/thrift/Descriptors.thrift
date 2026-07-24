@@ -366,6 +366,12 @@ struct TOlapTableSchemaParam {
     15: optional i32 sequence_map_col_unique_id = -1
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
     17: optional TOlapTableIndexSchema row_binlog_index_schema
+    // Row TTL source metadata is used by BE partial-update completion after missing columns
+    // have been restored. Duration belongs to TabletSchema, not the write request.
+    18: optional i32 row_ttl_source_column_unique_id = -1
+    // 19: deprecated row_ttl_duration_us
+    // Full source metadata is needed when a rollup stores the hidden TTL column but not its source.
+    20: optional TColumn row_ttl_source_column
 }
 
 struct TTabletLocation {

@@ -23,7 +23,6 @@
 
 #include <functional>
 #include <memory>
-#include <optional>
 
 #include "common/factory_creator.h"
 #include "core/block/block.h"

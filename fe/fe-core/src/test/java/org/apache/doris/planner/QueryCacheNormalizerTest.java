@@ -138,8 +138,19 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1')";
 
+        String rowTtlTable = "create table db1.row_ttl("
+                + "  k1 int,\n"
+                + "  event_time datetimev2(6),\n"
+                + "  v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1',\n"
+                + "  'enable_row_ttl' = 'true',\n"
+                + "  'function_column.ttl_col' = 'event_time',\n"
+                + "  'function_column.ttl' = '1 day')";
+
         createTables(nonPart, part1, part2, multiLeveParts, variantTable, uniqueMowTable,
-                uniqueMorTable, aggTable);
+                uniqueMorTable, aggTable, rowTtlTable);
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
@@ -468,6 +479,11 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable().setEnableQueryCacheIncremental(false);
         }
+    }
+
+    @Test
+    public void testRowTtlDisablesQueryCache() throws Exception {
+        Assertions.assertTrue(normalize("select count(*) from db1.row_ttl").isEmpty());
     }
 
     private String getDigest(String sql) throws Exception {

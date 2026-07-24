@@ -712,6 +712,15 @@ public class ColumnDefinition {
         return columnDefinition;
     }
 
+    /** Add the nullable row TTL hidden column. */
+    public static ColumnDefinition newTtlColumnDefinition(DataType dataType, AggregateType aggregateType) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.TTL_COL, dataType, false,
+                aggregateType, true, Optional.of(DefaultValue.NULL_DEFAULT_VALUE),
+                "row ttl hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+        return columnDefinition;
+    }
+
     /**
      * used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
      * becasue ColumnDefinition.validate() will check that bitmap type column don't set default value

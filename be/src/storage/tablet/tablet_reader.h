@@ -228,6 +228,9 @@ public:
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+
+        // Compactions freeze one TTL collection time across all input readers.
+        int64_t row_ttl_gc_now_us = 0;
     };
 
     TabletReader() = default;

@@ -120,7 +120,7 @@ public class AgentTaskTest {
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
-                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null, -1);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);
@@ -172,6 +172,30 @@ public class AgentTaskTest {
         Assert.assertEquals(createReplicaTask.getSignature(), request.getSignature());
         Assert.assertNotNull(request.getCreateTabletReq());
 
+        List<Column> rowTtlColumns = new LinkedList<>();
+        rowTtlColumns.add(new Column("k1", ScalarType.createType(PrimitiveType.INT), true,
+                null, false, null, ""));
+        rowTtlColumns.add(new Column("event_time", ScalarType.createDatetimeV2Type(6),
+                false, AggregateType.NONE, true, null, ""));
+        rowTtlColumns.add(new Column(Column.TTL_COL, ScalarType.createDatetimeV2Type(6),
+                false, AggregateType.NONE, true, "row ttl", false));
+        AgentTask createWithRowTtl = new CreateReplicaTask(
+                backendId1, dbId, tableId, partitionId, indexId1, tabletId1, replicaId1,
+                shortKeyNum, schemaHash1, version, KeysType.DUP_KEYS, storageType,
+                TStorageMedium.SSD, rowTtlColumns, null, 0, latch, null, false,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false,
+                false, "", 0, 0, 0, 0, 0, false, null, null, new HashMap<>(), rowStorePageSize,
+                false, storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize,
+                new HashMap<>(), 5, null, 86_400_000_000L);
+        TAgentTaskRequest requestWithRowTtl =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowTtl);
+        Assert.assertEquals(2,
+                requestWithRowTtl.getCreateTabletReq().getTabletSchema().getTtlColIdx());
+        Assert.assertEquals(86_400_000_000L,
+                requestWithRowTtl.getCreateTabletReq().getTabletSchema().getRowTtlDurationUs());
+        Assert.assertFalse(requestWithRowTtl.getCreateTabletReq().getTabletSchema()
+                .getColumns().get(2).isVisible());
+
         // create with row binlog schema
         BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, false);
         List<Column> rowBinlogColumns = new LinkedList<>();
@@ -187,7 +211,7 @@ public class AgentTaskTest {
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false,
                 binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
-                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, rowBinlogMeta);
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, rowBinlogMeta, -1);
         TAgentTaskRequest requestWithRowBinlog =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);
         Assert.assertNotNull(requestWithRowBinlog.getCreateTabletReq());

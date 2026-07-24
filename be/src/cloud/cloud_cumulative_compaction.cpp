@@ -19,6 +19,8 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <algorithm>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"

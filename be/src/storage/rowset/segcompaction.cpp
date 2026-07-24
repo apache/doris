@@ -86,7 +86,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
         RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns,
-        std::vector<uint32_t>& key_group_cluster_key_idxes,
+        std::vector<uint32_t>& key_group_cluster_key_idxes, int64_t row_ttl_gc_now_us,
         std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
@@ -132,6 +132,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     // no reader_params.version shouldn't break segcompaction
     reader_params.tablet_schema = ctx.tablet_schema;
     reader_params.tablet = tablet;
+    reader_params.reader_type = ReaderType::READER_SEGMENT_COMPACTION;
+    reader_params.row_ttl_gc_now_us = row_ttl_gc_now_us;
     reader_params.return_columns = return_columns;
     reader_params.is_key_column_group = is_key;
     reader_params.use_page_cache = false;
@@ -209,8 +211,8 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     uint64_t rows_del_by_bitmap = reader_stat.rows_del_by_bitmap;
     uint64_t sum_src_row = 0; /* sum of rows in each involved source segments */
     uint64_t filtered_rows = merger_stat.filtered_rows; /* rows filtered by del conditions */
-    uint64_t output_rows = merger_stat.output_rows;     /* rows after merge */
-    uint64_t merged_rows = merger_stat.merged_rows;     /* dup key merged by unique/agg */
+    uint64_t output_rows = merger_stat.output_rows; /* rows after merge */
+    uint64_t merged_rows = merger_stat.merged_rows; /* dup key merged by unique/agg */
 
     {
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
@@ -232,17 +234,13 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_merged_rows", { merged_rows++; });
-    if ((output_rows + merged_rows) != raw_rows_read) {
-        return Status::Error<CHECK_LINES_ERROR>(
-                "segcompaction total row num does not match after merge. expect total row:{},  "
-                "actual total row:{}, (output_rows:{},merged_rows:{})",
-                raw_rows_read, output_rows + merged_rows, output_rows, merged_rows);
-    }
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_filtered_rows",
                     { filtered_rows++; });
-    if (filtered_rows != 0) {
+    if ((output_rows + merged_rows + filtered_rows) != raw_rows_read) {
         return Status::Error<CHECK_LINES_ERROR>(
-                "segcompaction should not have filtered rows but actual filtered rows:{}",
+                "segcompaction total row num does not match after merge. expect total row:{},  "
+                "actual total row:{}, (output_rows:{},merged_rows:{},filtered_rows:{})",
+                raw_rows_read, output_rows + merged_rows + filtered_rows, output_rows, merged_rows,
                 filtered_rows);
     }
     return Status::OK();
@@ -264,6 +262,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     uint32_t begin = (*(segments->begin()))->id();
     uint32_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
+    const int64_t row_ttl_gc_now_us = static_cast<int64_t>(begin_time);
     uint64_t index_size = 0;
     uint64_t total_index_size = 0;
     auto ctx = _writer->_context;
@@ -307,9 +306,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
         std::unique_ptr<VerticalBlockReader> reader;
-        auto s =
-                _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
-                                          is_key, column_ids, key_group_cluster_key_idxes, &reader);
+        auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
+                                           is_key, column_ids, key_group_cluster_key_idxes,
+                                           row_ttl_gc_now_us, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             return Status::Error<SEGCOMPACTION_INIT_READER>(
                     "failed to get segcompaction reader. err: {}", s.to_string());

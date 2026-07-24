@@ -243,6 +243,118 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateRowTtlTables() throws Exception {
+        createTable("create table test.row_ttl_dup (k int, event_time datetimev2(6), v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', "
+                + "'function_column.ttl'='1 day')");
+        createTable("create table test.row_ttl_mow (k int, event_time datetimev2(6), v int) "
+                + "unique key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_unique_key_merge_on_write'='true', "
+                + "'enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='2h')");
+        createTable("create table test.row_ttl_mor (k int, event_time datetimev2(6), v int) "
+                + "unique key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_unique_key_merge_on_write'='false', "
+                + "'enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='30')");
+        createTable("create table test.row_ttl_seq_map (k int, event_time datetimev2(6), "
+                + "sequence_time datetimev2(6), v int) unique key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='false', "
+                + "'enable_row_ttl'='true', "
+                + "'sequence_mapping.sequence_time'='event_time,v', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')");
+        createTable("create table test.row_ttl_direct (k int, v int) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'enable_row_ttl'='true')");
+        createTable("create table test.row_ttl_timestamptz (k int, event_time timestamptz(6), v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')");
+        createTable("create table test.row_ttl_date (k int, event_date date, v int) "
+                + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                + "'replication_num'='1', 'enable_row_ttl'='true', "
+                + "'function_column.ttl_col'='event_date', 'function_column.ttl'='1 day')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable dup = (OlapTable) db.getTableOrDdlException("row_ttl_dup");
+        Assertions.assertTrue(dup.hasRowTtl());
+        Assertions.assertFalse(dup.getTtlColumn().isVisible());
+        Assertions.assertTrue(dup.getTtlColumn().isAllowNull());
+        Assertions.assertEquals(dup.getColumn("event_time").getType(), dup.getTtlColumn().getType());
+        Assertions.assertEquals(ScalarType.createDatetimeV2Type(6), dup.getTtlColumn().getType());
+        Assertions.assertEquals(AggregateType.NONE, dup.getTtlColumn().getAggregationType());
+        Assertions.assertEquals("event_time", dup.getRowTtlCol());
+        Assertions.assertEquals(86_400_000_000L, dup.getRowTtlDurationMicros());
+        Assertions.assertTrue(dup.getTableProperty().getEnableRowTtl());
+        Assertions.assertEquals("86400", dup.getTableProperty().getProperties()
+                .get("function_column.ttl"));
+        dup.getTableProperty().getProperties().remove("enable_row_ttl");
+        dup.gsonPostProcess();
+        Assertions.assertTrue(dup.getTableProperty().getEnableRowTtl());
+
+        OlapTable mow = (OlapTable) db.getTableOrDdlException("row_ttl_mow");
+        Assertions.assertTrue(mow.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(AggregateType.REPLACE, mow.getTtlColumn().getAggregationType());
+        OlapTable mor = (OlapTable) db.getTableOrDdlException("row_ttl_mor");
+        Assertions.assertFalse(mor.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(AggregateType.REPLACE, mor.getTtlColumn().getAggregationType());
+        OlapTable seqMap = (OlapTable) db.getTableOrDdlException("row_ttl_seq_map");
+        Assertions.assertTrue(seqMap.getColumnSeqMapping().get("sequence_time")
+                .stream().anyMatch(Column.TTL_COL::equalsIgnoreCase));
+        OlapTable direct = (OlapTable) db.getTableOrDdlException("row_ttl_direct");
+        Assertions.assertTrue(direct.hasRowTtl());
+        Assertions.assertNull(direct.getRowTtlCol());
+        Assertions.assertEquals(-1, direct.getRowTtlDurationMicros());
+        Assertions.assertEquals(Type.BIGINT, direct.getTtlColumn().getType());
+        Assertions.assertTrue(direct.getTtlColumn().isAllowNull());
+        OlapTable timestamptz = (OlapTable) db.getTableOrDdlException("row_ttl_timestamptz");
+        Assertions.assertEquals(ScalarType.createTimeStampTzType(6),
+                timestamptz.getTtlColumn().getType());
+        OlapTable date = (OlapTable) db.getTableOrDdlException("row_ttl_date");
+        Assertions.assertEquals(date.getColumn("event_date").getType(), date.getTtlColumn().getType());
+
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_agg (k int, event_time datetimev2(6), v int sum) "
+                        + "aggregate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', "
+                        + "'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_without_switch (k int, event_time datetimev2(6)) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'function_column.ttl_col'='event_time', "
+                        + "'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_missing_col (k int, event_time datetimev2(6)) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_missing_ttl (k int, event_time datetimev2(6)) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_source_not_exist (k int, v int) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_source_key (k int, event_time datetimev2(6), v int) "
+                        + "duplicate key(k, event_time) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+        checkThrow(Exception.class, () -> createTable(
+                "create table test.row_ttl_source_bad_type (k int, event_time int, v int) "
+                        + "duplicate key(k) distributed by hash(k) buckets 1 properties("
+                        + "'replication_num'='1', 'enable_row_ttl'='true', "
+                        + "'function_column.ttl_col'='event_time', 'function_column.ttl'='1 day')"));
+    }
+
+    @Test
     public void testAbnormal() throws ConfigException {
         checkThrow(org.apache.doris.common.DdlException.class,
                 "Unknown properties: {aa=bb}",
