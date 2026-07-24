@@ -88,9 +88,10 @@ public:
                                          const IColumn::Filter& dictionary_filter,
                                          MutableColumnPtr& column, IColumn::Filter* row_filter,
                                          bool* used_filter) override;
-    Status select_with_plain_filter(const SelectionVector& selection, uint16_t selected_rows,
-                                    int64_t batch_rows, const VExprSPtrs& conjuncts, int column_id,
-                                    IColumn::Filter* row_filter, bool* used_filter) override;
+    Status select_with_fixed_width_filter(const SelectionVector& selection, uint16_t selected_rows,
+                                          int64_t batch_rows, const VExprSPtrs& conjuncts,
+                                          int column_id, IColumn* projected_column,
+                                          IColumn::Filter* row_filter, bool* used_filter) override;
     void flush_profile() override;
     bool crossed_page_since_last_batch() override;
     Result<MutableColumnPtr> dictionary_values() override;
@@ -111,10 +112,11 @@ private:
     Status read_with_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                             MutableColumnPtr& column, const DataTypePtr& output_type,
                             bool dictionary_ids, int64_t* rows_read);
-    Status read_with_plain_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
-                                  const VExprSPtrs& conjuncts, int column_id,
-                                  IColumn::Filter* row_filter, int64_t* rows_read,
-                                  bool* used_filter);
+    Status read_with_fixed_width_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
+                                        const VExprSPtrs& conjuncts, int column_id,
+                                        IColumn* projected_column, IColumn::Filter* row_filter,
+                                        int64_t* rows_read, bool* used_filter);
+    void release_batch_scratch_if_needed();
     int64_t sync_native_profile();
     void record_page_fragments(int64_t page_fragments);
     Status validate_selected_span(int64_t rows);

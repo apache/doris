@@ -65,6 +65,9 @@ public:
     Status abort_split() override;
     Status close() override;
     void set_batch_size(size_t batch_size) override;
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts) override;
+    const format::MaterializedBlockStats& last_materialized_block_stats() const override;
+    int64_t condition_cache_hit_count() const override;
 
 #ifdef BE_TEST
     void TEST_install_batch_size_children() {
@@ -73,6 +76,10 @@ public:
     }
     std::pair<size_t, size_t> TEST_child_batch_sizes() const {
         return {_native_reader->TEST_batch_size(), _jni_reader->TEST_batch_size()};
+    }
+    void TEST_set_child_condition_cache_hits(int64_t native_hits, int64_t jni_hits) {
+        _native_reader->TEST_set_condition_cache_hit_count(native_hits);
+        _jni_reader->TEST_set_condition_cache_hit_count(jni_hits);
     }
     void TEST_set_child_reader_factories(
             std::function<std::unique_ptr<format::TableReader>()> native_factory,

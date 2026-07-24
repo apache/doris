@@ -1146,11 +1146,6 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     return ctx;
 }
 
-void apply_final_conjuncts(Block* block, const VExprContextSPtrs& conjuncts) {
-    const auto status = VExprContext::filter_block(conjuncts, block, block->columns());
-    ASSERT_TRUE(status.ok()) << status;
-}
-
 TEST(IcebergV2ReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_test";
@@ -1389,9 +1384,6 @@ TEST(IcebergV2ReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterializa
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
-    ASSERT_EQ(block.rows(), 3);
-
-    apply_final_conjuncts(&block, conjuncts);
     ASSERT_EQ(block.rows(), 1);
     expect_nullable_int64_column_values(*block.get_by_position(0).column, {1001});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {77});
@@ -1443,9 +1435,6 @@ TEST(IcebergV2ReaderTest, IcebergLastUpdatedSequencePredicateFiltersAfterMateria
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
-    ASSERT_EQ(block.rows(), 3);
-
-    apply_final_conjuncts(&block, conjuncts);
     ASSERT_EQ(block.rows(), 1);
     expect_nullable_int64_column_values(*block.get_by_position(0).column, {1001});
     expect_nullable_int64_column_values(*block.get_by_position(1).column, {77});
@@ -2458,8 +2447,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
     write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
-    const std::string binary_default(
-            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
+    static_assert(sizeof("0123456789abcdef0123456789abcdef") - 1 > StringView::kInlineSize);
+    const std::string binary_default = "0123456789abcdef0123456789abcdef";
     write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
                                                       "added_binary");
 
@@ -2469,9 +2458,11 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(
             100, {external_schema_field("id", 0),
-                  external_schema_field("added_binary", 1, {}, "Ej5FZ+ibEtOkVkJmFBdAAA==",
-                                        external_primitive_type(TPrimitiveType::VARBINARY, 16),
-                                        true)})});
+                  external_schema_field(
+                          "added_binary", 1, {}, "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+                          external_primitive_type(TPrimitiveType::VARBINARY,
+                                                  static_cast<int32_t>(binary_default.size())),
+                          true)})});
 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

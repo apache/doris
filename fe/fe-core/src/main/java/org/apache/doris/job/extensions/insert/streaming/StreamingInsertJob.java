@@ -248,9 +248,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * Initialize job from source to database, like multi table mysql to doris.
-     * 1. get mysql connection info from sourceProperties
-     * 2. fetch table list from mysql
+     * Initialize a multi-table job from an external database source to Doris.
+     * 1. get source connection info from sourceProperties
+     * 2. fetch the source table list
      * 3. create doris table if not exists
      * 4. check whether need full data sync
      * 5. need => fetch split and write to system table
@@ -259,6 +259,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             init();
             checkRequiredSourceProperties();
+            DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                    dataSourceType, sourceProperties);
             List<String> createTbls = createTableIfNotExists();
             this.syncTables = createTbls;
             if (sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) == null) {
@@ -272,7 +274,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
-            throw new RuntimeException(ex.getMessage());
+            throw new RuntimeException(ex.getMessage(), ex);
         }
     }
 
@@ -299,7 +301,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
         Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
-        // Key: source table name (PG/MySQL); Value: CreateTableCommand for the Doris target table.
+        // Key: source table name; Value: CreateTableCommand for the Doris target table.
         // The two names differ when "table.<src>.target_table" is configured.
         LinkedHashMap<String, CreateTableCommand> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
@@ -312,7 +314,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
                 createTblCmd.run(ConnectContext.get(), null);
             }
-            // Use the source (upstream) table name so CDC monitors the correct PG/MySQL table
+            // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);
         }
         return syncTbls;
@@ -659,10 +661,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return runningStreamTask;
     }
 
-    /**
-     * for From MySQL TO Database
-     * @return
-     */
+    /** Create a task for a FROM source TO DATABASE streaming job. */
     private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
                 offsetProvider, getConvertedSourceProperties(), targetDb, targetProperties, jobProperties,
