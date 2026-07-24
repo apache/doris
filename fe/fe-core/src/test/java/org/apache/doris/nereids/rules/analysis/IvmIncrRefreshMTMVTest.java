@@ -74,7 +74,7 @@ class IvmIncrRefreshMTMVTest {
     void testCreateRewriteContextKeepsPlanUnchanged() {
         LogicalOlapTableSink<Plan> sink = newSink(mtmv, scan);
         RecordingRule rule = new RecordingRule(scan);
-        IvmRewriteContext context = new IvmRewriteContext(IvmRewriteContext.Mode.NORMALIZE, null, false);
+        IvmRewriteContext context = new IvmRewriteContext(IvmRewriteContext.Mode.CREATE, null, false);
 
         Plan result = rule.rewriteRoot(sink, newJobContext(sink, context, newRewriteResult(SIGNATURE)));
 
