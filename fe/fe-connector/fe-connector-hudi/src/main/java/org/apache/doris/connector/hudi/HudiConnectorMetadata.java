@@ -317,7 +317,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         // Latest schema (no time-travel pin). Shares the single build path with the at-instant overload below
         // (null instant = latest) so the two can never drift.
-        return buildTableSchema((HudiTableHandle) handle, null);
+        return buildTableSchema(session, (HudiTableHandle) handle, null);
     }
 
     /**
@@ -336,30 +336,51 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         HudiTableHandle hudiHandle = (HudiTableHandle) handle;
-        return buildTableSchema(hudiHandle, hudiHandle.getQueryInstant());
+        return buildTableSchema(session, hudiHandle, hudiHandle.getQueryInstant());
     }
 
     /**
-     * Single build path for {@link #getTableSchema}: reads the columns from the Hudi metaClient AS OF
-     * {@code queryInstant} ({@code null} = latest) and wraps them in a {@link ConnectorTableSchema}. Shared by
-     * the latest (2-arg) and at-instant (3-arg) entry points so they cannot diverge.
+     * Single build path for {@link #getTableSchema}: reads the columns AS OF {@code queryInstant}
+     * ({@code null} = latest) and wraps them in a {@link ConnectorTableSchema}. Shared by the latest (2-arg) and
+     * at-instant (3-arg) entry points so they cannot diverge.
+     *
+     * <p>The latest branch ({@code queryInstant == null}) resolves the columns through the per-statement latest-schema
+     * memo ({@link HudiStatementScope#sharedLatestColumns}), so repeated latest reads in one statement share a single
+     * {@link #getSchemaFromMetaClient} call; value and failure semantics are byte-identical to the un-memoized read
+     * (that method already swallows a failure to an empty list / BE BY_NAME). The at-instant branch
+     * ({@code FOR TIME AS OF}) stays on {@link #getSchemaFromMetaClient}, UNMEMOIZED: the memo key does not carry the
+     * instant, so a latest read and an at-instant read of the same table in one statement must not share it.</p>
      */
-    private ConnectorTableSchema buildTableSchema(HudiTableHandle hudiHandle, String queryInstant) {
+    private ConnectorTableSchema buildTableSchema(ConnectorSession session, HudiTableHandle hudiHandle,
+            String queryInstant) {
         String basePath = hudiHandle.getBasePath();
 
         List<ConnectorColumn> columns;
         if (basePath != null && !basePath.isEmpty()) {
-            columns = getSchemaFromMetaClient(basePath, queryInstant);
+            if (queryInstant == null) {
+                columns = HudiStatementScope.sharedLatestColumns(session, hudiHandle.getDbName(),
+                        hudiHandle.getTableName(), () -> getSchemaFromMetaClient(basePath, null));
+            } else {
+                columns = getSchemaFromMetaClient(basePath, queryInstant);
+            }
         } else {
             columns = getSchemaFromHms(hudiHandle.getDbName(), hudiHandle.getTableName());
         }
 
+        return assembleTableSchema(hudiHandle, columns);
+    }
+
+    /**
+     * Wraps the resolved columns in a {@link ConnectorTableSchema}, stamping the hudi table-type and the
+     * partition-column marker fe-core needs to model the table as partitioned (parity with the OLD
+     * HMSExternalTable/HudiDlaTable path, which read the HMS partition keys). The keys already live on the handle
+     * (getTableHandle -> tableInfo.getPartitionKeys()); emit them as the RAW-name CSV, matching the schema column
+     * names (the partition columns are appended to {@code columns} by both schema sources). Shared by the memoized
+     * latest path and the at-instant {@link #buildTableSchema} path.
+     */
+    private ConnectorTableSchema assembleTableSchema(HudiTableHandle hudiHandle, List<ConnectorColumn> columns) {
         Map<String, String> tableProperties = new HashMap<>();
         tableProperties.put("hudi.table.type", hudiHandle.getHudiTableType());
-        // Stamp the partition-column marker fe-core needs to model the table as partitioned (parity with the OLD
-        // HMSExternalTable/HudiDlaTable path, which read the HMS partition keys). The keys already live on the
-        // handle (getTableHandle -> tableInfo.getPartitionKeys()); emit them as the RAW-name CSV, matching the
-        // schema column names (the partition columns are appended to `columns` by both schema sources).
         List<String> partitionKeyNames = hudiHandle.getPartitionKeyNames();
         if (partitionKeyNames != null && !partitionKeyNames.isEmpty()) {
             tableProperties.put(PARTITION_COLUMNS_PROPERTY, String.join(",", partitionKeyNames));
@@ -415,7 +436,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
             ConnectorSession session, ConnectorTableHandle handle) {
-        return buildBeginQuerySnapshot(latestInstant((HudiTableHandle) handle));
+        HudiTableHandle hudiHandle = (HudiTableHandle) handle;
+        // Memoized per statement so repeated snapshot pins share one instant read; the loader IS latestInstant, so
+        // the value (and its fail-loud-on-error semantics) is byte-identical to the un-memoized read.
+        return buildBeginQuerySnapshot(HudiStatementScope.sharedLatestInstant(
+                session, hudiHandle.getDbName(), hudiHandle.getTableName(), () -> latestInstant(hudiHandle)));
     }
 
     /** Builds the query-begin snapshot from a pinned instant. Static for offline unit testing. */
@@ -753,8 +778,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return result;
     }
 
-    /** Pins the latest completed instant, building the metaClient under the plugin auth + TCCL pin. */
-    private long latestInstant(HudiTableHandle handle) {
+    /**
+     * Pins the latest completed instant, building the metaClient under the plugin auth + TCCL pin. Package-private so
+     * a same-loader unit test can override it to count instant reads without a live metaClient.
+     */
+    long latestInstant(HudiTableHandle handle) {
         return metaClientExecutor.execute(() ->
                 HudiScanPlanProvider.latestCompletedInstant(
                         HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));

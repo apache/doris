@@ -34,13 +34,20 @@ import java.util.function.Supplier;
  * shared {@code (catalogId, db, table, queryId)} coordinate, so a heterogeneous gateway statement touching two
  * connectors cannot collide on {@code (db, table)} and hand one connector another's value (a
  * {@link ClassCastException}). Every consumer MUST use a distinct namespace declared here as a reviewed
- * uniqueness invariant. Declared today: {@link #ICEBERG_TABLE}. Reserved for later consumers (each declared by
- * its own change when wired): {@code "hudi.metaclient"}, {@code "maxcompute.handle"}, {@code "es.metadata_state"}.
+ * uniqueness invariant. Declared today: {@link #ICEBERG_TABLE}, {@link #HUDI_LATEST_SCHEMA},
+ * {@link #HUDI_LATEST_INSTANT}. Reserved for later consumers (each declared by its own change when wired):
+ * {@code "maxcompute.handle"}, {@code "es.metadata_state"}.
  */
 public final class ConnectorStatementScopes {
 
     /** Namespace for iceberg's per-statement RAW {@code Table} memo (see {@code IcebergStatementScope}). */
     public static final String ICEBERG_TABLE = "iceberg.table";
+
+    /** Namespace for hudi's per-statement latest-columns memo (see {@code HudiStatementScope}). */
+    public static final String HUDI_LATEST_SCHEMA = "hudi.latest_schema";
+
+    /** Namespace for hudi's per-statement latest-completed-instant memo (see {@code HudiStatementScope}). */
+    public static final String HUDI_LATEST_INSTANT = "hudi.latest_instant";
 
     private ConnectorStatementScopes() {
     }
