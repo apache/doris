@@ -1633,6 +1633,12 @@ DECLARE_mInt32(s3_read_max_wait_time_ms);
 DECLARE_mBool(enable_s3_object_check_after_upload);
 DECLARE_mInt32(aws_client_request_timeout_ms);
 
+// When true, omit the Content-MD5 header on S3 PutObject / UploadPart and send a
+// CRC32C checksum instead. Required for S3 Express One Zone, which returns 501
+// NotImplemented for Content-MD5. Endpoints containing "s3express" auto-enable
+// this regardless of the flag.
+DECLARE_mBool(s3_disable_content_md5);
+
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
 
