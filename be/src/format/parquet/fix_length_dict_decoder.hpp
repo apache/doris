@@ -96,6 +96,7 @@ public:
         }
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
+        RETURN_IF_ERROR(_check_dict_indexes(_dict_items.size()));
 
         if (doris_column->is_column_dictionary() || is_dict_filter) {
             return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
