@@ -23,15 +23,15 @@
 
 # 🆕 下一步（覆盖区）
 
-## 🎯 下一 session 议程（owner 2026-07-24 指定 — 就做这三项，非"等热点触发"）
+## 🎯 上一 session 收尾（2026-07-24 (7)，HEAD `7df22cd1c71`）：owner 点名三项 = **2 做 + 1 证伪**
 
-按 P2 收尾里 owner 点名的三项，逐项立项（各自兄弟空间 `plan-doc/perf-hotpath-<c>/`，镜像 iceberg 布局，或就近做）；**动码前按 HEAD 重侦察**（信 grep 不信行号）、复核真实乘数、守铁律 A（fe-core 0 行）：
+owner 2026-07-24 点名的三项 P2 已收尾（详见 [`progress.md`](./progress.md) "2026-07-24 (7)" + 兄弟空间 `perf-hotpath-paimon` / `perf-hotpath-jdbc`）：
 
-1. **paimon 分区列举去重**：`listPartitionNames`/`listPartitionValues` 绕过了 `partitionViewCache` → 路由进去。底层远程已被 paimon SDK 的 partitionCache 挡住，**这里省的是每次把分区重新渲染成结果对象的本地 CPU**（不是远程 IO）。权威见 [`connectors/paimon.md`](./connectors/paimon.md)。
-2. **jdbc 两处**：① 读——scan 期 `getColumnHandles` 冗余远程取列，而昂贵元数据（schema/列/行数）已被 fe-core 跨查询缓存前置 → 复用、别再取一次；② 写——`buildInsertSql` 新建实例绕开统一 metadata funnel（正确性中立，BE 逐行 auto-commit）→ 走统一入口。权威见 [`connectors/jdbc.md`](./connectors/jdbc.md)。
-3. **hive 写后读一致性**：Doris 对 hive 走粗 REFRESH+TTL → 存在 TTL 有界的 read-your-write 旧读窗口（刚写完立刻读可能读到写前元数据）。修法 = 给 `CachingHmsClient` 加写路径失效，或"写后立即读"走 live/bypass。权威见 [`connectors/hive.md`](./connectors/hive.md)。
+1. **paimon 分区列举去重** ✅ commit `59b65912104`：抽 `cachedPartitions` 让 `listPartitionNames/Values` 与 `listPartitions` 共享 `partitionViewCache`。**owner 拍板"走缓存"**——SHOW PARTITIONS/`partition_values()` 新鲜度从"每次重算"→24h TTL+REFRESH（与裁剪路径/Trino 自洽；与 hive 故意实时不一致但 paimon 只读无写后读问题）。26 测试 + 3-lens 净室。
+2. **jdbc 两处取列** ✅ commit `7df22cd1c71`：读侧（`getColumnHandles`×2 + `getTableSchema`）+ 写侧（`buildInsertSql`）经新 `ConnectorStatementScopes.JDBC_COLUMNS` 每语句作用域记忆化原始列，**读写自动共享（一个改动点修两处）**。**owner 拍板"语句作用域统一去重"**。199 测试 + 3-lens 净室（修 `jdbcTypeToConnectorType` 原地改 allowNull 的共享-mutable 不变量）。
+3. **hive 写后读一致性** 🚫 **非 bug（侦察证伪，owner 关闭）**：前提"写不失效"错——每次 `hms` INSERT 提交后 `PluginDrivenInsertExecutor.doAfterCommit → RefreshManager.handleRefreshTable → connector.invalidateTable` 已**同步全表失效**（协调 FE 同 session 写后读到新数据）。残留仅跨 FE 编辑日志回放毫秒窗口（通用 Doris 非 hive 专有）+ 过度失效（fe-core 侧 perf 非正确性，碰铁律 A）。印证 `execution-blueprint-overestimates-recon-first`。
 
-**⚠ owner 定调（2026-07-24）：性能不只看远程往返——大量本地 CPU（重复渲染 / 重复解析 / 重复对象构造）同样是真实性能开销。故"远程已被缓存挡住、只省 CPU"不再是延后理由**（推翻此前把 paimon 等 CPU-only 项归为"仅热点触发"的判断）。这三项即下一 session 的正式工作项。（trino 的纯 CPU 去重同理是真收益，但本次 owner 未点名、且受"禁加缓存"硬约束，暂不排期。）参见记忆 `perf-local-cpu-not-only-remote-matters`。
+**下一 session 议程（无 owner 新指令时）**：本条线主体已收官。剩余候选（均可延后，等 owner 点名或热点触发）：① **各连接器 e2e 统一补**（需集群，paimon/mc/es/hudi/jdbc 均标"待集群"）；② **trino P2 纯 CPU 清理**（TRINO-H1/2/3，未排期——owner 未点名 + 受"禁加 L1 缓存"硬约束）；③ **iceberg 5 缓存全量收敛**（远期，PR-3 已只做安全 ttl 去重）。动任何一项前仍守：按 HEAD 重侦察、铁律 A（fe-core 0 行）、净室对抗复审。
 
 ## 当前状态（历史，2026-07-23 快照 — 以上「议程」为准；round-1 + 门禁移除 + 注释清理均已完成）
 
@@ -40,7 +40,7 @@
 - **底座 PR-0/1/2 已落地（下方「进行中」为准）；连接器消费 PR-3~7 + e2e 未跑。** 设计里 `file:line` 是 2026-07-23 HEAD 侦察快照，动码前须按 HEAD 重侦察。
 - **核心结论**：走"先建底座"，但**底座几乎现成** → 整套 A/B/C + hudi/mc/es 消费 **全程 0 行 fe-core 改动**（D4 原"提炼进 fe-core"被侦察推翻：per-statement memo 底座已在 `fe-connector-api`，owner 二次确认不动 fe-core；iceberg 本轮就改挂）。
 
-## ⚠️ 进行中：底座 PR-0/1/2 + ttl 去重 + hudi/maxcompute/**es round-1 全部完成**（2026-07-23/24）→ 三个 P1 连接器收尾（hudi/mc/es）已落地；下一步见顶部「🎯 下一 session 议程」（paimon 分区列举去重 / jdbc 两处 / hive 写后读一致性）；门禁通用化已改为**删门禁+ATTN**、陈旧注释清理**已完成**；各连接器 e2e 待集群；动每个文件前先按 HEAD 重侦察
+## 历史：底座 PR-0/1/2 + ttl 去重 + hudi/mc/es round-1 + **owner 点名 P2 三项（paimon/jdbc 做、hive 证伪）全部收尾**（2026-07-23/24）；门禁改**删门禁+ATTN**、陈旧注释清理已完成；各连接器 e2e 待集群；动每个文件前先按 HEAD 重侦察
 
 **maxcompute（WS-MC）round-1 完成**（commit `58daadd10e0`，见 `plan-doc/perf-hotpath-maxcompute/`）：per-statement `Map<(db,table),handle>`（CHM）present-only memo，收冗余 ODPS `exists()` k×→1× + Table reload 每表 1×；0 fe-core；120 测试绿 + 两处变异 + 净室复审（concurrency 经 verify REFUTED）。
 

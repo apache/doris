@@ -158,3 +158,29 @@
   - maxcompute（3 文件）：`MaxComputeWritePlanProvider`/`MaxComputeConnectorTransaction`/`MaxComputeConnectorMetadata`。
 - **验证**：`checkstyle -pl :fe-connector-iceberg,:fe-connector-maxcompute` **0 违规**；行长全 ≤120；`git diff` 确认**全部改动行都是注释**（非注释改动行 grep 为空）→ 编译/行为零影响。
 - **下一步（伞形）**：剩 P2 backlog（热点触发）+ 各连接器 e2e 统一补（需集群）。
+
+---
+
+## 2026-07-24 (7) — owner 排期的三项 P2：paimon 分区列举去重 ✅ / jdbc 两处取列去重 ✅ / hive 写后读一致性 = 虚惊（非 bug）
+
+> 承 (6) 后做 owner 2026-07-24 点名排期的三项（非"等热点"）。5-agent 并行按 HEAD `d8e2541e567` 重侦察（旧快照 `aaab68ef474` 行号已漂移），逐项立项。全程守铁律 A（fe-core 0 行）。**结论：两项落地、一项经侦察证伪。**
+
+### 一、paimon 分区列举去重（PA-1）— ✅ commit `59b65912104`
+- **病灶确认**：`listPartitionNames`（SHOW PARTITIONS）/`listPartitionValues`（`partition_values()` TVF）绕过 `partitionViewCache` 直连 `collectPartitions`，每次重渲染整表分区列表；`listPartitions`（裁剪）已走缓存。远程已被 paimon SDK `CachingCatalog.partitionCache` 挡下 → 省本地 CPU 重渲染。
+- **修法**：抽私有 `cachedPartitions()`（= `listPartitions` 无过滤分支等价体），三入口统一走它；`listPartitions` 保留 `filter → collectPartitions`（带过滤不写缓存）。连接器侧、0 fe-core。
+- **owner 语义决策（问后拍板"走缓存"）**：`SHOW PARTITIONS`/`partition_values()` 新鲜度从"每次重算"→"24h TTL + REFRESH"，与已缓存的裁剪路径自洽、与 Trino 一致；代价是与 hive"故意实时"不一致（hive 刻意分 fresh 方法，paimon 只读无写后读问题）。
+- **验证**：`PartitionViewCacheTest` +4、`PartitionTest`（null-cache 字节 parity）原样绿，26/26 + checkstyle 0；3-lens 净室（aliasing/freshness CLEAN，parity 仅标"有意新鲜度变化"，iron-rules CLEAN 修一处测试头注释）。**e2e 待集群**。详见兄弟空间 [`plan-doc/perf-hotpath-paimon/README.md`](../perf-hotpath-paimon/README.md)。
+
+### 二、jdbc 两处冗余取列（HP-1 读 + HP-2 写）— ✅ commit `7df22cd1c71`
+- **病灶确认**：本地→远端列名映射靠 `client.getJdbcColumnsInfo`（真实远程往返）；读侧 `getColumnHandles`（~2×/scan node）+ 缓存 miss 的 `getTableSchema`、写侧 `buildInsertSql` 新建实例再取（`EXPLAIN INSERT` 2×），全无记忆化。
+- **owner 拍板路线**：**语句作用域统一去重**（对齐 es cross-path 先例）。关键洞见=记忆化放**作用域**（非实例）→ 写侧新建实例的 `getColumnHandles` 也命中同条目 → 一个改动点修两处。
+- **修法**：加 `ConnectorStatementScopes.JDBC_COLUMNS` 命名空间（fe-connector-api 连接器 SPI，非 fe-core）；`JdbcConnectorMetadata` 两处取列包 `resolveInStatement`，记忆化**原始** `List<JdbcFieldInfo>`（session 无关，各消费者再套自己的变换）；写 provider 仅 javadoc。NONE 作用域逐字节与改前一致。0 fe-core。
+- **净室发现并修复**：`jdbcTypeToConnectorType` 对某些日期类型**原地** `setAllowNull(true)`→现共享同一 raw list；修正 javadoc 如实描述该幂等原地改写 + 加"会变换的类型转换 double"测试钉住不变量。
+- **验证**：全模块 **199/199 绿** + checkstyle 0；3-lens 净室（session-safety / key-scope-composition CLEAN，iron-rules 仅上述 mutation 项已修）。**e2e 待集群**。详见 [`plan-doc/perf-hotpath-jdbc/README.md`](../perf-hotpath-jdbc/README.md)。
+
+### 三、hive 写后读一致性 — 🚫 前提被推翻，**非 bug，不做**
+- 调研文档称"缓存只由 REFRESH/TTL 失效、写路径不失效 → 存在 TTL 有界的读旧窗口"。**两个 hive agent 独立证伪，且逐行亲验**：每次 `hms` INSERT 提交后，`PluginDrivenInsertExecutor.onComplete → doAfterCommit → RefreshManager.handleRefreshTable → refreshTableInternal` 在协调 FE 上**同步全表失效** `connector.invalidateTable` = `CachingHmsClient.flush` + `HiveFileListingCache.invalidateTable` + `partitionViewCache.invalidateTable`（RefreshManager.java:242/246-248 标 "FIX-4"；HiveConnector.java:353-371），并写 refresh 编辑日志供 follower 回放。
+- **同 FE/同 session 写后读到的就是新数据**，无 TTL 窗口。唯一残留 = 跨 FE 编辑日志回放毫秒级窗口（通用 Doris 多 FE 行为，非 hive 专有、连接器侧不可修）+ 过度失效（每次 INSERT 全表刷，属 fe-core 侧 perf 非正确性）。owner 拍板**关闭此项、记为非 bug**。又一次印证记忆 `execution-blueprint-overestimates-recon-first`。
+
+### 收尾
+- **下一步（伞形）**：owner 点名的三项已收（两做一证伪）。剩 = trino P2 纯 CPU 清理（未点名 + 受"禁加 L1 缓存"硬约束，暂不排期）+ 各连接器 e2e 统一补（需集群）+ iceberg 5 缓存全量收敛（远期，PR-3 已只做安全 ttl 去重）。

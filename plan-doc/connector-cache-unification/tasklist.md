@@ -37,7 +37,7 @@
 | **WS-MC** | P1（小） | MC-1（+MC-2） | 每次 handle 解析冗余 ODPS `tables().exists()` 远程探测 → metadata 内 `Map<(db,table),Handle>` + 去冗余探测 | `plan-doc/perf-hotpath-maxcompute/` | D1 | ✅ round-1 完成 commit `58daadd10e0`（per-statement CHM handle memo，present-only；120 测试绿 + 两处变异验证 + 净室复审；e2e 待集群） |
 | **WS-ES** | P1（小） | ES-F1/F2（+ES-F3） | `fetchMetadataState` 2x/查询 + mapping 重取 2x → per-scan hoist + mapping/field-context 承载决策 | `plan-doc/perf-hotpath-es/` | D1 | ✅ round-1 完成（owner 拍板"三件全做"）commits `7d74ba1161b`（per-scan hoist + schema memo）+ `7466b354901`（cross-path mapping via 每语句作用域，0 fe-core）；每语句 getMapping/shard/node 各→1；94 测试绿 + 变异 + 净室复审；e2e 待集群 |
 | **WS-DOC** | 低（doc-only） | 陈旧注释一批 | 修陈旧注释 | 随手做 | — | ✅ 完成（2026-07-24）：原点名的 HMS-flip 注释**早已在前几轮更新**（现"Live since the hms flip"/`no consumers yet` 已消/`getTableHandle` 有真调用方）；侦察另发现并已清 **iceberg+maxcompute 写/事务/存储过程**的"未进 SPI_READY_TYPES/dormant 直到翻闸"陈旧注释（9 文件、纯注释、checkstyle 0）；hudi 增量关系是**真休眠**（正确留存）。见 [`progress.md`](./progress.md) "2026-07-24 (6)" |
-| **WS-P2** | P2（可延后） | PA-1 · HP-1/HP-2 · TRINO-H1/H2/H3 · hive 写后读一致性 | 各连接器常数倍/CPU/一致性收尾，按热点 profile 触发 | `plan-doc/perf-hotpath-backlog-p2/` | 热点触发 | ⏳ |
+| **WS-P2** | P2 | PA-1 ✅ · HP-1/HP-2 ✅ · hive 写后读=非bug 🚫 · TRINO-H1/H2/H3 ⏳ | owner 2026-07-24 点名三项：paimon 分区去重（`59b65912104`）+ jdbc 两处取列去重（`7df22cd1c71`）已落地；hive 一致性经侦察证伪（fe-core 提交后已同步全表失效）；trino 纯 CPU 未排期 | `perf-hotpath-{paimon,jdbc}/` | owner 2026-07-24 | 🚧 部分完成 |
 
 > **共享底座泛化（deferred，绑 D2/D3）**：iceberg 3 个格式中立缓存（table-handle / comment / file-format）上收为 `ConnectorXViewCache` 泛型封装、`check-authz-cache-sharding.sh` 通用化 —— **仅在出现第 2 个消费者时启动**，当前不投机抽象。
 
@@ -84,15 +84,15 @@
   - 起因：`#65473`/`6e521aa64b2`（2026-07-16）把 hms 翻为 live 但没更新这批 class 注释。**纯 doc，运行时无害**。
 - **依赖**：无。可任何时候随手做（甚至可并进 WS-HUDI 的 hudi 部分）。
 
-### [ ] WS-P2 — 各连接器常数倍/一致性收尾（⚠ paimon/jdbc/hive 三项经 owner 2026-07-24 **排期为下一 session**，非"等热点"）
-- **权威**：报告 §5.2 + §7 + §9。
+### [~] WS-P2 — owner 2026-07-24 点名三项：paimon ✅ / jdbc ✅ / hive = 非bug 🚫；trino 未排期
+- **权威**：报告 §5.2 + §7 + §9；执行明细见 [`progress.md`](./progress.md) "2026-07-24 (7)" + 兄弟空间 [`perf-hotpath-paimon`](../perf-hotpath-paimon/README.md) / [`perf-hotpath-jdbc`](../perf-hotpath-jdbc/README.md)。
 - **条目**：
-  - **PA-1**（paimon，P2/CPU）：`listPartitionNames/Values` 绕过 `partitionViewCache` → 路由进去；仅省 CPU 重渲染（底层远程已被 SDK partitionCache 挡）。见 [`connectors/paimon.md`](./connectors/paimon.md)。
-  - **HP-1/HP-2**（jdbc，P2）：`HP-1` scan 期 `getColumnHandles` 冗余远程取列；`HP-2` 写路径 `buildInsertSql` 新建实例绕开 funnel（正确性中立，BE 逐行 auto-commit）。见 [`connectors/jdbc.md`](./connectors/jdbc.md)。
-  - **TRINO-H1/H2/H3**（trino，P2 / **仅 CPU 清理**）：cold 3x `getTableHandle` / 2N `getColumnMetadata` / 2x `applyFilter`。**禁加 L1 缓存**（反指，见下）。见 [`connectors/trino.md`](./connectors/trino.md)。
-  - **hive 写后读一致性**（P2，仅 hive）：Doris 对 hive 走粗 REFRESH+TTL，存在 TTL 有界的 read-your-write 窗口 → 给 `CachingHmsClient` 加写路径失效，或写后读走 live/bypass。
-- **排期（owner 2026-07-24）**：**paimon（PA-1）/ jdbc（HP-1·2）/ hive 写后读三项 = 下一 session 正式工作项**（就做，非等热点）；trino（TRINO-H1/2/3）纯 CPU 去重暂不排期（未点名 + 受"禁加 L1 缓存"硬约束）。
-- **⚠ owner 定调（推翻此前"仅热点触发/勿抢跑"）**：**本地 CPU（重复渲染 / 重复解析 / 重复对象构造）同样是真实性能开销**——"底层远程已被缓存挡住、只省 CPU"**不再是延后理由**（PA-1 由此从"仅热点触发"上调为排期项）。见记忆 [`perf-local-cpu-not-only-remote-matters`]。
+  - **PA-1**（paimon，P2/CPU）✅ commit `59b65912104`：`listPartitionNames/Values` 绕过 `partitionViewCache` → 抽 `cachedPartitions` 收敛三入口。owner 拍板"走缓存"（SHOW PARTITIONS/`partition_values()` 新鲜度→24h TTL+REFRESH，与裁剪路径/Trino 自洽；与 hive 故意实时不一致但只读无写后读问题）。26 测试 + 3-lens 净室。**e2e 待集群**。
+  - **HP-1/HP-2**（jdbc，P2）✅ commit `7df22cd1c71`：读侧 scan `getColumnHandles`×2 + `getTableSchema`、写侧 `buildInsertSql` 各自远程取列 → 统一经 `ConnectorStatementScopes.JDBC_COLUMNS` 每语句作用域记忆化原始列（读写自动共享，一个改动点修两处）。owner 拍板"语句作用域统一去重"。199 测试 + 3-lens 净室（修 mutation 不变量：`jdbcTypeToConnectorType` 原地改 allowNull）。**e2e 待集群**。
+  - **hive 写后读一致性**（P2）🚫 **非 bug（侦察证伪）**：调研称"缓存只 REFRESH/TTL 失效、写不失效"错——每次 `hms` INSERT 提交后 `PluginDrivenInsertExecutor.doAfterCommit → RefreshManager.handleRefreshTable → connector.invalidateTable` 同步全表失效（CachingHmsClient/FileListing/partitionView），协调 FE 同 session 写后读到新数据；残留仅跨 FE 编辑日志回放毫秒窗口（通用 Doris 非 hive 专有）+ 过度失效（fe-core 侧 perf 非正确性）。owner 拍板关闭。印证 `execution-blueprint-overestimates-recon-first`。
+  - **TRINO-H1/H2/H3**（trino，P2 / **仅 CPU 清理**）⏳：cold 3x `getTableHandle` / 2N `getColumnMetadata` / 2x `applyFilter`。**禁加 L1 缓存**（反指，见下）。**未排期**（owner 未点名 + 硬约束）。见 [`connectors/trino.md`](./connectors/trino.md)。
+- **剩余**：trino 纯 CPU（未排期）+ 各连接器 e2e 统一补（需集群）。
+- **⚠ owner 定调**：**本地 CPU（重复渲染 / 解析 / 对象构造）同样是真实性能开销**——"远程已被缓存挡住、只省 CPU"**不是延后理由**。见记忆 [`perf-local-cpu-not-only-remote-matters`]。
 
 ---
 
