@@ -167,7 +167,7 @@ public class AzureProperties extends StorageProperties {
     }
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         if (!azureAuthType.equalsIgnoreCase("OAuth2")) {
             Map<String, String> s3Props = new HashMap<>();
             s3Props.put("AWS_ENDPOINT", endpoint);
@@ -224,11 +224,6 @@ public class AzureProperties extends StorageProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();
-        //disable azure cache
-        // Disable all Azure ABFS/WASB FileSystem caching to ensure fresh instances per configuration
-        for (String scheme : new String[]{"abfs", "abfss", "wasb", "wasbs"}) {
-            hadoopStorageConfig.set("fs." + scheme + ".impl.disable.cache", "true");
-        }
         origProps.forEach((k, v) -> {
             if (k.startsWith("fs.azure.")) {
                 hadoopStorageConfig.set(k, v);
