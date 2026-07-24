@@ -168,18 +168,18 @@ protected:
     }
 
     // Iceberg initial defaults belong to the table schema, not to the generic FE slot default.
-    // Materialize them in the Iceberg V1 path so primitive and complex defaults use the same
-    // field-id-aware semantics as nested schema evolution. Columns that are not Iceberg schema
-    // fields (partition/virtual columns) keep the base reader behavior.
+    // V1 keeps master's primitive-default behavior; V2 also materializes missing optional/required
+    // fields and complex defaults through the recursive Iceberg schema metadata.
     Status on_fill_missing_columns(Block* block, size_t rows,
                                    const std::vector<std::string>& cols) override {
         if (!supports_iceberg_scan_semantics_v1(&this->get_scan_params())) {
             return BaseReader::on_fill_missing_columns(block, rows, cols);
         }
+        const bool use_v2_semantics = supports_iceberg_scan_semantics_v2(&this->get_scan_params());
         std::vector<std::string> base_reader_columns;
         for (const auto& col_name : cols) {
             const auto* field = _find_current_schema_field(col_name);
-            if (field == nullptr) {
+            if (field == nullptr || (!use_v2_semantics && !field->__isset.initial_default_value)) {
                 base_reader_columns.push_back(col_name);
                 continue;
             }
@@ -801,8 +801,13 @@ Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
     }
 
     ColumnPtr default_column;
-    RETURN_IF_ERROR(
-            iceberg::create_initial_default_column(*table_field, delete_key_type, &default_column));
+    if (!supports_iceberg_scan_semantics_v2(&this->get_scan_params()) &&
+        !table_field->__isset.initial_default_value) {
+        default_column = delete_key_type->create_column_const(1, Field());
+    } else {
+        RETURN_IF_ERROR(iceberg::create_initial_default_column(*table_field, delete_key_type,
+                                                               &default_column));
+    }
     const bool inserted =
             _missing_equality_delete_values.emplace(name, std::move(default_column)).second;
     DORIS_CHECK(inserted);

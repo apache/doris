@@ -1726,7 +1726,7 @@ TEST_F(IcebergReaderTest, v1_materializes_complex_initial_defaults) {
     EXPECT_EQ(values[0].get<TYPE_INT>(), 9);
 }
 
-TEST_F(IcebergReaderTest, v1_parquet_materializes_nested_initial_default_without_reviving_parent) {
+TEST_F(IcebergReaderTest, v2_parquet_materializes_nested_initial_default_without_reviving_parent) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_v1_parquet_nested_default_test";
     std::filesystem::remove_all(test_dir);
@@ -1735,7 +1735,7 @@ TEST_F(IcebergReaderTest, v1_parquet_materializes_nested_initial_default_without
     write_iceberg_nested_struct_parquet_file(data_file, {10, 20, 30}, {false, true, false});
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1800,7 +1800,7 @@ TEST_F(IcebergReaderTest, v1_parquet_materializes_nested_initial_default_without
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_orc_materializes_nested_initial_default_without_reviving_parent) {
+TEST_F(IcebergReaderTest, v2_orc_materializes_nested_initial_default_without_reviving_parent) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_v1_orc_nested_default_test";
     std::filesystem::remove_all(test_dir);
@@ -1809,7 +1809,7 @@ TEST_F(IcebergReaderTest, v1_orc_materializes_nested_initial_default_without_rev
     write_iceberg_nested_struct_orc_file(data_file, {10, 20, 30}, {false, true, false});
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);
@@ -2112,7 +2112,7 @@ TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_d
     EXPECT_EQ(filter, IColumn::Filter({1, 0, 1}));
 }
 
-TEST_F(IcebergReaderTest, v1_recovers_dropped_equality_key_default_from_historical_schema) {
+TEST_F(IcebergReaderTest, v2_recovers_dropped_equality_key_default_from_historical_schema) {
     schema::external::TStructField current_root;
     current_root.__set_fields({make_external_int_field("id", 0, std::nullopt)});
     schema::external::TSchema current_schema;
@@ -2127,7 +2127,7 @@ TEST_F(IcebergReaderTest, v1_recovers_dropped_equality_key_default_from_historic
     historical_schema.__set_root_field(historical_root);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(2);
     scan_params.__set_history_schema_info({current_schema, historical_schema});
     TFileRangeDesc scan_range;
@@ -2590,7 +2590,7 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_parquet_keeps_dropped_equality_id_when_name_is_reused) {
+TEST_F(IcebergReaderTest, v2_parquet_keeps_dropped_equality_id_when_name_is_reused) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_parquet_reused_equality_key_name_test";
     std::filesystem::remove_all(test_dir);
@@ -2611,7 +2611,7 @@ TEST_F(IcebergReaderTest, v1_parquet_keeps_dropped_equality_id_when_name_is_reus
     carrier_schema.__set_root_field(carrier_root);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -2686,7 +2686,7 @@ TEST_F(IcebergReaderTest, v1_parquet_keeps_dropped_equality_id_when_name_is_reus
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_parquet_separates_hidden_reused_equality_names) {
+TEST_F(IcebergReaderTest, v2_parquet_separates_hidden_reused_equality_names) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_parquet_hidden_reused_equality_names_test";
     std::filesystem::remove_all(test_dir);
@@ -2708,7 +2708,7 @@ TEST_F(IcebergReaderTest, v1_parquet_separates_hidden_reused_equality_names) {
     carrier_schema.__set_root_field(carrier_root);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -2910,7 +2910,7 @@ TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_parquet_idless_equality_key_uses_delete_file_name) {
+TEST_F(IcebergReaderTest, v2_parquet_idless_equality_key_uses_delete_file_name) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_parquet_idless_equality_delete_name_test";
     std::filesystem::remove_all(test_dir);
@@ -2932,7 +2932,7 @@ TEST_F(IcebergReaderTest, v1_parquet_idless_equality_key_uses_delete_file_name) 
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -3059,7 +3059,7 @@ TEST_F(IcebergReaderTest, v1_parquet_idless_equality_key_uses_delete_file_name) 
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_orc_keeps_dropped_equality_id_when_name_is_reused) {
+TEST_F(IcebergReaderTest, v2_orc_keeps_dropped_equality_id_when_name_is_reused) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_v1_orc_reused_equality_key_name_test";
     std::filesystem::remove_all(test_dir);
@@ -3080,7 +3080,7 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_dropped_equality_id_when_name_is_reused) 
     carrier_schema.__set_root_field(carrier_root);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);
@@ -3150,7 +3150,7 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_dropped_equality_id_when_name_is_reused) 
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_orc_separates_hidden_reused_equality_names) {
+TEST_F(IcebergReaderTest, v2_orc_separates_hidden_reused_equality_names) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_orc_hidden_reused_equality_names_test";
     std::filesystem::remove_all(test_dir);
@@ -3172,7 +3172,7 @@ TEST_F(IcebergReaderTest, v1_orc_separates_hidden_reused_equality_names) {
     carrier_schema.__set_root_field(carrier_root);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);
@@ -3334,7 +3334,7 @@ TEST_F(IcebergReaderTest, v1_orc_mixed_ids_prefer_existing_equality_field_id) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_orc_idless_equality_key_uses_delete_file_name) {
+TEST_F(IcebergReaderTest, v2_orc_idless_equality_key_uses_delete_file_name) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_orc_idless_equality_delete_name_test";
     std::filesystem::remove_all(test_dir);
@@ -3353,7 +3353,7 @@ TEST_F(IcebergReaderTest, v1_orc_idless_equality_key_uses_delete_file_name) {
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);

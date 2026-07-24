@@ -42,6 +42,7 @@ public class LogicalIcebergTableSinkToPhysicalIcebergTableSink extends OneImplem
                     sink.getLogicalProperties(),
                     null,
                     null,
+                    sink.getWriteSchemaContext(),
                     sink.child());
         }).toRule(RuleType.LOGICAL_ICEBERG_TABLE_SINK_TO_PHYSICAL_ICEBERG_TABLE_SINK_RULE);
     }

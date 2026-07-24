@@ -30,6 +30,7 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
@@ -150,11 +151,13 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
         ctx.getStatementContext().setIsInsert(true);
+        LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
+                originLogicalQuery, targetTableIf, branchName, ctx.getStatementContext());
         Optional<CascadesContext> analyzeContext = Optional.of(
-                CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+                CascadesContext.initContext(ctx.getStatementContext(), planForAnalysis, PhysicalProperties.ANY)
         );
         this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
-            originLogicalQuery, (targetTableIf instanceof RemoteDorisExternalTable)
+            planForAnalysis, (targetTableIf instanceof RemoteDorisExternalTable)
                         ? ((RemoteDorisExternalTable) targetTableIf).getOlapTable() : targetTableIf,
                 analyzeContext, Optional.empty()));
         if (cte.isPresent()) {
@@ -324,7 +327,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx), Optional.empty(), false, Optional.empty());
+                Optional.of(insertCtx), Optional.empty(), false, branchName);
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -391,10 +394,15 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)),
                     sink.getStaticPartitionKeyValues());
+            if (sink.getWriteSchemaContext().isPresent()) {
+                copySink = sinkCopyWithWriteSchemaContext(
+                        copySink, sink.getWriteSchemaContext().get());
+            }
             insertCtx = new IcebergInsertCommandContext();
             ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
             setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
             branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
+            ((IcebergInsertCommandContext) insertCtx).setWriteSchemaContext(sink.getWriteSchemaContext());
         } else if (logicalQuery instanceof UnboundMaxComputeTableSink) {
             UnboundMaxComputeTableSink<?> sink = (UnboundMaxComputeTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
@@ -469,10 +477,18 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        TableIf targetTable = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
+                originLogicalQuery, targetTable, branchName, ctx.getStatementContext());
         Optional<CascadesContext> analyzeContext = Optional.of(
-                CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+                CascadesContext.initContext(ctx.getStatementContext(), planForAnalysis, PhysicalProperties.ANY)
         );
-        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+        return InsertUtils.normalizePlan(planForAnalysis, targetTable, analyzeContext, Optional.empty());
+    }
+
+    private UnboundLogicalSink<?> sinkCopyWithWriteSchemaContext(
+            UnboundLogicalSink<?> sink, IcebergWriteSchemaContext writeSchemaContext) {
+        return ((UnboundIcebergTableSink<?>) sink).withWriteSchemaContext(writeSchemaContext);
     }
 
     @Override

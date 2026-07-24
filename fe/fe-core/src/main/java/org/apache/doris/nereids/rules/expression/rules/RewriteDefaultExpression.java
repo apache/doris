@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -80,6 +81,16 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
         if (column.isGeneratedColumn()) {
             throw new AnalysisException("DEFAULT cannot be used on generated column '"
                     + column.getName() + "'");
+        }
+
+        Optional<IcebergWriteSchemaContext> icebergContext = context.cascadesContext
+                .getStatementContext().getIcebergWriteSchemaContext();
+        if (icebergContext.isPresent()
+                && slotRef.getOriginalTable()
+                        .map(table -> icebergContext.get().isTargetTable(table.getId()))
+                        .orElse(false)
+                && icebergContext.get().findField(column).isPresent()) {
+            return icebergContext.get().resolveWriteDefault(column);
         }
 
         String defaultValueSql = column.getDefaultValueSql();

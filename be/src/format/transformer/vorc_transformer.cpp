@@ -24,8 +24,10 @@
 #include <exception>
 #include <ostream>
 #include <sstream>
+#include <string_view>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -318,6 +320,30 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     }
     }
     if (nested_field != nullptr) {
+        const PrimitiveType primitive_type = data_type->get_primitive_type();
+        const auto use_iceberg_binary_type = [&](std::string_view binary_type) {
+            DORIS_CHECK(is_string_type(primitive_type) || is_varbinary(primitive_type) ||
+                        primitive_type == TYPE_BINARY);
+            type = orc::createPrimitiveType(orc::BINARY);
+            type->setAttribute(ICEBERG_BINARY_TYPE, std::string(binary_type));
+        };
+        switch (nested_field->field_type()->type_id()) {
+        case iceberg::TypeID::UUID:
+            use_iceberg_binary_type("UUID");
+            break;
+        case iceberg::TypeID::FIXED:
+            use_iceberg_binary_type("FIXED");
+            type->setAttribute(ICEBERG_FIXED_LENGTH,
+                               std::to_string(assert_cast<const iceberg::FixedType*>(
+                                                      nested_field->field_type())
+                                                      ->get_length()));
+            break;
+        case iceberg::TypeID::BINARY:
+            use_iceberg_binary_type("BINARY");
+            break;
+        default:
+            break;
+        }
         type->setAttribute(ORC_ICEBERG_ID_KEY, std::to_string(nested_field->field_id()));
         type->setAttribute(ORC_ICEBERG_REQUIRED_KEY, std::to_string(nested_field->is_required()));
     }

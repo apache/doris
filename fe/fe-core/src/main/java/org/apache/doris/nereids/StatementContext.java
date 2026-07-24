@@ -31,6 +31,7 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -97,6 +98,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -275,6 +277,10 @@ public class StatementContext implements Closeable {
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
+
+    // Present only while analyzing a normal Iceberg INSERT. UPDATE and MERGE UPDATE deliberately
+    // leave it empty so DEFAULT(column) keeps its existing non-insert semantics.
+    private Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext = Optional.empty();
 
     private boolean privChecked;
 
@@ -1350,5 +1356,15 @@ public class StatementContext implements Closeable {
 
     public void setIsDelete(boolean del) {
         isDelete = del;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {
+        return icebergWriteSchemaContext;
+    }
+
+    public void setIcebergWriteSchemaContext(
+            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext) {
+        this.icebergWriteSchemaContext = Objects.requireNonNull(
+                icebergWriteSchemaContext, "icebergWriteSchemaContext should not be null");
     }
 }

@@ -145,6 +145,9 @@ public class IcebergTransaction implements Transaction {
                                         + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
                 }
+                if (insertCtx != null && insertCtx.getWriteSchemaContext().isPresent()) {
+                    insertCtx.getWriteSchemaContext().get().validateCurrentSchema(table);
+                }
                 this.transaction = table.newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
@@ -293,11 +296,20 @@ public class IcebergTransaction implements Transaction {
      * Begin merge operation for Iceberg UPDATE (single scan RowDelta).
      */
     public void beginMerge(ExternalTable dorisTable) throws UserException {
+        beginMerge(dorisTable, Optional.empty());
+    }
+
+    /** Begin a merge transaction after validating its statement-pinned write schema. */
+    public void beginMerge(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
+        ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 this.branchName = null;
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
+                if (insertCtx != null && insertCtx.getWriteSchemaContext().isPresent()) {
+                    insertCtx.getWriteSchemaContext().get().validateCurrentSchema(table);
+                }
                 if (table instanceof org.apache.iceberg.HasTableOperations) {
                     int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
                             .current().formatVersion();
