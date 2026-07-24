@@ -31,11 +31,6 @@ suite("test_iceberg_partition_evolution_filter_refs",
     String identityTable = "identity_bucket_truncate_timeline"
     String temporalTable = "temporal_transform_timeline"
 
-    def stringRows = { String query ->
-        sql(query).collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        }
-    }
     def latestSnapshotId = { String tableName ->
         List<List<Object>> rows = spark_iceberg """
             select snapshot_id
@@ -203,70 +198,77 @@ suite("test_iceberg_partition_evolution_filter_refs",
         sql """refresh catalog ${catalogName}"""
 
         // Scenario PE-F01: equality/range/IN/NULL-safe source-column filters span four specs.
-        assertEquals([["1"], ["3"], ["5"], ["7"]], stringRows("""
+        qt_current_identity_filter """
             select id from ${identityTable} where category = 'A' order by id
-        """))
-        assertEquals([["1"], ["3"], ["5"], ["7"]], stringRows("""
+        """
+        qt_current_truncate_source_filter """
             select id from ${identityTable}
             where code in ('aa-1', 'aa-2', 'aa-3', 'aa-4')
             order by id
-        """))
-        assertEquals([["5"], ["6"], ["7"], ["8"]], stringRows("""
+        """
+        qt_current_temporal_source_filter """
             select id from ${identityTable}
             where event_time >= timestamp '2026-03-01 00:00:00'
             order by id
-        """))
-        assertEquals([["7", "7000"], ["8", "8000"]], stringRows("""
+        """
+        qt_current_readded_nested_field """
             select id, payload.extra from ${identityTable}
             where payload.extra is not null
             order by id
-        """))
+        """
 
         // Scenario PE-R01: numeric snapshot, tag and branch retain their own data/spec timeline.
-        List<List<String>> identityBaseRows = [["1", "A"], ["2", "B"]]
-        assertEquals(identityBaseRows, stringRows("""
+        qt_identity_base_snapshot """
             select id, category
             from ${identityTable} for version as of ${identityBase}
             where category in ('A', 'B')
             order by id
-        """))
-        assertEquals(identityBaseRows, stringRows("""
+        """
+        qt_identity_base_tag """
             select id, category from ${identityTable}@tag(identity_base)
             where category in ('A', 'B') order by id
-        """))
-        assertEquals(identityBaseRows, stringRows("""
+        """
+        qt_identity_base_branch """
             select id, category from ${identityTable}@branch(identity_base_branch)
             where category in ('A', 'B') order by id
-        """))
-        assertEquals([["1"], ["3"]], stringRows("""
+        """
+        qt_identity_added_snapshot """
             select id from ${identityTable} for version as of ${identityAdded}
             where category = 'A' order by id
-        """))
-        assertEquals([["1"], ["3"], ["5"]], stringRows("""
+        """
+        qt_identity_replaced_snapshot """
             select id from ${identityTable} for version as of ${identityReplaced}
             where category = 'A' order by id
-        """))
-        assertEquals([["1"], ["3"], ["5"], ["7"]], stringRows("""
+        """
+        qt_identity_dropped_tag """
             select id from ${identityTable}@tag(identity_dropped)
             where category = 'A' order by id
-        """))
+        """
 
         // Scenario PE-F02/PE-R02: temporal filters use the spec selected by numeric/tag refs.
-        assertEquals([["11"], ["12"]], stringRows("""
+        qt_temporal_year_tag """
             select id from ${temporalTable}@tag(temporal_year)
             where event_time < timestamp '2026-01-01 00:00:00'
             order by id
-        """))
-        assertEquals([["17"], ["18"]], stringRows("""
+        """
+        // This current predicate deliberately crosses files written by year, month, day and hour
+        // specs so losing any older transform boundary changes the fixed result contract.
+        qt_temporal_current_all_specs """
+            select id from ${temporalTable}
+            where event_time >= timestamp '2024-01-01 00:00:00'
+              and event_time < timestamp '2026-05-02 00:00:00'
+            order by id
+        """
+        qt_temporal_hour_snapshot """
             select id from ${temporalTable} for version as of ${temporalHour}
             where event_time >= timestamp '2026-05-01 00:00:00'
               and event_time < timestamp '2026-05-02 00:00:00'
             order by id
-        """))
-        assertEquals([["18"]], stringRows("""
+        """
+        qt_temporal_hour_tag """
             select id from ${temporalTable}@tag(temporal_hour)
             where event_time = timestamp '2026-05-01 09:00:00'
-        """))
+        """
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

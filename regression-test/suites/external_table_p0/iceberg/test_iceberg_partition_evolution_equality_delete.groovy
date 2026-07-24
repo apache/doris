@@ -163,6 +163,7 @@ public class AppendEvolutionEqualityDelete {
             create table demo.${dbName}.${tableName} (
                 id int,
                 category string,
+                code string,
                 event_time timestamp,
                 payload struct<metric:int, label:string>
             ) using iceberg
@@ -171,13 +172,13 @@ public class AppendEvolutionEqualityDelete {
                 'write.format.default'='parquet'
             );
             insert into demo.${dbName}.${tableName} values
-                (1, 'A', timestamp '2026-01-01 01:00:00',
+                (1, 'A', 'aa-1', timestamp '2026-01-01 01:00:00',
                     named_struct('metric', 10, 'label', 'base-a')),
-                (2, 'A', timestamp '2026-01-01 02:00:00',
+                (2, 'A', 'aa-2', timestamp '2026-01-01 02:00:00',
                     named_struct('metric', 20, 'label', 'base-delete')),
-                (3, 'B', timestamp '2026-01-02 01:00:00',
+                (3, 'B', 'bb-1', timestamp '2026-01-02 01:00:00',
                     named_struct('metric', 30, 'label', 'base-b')),
-                (4, 'C', timestamp '2026-01-03 01:00:00',
+                (4, 'C', 'cc-1', timestamp '2026-01-03 01:00:00',
                     named_struct('metric', 40, 'label', 'base-c'));
         """
         String baseSnapshot = latestSnapshotId()
@@ -200,9 +201,9 @@ public class AppendEvolutionEqualityDelete {
             alter table demo.${dbName}.${tableName} add partition field bucket(8, id);
             alter table demo.${dbName}.${tableName} add column payload.extra string;
             insert into demo.${dbName}.${tableName} values
-                (5, 'A', timestamp '2026-02-01 01:00:00',
+                (5, 'A', 'aa-3', timestamp '2026-02-01 01:00:00',
                     named_struct('metric', 50, 'label', 'added-a', 'extra', 'new-child')),
-                (6, 'A', timestamp '2026-02-01 02:00:00',
+                (6, 'A', 'aa-4', timestamp '2026-02-01 02:00:00',
                     named_struct('metric', 60, 'label', 'added-delete', 'extra', 'new-child'));
         """
         String addedSnapshot = latestSnapshotId()
@@ -212,14 +213,16 @@ public class AppendEvolutionEqualityDelete {
             alter table demo.${dbName}.${tableName}
                 replace partition field days(event_time) with months(event_time);
             alter table demo.${dbName}.${tableName}
+                replace partition field bucket(8, id) with truncate(2, code);
+            alter table demo.${dbName}.${tableName}
                 rename column payload.label to renamed_label;
             alter table demo.${dbName}.${tableName}
                 alter column payload.metric type bigint;
             insert into demo.${dbName}.${tableName} values
-                (7, 'A', timestamp '2026-03-01 01:00:00',
+                (7, 'A', 'aa-5', timestamp '2026-03-01 01:00:00',
                     named_struct('metric', 7000000000,
                         'renamed_label', 'replace-a', 'extra', 'renamed-child')),
-                (8, 'A', timestamp '2026-03-01 02:00:00',
+                (8, 'A', 'aa-6', timestamp '2026-03-01 02:00:00',
                     named_struct('metric', 80,
                         'renamed_label', 'replace-delete', 'extra', 'renamed-child'));
         """
@@ -229,7 +232,7 @@ public class AppendEvolutionEqualityDelete {
         spark_iceberg_multi """
             alter table demo.${dbName}.${tableName} drop partition field category;
             alter table demo.${dbName}.${tableName} drop partition field months(event_time);
-            alter table demo.${dbName}.${tableName} drop partition field bucket(8, id);
+            alter table demo.${dbName}.${tableName} drop partition field truncate(2, code);
         """
         runInSparkContainer(
                 "java -cp \"/tmp:/opt/spark/jars/*\" AppendEvolutionEqualityDelete "
@@ -248,44 +251,43 @@ public class AppendEvolutionEqualityDelete {
         sql """refresh catalog ${catalogName}"""
 
         // Scenario PE-EQ05: partition-source filters honor equality deletes across every spec.
-        List<List<String>> expectedCurrent = [["1"], ["5"], ["7"]]
-        assertEquals(expectedCurrent, stringRows("""
+        qt_current_filter """
             select id from ${tableName} where category = 'A' order by id
-        """))
-        assertEquals([["7", "7000000000"]], stringRows("""
+        """
+        qt_current_nested """
             select id, payload.metric from ${tableName}
             where event_time >= timestamp '2026-03-01 00:00:00'
               and payload.metric > 5000000000
             order by id
-        """))
+        """
 
         // Scenario PE-EQ06: numeric snapshots and tags select the matching delete/spec state.
-        assertEquals([["1"], ["2"]], stringRows("""
+        qt_base_tag """
             select id from ${tableName}@tag(equality_base)
             where category = 'A' order by id
-        """))
-        assertEquals([["1"]], stringRows("""
+        """
+        qt_first_delete_snapshot """
             select id from ${tableName} for version as of ${firstDeleteSnapshot}
             where category = 'A' order by id
-        """))
-        assertEquals([["1"], ["5"], ["6"]], stringRows("""
+        """
+        qt_added_snapshot """
             select id from ${tableName} for version as of ${addedSnapshot}
             where category = 'A' order by id
-        """))
-        assertEquals(expectedCurrent, stringRows("""
+        """
+        qt_final_tag """
             select id from ${tableName}@tag(equality_final)
             where category = 'A' order by id
-        """))
+        """
 
         // Scenario PE-EQ07: both scanner implementations apply the same equality deletes.
         sql """set enable_file_scanner_v2=true"""
-        List<List<String>> scannerV2Rows = stringRows("""
+        qt_scanner_v2 """
             select id from ${tableName} where category = 'A' order by id
-        """)
+        """
         sql """set enable_file_scanner_v2=false"""
-        assertEquals(scannerV2Rows, stringRows("""
+        qt_scanner_v1 """
             select id from ${tableName} where category = 'A' order by id
-        """))
+        """
 
         List<List<String>> equalityFiles = stringRows("""
             select file_format from ${tableName}\$all_files

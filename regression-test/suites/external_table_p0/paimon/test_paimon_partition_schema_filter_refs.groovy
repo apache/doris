@@ -18,7 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_paimon_partition_schema_filter_refs",
-        "p0,external,paimon,external_docker,external_docker_paimon") {
+        "p0,external,paimon,external_docker,external_docker_paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test")
@@ -86,6 +86,31 @@ suite("test_paimon_partition_schema_filter_refs",
         assertTrue(fileRangesPruned + partitionsPruned > 0L,
                 "Runtime filter did not prune any Paimon partition/file range; "
                         + profile.take(2000).replaceAll("\\s+", " "))
+    }
+    def getExplainText = { String query ->
+        return sql("explain verbose ${query}").collect { row -> row[0].toString() }.join("\n")
+    }
+    def assertNativePath = { String query, String label ->
+        String explainText = getExplainText(query)
+        def splitMatcher = (explainText =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(splitMatcher.find(), "Expected paimonNativeReadSplits for ${label}")
+        long nativeSplits = Long.parseLong(splitMatcher.group(1))
+        long totalSplits = Long.parseLong(splitMatcher.group(2))
+        assertTrue(totalSplits > 0 && nativeSplits > 0,
+                "Expected native splits for ${label}, native=${nativeSplits}, total=${totalSplits}")
+        assertTrue(explainText.contains("SplitStat [type=NATIVE"),
+                "Expected a NATIVE split for ${label}")
+    }
+    def assertJniPath = { String query, String label ->
+        String explainText = getExplainText(query)
+        def splitMatcher = (explainText =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(splitMatcher.find(), "Expected paimonNativeReadSplits for ${label}")
+        long nativeSplits = Long.parseLong(splitMatcher.group(1))
+        long totalSplits = Long.parseLong(splitMatcher.group(2))
+        assertTrue(totalSplits > 0 && nativeSplits == 0,
+                "Expected JNI-only splits for ${label}, native=${nativeSplits}, total=${totalSplits}")
+        assertTrue(explainText.contains("SplitStat [type=JNI"),
+                "Expected a JNI split for ${label}")
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -199,21 +224,34 @@ suite("test_paimon_partition_schema_filter_refs",
             sql """switch ${catalogName}"""
             sql """use ${dbName}"""
             sql """refresh table ${tableName}"""
+            String actionSuffix = format
 
             // Scenario PM-F01: static partition filtering combines every complex-schema version.
-            assertEquals([["1"], ["3"], ["5"], ["7"]], stringRows("""
+            "qt_${actionSuffix}_current_partition_filter"("""
                 select id from ${tableName} where part = 'p1' order by id
-            """))
-            assertEquals([["5", "5000000000"]], stringRows("""
+            """)
+            "qt_${actionSuffix}_current_promoted_metric"("""
                 select id, payload.metric from ${tableName}
                 where part = 'p1' and payload.metric > 1000000000
                 order by id
-            """))
-            assertEquals([["7", "7000"]], stringRows("""
+            """)
+            "qt_${actionSuffix}_current_readded_payload"("""
                 select id, payload.extra from ${tableName}
                 where part = 'p1' and payload.extra is not null
                 order by id
-            """))
+            """)
+            // Project every evolved STRUCT/MAP/ARRAY child so a reader cannot pass by decoding
+            // only the top-level partition and payload fields.
+            "qt_${actionSuffix}_current_all_complex_children"("""
+                select id, payload.renamed_label, payload.extra,
+                       element_at(attrs, 'k').renamed_code,
+                       element_at(attrs, 'k').extra,
+                       events[1].renamed_score,
+                       events[1].extra
+                from ${tableName}
+                where part = 'p1'
+                order by id
+            """)
 
             // Scenario PM-RF01: runtime-filter partition pruning stays result-equivalent across
             // complex schema versions.
@@ -232,51 +270,89 @@ suite("test_paimon_partition_schema_filter_refs",
             sql """set enable_profile=true"""
             sql """set profile_level=2"""
             sql """set enable_runtime_filter_partition_prune=false"""
-            assertEquals([["1"], ["3"], ["5"], ["7"]], stringRows(rfQuery))
+            "qt_${actionSuffix}_rf_disabled"(rfQuery)
             sql """set enable_runtime_filter_partition_prune=true"""
             assertRuntimeFilterPruned(
                     tableName, dimensionTable, [["1"], ["3"], ["5"], ["7"]])
 
             // Scenario PM-R01: numeric snapshot, tag and branch bind their historical schemas.
-            List<List<String>> baseRows = [["1", "p1", "base-1"], ["2", "p2", "base-2"]]
-            assertEquals(baseRows, stringRows("""
+            "qt_${actionSuffix}_base_snapshot"("""
                 select id, part, payload.label
                 from ${tableName} for version as of ${baseSnapshot}
                 where part in ('p1', 'p2') order by id
-            """))
-            assertEquals(baseRows, stringRows("""
+            """)
+            "qt_${actionSuffix}_base_tag"("""
                 select id, part, payload.label
                 from ${tableName}@tag(${tableName}_base)
                 where part in ('p1', 'p2') order by id
-            """))
-            assertEquals(baseRows, stringRows("""
+            """)
+            "qt_${actionSuffix}_base_branch"("""
                 select id, part, payload.label
                 from ${tableName}@branch(${tableName}_base_branch)
                 where part in ('p1', 'p2') order by id
-            """))
-            assertEquals([["1"], ["3"]], stringRows("""
-                select id from ${tableName} for version as of ${addedSnapshot}
-                where part = 'p1' order by id
-            """))
-            assertEquals([["1"], ["3"], ["5"], ["7"]], stringRows("""
+            """)
+            "qt_${actionSuffix}_added_snapshot_complex"("""
+                select id, payload.label,
+                       element_at(attrs, 'k').code,
+                       element_at(attrs, 'k').extra,
+                       events[1].score,
+                       events[1].extra
+                from ${tableName} for version as of ${addedSnapshot}
+                where part = 'p1'
+                order by id
+            """)
+            "qt_${actionSuffix}_final_tag"("""
                 select id from ${tableName}@tag(${tableName}_final)
                 where part = 'p1' order by id
-            """))
+            """)
+            "qt_${actionSuffix}_base_snapshot_complex"("""
+                select id, element_at(attrs, 'k').code, events[1].score
+                from ${tableName} for version as of ${baseSnapshot}
+                order by id
+            """)
+            test {
+                sql """
+                    select element_at(attrs, 'k').renamed_code
+                    from ${tableName} for version as of ${baseSnapshot}
+                """
+                exception "renamed_code"
+            }
+            test {
+                sql """
+                    select events[1].score
+                    from ${tableName}@tag(${tableName}_final)
+                """
+                exception "score"
+            }
 
             // Scenario PM-RD01: JNI and native readers agree for partition-filtered historical
-            // and current projections. The assertion is topology-independent.
+            // and current complex projections, and the explain plan proves each requested path.
+            String currentReaderQuery = """
+                select id, payload.renamed_label, payload.extra,
+                       element_at(attrs, 'k').renamed_code,
+                       events[1].renamed_score
+                from ${tableName}
+                where part in ('p1', 'p3')
+                order by id
+            """
+            String historicalReaderQuery = """
+                select id, payload.label, element_at(attrs, 'k').code, events[1].score
+                from ${tableName} for version as of ${baseSnapshot}
+                where part in ('p1', 'p2')
+                order by id
+            """
             sql """set enable_paimon_cpp_reader=false"""
             sql """set force_jni_scanner=true"""
-            List<List<String>> jniRows = stringRows("""
-                select id, part from ${tableName}
-                where part in ('p1', 'p3') order by id
-            """)
+            assertJniPath(currentReaderQuery, "${tableName} current")
+            assertJniPath(historicalReaderQuery, "${tableName} historical")
+            "qt_${actionSuffix}_jni_current_complex"(currentReaderQuery)
+            "qt_${actionSuffix}_jni_historical_complex"(historicalReaderQuery)
             sql """set force_jni_scanner=false"""
             sql """set enable_paimon_cpp_reader=true"""
-            assertEquals(jniRows, stringRows("""
-                select id, part from ${tableName}
-                where part in ('p1', 'p3') order by id
-            """))
+            assertNativePath(currentReaderQuery, "${tableName} current")
+            assertNativePath(historicalReaderQuery, "${tableName} historical")
+            "qt_${actionSuffix}_native_current_complex"(currentReaderQuery)
+            "qt_${actionSuffix}_native_historical_complex"(historicalReaderQuery)
             assertEquals(finalSnapshot, latestSnapshotId(tableName))
         }
     } finally {

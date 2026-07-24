@@ -29,17 +29,12 @@ suite("test_paimon_partition_mutation_atomicity",
     String dbName = "paimon_partition_mutation_atomicity_db"
     String tableName = "partition_contract"
 
-    def stringRows = { String query ->
-        sql(query).collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        }
-    }
     def schemaCount = {
         return spark_paimon("""
             select count(*) from paimon.${dbName}.`${tableName}\$schemas`
         """)[0][0].toString().toInteger()
     }
-    def assertSparkRejected = { String statement, String operation ->
+    def assertSparkRejected = { String statement, String operation, String expectedMessage ->
         String error = null
         try {
             spark_paimon(statement)
@@ -47,8 +42,8 @@ suite("test_paimon_partition_mutation_atomicity",
             error = e.getMessage()
         }
         assertNotNull(error, "Paimon must reject partition-key ${operation}")
-        assertTrue(error.toLowerCase().contains("partition"),
-                "Partition-key ${operation} should report a partition contract: ${error}")
+        assertTrue(error.contains(expectedMessage),
+                "Partition-key ${operation} should report '${expectedMessage}': ${error}")
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -103,17 +98,17 @@ suite("test_paimon_partition_mutation_atomicity",
         assertSparkRejected("""
             alter table paimon.${dbName}.${tableName}
                 rename column part_a to renamed_part_a
-        """, "rename")
+        """, "rename", "Cannot rename partition column")
         assertSparkRejected("""
             alter table paimon.${dbName}.${tableName}
                 alter column part_b type bigint
-        """, "type change")
+        """, "type change", "Cannot update partition column")
         assertSparkRejected("""
             alter table paimon.${dbName}.${tableName} drop column part_a
-        """, "drop")
+        """, "drop", "Cannot drop partition key or primary key")
         assertSparkRejected("""
             alter table paimon.${dbName}.${tableName} drop column part_b
-        """, "drop")
+        """, "drop", "Cannot drop partition key or primary key")
         assertEquals(schemasAfterSupportedChanges, schemaCount(),
                 "Rejected partition mutations must not create Paimon schemas")
 
@@ -123,27 +118,23 @@ suite("test_paimon_partition_mutation_atomicity",
 
         // Scenario PM-M03: current data and static partition filtering survive accepted reorder
         // and all rejected mutations.
-        assertEquals([["1"], ["2"], ["4"]], stringRows("""
+        qt_current_partition_filter """
             select id from ${tableName}
             where part_a = 'A' and part_b in (1, 2, 3)
             order by id
-        """))
-        assertEquals([["4", "added"]], stringRows("""
+        """
+        qt_current_added_payload """
             select id, added_payload from ${tableName}
             where part_a = 'A' and part_b = 3
-        """))
+        """
 
         // Scenario PM-M04: the pre-reorder tag retains its original schema and partitions.
-        assertEquals([
-                ["1", "A", "1", "base-a1"],
-                ["2", "A", "2", "base-a2"],
-                ["3", "B", "1", "base-b1"]
-        ], stringRows("""
+        qt_base_tag_partition_filter """
             select id, part_a, part_b, payload
             from ${tableName}@tag(partition_contract_base)
             where part_a in ('A', 'B')
             order by id
-        """))
+        """
         test {
             sql """
                 select added_payload

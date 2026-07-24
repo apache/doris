@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_partition_pk_delete_refs",
-        "p0,external,paimon,external_docker,external_docker_paimon") {
+        "p0,external,paimon,external_docker,external_docker_paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test")
@@ -48,6 +50,70 @@ suite("test_paimon_partition_pk_delete_refs",
                 tag => '${tagName}'
             )
         """
+    }
+    def profileAction = new ProfileAction(context)
+    def profileCounterValues = { String profileText, String counterName ->
+        def values = []
+        def matcher = profileText =~ ("(?m)^\\s*(?:-\\s*)?"
+                + java.util.regex.Pattern.quote(counterName) + ":\\s+([^\\n]+)")
+        while (matcher.find()) {
+            String valueText = matcher.group(1).toString()
+            def exact = valueText =~ /\(([0-9,]+)\)/
+            def number = valueText =~ /([0-9,]+)/
+            String rawValue = exact.find() ? exact.group(1) : (number.find() ? number.group(1) : null)
+            if (rawValue != null) {
+                values.add(Long.parseLong(rawValue.replace(",", "")))
+            }
+        }
+        return values
+    }
+    def assertRuntimeFilterPruned = { String tableName, String dimensionTable ->
+        String token = UUID.randomUUID().toString()
+        List<List<String>> rows = stringRows("""
+            select /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
+                '${token}', f.id, f.full_name
+            from ${tableName} f
+            join ${dimensionTable} d on f.part = d.part
+            order by f.id
+        """)
+        String profile = profileAction.getProfileBySql(
+                token,
+                ["RuntimeFilterPartitionPrunedRangeNum"],
+                30000L,
+                500L)
+        long fileRangesPruned = profileCounterValues(
+                profile, "RuntimeFilterPartitionPrunedRangeNum").sum(0L)
+        long partitionsPruned = profileCounterValues(
+                profile, "PartitionsPrunedByRuntimeFilter").sum(0L)
+        assertTrue(fileRangesPruned + partitionsPruned > 0L,
+                "Runtime filter did not prune a Paimon PK partition/file range; "
+                        + profile.take(2000).replaceAll("\\s+", " "))
+        return rows.collect { row -> [row[1], row[2]] }
+    }
+    def getExplainText = { String query ->
+        return sql("explain verbose ${query}").collect { row -> row[0].toString() }.join("\n")
+    }
+    def assertNativePath = { String query, String label ->
+        String explainText = getExplainText(query)
+        def splitMatcher = (explainText =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(splitMatcher.find(), "Expected paimonNativeReadSplits for ${label}")
+        long nativeSplits = Long.parseLong(splitMatcher.group(1))
+        long totalSplits = Long.parseLong(splitMatcher.group(2))
+        assertTrue(totalSplits > 0 && nativeSplits > 0,
+                "Expected native splits for ${label}, native=${nativeSplits}, total=${totalSplits}")
+        assertTrue(explainText.contains("SplitStat [type=NATIVE"),
+                "Expected a NATIVE split for ${label}")
+    }
+    def assertJniPath = { String query, String label ->
+        String explainText = getExplainText(query)
+        def splitMatcher = (explainText =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(splitMatcher.find(), "Expected paimonNativeReadSplits for ${label}")
+        long nativeSplits = Long.parseLong(splitMatcher.group(1))
+        long totalSplits = Long.parseLong(splitMatcher.group(2))
+        assertTrue(totalSplits > 0 && nativeSplits == 0,
+                "Expected JNI-only splits for ${label}, native=${nativeSplits}, total=${totalSplits}")
+        assertTrue(explainText.contains("SplitStat [type=JNI"),
+                "Expected a JNI split for ${label}")
     }
 
     sql """drop catalog if exists ${catalogName}"""
@@ -90,7 +156,9 @@ suite("test_paimon_partition_pk_delete_refs",
                     (2, 'p1', 'beta', 'old-note-2',
                         named_struct('metric', 20, 'label', 'base-delete')),
                     (3, 'p2', 'gamma', 'old-note-3',
-                        named_struct('metric', 30, 'label', 'base-p2'));
+                        named_struct('metric', 30, 'label', 'base-p2')),
+                    (90, 'p_dv', 'dv-victim', 'old-note-90',
+                        named_struct('metric', 90, 'label', 'dv-victim'));
             """
             String baseSnapshot = latestSnapshotId(tableName)
             createTag(tableName, "${tableName}_base")
@@ -132,29 +200,63 @@ suite("test_paimon_partition_pk_delete_refs",
                     table => '${dbName}.${tableName}',
                     compact_strategy => 'full'
                 );
+                call paimon.sys.create_tag(
+                    table => '${dbName}.${tableName}',
+                    tag => '${tableName}_pre_dv'
+                );
+                -- Prevent synchronous batch compaction from materializing the sacrificial
+                -- delete, so the fixture retains a physical DV artifact for reader checks.
+                alter table paimon.${dbName}.${tableName}
+                    set tblproperties ('write-only'='true');
+                delete from paimon.${dbName}.${tableName}
+                    where part = 'p_dv' and id = 90;
                 drop table if exists paimon.${dbName}.${dimensionTable};
                 create table paimon.${dbName}.${dimensionTable} (part string)
                     using paimon tblproperties ('file.format'='parquet');
                 insert into paimon.${dbName}.${dimensionTable} values ('p1');
             """
+            long deletedRowsInFiles = spark_paimon("""
+                select coalesce(sum(deleteRowCount), 0)
+                from paimon.${dbName}.`${tableName}\$files`
+            """)[0][0].toString().toLong()
+            assertTrue(deletedRowsInFiles > 0,
+                    "${tableName} must retain a physical deletion-vector row")
             String finalSnapshot = latestSnapshotId(tableName)
             createTag(tableName, "${tableName}_final")
 
             sql """switch ${catalogName}"""
             sql """use ${dbName}"""
             sql """refresh table ${tableName}"""
+            String actionSuffix = format
 
             // Scenario PM-D03: static partition filters apply PK upserts, deletes and DV state.
             List<List<String>> expectedCurrent = [["1", "alpha-updated"], ["5", "epsilon"]]
-            assertEquals(expectedCurrent, stringRows("""
+            "qt_${actionSuffix}_current_partition_filter"("""
                 select id, full_name from ${tableName}
                 where part = 'p1' order by id
-            """))
-            assertEquals([["5", "5000000000", "5000"]], stringRows("""
+            """)
+            "qt_${actionSuffix}_current_promoted_and_readded"("""
                 select id, payload.metric, note from ${tableName}
                 where part = 'p1' and payload.metric > 1000000000
                 order by id
-            """))
+            """)
+            // Surviving pre-readd row 1 must see NULL for the new BIGINT note field, while the
+            // nested rename and added child stay bound by field ID across the delete timeline.
+            "qt_${actionSuffix}_current_evolved_fields"("""
+                select id, payload.renamed_label, payload.extra, note
+                from ${tableName}
+                where part = 'p1'
+                order by id
+            """)
+            "qt_${actionSuffix}_pre_dv_old_row_null"("""
+                select id, payload.renamed_label, payload.extra, note
+                from ${tableName}@tag(${tableName}_pre_dv)
+                where part = 'p1' and id = 1
+            """)
+            test {
+                sql """select payload.label from ${tableName} where part = 'p1'"""
+                exception "label"
+            }
 
             // Scenario PM-D04: runtime-filter pruning on the partition key remains delete-aware.
             String rfQuery = """
@@ -166,51 +268,77 @@ suite("test_paimon_partition_pk_delete_refs",
             """
             sql """set runtime_filter_wait_infinitely=true"""
             sql """set disable_join_reorder=true"""
+            sql """set enable_runtime_filter_prune=false"""
+            sql """set runtime_filter_mode=GLOBAL"""
+            sql """set parallel_pipeline_task_num=1"""
+            sql """set enable_profile=true"""
+            sql """set profile_level=2"""
             sql """set enable_runtime_filter_partition_prune=false"""
-            assertEquals(expectedCurrent, stringRows(rfQuery))
+            "qt_${actionSuffix}_rf_disabled"(rfQuery)
             sql """set enable_runtime_filter_partition_prune=true"""
-            assertEquals(expectedCurrent, stringRows(rfQuery))
+            assertEquals(expectedCurrent, assertRuntimeFilterPruned(tableName, dimensionTable))
 
             // Scenario PM-D05: numeric snapshots and tags preserve the matching schema/delete set.
-            assertEquals([["1", "alpha"], ["2", "beta"]], stringRows("""
-                select id, old_name
+            "qt_${actionSuffix}_base_snapshot"("""
+                select id, old_name, note, payload.label
                 from ${tableName} for version as of ${baseSnapshot}
                 where part = 'p1' order by id
-            """))
-            assertEquals([["1", "alpha"], ["2", "beta"]], stringRows("""
-                select id, old_name
+            """)
+            "qt_${actionSuffix}_base_tag"("""
+                select id, old_name, note, payload.label
                 from ${tableName}@tag(${tableName}_base)
                 where part = 'p1' order by id
-            """))
-            assertEquals([["1", "alpha-updated"], ["4", "delta"]], stringRows("""
-                select id, full_name
+            """)
+            "qt_${actionSuffix}_first_delete_snapshot"("""
+                select id, full_name, note, payload.label, payload.extra
                 from ${tableName} for version as of ${firstDeleteSnapshot}
                 where part = 'p1' order by id
-            """))
-            assertEquals(expectedCurrent, stringRows("""
-                select id, full_name
+            """)
+            "qt_${actionSuffix}_final_tag"("""
+                select id, full_name, note, payload.renamed_label, payload.extra
                 from ${tableName}@tag(${tableName}_final)
                 where part = 'p1' order by id
-            """))
+            """)
+            test {
+                sql """
+                    select payload.renamed_label
+                    from ${tableName} for version as of ${baseSnapshot}
+                """
+                exception "renamed_label"
+            }
 
-            // Scenario PM-D06: JNI/native readers agree after partitioned PK deletes and compaction.
+            // Scenario PM-D06: JNI/native readers agree for current DV state and historical
+            // projections, and explain must prove the requested reader path rather than fallback.
+            String currentReaderQuery = """
+                select id, part, full_name, note, payload.renamed_label, payload.extra
+                from ${tableName}
+                where part in ('p1', 'p2')
+                order by part, id
+            """
+            String historicalReaderQuery = """
+                select id, part, old_name, note, payload.label
+                from ${tableName} for version as of ${baseSnapshot}
+                where part in ('p1', 'p2')
+                order by part, id
+            """
             sql """set enable_paimon_cpp_reader=false"""
             sql """set force_jni_scanner=true"""
-            List<List<String>> jniRows = stringRows("""
-                select id, part, full_name from ${tableName}
-                where part in ('p1', 'p2') order by part, id
-            """)
+            assertJniPath(currentReaderQuery, "${tableName} current DV")
+            assertJniPath(historicalReaderQuery, "${tableName} historical")
+            "qt_${actionSuffix}_jni_current_dv"(currentReaderQuery)
+            "qt_${actionSuffix}_jni_historical"(historicalReaderQuery)
             sql """set force_jni_scanner=false"""
             sql """set enable_paimon_cpp_reader=true"""
-            assertEquals(jniRows, stringRows("""
-                select id, part, full_name from ${tableName}
-                where part in ('p1', 'p2') order by part, id
-            """))
+            assertNativePath(currentReaderQuery, "${tableName} current DV")
+            assertNativePath(historicalReaderQuery, "${tableName} historical")
+            "qt_${actionSuffix}_native_current_dv"(currentReaderQuery)
+            "qt_${actionSuffix}_native_historical"(historicalReaderQuery)
             assertEquals(finalSnapshot, latestSnapshotId(tableName))
         }
     } finally {
         sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
+        sql """set enable_runtime_filter_prune=true"""
         sql """set enable_runtime_filter_partition_prune=true"""
         sql """set disable_join_reorder=false"""
         sql """drop catalog if exists ${catalogName}"""

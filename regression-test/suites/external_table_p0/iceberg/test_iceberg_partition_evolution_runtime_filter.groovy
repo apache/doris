@@ -18,7 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_iceberg_partition_evolution_runtime_filter",
-        "p0,external,iceberg,external_docker,external_docker_iceberg") {
+        "p0,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test")
@@ -107,15 +107,19 @@ suite("test_iceberg_partition_evolution_runtime_filter",
             create table demo.${dbName}.${factTable} (
                 id int,
                 category string,
+                region string,
                 event_time timestamp,
                 payload struct<metric:int>
             ) using iceberg
             partitioned by (category, days(event_time))
             tblproperties ('format-version'='2');
             insert into demo.${dbName}.${factTable} values
-                (1, 'A', timestamp '2026-01-01 01:00:00', named_struct('metric', 10)),
-                (2, 'B', timestamp '2026-01-02 01:00:00', named_struct('metric', 20)),
-                (3, 'C', timestamp '2026-01-03 01:00:00', named_struct('metric', 30));
+                (1, 'A', 'r1', timestamp '2026-01-01 01:00:00',
+                    named_struct('metric', 10)),
+                (2, 'B', 'r2', timestamp '2026-01-02 01:00:00',
+                    named_struct('metric', 20)),
+                (3, 'C', 'r3', timestamp '2026-01-03 01:00:00',
+                    named_struct('metric', 30));
         """
         String baseSnapshot = latestSnapshotId()
         sql """
@@ -123,14 +127,16 @@ suite("test_iceberg_partition_evolution_runtime_filter",
             create tag rf_base as of version ${baseSnapshot}
         """
 
-        // Scenario PE-RF01: add a partition field and evolve a nested payload between data files.
+        // Scenario PE-RF01: add identity and bucket fields and evolve a nested payload between
+        // data files. Old files lack both partition values but still contain the source columns.
         spark_iceberg_multi """
+            alter table demo.${dbName}.${factTable} add partition field region;
             alter table demo.${dbName}.${factTable} add partition field bucket(8, id);
             alter table demo.${dbName}.${factTable} add column payload.label string;
             insert into demo.${dbName}.${factTable} values
-                (4, 'A', timestamp '2026-02-01 01:00:00',
+                (4, 'A', 'r1', timestamp '2026-02-01 01:00:00',
                     named_struct('metric', 40, 'label', 'add-spec')),
-                (5, 'D', timestamp '2026-02-02 01:00:00',
+                (5, 'D', 'r4', timestamp '2026-02-02 01:00:00',
                     named_struct('metric', 50, 'label', 'add-spec'));
         """
         String addedSnapshot = latestSnapshotId()
@@ -141,9 +147,9 @@ suite("test_iceberg_partition_evolution_runtime_filter",
             alter table demo.${dbName}.${factTable}
                 replace partition field days(event_time) with months(event_time);
             insert into demo.${dbName}.${factTable} values
-                (6, 'A', timestamp '2026-03-01 01:00:00',
+                (6, 'A', 'r1', timestamp '2026-03-01 01:00:00',
                     named_struct('metric', 60, 'label', 'replace-spec')),
-                (7, 'E', timestamp '2026-03-02 01:00:00',
+                (7, 'E', 'r5', timestamp '2026-03-02 01:00:00',
                     named_struct('metric', 70, 'label', 'replace-spec'));
         """
 
@@ -152,19 +158,22 @@ suite("test_iceberg_partition_evolution_runtime_filter",
         spark_iceberg_multi """
             alter table demo.${dbName}.${factTable} drop partition field category;
             insert into demo.${dbName}.${factTable} values
-                (8, 'A', timestamp '2026-04-01 01:00:00',
+                (8, 'A', 'r1', timestamp '2026-04-01 01:00:00',
                     named_struct('metric', 80, 'label', 'drop-spec')),
-                (9, 'F', timestamp '2026-04-02 01:00:00',
+                (9, 'F', 'r6', timestamp '2026-04-02 01:00:00',
                     named_struct('metric', 90, 'label', 'drop-spec'));
             drop table if exists demo.${dbName}.${dimensionTable};
             create table demo.${dbName}.${dimensionTable} (
                 category string,
+                region string,
+                id int,
                 lower_time timestamp,
                 upper_time timestamp
             ) using iceberg
             tblproperties ('format-version'='2');
             insert into demo.${dbName}.${dimensionTable} values
-                ('A', timestamp '2026-03-01 00:00:00', timestamp '2026-05-01 00:00:00');
+                ('A', 'r1', 4,
+                    timestamp '2026-03-01 00:00:00', timestamp '2026-05-01 00:00:00');
         """
         String droppedSnapshot = latestSnapshotId()
         sql """
@@ -189,6 +198,14 @@ suite("test_iceberg_partition_evolution_runtime_filter",
             from ${factTable} f
             join ${dimensionTable} d on f.category = d.category
         """
+        String addedIdentityJoin = """
+            from ${factTable} f
+            join ${dimensionTable} d on f.region = d.region
+        """
+        String bucketSourceJoin = """
+            from ${factTable} f
+            join ${dimensionTable} d on f.id = d.id
+        """
         String currentTemporalJoin = """
             from ${factTable} f
             join ${dimensionTable} d
@@ -197,38 +214,60 @@ suite("test_iceberg_partition_evolution_runtime_filter",
 
         // Scenario PE-RF04: result parity with RF disabled protects correctness.
         sql """set enable_runtime_filter_partition_prune=false"""
-        assertEquals([["1"], ["4"], ["6"], ["8"]], stringRows("""
+        qt_category_rf_disabled """
             select f.id ${currentCategoryJoin} order by f.id
-        """))
-        assertEquals([["6"], ["7"], ["8"], ["9"]], stringRows("""
+        """
+        qt_added_identity_rf_disabled """
+            select f.id ${addedIdentityJoin} order by f.id
+        """
+        qt_bucket_source_rf_disabled """
+            select f.id ${bucketSourceJoin} order by f.id
+        """
+        qt_temporal_rf_disabled """
             select f.id ${currentTemporalJoin} order by f.id
-        """))
+        """
 
-        // Scenario PE-RF05: current multi-spec scan must both return the same rows and show
-        // physical pruning in the profile.
+        // Scenario PE-RF05: independently profile the original identity field that is later
+        // dropped and the identity field added after old files were written.
         sql """set enable_runtime_filter_partition_prune=true"""
         assertEquals([["1"], ["4"], ["6"], ["8"]],
                 assertRuntimeFilterPruned(currentCategoryJoin))
+        assertEquals([["1"], ["4"], ["6"], ["8"]],
+                assertRuntimeFilterPruned(addedIdentityJoin))
 
-        // Scenario PE-RF06: numeric snapshot and tag retain runtime-filter correctness.
-        assertEquals([["1"]], stringRows("""
+        // Scenario PE-RF06: bucket and temporal source-column RFs retain result correctness.
+        // Scanner-side RF pruning currently consumes identity partition values only, so these
+        // cells intentionally do not claim a positive physical-pruning counter.
+        qt_bucket_source_rf_enabled """
+            select /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */ f.id
+            ${bucketSourceJoin}
+            order by f.id
+        """
+        qt_temporal_rf_enabled """
+            select /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */ f.id
+            ${currentTemporalJoin}
+            order by f.id
+        """
+
+        // Scenario PE-RF07: numeric snapshot and tag retain runtime-filter correctness.
+        qt_base_snapshot_rf """
             select /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */ f.id
             from ${factTable} for version as of ${baseSnapshot} f
             join ${dimensionTable} d on f.category = d.category
             order by f.id
-        """))
-        assertEquals([["1"], ["4"]], stringRows("""
+        """
+        qt_added_snapshot_rf """
             select /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */ f.id
             from ${factTable} for version as of ${addedSnapshot} f
-            join ${dimensionTable} d on f.category = d.category
+            join ${dimensionTable} d on f.region = d.region
             order by f.id
-        """))
-        assertEquals([["1"], ["4"], ["6"], ["8"]], stringRows("""
+        """
+        qt_dropped_tag_rf """
             select /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */ f.id
             from ${factTable}@tag(rf_dropped) f
             join ${dimensionTable} d on f.category = d.category
             order by f.id
-        """))
+        """
     } finally {
         sql """set enable_runtime_filter_prune=true"""
         sql """set enable_runtime_filter_partition_prune=true"""
