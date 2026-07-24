@@ -32,7 +32,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -310,5 +314,19 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void reorderColumns(TableIf table, List<String> newOrder) throws UserException {
         throw new UserException("Not support reorder columns operation");
+    }
+
+    // partition evolution operations (Iceberg): add / drop / replace a partition field
+
+    default void addPartitionField(TableIf table, AddPartitionFieldOp op) throws UserException {
+        throw new UserException("Not support add partition field operation");
+    }
+
+    default void dropPartitionField(TableIf table, DropPartitionFieldOp op) throws UserException {
+        throw new UserException("Not support drop partition field operation");
+    }
+
+    default void replacePartitionField(TableIf table, ReplacePartitionFieldOp op) throws UserException {
+        throw new UserException("Not support replace partition field operation");
     }
 }

@@ -28,10 +28,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -44,7 +42,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -169,8 +166,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException(message);
         }
         // disallow unsupported catalog
-        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog)) {
+        if (!(catalog.isInternalCatalog() || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                     catalog.getType()));
         }
@@ -182,23 +178,18 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         TableIf table = null;
         try {
             table = db.get().getTableOrMetaException(tableName, TableType.OLAP,
-                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
+                    TableType.PLUGIN_EXTERNAL_TABLE);
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        if (table instanceof HMSExternalTable) {
-            if (((HMSExternalTable) table).isView()) {
-                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
-            }
-            if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
-                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
-            }
-            return;
-        }
-
-        if (table instanceof MaxComputeExternalTable) {
-            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
+        if (table instanceof PluginDrivenExternalTable) {
+            // Keyed on partition columns (isPartitionedTable), consistent with the SHOW PARTITIONS
+            // gate (ShowPartitionsCommand). A partitioned-but-empty table returns 0 rows rather than
+            // throwing -- a deliberate, more-correct deviation from legacy MC's partition-instance
+            // check above.
+            if (!((PluginDrivenExternalTable) table).isPartitionedTable()) {
                 throw new AnalysisException("Table " + tableName + " is not a partitioned table");
             }
         }

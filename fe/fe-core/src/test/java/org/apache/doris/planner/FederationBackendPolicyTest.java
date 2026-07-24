@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.NodeSelectionStrategy;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.scan.NodeSelectionStrategy;
+import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -670,6 +670,22 @@ public class FederationBackendPolicyTest {
 
         fileSplit.setTargetSplitSize(2000L);
         Assert.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
+    }
+
+    // Regression for the NPE in testGenerateRandomly: FileSplit is Lombok @Data, whose generated
+    // equals()/hashCode() invoke getSelfSplitWeight(). A split that never sets a size-based weight
+    // leaves selfSplitWeight null, so the getter must surface the "-1 = not provided" sentinel
+    // instead of unboxing null (which threw NPE during the multimap comparison).
+    @Test
+    public void testFileSplitEqualsHashCodeWithUnsetWeight() {
+        LocationPath path = LocationPath.of("s1");
+        // Two distinct instances that share the same LocationPath are field-equal, so equals()
+        // proceeds past the identity short-circuit and exercises getSelfSplitWeight().
+        FileSplit a = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        FileSplit b = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
+        Assert.assertEquals(-1L, a.getSelfSplitWeight());
+        Assert.assertEquals(a, b);
+        Assert.assertEquals(a.hashCode(), b.hashCode());
     }
 
     @Test

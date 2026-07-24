@@ -20,9 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.action.IcebergExecuteActionFactory;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.Map;
@@ -52,11 +53,12 @@ public class ExecuteActionFactory {
             Optional<Expression> whereCondition,
             TableIf table) throws DdlException {
 
-        // Delegate to specific table engine factories
-        if (table instanceof IcebergExternalTable) {
-            return IcebergExecuteActionFactory.createAction(actionType, properties,
-                    partitionNamesInfo, whereCondition, (IcebergExternalTable) table);
-        } else if (table instanceof ExternalTable) {
+        // Plugin-driven (connector SPI) tables route to the connector's ConnectorProcedureOps.
+        if (table instanceof PluginDrivenExternalTable) {
+            return new ConnectorExecuteAction(actionType, properties,
+                    partitionNamesInfo, whereCondition, (PluginDrivenExternalTable) table);
+        }
+        if (table instanceof ExternalTable) {
             // Handle other external table types in the future
             throw new DdlException("Execute actions are not supported for table type: "
                     + table.getClass().getSimpleName());
@@ -74,8 +76,16 @@ public class ExecuteActionFactory {
      * @return array of supported action type strings
      */
     public static String[] getSupportedActions(TableIf table) {
-        if (table instanceof IcebergExternalTable) {
-            return IcebergExecuteActionFactory.getSupportedActions();
+        if (table instanceof PluginDrivenExternalTable) {
+            // Mirrors createAction's PluginDriven routing (no live caller today) — this is the forward-looking
+            // pathfinder so SHOW-style discovery exports the connector's procedure names.
+            PluginDrivenExternalCatalog catalog =
+                    (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) table).getCatalog();
+            ConnectorProcedureOps procedureOps = catalog.getConnector().getProcedureOps();
+            if (procedureOps == null) {
+                return new String[0];
+            }
+            return procedureOps.getSupportedProcedures().toArray(new String[0]);
         }
         // Add support for other table types in the future
         return new String[0];

@@ -37,7 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -142,7 +142,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
 
     static void checkColumnOperationsSupported(TableIf table, List<AlterTableOp> alterTableOps)
             throws AnalysisException {
-        if (table instanceof IcebergExternalTable) {
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsNestedColumnSchemaChange()) {
             checkIcebergCompoundColumnOperations(alterTableOps);
             for (AlterTableOp alterTableOp : alterTableOps) {
                 ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
@@ -380,7 +381,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterTableOp instanceof DropColumnOp
                     || alterTableOp instanceof RenameColumnOp
                     || alterTableOp instanceof ModifyColumnOp
-                    || (alterTableOp instanceof ModifyColumnCommentOp && table instanceof IcebergExternalTable)
+                    || (alterTableOp instanceof ModifyColumnCommentOp
+                            && table instanceof PluginDrivenExternalTable
+                            && ((PluginDrivenExternalTable) table).supportsNestedColumnSchemaChange())
                     || alterTableOp instanceof ReorderColumnsOp
                     || alterTableOp instanceof ModifyEngineOp
                     || alterTableOp instanceof ModifyTablePropertiesOp

@@ -46,13 +46,10 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -386,14 +383,13 @@ public class CreateTableInfo {
             return;
         }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
-            throw new AnalysisException("Hms type catalog can only use `hive` engine.");
-        } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
-            throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
-        } else if (catalog instanceof PaimonExternalCatalog && !engineName.equals(ENGINE_PAIMON)) {
-            throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
-        } else if (catalog instanceof MaxComputeExternalCatalog && !engineName.equals(ENGINE_MAXCOMPUTE)) {
-            throw new AnalysisException("MaxCompute type catalog can only use `maxcompute` engine.");
+        if (catalog instanceof PluginDrivenExternalCatalog) {
+            // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; mirror
+            // the legacy per-type consistency check, keyed on the connector type.
+            String pluginEngine = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
+            if (pluginEngine != null && !engineName.equals(pluginEngine)) {
+                throw new AnalysisException("This catalog can only use `" + pluginEngine + "` engine.");
+            }
         }
     }
 
@@ -748,7 +744,7 @@ public class CreateTableInfo {
             // validate partition
             partitionTableInfo.extractPartitionColumns();
             partitionTableInfo.validatePartitionInfo(
-                    engineName, columns, columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
+                    columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -786,40 +782,25 @@ public class CreateTableInfo {
                 throw new AnalysisException(engineName + " catalog doesn't support rollup tables.");
             }
 
-            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG) && distribution != null) {
-                throw new AnalysisException(
-                    "Iceberg doesn't support 'DISTRIBUTE BY', "
-                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
-            } else if (engineName.equalsIgnoreCase(ENGINE_PAIMON) && distribution != null) {
-                throw new AnalysisException(
-                    "Paimon doesn't support 'DISTRIBUTE BY', "
-                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
-            }
-
-            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
-                validateIcebergRowLineageColumns();
-            }
-
-            // Validate Iceberg sort order columns
+            // DISTRIBUTE BY / write sort order / NOT NULL columns / hive external partition rules are per-source
+            // DDL constraints; each is now enforced by the target connector inside its own createTable (mirroring
+            // MaxComputeConnectorMetadata.validateColumns). fe-core only gates the write sort-order clause
+            // generically: a connector accepts ORDER BY only when it declares SUPPORTS_SORT_ORDER (iceberg today),
+            // and that connector then validates the sort columns. Any other target (paimon/hive/maxcompute, and
+            // every internal-catalog engine) is rejected here.
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
-                if (!engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+                boolean supportsSortOrder = catalog instanceof PluginDrivenExternalCatalog
+                        && ((PluginDrivenExternalCatalog) catalog).getConnector().getCapabilities()
+                                .contains(ConnectorCapability.SUPPORTS_SORT_ORDER);
+                if (!supportsSortOrder) {
                     throw new AnalysisException(
-                        "Only Iceberg catalog supports sort order, but current catalog is: " + engineName);
+                            "Sort order (ORDER BY) is not supported for engine: " + engineName);
                 }
-                validateIcebergSortOrder(columnMap);
             }
 
             for (ColumnDefinition columnDef : columns) {
-                if (!columnDef.isNullable()
-                        && engineName.equalsIgnoreCase(ENGINE_HIVE)) {
-                    throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
-                }
                 columnDef.setIsKey(true);
-            }
-            // TODO: support iceberg partition check
-            if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
-                partitionTableInfo.validatePartitionInfo(
-                        engineName, columns, columnMap, properties, ctx, false, true);
             }
         }
         // validate column
@@ -912,17 +893,41 @@ public class CreateTableInfo {
 
             if (catalog instanceof InternalCatalog) {
                 engineName = ENGINE_OLAP;
-            } else if (catalog instanceof HMSExternalCatalog) {
-                engineName = ENGINE_HIVE;
-            } else if (catalog instanceof IcebergExternalCatalog) {
-                engineName = ENGINE_ICEBERG;
-            } else if (catalog instanceof PaimonExternalCatalog) {
-                engineName = ENGINE_PAIMON;
-            } else if (catalog instanceof MaxComputeExternalCatalog) {
-                engineName = ENGINE_MAXCOMPUTE;
+            } else if (catalog instanceof PluginDrivenExternalCatalog
+                    && pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog) != null) {
+                // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; pad
+                // the legacy engine so the no-ENGINE CREATE TABLE keeps working (mirrors the MC/Iceberg above).
+                engineName = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
             } else {
                 throw new AnalysisException("Current catalog does not support create table: " + ctlName);
             }
+        }
+    }
+
+    /**
+     * Maps a PluginDriven (SPI) catalog's type to the legacy engine name used for DDL engine-padding
+     * and catalog-engine consistency. Keyed on {@link PluginDrivenExternalCatalog#getType()} (the
+     * CatalogFactory key, e.g. "max_compute"), mirroring
+     * {@code PluginDrivenExternalTable.getEngine()/getEngineTableTypeName()} — the two switches must
+     * stay in sync if SPI_READY_TYPES gains a CREATE-TABLE-capable full-adopter. Returns {@code null}
+     * for SPI types that do not support CREATE TABLE (jdbc/es/trino-connector) so callers preserve
+     * their existing (legacy-equivalent) behavior for those types.
+     */
+    private static String pluginCatalogTypeToEngine(PluginDrivenExternalCatalog catalog) {
+        switch (catalog.getType()) {
+            case "max_compute":
+                return ENGINE_MAXCOMPUTE;
+            case "paimon":
+                return ENGINE_PAIMON;
+            case "iceberg":
+                return ENGINE_ICEBERG;
+            case "hms":
+                // A flipped HMS external catalog uses the hive engine for CREATE TABLE (legacy hms
+                // catalogs always create hive-engine tables); the user-visible DISPLAY engine "hms"
+                // is a separate concern handled by PluginDrivenExternalTable.getEngine().
+                return ENGINE_HIVE;
+            default:
+                return null;
         }
     }
 
@@ -1112,34 +1117,6 @@ public class CreateTableInfo {
                 }
             }
         }
-    }
-
-    /**
-     * Validate that Iceberg v3 tables do not define row lineage reserved columns.
-     */
-    public void validateIcebergRowLineageColumns(int formatVersion) {
-        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
-        }
-        for (ColumnDefinition columnDef : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
-                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
-                        + " table with reserved row lineage column: " + columnDef.getName());
-            }
-        }
-    }
-
-    private void validateIcebergRowLineageColumns() {
-        validateIcebergRowLineageColumns(getEffectiveIcebergFormatVersion());
-    }
-
-    private int getEffectiveIcebergFormatVersion() {
-        CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
-                : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof IcebergExternalCatalog) {
-            return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
-        }
-        return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());
     }
 
     /**
@@ -1710,41 +1687,6 @@ public class CreateTableInfo {
                 }
             } else {
                 throw new AnalysisException("partition expression " + expr.getExpressionName() + " is illegal!");
-            }
-        }
-    }
-
-    /**
-     * Validate sort order for Iceberg table
-     */
-    private void validateIcebergSortOrder(Map<String, ColumnDefinition> columnMap) {
-        if (sortOrderFields == null || sortOrderFields.isEmpty()) {
-            return;
-        }
-
-        // Check if sort order columns exist
-        for (SortFieldInfo sortField : sortOrderFields) {
-            String sortCol = sortField.getColumnName();
-            if (!columnMap.containsKey(sortCol)) {
-                throw new AnalysisException("Sort order column '" + sortCol + "' does not exist in table");
-            }
-
-            ColumnDefinition col = columnMap.get(sortCol);
-            DataType type = col.getType();
-
-            // Check if data type supports sorting
-            if (type.isOnlyMetricType()) {
-                throw new AnalysisException("Sort order column '" + sortCol
-                        + "' has unsupported type: " + type);
-            }
-        }
-
-        // Check for duplicate sort order columns
-        Set<String> sortColSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (SortFieldInfo sortField : sortOrderFields) {
-            String sortCol = sortField.getColumnName();
-            if (!sortColSet.add(sortCol)) {
-                throw new AnalysisException("Duplicate sort order column: " + sortCol);
             }
         }
     }

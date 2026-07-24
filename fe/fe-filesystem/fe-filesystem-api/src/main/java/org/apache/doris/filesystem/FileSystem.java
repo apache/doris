@@ -56,6 +56,21 @@ public interface FileSystem extends AutoCloseable {
                 getClass().getSimpleName() + " does not support " + capabilityType.getSimpleName()));
     }
 
+    /**
+     * Resolves the concrete {@link FileSystem} that actually serves {@code location}.
+     *
+     * <p>A plain, single-backend filesystem <em>is</em> the filesystem for every location, so the
+     * default returns {@code this}. A scheme-routing filesystem (e.g. {@code SpiSwitchingFileSystem})
+     * overrides this to return the per-scheme delegate the location maps to.
+     *
+     * <p>Callers use this when they need the <em>concrete</em> implementation rather than the routing
+     * facade — for example to test {@code instanceof ObjFileSystem} before driving an object-store
+     * multipart upload, which a routing facade cannot answer without knowing the location.
+     */
+    default FileSystem forLocation(Location location) throws IOException {
+        return this;
+    }
+
     boolean exists(Location location) throws IOException;
 
     void mkdirs(Location location) throws IOException;

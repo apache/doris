@@ -137,7 +137,7 @@ suite("test_iceberg_schema_metadata_atomicity_matrix",
         int metadataBeforeNarrowing = schemaCount()
         test {
             sql """alter table ${tableName} modify column optional_value smallint"""
-            exception "not supported for Iceberg column"
+            exception "Unsupported type for Iceberg"
         }
         assertEquals(metadataBeforeNarrowing, schemaCount())
 

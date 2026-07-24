@@ -17,13 +17,19 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Tests for {@link ConnectorSessionImpl} and {@link ConnectorSessionBuilder}.
@@ -177,5 +183,153 @@ public class ConnectorSessionImplTest {
         Assertions.assertEquals("UTC", session.getTimeZone());
         Assertions.assertEquals("en_US", session.getLocale());
         Assertions.assertEquals("", session.getCatalogName());
+    }
+
+    // ──────────────── transaction binding (P4-T06a W-a / gap G1) ────────────────
+
+    // The session is otherwise immutable, but the insert executor binds a connector
+    // transaction onto it at write time (setCurrentTransaction) so the connector's
+    // planWrite can read it back (getCurrentTransaction). If this round-trip regresses,
+    // the maxcompute write plan fails loud ("no transaction on session") at bind time.
+
+    @Test
+    public void testCurrentTransactionIsEmptyBeforeBinding() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
+                "a freshly built session must carry no transaction");
+    }
+
+    @Test
+    public void testSetCurrentTransactionBindsThenReadsBackSameInstance() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        ConnectorTransaction txn = new StubConnectorTransaction(1234L);
+
+        session.setCurrentTransaction(txn);
+
+        Optional<ConnectorTransaction> bound = session.getCurrentTransaction();
+        Assertions.assertTrue(bound.isPresent(), "transaction must be present after binding");
+        Assertions.assertSame(txn, bound.get(),
+                "getCurrentTransaction must return the exact instance the executor bound, "
+                        + "because planWrite stamps that transaction's id into the sink");
+    }
+
+    @Test
+    public void testSetCurrentTransactionNullUnbindsToEmpty() {
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        session.setCurrentTransaction(new StubConnectorTransaction(1L));
+
+        session.setCurrentTransaction(null);
+
+        Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
+                "binding null must clear the transaction back to empty (Optional.ofNullable semantics)");
+    }
+
+    // ──────────── delegated-credential injection (SUPPORTS_USER_SESSION gate, #63068) ────────────
+
+    @Test
+    public void capableConnectorReceivesDelegatedCredentialAndSessionId() {
+        // A SUPPORTS_USER_SESSION connector: the offered credential + stable session id are carried onto the
+        // session so the connector can project the user's identity onto the remote metadata source.
+        ConnectorDelegatedCredential cred =
+                new ConnectorDelegatedCredential(ConnectorDelegatedCredential.Type.ACCESS_TOKEN, "user-token");
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withUserSessionCapability(true)
+                .withSessionId("stable-session-1")
+                .withDelegatedCredential(cred)
+                .build();
+
+        Assertions.assertTrue(session.getDelegatedCredential().isPresent(),
+                "a capable connector receives the delegated credential");
+        Assertions.assertSame(cred, session.getDelegatedCredential().get());
+        Assertions.assertEquals("stable-session-1", session.getSessionId(),
+                "the stable session id (AuthSession key) is carried, not the queryId");
+    }
+
+    @Test
+    public void nonCapableConnectorSkipsDelegatedCredential() {
+        // Least-privilege: without withUserSessionCapability(true) (the default), the offered credential is NOT
+        // carried — a connector that would never consume the OIDC token never receives it. The session id then
+        // falls back to the queryId.
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withSessionId("stable-session-1")
+                .withDelegatedCredential(
+                        new ConnectorDelegatedCredential(ConnectorDelegatedCredential.Type.ACCESS_TOKEN, "tok"))
+                .build();
+
+        Assertions.assertFalse(session.getDelegatedCredential().isPresent(),
+                "a non-capable connector must never receive the delegated credential (least-privilege)");
+        Assertions.assertEquals("q1", session.getSessionId(),
+                "with no credential carried, the session id falls back to the queryId");
+    }
+
+    @Test
+    public void capableConnectorWithNoOfferedCredentialCarriesNone() {
+        // The capability gate alone does not manufacture a credential: a capable session with none offered still
+        // exposes an empty credential (the connector then fails closed on the actual metadata read).
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withUserSessionCapability(true)
+                .build();
+
+        Assertions.assertFalse(session.getDelegatedCredential().isPresent());
+    }
+
+    @Test
+    public void explicitNoneStatementScopeWinsOverLiveContext() {
+        // A cross-statement background loader (PluginDrivenExternalCatalog#buildCrossStatementSession) forces the
+        // per-statement scope to NONE so a metadata it resolves is never memoized into — nor closed with — the
+        // live statement's scope, even when the loader runs on a thread that has one (e.g. fetchRowCount reached
+        // synchronously from AnalysisManager.buildAnalysisJobInfo on the ANALYZE execution thread). This pins the
+        // builder guarantee that helper relies on: an explicit withStatementScope(NONE) wins over the scope
+        // captured from the live ConnectContext. MUTATION: capture ignoring the explicit override -> the loader
+        // binds to the live statement scope (the leak) -> red.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            ConnectorStatementScope live = stmtCtx.getOrCreateConnectorStatementScope();
+
+            // A default session capture binds to the live statement scope (the path a loader must avoid).
+            ConnectorSession bound = ConnectorSessionBuilder.from(ctx).withCatalogId(1L).build();
+            Assertions.assertSame(live, bound.getStatementScope(),
+                    "a default session capture binds to the live statement scope");
+
+            // The forced-NONE session (what buildCrossStatementSession builds) wins over the live scope.
+            ConnectorSession crossStatement = ConnectorSessionBuilder.from(ctx).withCatalogId(1L)
+                    .withStatementScope(ConnectorStatementScope.NONE).build();
+            Assertions.assertSame(ConnectorStatementScope.NONE, crossStatement.getStatementScope(),
+                    "an explicit NONE scope wins over the live statement context (forced read-through)");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    /** Minimal hand-written {@link ConnectorTransaction}; only identity matters for this test. */
+    private static final class StubConnectorTransaction implements ConnectorTransaction {
+        private final long txnId;
+
+        private StubConnectorTransaction(long txnId) {
+            this.txnId = txnId;
+        }
+
+        @Override
+        public long getTransactionId() {
+            return txnId;
+        }
+
+        @Override
+        public void commit() {
+        }
+
+        @Override
+        public void rollback() {
+        }
+
+        @Override
+        public void close() {
+        }
     }
 }

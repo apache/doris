@@ -142,46 +142,18 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.PluginDrivenExternalDatabase;
-import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergJdbcExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergS3TablesExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
-import org.apache.doris.datasource.paimon.PaimonDLFExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonRestExternalCatalog;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
-import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -385,26 +357,7 @@ public class GsonUtils {
     static {
         dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(CatalogIf.class, "clazz")
                 .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName())
-                .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergJdbcExternalCatalog.class, IcebergJdbcExternalCatalog.class.getSimpleName())
-                .registerSubtype(IcebergS3TablesExternalCatalog.class,
-                        IcebergS3TablesExternalCatalog.class.getSimpleName())
-                .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
-                .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
-                .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
-                .registerSubtype(PaimonRestExternalCatalog.class, PaimonRestExternalCatalog.class.getSimpleName())
-                .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
-                .registerSubtype(
-                            TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
-                .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
-                .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName())
                 .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName())
                 .registerSubtype(PluginDrivenExternalCatalog.class,
                         PluginDrivenExternalCatalog.class.getSimpleName())
@@ -413,7 +366,50 @@ public class GsonUtils {
                         PluginDrivenExternalCatalog.class, "EsExternalCatalog")
                 // Migrate old JDBC catalogs to PluginDriven on deserialization
                 .registerCompatibleSubtype(
-                        PluginDrivenExternalCatalog.class, "JdbcExternalCatalog");
+                        PluginDrivenExternalCatalog.class, "JdbcExternalCatalog")
+                // Migrate old Trino-connector catalogs to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "TrinoConnectorExternalCatalog")
+                // Migrate old MaxCompute catalogs to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "MaxComputeExternalCatalog")
+                // Migrate old Paimon catalogs (all 5 flavors) to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "PaimonExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "PaimonHMSExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "PaimonFileExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "PaimonRestExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "PaimonDLFExternalCatalog")
+                // Migrate old Iceberg catalogs (all 8 flavors) to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergHMSExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergGlueExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergRestExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergDLFExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergHadoopExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergJdbcExternalCatalog")
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "IcebergS3TablesExternalCatalog")
+                // Migrate old HMS (hive) catalogs to PluginDriven on deserialization; the hms gateway serves
+                // plain-hive + hudi-on-HMS + iceberg-on-HMS through the hive connector.
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "HMSExternalCatalog")
+                // Migrate old LakeSoul catalogs to PluginDriven on deserialization. LakeSoul is deprecated and
+                // was never migrated to a connector, so the remapped catalog has no backing connector and
+                // errors on access (it must be dropped); this only keeps old images/edit-logs loadable.
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "LakeSoulExternalCatalog");
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -449,40 +445,65 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
             .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
-            .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
-            .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
-            .registerSubtype(LakeSoulExternalDatabase.class, LakeSoulExternalDatabase.class.getSimpleName())
-            .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
             .registerSubtype(ExternalMysqlDatabase.class, ExternalMysqlDatabase.class.getSimpleName())
-            .registerSubtype(TrinoConnectorExternalDatabase.class, TrinoConnectorExternalDatabase.class.getSimpleName())
             .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName())
             .registerSubtype(PluginDrivenExternalDatabase.class,
                     PluginDrivenExternalDatabase.class.getSimpleName())
             .registerCompatibleSubtype(
                     PluginDrivenExternalDatabase.class, "EsExternalDatabase")
             .registerCompatibleSubtype(
-                    PluginDrivenExternalDatabase.class, "JdbcExternalDatabase");
+                    PluginDrivenExternalDatabase.class, "JdbcExternalDatabase")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "TrinoConnectorExternalDatabase")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "MaxComputeExternalDatabase")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "PaimonExternalDatabase")
+            // Migrate old Iceberg databases to PluginDriven on deserialization
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "IcebergExternalDatabase")
+            // Migrate old HMS (hive) databases to PluginDriven on deserialization
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "HMSExternalDatabase")
+            // Migrate old LakeSoul databases to PluginDriven on deserialization (deprecated, no connector)
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "LakeSoulExternalDatabase");
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
             .registerSubtype(OlapTable.class, OlapTable.class.getSimpleName())
-            .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
-            .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
-            .registerSubtype(LakeSoulExternalTable.class, LakeSoulExternalTable.class.getSimpleName())
-            .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
             .registerSubtype(ExternalMysqlTable.class, ExternalMysqlTable.class.getSimpleName())
-            .registerSubtype(TrinoConnectorExternalTable.class, TrinoConnectorExternalTable.class.getSimpleName())
             .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName())
             .registerSubtype(PluginDrivenExternalTable.class,
                     PluginDrivenExternalTable.class.getSimpleName())
+            .registerSubtype(PluginDrivenMvccExternalTable.class,
+                    PluginDrivenMvccExternalTable.class.getSimpleName())
             .registerCompatibleSubtype(
                     PluginDrivenExternalTable.class, "EsExternalTable")
             .registerCompatibleSubtype(
                     PluginDrivenExternalTable.class, "JdbcExternalTable")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "TrinoConnectorExternalTable")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "MaxComputeExternalTable")
+            // LakeSoul tables migrate to the non-MVCC PluginDriven variant (deprecated, no connector backing)
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "LakeSoulExternalTable")
+            // Paimon tables migrate to the MVCC variant (paimon supports MVCC/MTMV/time-travel)
+            .registerCompatibleSubtype(
+                    PluginDrivenMvccExternalTable.class, "PaimonExternalTable")
+            // Iceberg tables likewise migrate to the MVCC variant (iceberg exposes snapshots/time-travel,
+            // declaring SUPPORTS_MVCC_SNAPSHOT) so a flipped iceberg table is a PluginDrivenMvccExternalTable
+            .registerCompatibleSubtype(
+                    PluginDrivenMvccExternalTable.class, "IcebergExternalTable")
+            // HMS (hive) tables migrate to the MVCC variant too: the hive connector declares
+            // SUPPORTS_MVCC_SNAPSHOT (snapshots/time-travel/MTMV freshness, and the gateway serves the
+            // MVCC-capable iceberg-on-HMS + hudi-on-HMS siblings), so a flipped hms table is a
+            // PluginDrivenMvccExternalTable — matching what buildTableInternal rebuilds it as on replay.
+            .registerCompatibleSubtype(
+                    PluginDrivenMvccExternalTable.class, "HMSExternalTable")
             .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
             .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
             .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())

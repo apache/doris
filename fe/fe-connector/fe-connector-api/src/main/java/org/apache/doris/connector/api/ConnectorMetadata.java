@@ -17,10 +17,21 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
+import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * Central metadata interface that a connector must implement.
@@ -43,6 +54,180 @@ public interface ConnectorMetadata extends
     default Map<String, String> getProperties() {
         return Collections.emptyMap();
     }
+
+    // ──────────────────── MVCC Snapshots ────────────────────
+
+    /**
+     * Returns the current snapshot at query begin time, used as the MVCC pin
+     * for all subsequent reads of {@code handle}.
+     *
+     * <p>Returning {@link Optional#empty()} means the connector does not
+     * support MVCC and reads see whatever is current.</p>
+     */
+    default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Returns a connector-supplied, range-aware partition view for the MTMV / partition-aware
+     * materialized-view refresh path, or {@link Optional#empty()} when the connector has none.
+     *
+     * <p>The generic table model materializes its partition view from {@code listPartitions} by
+     * default (LIST partitions keyed on a last-modified timestamp). A connector whose partitions are
+     * intrinsically ranges with a snapshot-id freshness marker (e.g. iceberg's time transforms)
+     * overrides this to return a {@link ConnectorMvccPartitionView}; the generic model then builds
+     * {@code RangePartitionItem}s from the pre-rendered bounds and picks the snapshot type from the
+     * view's {@link ConnectorMvccPartitionView#getFreshness()}. All data-source-specific math
+     * (transform-to-range, partition-evolution overlap merge, snapshot-id resolution) happens inside
+     * the connector — fe-core stays source-agnostic.</p>
+     *
+     * <p>The default returns empty: connectors without a range partition view keep the generic
+     * {@code listPartitions} / LIST / timestamp behavior unchanged.</p>
+     */
+    default Optional<ConnectorMvccPartitionView> getMvccPartitionView(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Whole-table MTMV freshness for a connector whose table-level change signal is a last-modified
+     * TIMESTAMP rather than a snapshot id (e.g. hive: {@code transient_lastDdlTime} / the max partition
+     * modify time). The generic model wraps the result in an {@code MTMVMaxTimestampSnapshot} table snapshot.
+     *
+     * <p><b>Consulted ONLY when the query-begin pin's {@link ConnectorMvccSnapshot#isLastModifiedFreshness()}
+     * is set</b> — i.e. a last-modified connector, which the generic model reads off the pin it already holds.
+     * A snapshot-id connector (paimon/iceberg) leaves the pin flag false, so this is NEVER called for it and it
+     * pays ZERO extra metadata round-trips. And it is on the MTMV refresh path, never the scan hot path — so a
+     * partitioned last-modified connector may pay a {@code get_partitions_by_names} round-trip here (mirroring
+     * legacy, which fetched per-partition modify time only at refresh time) without regressing queries.</p>
+     *
+     * <p>The default returns empty: a connector that sets the pin flag MUST override this.</p>
+     */
+    default Optional<ConnectorTableFreshness> getTableFreshness(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Per-partition last-modified millis for a last-modified connector, wrapped by the generic model in an
+     * {@code MTMVTimestampSnapshot}. Fetched on the MTMV refresh path only — a last-modified connector's
+     * {@code listPartitions} is names-only on the scan hot path (its per-partition {@code lastModifiedMillis}
+     * stays {@code -1}), so the real time is fetched here on demand instead.
+     *
+     * <p><b>Consulted ONLY when the query-begin pin's {@link ConnectorMvccSnapshot#isLastModifiedFreshness()}
+     * is set</b> (a snapshot-id connector never reaches here — zero extra round-trips). fe-core validates the
+     * partition exists in the materialized set BEFORE calling this; an {@code empty} return therefore means the
+     * partition VANISHED between the materialize and this fetch (a refresh-time race), and fe-core raises the
+     * legacy "can not find partition" error. The default returns empty: a last-modified connector MUST
+     * override it.</p>
+     */
+    default OptionalLong getPartitionFreshnessMillis(
+            ConnectorSession session, ConnectorTableHandle handle, String partitionName) {
+        return OptionalLong.empty();
+    }
+
+    /**
+     * Resolves an explicit time-travel spec (extracted from {@code FOR TIME AS OF} /
+     * {@code FOR VERSION AS OF}, or the {@code @tag} / {@code @branch} / {@code @incr}
+     * scan params) into a pinned snapshot.
+     *
+     * <p>The connector owns all provider-specific parsing of {@code spec} (snapshot-id
+     * lookup, datetime parsing, tag/branch resolution, incremental-window validation).
+     * The returned snapshot's {@link ConnectorMvccSnapshot#getProperties()} carries the
+     * connector's scan options and its {@link ConnectorMvccSnapshot#getSchemaId()} is the
+     * resolved schema version.</p>
+     *
+     * <p>Returns {@link Optional#empty()} when the spec is unsupported or the target is not
+     * found, in which case the engine surfaces a user error. The default returns empty:
+     * connectors without time-travel do not honor explicit specs.</p>
+     */
+    default Optional<ConnectorMvccSnapshot> resolveTimeTravel(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorTimeTravelSpec spec) {
+        return Optional.empty();
+    }
+
+    /**
+     * Threads a pinned MVCC / time-travel {@code snapshot} into the table handle BEFORE
+     * {@code planScan}, so an MVCC-capable connector can return a handle that reads at that
+     * snapshot (mirrors the {@code applyFilter} / {@code applyProjection} handle-update pattern).
+     *
+     * <p>Contract for MVCC connectors: thread the FULL {@code snapshot.getProperties()}
+     * (the scan-options map) into the returned handle so the read path sees exactly the
+     * connector-resolved options. When {@code properties} is empty, fall back to setting
+     * {@code scan.snapshot-id = snapshot.getSnapshotId()} (latest-pin parity).</p>
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without time-travel ignore the
+     * pin and read whatever is current.</p>
+     */
+    default ConnectorTableHandle applySnapshot(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        return handle;  // default: connectors without time-travel ignore the pin
+    }
+
+    /**
+     * Returns extra scan-level predicates the engine MUST apply for {@code handle} at the pinned
+     * {@code snapshot} — a connector "residual predicate" the read cannot enforce by file selection alone.
+     * The canonical case is an incremental / CDC commit-time window: a rewritten base file also carries
+     * forward out-of-window rows, so a ROW-LEVEL commit-time filter is required for correctness. The engine
+     * reverse-converts each returned {@link ConnectorExpression} into its native predicate and wraps a filter
+     * over the scan, binding column references to the connector's own (visible) output columns by name.
+     *
+     * <p>The predicate is expressed in the connector-neutral {@link ConnectorExpression} pushdown grammar,
+     * NOT a source-specific shape — the engine NEVER discriminates by connector here; it applies whatever the
+     * connector returns. This mirrors the engine-agnostic residual-predicate model.</p>
+     *
+     * <p>The default returns an EMPTY list: a connector with no synthetic scan predicate adds nothing, so the
+     * plan is byte-identical. iceberg/paimon/jdbc/... inherit this empty default; only a connector that opts in
+     * (e.g. hudi incremental read) returns a non-empty list, and only for the scans that need it.</p>
+     */
+    default List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        return List.of();  // default: connectors without a residual scan predicate add nothing
+    }
+
+    /**
+     * Threads a per-group rewrite file scope into the table handle BEFORE {@code planScan}, so the
+     * distributed {@code rewrite_data_files} driver can scope each per-group INSERT-SELECT scan to only the
+     * data files that group bin-packed (mirrors {@link #applySnapshot} / {@code applyFilter} handle-update
+     * pattern). {@code rawDataFilePaths} are the RAW file paths the connector's {@code planRewrite} emitted on
+     * its {@link org.apache.doris.connector.api.procedure.ConnectorRewriteGroup}s; the connector matches its
+     * re-enumerated scan tasks against the SAME raw paths (no normalization on either side — over-reading the
+     * full table would make each group rewrite far beyond its bin-pack set and produce duplicate rows under
+     * OCC).
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without distributed rewrite ignore the
+     * scope and scan the whole table. A {@code null}/empty set is also a no-op (no scope = full scan), so the
+     * pin is only applied when a real per-group path set is present.</p>
+     */
+    default ConnectorTableHandle applyRewriteFileScope(ConnectorSession session,
+            ConnectorTableHandle handle, Set<String> rawDataFilePaths) {
+        return handle;  // default: connectors without distributed rewrite ignore the scope
+    }
+
+    /**
+     * Threads a Top-N lazy-materialization signal into the table handle BEFORE {@code planScan} /
+     * {@code getScanNodeProperties} (mirrors {@link #applySnapshot} / {@link #applyRewriteFileScope}
+     * handle-update pattern). The generic engine calls this when the scan carries the synthesized,
+     * engine-wide lazy-materialization row-id column ({@code __DORIS_GLOBAL_ROWID_COL__*}, injected by
+     * {@code LazyMaterializeTopN} for {@code ORDER BY ... LIMIT}): under lazy materialization BE reads the
+     * sort key first, then re-fetches the OTHER (non-projected) columns of the surviving rows by row-id.
+     *
+     * <p>Contract: a connector that builds column-pruned scan metadata keyed by the REQUESTED columns
+     * (e.g. a field-id schema dictionary) MUST, once this is applied, build that metadata over the FULL
+     * table schema instead — otherwise a lazily re-fetched column has no entry and the native read resolves
+     * it wrong (schema-evolved tables) or drops it. A connector whose scan metadata already spans all
+     * columns ignores this.</p>
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without column-pruned scan metadata are
+     * unaffected by lazy materialization.</p>
+     */
+    default ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        return handle;  // default: connectors without column-pruned scan metadata ignore the signal
+    }
+
 
     @Override
     default void close() throws IOException {

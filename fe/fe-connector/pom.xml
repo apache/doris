@@ -40,15 +40,69 @@ under the License.
     <modules>
         <module>fe-connector-api</module>
         <module>fe-connector-spi</module>
+        <module>fe-connector-cache</module>
+        <module>fe-connector-metastore-api</module>
+        <module>fe-connector-metastore-spi</module>
+        <!-- Per-engine metastore backends (ServiceLoader providers); depended on by their connectors.
+             Maven topologically orders the reactor by the dependency graph. -->
+        <module>fe-connector-metastore-paimon</module>
+        <module>fe-connector-metastore-iceberg</module>
+        <module>fe-connector-metastore-hms</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
         <module>fe-connector-jdbc</module>
+        <!-- Slim HMS metastore-client shade (relocates org.apache.thrift to
+             shade.doris.hive.org.apache.thrift); MUST build before fe-connector-hms which depends on
+             it. Replaces the fat org.apache.doris:hive-catalog-shade for the fe-connector closure. -->
+        <module>fe-connector-hms-hive-shade</module>
         <module>fe-connector-hms</module>
         <module>fe-connector-hive</module>
+        <!-- FIX-C: paimon HMS-thrift shade (relocates org.apache.thrift to a paimon-private
+             package); MUST build before fe-connector-paimon which depends on it. -->
+        <module>fe-connector-paimon-hive-shade</module>
         <module>fe-connector-paimon</module>
         <module>fe-connector-hudi</module>
         <module>fe-connector-iceberg</module>
     </modules>
+
+    <build>
+        <plugins>
+            <!--
+              Forbidden-import gate: fe-connector modules MUST NOT import
+              fe-core internals. See plan-doc/01-spi-extensions-rfc.md §15.4
+              and tools/check-connector-imports.sh.
+
+              Runs once in this aggregator's validate phase (inherited=false
+              keeps the 11 child modules from re-running the same scan).
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>check-connector-imports</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <!--
+                              Use ${project.basedir}-relative path so we don't
+                              depend on directory-maven-plugin's `fe.dir`
+                              property (which is only set at `initialize`).
+                            -->
+                            <executable>${project.basedir}/../../tools/check-connector-imports.sh</executable>
+                            <arguments>
+                                <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

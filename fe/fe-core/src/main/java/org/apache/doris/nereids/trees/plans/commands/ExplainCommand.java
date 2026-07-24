@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
@@ -97,18 +97,18 @@ public class ExplainCommand extends Command implements NoForward {
             new NereidsPlanner(ctx.getStatementContext())
         );
 
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
         boolean resetTargetTableId = false;
-        if (explainPlan instanceof LogicalIcebergDeleteSink) {
+        if (explainPlan instanceof LogicalExternalRowLevelDeleteSink) {
             if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
+                ctx.setSyntheticWriteColTargetTableId(
+                        ((LogicalExternalRowLevelDeleteSink<?>) explainPlan).getTargetTable().getId());
                 resetTargetTableId = true;
             }
-        } else if (explainPlan instanceof LogicalIcebergMergeSink) {
+        } else if (explainPlan instanceof LogicalExternalRowLevelMergeSink) {
             if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
-                        ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
+                ctx.setSyntheticWriteColTargetTableId(
+                        ((LogicalExternalRowLevelMergeSink<?>) explainPlan).getTargetTable().getId());
                 resetTargetTableId = true;
             }
         }
@@ -134,7 +134,7 @@ public class ExplainCommand extends Command implements NoForward {
             }
         } finally {
             if (resetTargetTableId) {
-                ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+                ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
             }
         }
     }

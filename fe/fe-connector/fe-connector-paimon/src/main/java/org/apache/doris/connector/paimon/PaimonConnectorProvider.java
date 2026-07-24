@@ -18,10 +18,18 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * SPI entry point for the Paimon connector.
@@ -31,6 +39,15 @@ import java.util.Map;
  */
 public class PaimonConnectorProvider implements ConnectorProvider {
 
+    private static final Logger LOG = LogManager.getLogger(PaimonConnectorProvider.class);
+
+    // Legacy PaimonExternalCatalog.checkProperties validated the table-handle cache knobs
+    // (meta.cache.paimon.table.{enable,ttl-second,capacity}) via CacheSpec. FIX-4 restores ttl-second: it now
+    // sizes the connector latest-snapshot cache (data) AND the generic schema cache (via
+    // schemaCacheTtlSecondOverride). enable/capacity remain not-wired on the plugin path, so they are still
+    // reported as ignored (R2) — ttl-second is intentionally excluded from this set since it again takes effect.
+    private static final String DEAD_TABLE_CACHE_PREFIX = "meta.cache.paimon.table.";
+
     @Override
     public String getType() {
         return "paimon";
@@ -38,6 +55,59 @@ public class PaimonConnectorProvider implements ConnectorProvider {
 
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
-        return new PaimonConnector(properties);
+        return new PaimonConnector(properties, context);
+    }
+
+    /**
+     * Validates catalog properties at CREATE CATALOG time via the shared metastore parsers (P2-T03):
+     * {@link MetaStoreProviders#bind} selects the backend by {@code paimon.catalog.type} and the bound
+     * {@code MetaStoreProperties.validate()} enforces the per-flavor fail-fast rules (warehouse, uri,
+     * HMS kerberos forbidIf/requireIf, DLF AK/SK + endpoint-or-region + OSS storage, JDBC
+     * driver_class-when-driver_url, REST dlf-token AK/SK). These restore the true-legacy
+     * {@code HMSBaseProperties}/{@code AliyunDLFBaseProperties}/{@code ParamRules} rules. Storage is not
+     * needed for validation, so an empty storage map is passed; an unknown {@code paimon.catalog.type}
+     * makes {@code bind} throw (no provider supports it). Throws {@link IllegalArgumentException}, which
+     * the caller ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
+     *
+     * <p>The meta-cache knobs are validated first (restoring the legacy
+     * {@code PaimonExternalCatalog.checkProperties} fail-fast dropped at the SPI cutover), so a bad
+     * {@code meta.cache.paimon.table.*} value is rejected at CREATE/ALTER. This runs before the
+     * dead-knob warning: an invalid value is rejected outright, while a valid-but-unwired enable/capacity
+     * is still reported as ignored.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        checkMetaCacheProperties(properties);
+        warnIgnoredDeadTableCacheKeys(properties);
+        MetaStoreProviders.bind(properties, Collections.emptyMap()).validate();
+    }
+
+    /**
+     * Byte-for-byte parity with the (deleted) legacy {@code PaimonExternalCatalog.checkProperties}:
+     * {@code table.enable} must be boolean, {@code table.ttl-second} must be a long &ge; -1, {@code
+     * table.capacity} must be a long &ge; 0. Absent keys are skipped.
+     */
+    private static void checkMetaCacheProperties(Map<String, String> properties) {
+        CacheSpec.checkBooleanProperty(properties.get(PaimonConnector.TABLE_CACHE_ENABLE),
+                PaimonConnector.TABLE_CACHE_ENABLE);
+        CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_TTL_SECOND),
+                -1L, PaimonConnector.TABLE_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_CAPACITY),
+                0L, PaimonConnector.TABLE_CACHE_CAPACITY);
+    }
+
+    // R2: warn (do not reject, do not strip) when a CREATE/ALTER CATALOG carries the now-dead paimon
+    // table-cache knobs, so the operator learns their cache tuning no longer takes effect on the plugin path.
+    private static void warnIgnoredDeadTableCacheKeys(Map<String, String> properties) {
+        List<String> dead = properties.keySet().stream()
+                .filter(k -> k.startsWith(DEAD_TABLE_CACHE_PREFIX))
+                // ttl-second is restored (FIX-4): it sizes the snapshot cache + schema cache TTL, so it is NOT dead.
+                .filter(k -> !k.equals(PaimonConnector.TABLE_CACHE_TTL_SECOND))
+                .sorted()
+                .collect(Collectors.toList());
+        if (!dead.isEmpty()) {
+            LOG.warn("Paimon catalog cache property/properties {} no longer take effect on the plugin path "
+                    + "(the table metadata cache configuration is obsolete) and are ignored.", dead);
+        }
     }
 }

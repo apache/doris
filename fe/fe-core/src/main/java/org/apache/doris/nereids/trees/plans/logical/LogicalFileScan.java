@@ -22,10 +22,8 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
@@ -41,9 +39,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -74,7 +69,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier,
-                table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
+                // This reference's OWN version, not the ambient one: the selectors are right here as ctor
+                // params, and the blind lookup degrades to LATEST once the table is pinned at two versions.
+                table.initSelectedPartitions(
+                        MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams)),
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), "",
@@ -216,22 +214,29 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             return cachedOutputs.get();
         }
 
-        if (table instanceof IcebergExternalTable) {
-            // iceberg v3 need append row lineage columns
-            return computeIcebergOutput((IcebergExternalTable) table);
-        } else {
-            return super.computeOutput();
+        if (table instanceof PluginDrivenExternalTable) {
+            // SPI-driven tables: schema is fetched via ConnectorMetadata.getTableSchema()
+            // (see PluginDrivenExternalTable.initSchema). Use getFullSchema() so any
+            // hidden/metadata columns the connector exposes are reachable.
+            return computePluginDrivenOutput();
         }
+        return super.computeOutput();
     }
 
-    private List<Slot> computeIcebergOutput(IcebergExternalTable iceTable) {
+    private List<Slot> computePluginDrivenOutput() {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Builder<Slot> slots = ImmutableList.builder();
-        table.getFullSchema()
+        // Resolve the schema AS OF THIS reference's own version. tableSnapshot/scanParams are final fields
+        // set in the ctor, so they are available even though computeOutput() is evaluated lazily
+        // (AbstractPlan.logicalPropertiesSupplier) -- and the version-aware lookup is key-exact, so the
+        // answer does not depend on how many versions the statement pins or on when this runs. The
+        // version-BLIND getFullSchema() would degrade to LATEST once this table is pinned at two versions
+        // (e.g. t@tag(a) JOIN t@tag(b)), binding a schema NO reference asked for and making the scan-time
+        // guard fire on a column the query never referenced.
+        getTable().getFullSchema(MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams))
                 .stream()
                 .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .forEach(slots::add);
-        // add virtual slots
         for (NamedExpression virtualColumn : virtualColumns) {
             slots.add(virtualColumn.toSlot());
         }
@@ -246,34 +251,12 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
-        if (table instanceof IcebergExternalTable) {
-            return true;
-        } else if (table instanceof IcebergSysExternalTable) {
-            // Position deletes use the native reader, which supports nested column pruning. Other
-            // Iceberg system tables are materialized as StructLike rows by the SDK and consumed by
-            // ordinal in the JNI reader, so their nested struct layout must remain unchanged.
-            return ((IcebergSysExternalTable) table).isPositionDeletesTable();
-        } else if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
-                // Don't prune nested column for HUDI table for now, because HUDI table
-                // may have some issues when pruning nested column.
-                return false;
-            }
-            try {
-                ConnectContext connectContext = ConnectContext.get();
-                SessionVariable sessionVariable = connectContext.getSessionVariable();
-                TFileFormatType fileFormatType = ((HMSExternalTable) table).getFileFormatType(sessionVariable);
-                switch (fileFormatType) {
-                    case FORMAT_PARQUET:
-                    case FORMAT_ORC:
-                        return true;
-                    default:
-                        return false;
-                }
-            } catch (Throwable t) {
-                // ignore and not prune
-            }
+        if (table instanceof PluginDrivenExternalTable) {
+            // Post-flip plugin-driven tables (e.g. iceberg as PluginDrivenMvccExternalTable) declare
+            // nested-column prune via ConnectorCapability; the legacy exact-class IcebergExternalTable arm
+            // below is dead for them. Only enabled when the connector also carries nested field ids (see
+            // SUPPORTS_NESTED_COLUMN_PRUNE / SlotTypeReplacer), else nested leaves would read NULL.
+            return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
         }
         return false;
     }

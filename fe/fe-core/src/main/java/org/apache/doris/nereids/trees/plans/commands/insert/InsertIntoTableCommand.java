@@ -26,17 +26,14 @@ import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.scan.FileScanNode;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -44,7 +41,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -71,9 +68,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -417,8 +411,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             (targetTableIf instanceof RemoteDorisExternalTable) ? "_remote_"
                                     + Env.getCurrentEnv().getClusterId() : "", ctx.queryId().hi, ctx.queryId().lo));
 
-            // check branch
-            if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
+            // check branch: only iceberg supports INSERT INTO a named branch. An iceberg table is
+            // plugin-driven (generic sink), so admit it via the connector's supportsWriteBranch()
+            // capability — without which the branch would be silently dropped and the write would land
+            // on the table's default ref.
+            if (branchName.isPresent() && !connectorSupportsWriteBranch(targetTableIf)) {
                 throw new AnalysisException("Only support insert data into iceberg table's branch");
             }
 
@@ -503,75 +500,35 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                     && coordinator.getQueryOptions().isEnableMemtableOnSinkNode();
                     coordinator.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 });
-            } else if (physicalSink instanceof PhysicalHiveTableSink) {
+            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                if (hiveExternalTable.isHiveTransactionalTable()) {
-                    throw new UserException("Not supported insert into hive transactional table.");
-                }
-
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert, jobId)
-                );
-                // set hive query options
-            } else if (physicalSink instanceof PhysicalIcebergTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
-                IcebergInsertCommandContext icebergInsertCtx = insertCtx
-                        .map(insertCommandContext -> (IcebergInsertCommandContext) insertCommandContext)
-                        .orElseGet(IcebergInsertCommandContext::new);
-                branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                                Optional.of(icebergInsertCtx),
-                                emptyInsert, jobId
-                        )
-                );
-            } else if (physicalSink instanceof PhysicalMaxComputeTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                MaxComputeExternalTable mcExternalTable = (MaxComputeExternalTable) targetTableIf;
-                MCInsertCommandContext mcInsertCtx = insertCtx
-                        .map(insertCommandContext -> (MCInsertCommandContext) insertCommandContext)
-                        .orElseGet(MCInsertCommandContext::new);
-                if (mcInsertCtx.getStaticPartitionSpec() == null
-                        && originLogicalQuery instanceof UnboundMaxComputeTableSink) {
-                    UnboundMaxComputeTableSink<?> mcSink =
-                            (UnboundMaxComputeTableSink<?>) originLogicalQuery;
-                    if (mcSink.hasStaticPartition()) {
+                ExternalTable externalTable = (ExternalTable) targetTableIf;
+                PluginDrivenInsertCommandContext pluginCtx = insertCtx
+                        .map(insertCommandContext -> (PluginDrivenInsertCommandContext) insertCommandContext)
+                        .orElseGet(PluginDrivenInsertCommandContext::new);
+                // Thread the @branch target onto the generic write context so the connector points the
+                // commit at the branch (iceberg validates it in beginWrite). The guard above already
+                // rejected @branch for connectors without supportsWriteBranch().
+                branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                if (pluginCtx.getStaticPartitionSpec().isEmpty()
+                        && originLogicalQuery instanceof UnboundConnectorTableSink) {
+                    UnboundConnectorTableSink<?> pluginSink =
+                            (UnboundConnectorTableSink<?>) originLogicalQuery;
+                    if (pluginSink.hasStaticPartition()) {
                         Map<String, String> staticSpec = Maps.newHashMap();
                         for (Map.Entry<String, Expression> e
-                                : mcSink.getStaticPartitionKeyValues().entrySet()) {
+                                : pluginSink.getStaticPartitionKeyValues().entrySet()) {
                             if (e.getValue() instanceof Literal) {
                                 staticSpec.put(e.getKey(),
                                         ((Literal) e.getValue()).getStringValue());
                             }
                         }
-                        mcInsertCtx.setStaticPartitionSpec(staticSpec);
+                        pluginCtx.setStaticPartitionSpec(staticSpec);
                     }
                 }
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new MCInsertExecutor(ctx, mcExternalTable, label, planner,
-                                Optional.of(mcInsertCtx),
-                                emptyInsert, jobId
-                        )
-                );
-            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                ExternalTable externalTable = (ExternalTable) targetTableIf;
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new PluginDrivenInsertExecutor(ctx, externalTable, label, planner,
-                                Optional.of(insertCtx.orElse(
-                                        new PluginDrivenInsertCommandContext())),
+                                Optional.of(pluginCtx),
                                 emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
@@ -757,6 +714,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return true;
         }
         return false;
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table accepts an {@code INSERT INTO t@branch(name)} only if its
+     * connector declares {@code supportsWriteBranch()}. Connectors with no branch concept must be
+     * rejected here (fail loud) instead of reaching the generic sink, which would silently drop the
+     * branch and write to the table's default ref. Mirrors {@code allowInsertOverwrite}'s connector
+     * capability probe.
+     */
+    private static boolean connectorSupportsWriteBranch(TableIf targetTable) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return false;
+        }
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     @Override

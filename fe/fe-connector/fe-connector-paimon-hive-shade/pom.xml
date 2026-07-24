@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-paimon-hive-shade</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector - Paimon Hive Shade</name>
+    <description>
+        FIX-C (build 968994, Class C — paimon HMS metastore=hive NoClassDefFoundError on
+        org/apache/thrift/transport/TFramedTransport). Paimon's RetryingMetaStoreClientFactory
+        reflectively loads HiveMetaStoreClient's constructor signatures, which reference the
+        thrift-0.9.x package org.apache.thrift.transport.TFramedTransport. The host
+        libthrift-0.16.0 moved that class to .transport.layered, and the plugin bundles no
+        libthrift (RC-1 keeps org.apache.thrift parent-first so the doris-gen TSerializer/TBase
+        0.16.0 path works) -> the old-package class is unsatisfiable.
+
+        This module shades the paimon-hive + HMS-thrift metastore-client closure and relocates
+        org.apache.thrift -> org.apache.doris.paimon.shaded.thrift (paimon-private), so the
+        shaded HiveMetaStoreClient/CachedClientPool reference the relocated TFramedTransport
+        (supplied by the relocated libthrift 0.9.3 inside this jar) and the host 0.16.0 thrift
+        namespace is left completely untouched. fe-connector-paimon depends on this shaded
+        artifact instead of raw paimon-hive-connector-3.1 + hive-metastore + hive-common.
+        See plan-doc/fix-c-hms-thrift-design.md.
+    </description>
+
+    <dependencies>
+        <!-- paimon-hive-connector-3.1 supplies org.apache.paimon.hive.{HiveCatalogFactory,
+             HiveCatalog, RetryingMetaStoreClientFactory, pool.CachedClientPool}. CachedClientPool
+             references original-package org.apache.thrift.TException; the relocation below rewrites
+             it to the paimon-private prefix, matching the relocated HiveMetaStoreClient + libthrift.
+             paimon-core (the catalog/table core) rides as its own jar in the connector plugin and is
+             excluded from the shade artifactSet (so it stays one copy). -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-hive-connector-3.1</artifactId>
+            <version>${paimon.version}</version>
+            <!-- optional: shaded INTO this jar; must NOT propagate as a transitive dep to
+                 fe-connector-paimon (whose plugin-zip would otherwise re-bundle the raw jar next to
+                 the shade jar -> child-first duplicate-class hazard, design Risk #5). -->
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.httpcomponents.client5</groupId>
+                    <artifactId>httpclient5</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.roaringbitmap</groupId>
+                    <artifactId>RoaringBitmap</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-metastore</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.dataformat</groupId>
+                    <artifactId>jackson-dataformat-yaml</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- hive-metastore 2.3.7 supplies org.apache.hadoop.hive.metastore.HiveMetaStoreClient,
+             whose constructor/method signatures reference the old-package
+             org.apache.thrift.transport.TFramedTransport. The relocation rewrites those references
+             together with the bundled libthrift. Server-side closure (datanucleus/derby/bonecp/
+             HikariCP/jdo/hbase/tephra + the stale hadoop-2.7.2 trio + guava/protobuf + logback/
+             log4j12) is excluded — same list as the connector pom that previously carried this dep.
+             libthrift is excluded here and pinned explicitly below at 0.9.3 (the version 2.3.7 uses)
+             so it can be relocated. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-metastore</artifactId>
+            <version>2.3.7</version>
+            <!-- optional: shaded in; do not propagate to the connector (see paimon-hive-connector above). -->
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-hdfs</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-common</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-serde</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-shims</artifactId></exclusion>
+                <exclusion><groupId>org.apache.thrift</groupId><artifactId>libthrift</artifactId></exclusion>
+                <exclusion><groupId>com.google.guava</groupId><artifactId>guava</artifactId></exclusion>
+                <exclusion><groupId>com.google.protobuf</groupId><artifactId>protobuf-java</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-api-jdo</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-core</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>datanucleus-rdbms</artifactId></exclusion>
+                <exclusion><groupId>org.datanucleus</groupId><artifactId>javax.jdo</artifactId></exclusion>
+                <exclusion><groupId>javax.jdo</groupId><artifactId>jdo-api</artifactId></exclusion>
+                <exclusion><groupId>org.apache.derby</groupId><artifactId>derby</artifactId></exclusion>
+                <exclusion><groupId>com.jolbox</groupId><artifactId>bonecp</artifactId></exclusion>
+                <exclusion><groupId>com.zaxxer</groupId><artifactId>HikariCP</artifactId></exclusion>
+                <exclusion><groupId>commons-dbcp</groupId><artifactId>commons-dbcp</artifactId></exclusion>
+                <exclusion><groupId>commons-pool</groupId><artifactId>commons-pool</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hbase</groupId><artifactId>hbase-client</artifactId></exclusion>
+                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-api</artifactId></exclusion>
+                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-core</artifactId></exclusion>
+                <exclusion><groupId>co.cask.tephra</groupId><artifactId>tephra-hbase-compat-1.0</artifactId></exclusion>
+                <exclusion><groupId>ch.qos.logback</groupId><artifactId>logback-classic</artifactId></exclusion>
+                <exclusion><groupId>ch.qos.logback</groupId><artifactId>logback-core</artifactId></exclusion>
+                <exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-log4j12</artifactId></exclusion>
+                <exclusion><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- hive-common supplies org.apache.hadoop.hive.conf.HiveConf. Bundling it here (rather than
+             separately in the connector) keeps HiveConf, HiveMetaStoreClient, and paimon's factory on
+             one consistent hive 2.3.x version inside one artifact so the reflective getProxy(HiveConf,
+             ...) / constructor signatures match by class identity. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-common</artifactId>
+            <version>${hive.common.version}</version>
+            <!-- optional: shaded in (HiveConf + transitive hive-shims); do not propagate to the connector. -->
+            <optional>true</optional>
+        </dependency>
+
+        <!-- hive-serde supplies org.apache.hadoop.hive.serde.serdeConstants, which hive-metastore 2.3.7's
+             MetaStoreUtils.<clinit> reads. It is excluded from hive-metastore above (to control its heavy
+             transitive closure) and MUST be re-declared here — exactly the same treatment as hive-common.
+             Pinned at 2.3.7 to restore the precise version the exclusion removed, and bundled HERE (not in
+             the connector) so serdeConstants, HiveConf and HiveMetaStoreClient stay on one hive 2.3.x line
+             inside one artifact, and so its org.apache.thrift refs get the same paimon-private relocation.
+             Until 9a10ece30c8 this class resolved from the parent 'app' loader via fe-core's
+             hive-catalog-shade; once that jar went away it was unsatisfiable from BOTH loaders, so every
+             paimon.catalog.type=hms catalog died with a NoClassDefFoundError that
+             RetryingMetaStoreClientFactory swallows into the generic "Failed to create the desired metastore
+             client" (CI 997422, test_create_paimon_table).
+             Exclusions cover only the transitives that actually reach the jar (measured, not assumed):
+             - parquet-hadoop-bundle: the bulk of hive-serde's closure. Verified absent afterwards
+               (0 entries under org/apache/parquet/; the org/apache/paimon/shade/parquet copy is
+               paimon-format's own and predates this).
+             - servlet-api 2.4 / jsp-api 2.0: hive-serde's web bits, dead weight for a metastore client that
+               serves no HTTP (55 classes, ~64KB). More importantly servlet-api 2.4 publishes the SAME
+               javax/servlet package as the jetty-orbit 3.0.0 / javax.servlet-api 3.1.0 copies that already
+               arrive here via paimon-hive-connector and hadoop-client-api; adding a third, older one to the
+               same package invites a resolution collision. Those pre-existing copies are left alone.
+             Net cost of re-adding hive-serde: 99,235,331 -> 102,356,991 bytes (+~2.98MB), which is hive-serde
+             itself. The hadoop-*/slf4j/commons-codec transitives are already dropped by the artifactSet
+             excludes above, and hive-common/libthrift lose nearest-wins to the explicit pins here. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-serde</artifactId>
+            <version>2.3.7</version>
+            <!-- optional: shaded in; do not propagate to the connector (see paimon-hive-connector above). -->
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>org.apache.parquet</groupId><artifactId>parquet-hadoop-bundle</artifactId></exclusion>
+                <exclusion><groupId>javax.servlet</groupId><artifactId>servlet-api</artifactId></exclusion>
+                <exclusion><groupId>javax.servlet</groupId><artifactId>jsp-api</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- libthrift 0.9.3 — the source of the old-package org.apache.thrift.transport.TFramedTransport
+             that hive-metastore 2.3.7 needs. Pinned INLINE at 0.9.3 (NOT the managed 0.16.0) and
+             bundled+relocated to org.apache.doris.paimon.shaded.thrift so it does not collide with the
+             host 0.16.0 doris-gen TBase path. httpcore/httpclient/slf4j go to the host. -->
+        <dependency>
+            <groupId>org.apache.thrift</groupId>
+            <artifactId>libthrift</artifactId>
+            <version>0.9.3</version>
+            <!-- optional: shaded+relocated in; must NOT propagate (original-package 0.9.3 thrift in the
+                 plugin would re-break the RC-1 doris-gen TBase 0.16.0 parent-first path). -->
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.httpcomponents</groupId>
+                    <artifactId>httpcore</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.httpcomponents</groupId>
+                    <artifactId>httpclient</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Pure-shade module (no src/main): under a parallel reactor (build.sh's default -T 1C)
+                 the package-phase shade goal can start before this module's main jar is created and
+                 attached, failing with "Failed to create shaded artifact, project main artifact does
+                 not exist". Pin maven-jar-plugin's default-jar to the package phase and force it to
+                 always (re)create the jar, so the main artifact is guaranteed present before shade —
+                 keeping parallel (-T) builds reliable without falling back to single-threaded. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <forceCreation>true</forceCreation>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <phase>package</phase>
+                        <configuration>
+                            <!-- Resolved at runtime from the plugin's own child-first lib (hadoop,
+                                 paimon-core/common/format) or the host (slf4j/log4j/guava/protobuf/
+                                 jackson/commons). Excluding the ARTIFACTS keeps these dependency jars
+                                 out of the shade so paimon-core/hadoop stay one copy. Mirrors
+                                 hive-catalog-shade. -->
+                            <artifactSet>
+                                <excludes>
+                                    <exclude>org.apache.hadoop:*</exclude>
+                                    <exclude>org.apache.paimon:paimon-core</exclude>
+                                    <exclude>org.apache.paimon:paimon-common</exclude>
+                                    <exclude>org.apache.paimon:paimon-format</exclude>
+                                    <exclude>org.slf4j:*</exclude>
+                                    <exclude>org.apache.logging.log4j:*</exclude>
+                                    <exclude>com.google.guava:*</exclude>
+                                    <exclude>com.google.protobuf:*</exclude>
+                                    <exclude>com.fasterxml.jackson.core:*</exclude>
+                                    <exclude>com.fasterxml.jackson.dataformat:*</exclude>
+                                    <exclude>commons-logging:*</exclude>
+                                    <exclude>org.apache.commons:*</exclude>
+                                    <exclude>commons-io:*</exclude>
+                                    <exclude>commons-codec:*</exclude>
+                                </excludes>
+                            </artifactSet>
+                            <!-- MUST be true: fe-connector-paimon depends on this module, and its
+                                 plugin-zip assembly pulls the module's transitive deps into lib/. The
+                                 reduced pom drops the artifacts that were shaded IN (paimon-hive-connector-3.1,
+                                 hive-metastore 2.3.7, hive-common + hive-shims, libthrift) so they are NOT
+                                 re-bundled as standalone jars next to this shade jar — avoiding the
+                                 child-first duplicate-class hazard (design Risk #5). The artifactSet-excluded
+                                 deps (hadoop, paimon-core/common/format) remain in the reduced pom and are
+                                 resolved from the connector's own direct deps / the host. -->
+                            <createDependencyReducedPom>true</createDependencyReducedPom>
+                            <dependencyReducedPomLocation>${project.basedir}/target/dependency-reduced-pom.xml</dependencyReducedPomLocation>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                        <!-- The repo's paimon-hive-connector-3.1 is a fat bundle that
+                                             carries multi-release variants compiled up to Java 22 (class
+                                             major 65/66) under META-INF/versions/{17,21,22}/ (shaded
+                                             parquet/jackson internals we exclude from the shade anyway).
+                                             maven-shade-plugin's bytecode rewriter cannot parse those on
+                                             this JDK ("Unsupported class file major version 65"). Drop the
+                                             MR-jar overlay; the base (Java 8/9/11) classes are sufficient
+                                             and none of the relocated thrift/hive/paimon-hive classes live
+                                             under META-INF/versions. -->
+                                        <exclude>META-INF/versions/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.apache.thrift</pattern>
+                                    <shadedPattern>org.apache.doris.paimon.shaded.thrift</shadedPattern>
+                                </relocation>
+                                <!-- defensive: hive-metastore 2.3.x drags an ancient fastutil; relocate
+                                     it so it cannot shadow the modern it.unimi.dsi:fastutil(-core) on the
+                                     FE classpath (NoSuchMethodError). -->
+                                <relocation>
+                                    <pattern>it.unimi.dsi.fastutil</pattern>
+                                    <shadedPattern>org.apache.doris.paimon.shaded.fastutil</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

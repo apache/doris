@@ -66,8 +66,23 @@ under the License.
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <!-- fe-common transitively drags in io.trino:trino-main, which brings the Jetty
+                     Servlet 5.0 API repackage. Its jakarta.servlet.http.Cookie lacks getAttributes()
+                     and would shadow the Servlet 6.1 jakarta.servlet-api that Jetty 12.0.34 needs,
+                     re-introducing the NoSuchMethodError. Keep it off fe-core's classpath. -->
+                <exclusion>
+                    <groupId>org.eclipse.jetty.toolchain</groupId>
+                    <artifactId>jetty-jakarta-servlet-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
         <dependency>
@@ -199,6 +214,16 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
+        <!-- Runtime-only: hadoop-huaweicloud's OBSFileSystem (reflection-loaded, so no compile-time
+             reference reveals this) calls org.apache.commons.lang.StringUtils while declaring no
+             commons-lang of its own. This declaration is its only source on the FE classpath;
+             dropping it compiles green and then NoClassDefFoundErrors on OBS access.
+             scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
@@ -246,6 +271,12 @@ under the License.
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- oshi: used by HardwareInfoController. Previously satisfied only transitively via
+             io.trino:trino-main (now off fe-core's classpath); declared explicitly here. -->
+        <dependency>
+            <groupId>com.github.oshi</groupId>
+            <artifactId>oshi-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
@@ -263,6 +294,35 @@ under the License.
                     <artifactId>junit</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- Used directly by org.apache.doris.scheduler.disruptor.*; until the hudi-common removal
+             it only arrived transitively. Version from the parent's dependencyManagement. -->
+        <dependency>
+            <groupId>com.lmax</groupId>
+            <artifactId>disruptor</artifactId>
+        </dependency>
+        <!-- Used directly by fe source (@Nullable/@NotNull); until the hudi-common removal it only
+             arrived transitively, and dropping the declaration would silently drift the version to
+             whatever else on the graph happens to win mediation. -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+        </dependency>
+        <!-- Caffeine: used directly by the FE caches (MetaCache, StatisticsCache, FileSystemCache,
+             ExternalRowCountCache, ...). Version comes from the spring-boot-dependencies BOM (3.2.3).
+             It used to arrive transitively via hudi-common, and hive-catalog-shade's bundled
+             unrelocated Caffeine 2.x shadowed it at runtime; both are gone, so declare it directly. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <!-- Provides the org.json API (JSONObject/JSONArray) that fe source uses directly.
+             Open JSON is the Apache-2.0 clean-room implementation; the org.json:json reference
+             implementation must not be used (its license is ASF category X, which is why the
+             parent pom excludes it from hadoop-cos). -->
+        <dependency>
+            <groupId>com.tdunning</groupId>
+            <artifactId>json</artifactId>
         </dependency>
         <dependency>
             <groupId>io.netty</groupId>
@@ -318,22 +378,6 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-glue</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-dynamodb</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-logs</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-sts</artifactId>
-        </dependency>
         <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
              with graceful S3A fallback — runtime only, not needed at compile time -->
         <dependency>
@@ -352,26 +396,6 @@ under the License.
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-sql-parser</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.odps</groupId>
-            <artifactId>odps-sdk-core</artifactId>
-            <version>${maxcompute.version}</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>antlr-runtime</artifactId>
-                    <groupId>org.antlr</groupId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>antlr4</artifactId>
-                    <groupId>org.antlr</groupId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun.odps</groupId>
-            <artifactId>odps-sdk-table-api</artifactId>
-            <version>${maxcompute.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
@@ -415,7 +439,9 @@ under the License.
             <groupId>com.ibm.icu</groupId>
             <artifactId>icu4j</artifactId>
         </dependency>
-        <!-- Fix it-->
+        <!-- Must stay: the parent pom declares awaitility test-scoped, so this scope-less
+             redeclaration is what keeps it on fe-core's compile classpath for
+             InsertOverwriteTableCommand. Do not delete as a "duplicate of the parent". -->
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
@@ -436,9 +462,22 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
+        <!-- Runtime-only: the FE half of the Hive-UDF-compat shipping contract, and the mirror of
+             be-java-extensions/java-udf, which bundles the same base classes so BE can execute such
+             UDFs. CreateFunctionCommand validates a user JAVA_UDF jar by loading its symbol class in
+             a throwaway URLClassLoader parented to the FE app classloader; deriving a class resolves
+             its supertypes, so a symbol extending org.apache.hadoop.hive.ql.exec.UDF fails CREATE
+             FUNCTION unless fe/lib carries that base class. Nothing in fe source references hive:
+             scope=runtime keeps it off the compile classpath, so fe-core source stays hive-free.
+             This is a UDF-engine dependency, not a catalog one. It is declared here because it was
+             previously satisfied only by accident, as a passenger inside the hive-catalog-shade
+             uber-jar; no compile-time reference reveals it, so removing that jar compiled green and
+             broke CREATE FUNCTION for every hive-derived UDF at runtime. -->
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -457,133 +496,10 @@ under the License.
             <artifactId>hadoop-aws</artifactId>
         </dependency>
 
-        <!-- lakesoul -->
-        <dependency>
-            <groupId>com.dmetasoul</groupId>
-            <artifactId>lakesoul-io-java</artifactId>
-            <version>${lakesoul.version}</version>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-vector</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-memory-netty-buffer-patch</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.arrow</groupId>
-                    <artifactId>arrow-format</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.spark</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.fasterxml.jackson.datatype</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.commons</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.scala-lang</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.json4s</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.ow2.asm</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.postgresql</groupId>
-                    <artifactId>postgresql</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- LakeSoul dependencies - provided scope as lakesoul is deprecated -->
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <version>42.7.3</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.scala-lang</groupId>
-            <artifactId>scala-library</artifactId>
-            <version>${scala.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-            <version>${iceberg.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-common</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-format</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-jindo</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>glue</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>apache-client</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <!-- Required at runtime by paimon-s3 and iceberg-aws (both direct deps): their S3 I/O
-             paths use software.amazon.awssdk.transfer.s3.model.ObjectTransfer and related
-             classes from this jar.  Without it the FE classloader throws NoClassDefFoundError
-             when loading Paimon/Iceberg catalog metadata. -->
+        <!-- Required at runtime by hadoop-aws: its S3 I/O paths use
+             software.amazon.awssdk.transfer.s3.S3TransferManager / ObjectTransfer and related classes
+             from this jar.  Without it the FE classloader throws NoClassDefFoundError when loading the
+             object-store filesystem. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3-transfer-manager</artifactId>
@@ -604,32 +520,20 @@ under the License.
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
-            <artifactId>aws-json-protocol</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
             <artifactId>protocol-core</artifactId>
         </dependency>
-        <!-- For Iceberg, must be consistent with Iceberg version -->
-        <dependency>
-            <groupId>org.apache.avro</groupId>
-            <artifactId>avro</artifactId>
-        </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
+        <!-- Parquet reader used by the HTTP import-sampling path (common/parquet/ParquetReader):
+             needs parquet-hadoop (ParquetFileReader / ParquetReadOptions) + parquet-column
+             (column / schema / example.data / io record readers). Replaces the old parquet-avro
+             declaration, whose only extra was the unused avro bridge. -->
         <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-common</artifactId>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
-        <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-hadoop-mr</artifactId>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-avro</artifactId>
+            <artifactId>parquet-column</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
@@ -650,26 +554,11 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>com.baidubce</groupId>
-            <artifactId>bce-java-sdk</artifactId>
-            <version>0.10.212</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
             <groupId>org.apache.ranger</groupId>
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
 
-        <!-- for hudi catalog -->
+        <!-- Provides com.esotericsoftware.minlog.Log used by WorkloadSchedPolicy (not a datasource dep) -->
         <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
@@ -740,9 +629,15 @@ under the License.
             <groupId>org.immutables</groupId>
             <artifactId>value</artifactId>
         </dependency>
+        <!-- The FE HTTP server runs on Jetty 12.0.34, which calls jakarta.servlet.http.Cookie
+             #getAttributes() (a Jakarta Servlet 6.1 method) whenever it writes a Set-Cookie header.
+             Declare the servlet API explicitly so fe-core resolves 6.1.0 instead of the transitive
+             6.0.0 from spring-boot; otherwise the server throws NoSuchMethodError while setting the
+             session cookie (surfaced by removing io.trino:trino-main; see RemoteDorisRestClientTest). -->
         <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-main</artifactId>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta.servlet-api.version}</version>
         </dependency>
         <dependency>
             <groupId>io.airlift</groupId>
@@ -752,15 +647,6 @@ under the License.
             <groupId>me.bechberger</groupId>
             <artifactId>ap-loader-all</artifactId>
             <version>3.0-8</version>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3tables</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.s3tables</groupId>
-            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
-            <version>${s3tables.catalog.version}</version>
         </dependency>
         <!-- AWS SDK Core -->
         <dependency>
@@ -782,20 +668,26 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
-             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
+        <!-- @SuppressModernizer in TestEvictableCache (a Trino-derived test). Previously satisfied only
+             transitively via io.trino:trino-main (now off fe-core's classpath); declared explicitly. -->
+        <dependency>
+            <groupId>org.gaul</groupId>
+            <artifactId>modernizer-maven-annotations</artifactId>
+            <version>2.7.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- fastutil-core: fastutil used directly by FE catalog/tablet-index code
+             (e.g. Long2ObjectOpenHashMap). This used to need a maven-shade-plugin execution that
+             bundled it into doris-fe.jar (pinned first on the FE classpath by bin/start_fe.sh),
+             because hive-catalog-shade bundled an ancient unrelocated fastutil (6.5.6) whose
+             Long2ObjectOpenHashMap lacks computeIfAbsent. That jar is gone, so the override is
+             gone with it, so fe-core declares fastutil-core directly below. -->
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
         </dependency>
     </dependencies>
     <repositories>
-        <!-- for hive-catalog-shade -->
-        <repository>
-            <id>central</id>
-            <name>central maven repo https</name>
-            <url>https://repo.maven.apache.org/maven2</url>
-        </repository>
         <!-- for huawei obs sdk -->
         <repository>
             <id>huawei-obs-sdk</id>
@@ -969,6 +861,35 @@ under the License.
                         <maxmem>1024m</maxmem>
                     </check>
                 </configuration>
+            </plugin>
+            <!--
+              Arch gate: the per-statement ConnectorMetadata funnel. Every fe-core read / scan /
+              DDL / MVCC seam must acquire metadata through PluginDrivenMetadata.get(session, connector),
+              so a statement reuses ONE ConnectorMetadata per catalog (closed deterministically at
+              statement end). A bare connector.getMetadata(session) elsewhere in fe-core is a build
+              error. Write-path seams still bypassing the funnel carry a getMetadata-funnel-exempt
+              marker until the write-sharing step reroutes them. See tools/check-fecore-metadata-funnel.sh
+              (self-test tools/check-fecore-metadata-funnel.test.sh).
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>check-fecore-metadata-funnel</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${project.basedir}/../../tools/check-fecore-metadata-funnel.sh</executable>
+                            <arguments>
+                                <argument>${project.basedir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
         <extensions>

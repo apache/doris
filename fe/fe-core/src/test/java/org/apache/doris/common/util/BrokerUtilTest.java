@@ -18,7 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.FilePartitionUtils;
+import org.apache.doris.datasource.scan.FilePartitionUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;

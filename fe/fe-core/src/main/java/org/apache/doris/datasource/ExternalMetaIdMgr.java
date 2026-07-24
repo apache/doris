@@ -18,8 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -28,7 +28,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import javax.annotation.Nullable;
-import javax.validation.constraints.NotNull;
 
 /**
  * <pre>
@@ -107,7 +106,7 @@ public class ExternalMetaIdMgr {
         return tblMetaIdMgr.partitionNameToMgr.get(partitionName);
     }
 
-    public void replayMetaIdMappingsLog(@NotNull MetaIdMappingsLog log) {
+    public void replayMetaIdMappingsLog(MetaIdMappingsLog log) {
         Preconditions.checkNotNull(log);
         long catalogId = log.getCatalogId();
         CtlMetaIdMgr ctlMetaIdMgr = idToCtlMgr.computeIfAbsent(catalogId, CtlMetaIdMgr::new);
@@ -115,11 +114,16 @@ public class ExternalMetaIdMgr {
             handleMetaIdMapping(mapping, ctlMetaIdMgr);
         }
         if (log.isFromHmsEvent()) {
-            CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
-            if (catalogIf != null) {
-                MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
-                metastoreEventsProcessor.updateMasterLastSyncedEventId(
-                            (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
+            // Propagate the master's synced-event-id cursor to this FE, keyed by catalogId only (the log
+            // already carries it). A flipped hms catalog is a generic PluginDrivenExternalCatalog driven by
+            // MetastoreEventSyncDriver, whose follower cursor map must be fed here (otherwise its
+            // masterUpperBound stays -1 and followers stop receiving incremental updates). Never cast to
+            // HMSExternalCatalog (that cast would ClassCastException for a PluginDrivenExternalCatalog and
+            // abort replay).
+            CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+            if (catalogIf instanceof PluginDrivenExternalCatalog) {
+                Env.getCurrentEnv().getMetastoreEventSyncDriver()
+                        .updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
             }
         }
     }

@@ -167,6 +167,43 @@ TEST(MockTableSchemaChangeHelper, OrcNameNoSchemaChange) {
               "    ScalarNode\n");
 }
 
+TEST(MockTableSchemaChangeHelper, HasChildrenColumnGuardsAbsentProjectedColumn) {
+    // Build a top-level StructNode with two known columns via the public by_orc_name path.
+    SlotDescriptor slot1;
+    slot1._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot1._col_name = "col1";
+
+    SlotDescriptor slot2;
+    slot2._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot2._col_name = "col2";
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot1);
+    tuple_desc.add_slot(&slot2);
+
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<col1:int,col2:int>"));
+    std::shared_ptr<TableSchemaChangeHelper::Node> node = nullptr;
+    ASSERT_TRUE(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(&tuple_desc,
+                                                                         orc_type.get(), node)
+                        .ok());
+
+    // A projected column that IS in the table schema tree -> present.
+    EXPECT_TRUE(node->has_children_column("col1"));
+    EXPECT_TRUE(node->has_children_column("col2"));
+    // A projected column that is NOT in the tree at all models an FE/BE schema-contract mismatch
+    // (e.g. a paimon renamed column missing from a stale history_schema_info entry). has_children_column
+    // must report it absent WITHOUT the DCHECK/abort that children_column_exists would trigger — this is
+    // the presence check the parquet reader's missing-cols guard relies on to fail the query instead of
+    // aborting the whole BE. MUTATION: having has_children_column call children.at() -> abort/red.
+    EXPECT_FALSE(node->has_children_column("not_a_projected_column"));
+
+    // ConstNode (the no-schema-change path) reports every column present, matching its
+    // children_column_exists.
+    EXPECT_TRUE(
+            TableSchemaChangeHelper::ConstNode::get_instance()->has_children_column("anything"));
+}
+
 TEST(MockTableSchemaChangeHelper, OrcNameSchemaChange1) {
     std::vector<DataTypePtr> data_types;
     std::vector<std::string> column_names;

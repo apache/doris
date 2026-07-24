@@ -32,11 +32,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -113,9 +110,15 @@ public class ShowCreateTableCommand extends ShowCommand {
             wanted = PrivPredicate.SHOW;
         }
 
-        String authTableName = tableIf instanceof IcebergSysExternalTable
-                ? ((IcebergSysExternalTable) tableIf).getSourceTable().getName()
-                : tableIf.getName();
+        String authTableName;
+        if (tableIf instanceof PluginDrivenSysExternalTable) {
+            // P6.5-T06: after the SPI cutover a sys table ($snapshots/...) is a PluginDrivenSysExternalTable;
+            // authorize SHOW CREATE against its source table (mirrors the IcebergSysExternalTable branch above
+            // and UserAuthentication), so a user holding SHOW on db.tbl can SHOW CREATE db.tbl$snapshots.
+            authTableName = ((PluginDrivenSysExternalTable) tableIf).getSourceTable().getName();
+        } else {
+            authTableName = tableIf.getName();
+        }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 tblNameInfo.getCtl(), tblNameInfo.getDb(), authTableName, wanted)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
@@ -142,25 +145,33 @@ public class ShowCreateTableCommand extends ShowCommand {
         // Fetch the catalog, database, and table metadata
         DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
                             .getDbOrMetaException(tblNameInfo.getDb());
-        TableIf table = resolveShowCreateTarget(db);
-        if (table instanceof IcebergSysExternalTable) {
-            table = ((IcebergSysExternalTable) table).getSourceTable();
-        }
+        TableIf table = redirectSysTableToSource(resolveShowCreateTarget(db));
 
         List<List<String>> rows = Lists.newArrayList();
 
         table.readLock();
         try {
-            if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
+            if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
+                // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm above on the
+                // neutral plugin path (only iceberg declares SUPPORTS_VIEW). Render the same bytes as
+                // IcebergUtils.showCreateView ("CREATE VIEW `name` AS " + view body) and return the same
+                // 2-column META_DATA result set, so SHOW CREATE on a flipped view stays byte-faithful.
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
+                        String.format("CREATE VIEW `%s` AS ", table.getName())
+                                + ((PluginDrivenExternalTable) table).getViewText()));
                 return new ShowResultSet(META_DATA, rows);
             }
-            if ((table.getType() == Table.TableType.ICEBERG_EXTERNAL_TABLE)
-                    && ((IcebergExternalTable) table).isView()) {
-                rows.add(Arrays.asList(table.getName(),
-                        IcebergUtils.showCreateView(((IcebergExternalTable) table))));
-                return new ShowResultSet(META_DATA, rows);
+            if (table instanceof PluginDrivenExternalTable) {
+                // Native connector-rendered SHOW CREATE (hive: ROW FORMAT SERDE / STORED AS ..., fetched fresh),
+                // reached only for a non-view plugin table (the view arm above returns first). The guard is the
+                // method returning a value — NOT the source name — so iceberg/paimon/es/jdbc (empty SPI default)
+                // fall through to Env.getDdlStmt below and render exactly as today; only a connector that natively
+                // renders its DDL short-circuits here. Delegated iceberg/hudi-on-HMS tables also return empty.
+                Optional<String> nativeDdl = ((PluginDrivenExternalTable) table).getShowCreateTableDdl();
+                if (nativeDdl.isPresent()) {
+                    rows.add(Arrays.asList(table.getName(), nativeDdl.get()));
+                    return new ShowResultSet(META_DATA, rows);
+                }
             }
             List<String> createTableStmt = Lists.newArrayList();
             Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,
@@ -184,6 +195,19 @@ public class ShowCreateTableCommand extends ShowCommand {
         } finally {
             table.readUnlock();
         }
+    }
+
+    /**
+     * Redirects a system table ($snapshots/...) to its source base table so SHOW CREATE renders the base
+     * table's DDL (name / data columns / PARTITION BY) rather than the sys-table shell. Post-cutover a sys
+     * table is a {@link PluginDrivenSysExternalTable} (a neutral sys-table type, not {@code Iceberg*}), so
+     * this stays iron-rule clean. Non-sys tables pass through unchanged.
+     */
+    static TableIf redirectSysTableToSource(TableIf table) {
+        if (table instanceof PluginDrivenSysExternalTable) {
+            return ((PluginDrivenSysExternalTable) table).getSourceTable();
+        }
+        return table;
     }
 
     private TableIf resolveShowCreateTarget(DatabaseIf db) throws AnalysisException {
