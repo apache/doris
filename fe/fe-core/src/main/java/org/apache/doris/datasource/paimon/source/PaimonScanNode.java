@@ -912,8 +912,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         Table baseTable = source.getPaimonTable();
         TableScanParams theScanParams = getScanParams();
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
-            if (theScanParams != null) {
-                throw new UserException("Paimon system tables do not support scan params.");
+            if (theScanParams != null && !theScanParams.incrementalRead()) {
+                throw new UserException("Paimon system tables only support incremental scan params.");
             }
             if (getQueryTableSnapshot() != null) {
                 throw new UserException("Paimon system tables do not support time travel.");
@@ -924,6 +924,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
 
         if (theScanParams != null && theScanParams.incrementalRead()) {
+            // System table handles are cached, so preserve query isolation by applying dynamic
+            // options to a copied Paimon table instead of changing the shared handle.
             return baseTable.copy(getIncrReadParams());
         }
         return baseTable;

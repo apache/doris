@@ -151,7 +151,12 @@ suite("paimon_system_table", "p0,external") {
                         desc ${tableName}\$snapshots
                         """
 
-        // 2.6 system table does not support time travel
+        // 2.6 system table supports dynamic scan options but not time travel
+        List<List<Object>> incrementalSystemTableResult = sql """
+                select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                """
+        assertNotNull(incrementalSystemTableResult, "System table incremental query result should not be null")
+
         test {
             sql """select * from ${tableName}\$snapshots FOR VERSION AS OF 1"""
             exception "Paimon system tables do not support time travel"
@@ -159,10 +164,6 @@ suite("paimon_system_table", "p0,external") {
         test {
             sql """select * from ${tableName}\$snapshots FOR TIME AS OF "2024-07-11 16:01:57.425" """
             exception "Paimon system tables do not support time travel"
-        }
-        test {
-            sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
-            exception "Paimon system tables do not support scan params"
         }
 
     } catch (Exception e) {

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
@@ -489,6 +490,59 @@ public class PaimonScanNodeTest {
         List<org.apache.doris.spi.Split> auditLogSplits = spyPaimonScanNode.getSplits(1);
         Assert.assertEquals(1, auditLogSplits.size());
         Assert.assertNotNull(((PaimonSplit) auditLogSplits.get(0)).getSplit());
+    }
+
+    @Test
+    public void testSystemTablePassesIncrementalOptionsToPaimonTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table baseTable = Mockito.mock(Table.class);
+        Table copiedTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        node.setSource(source);
+
+        Map<String, String> params = new HashMap<>();
+        params.put("startSnapshotId", "1");
+        params.put("endSnapshotId", "2");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, params, Collections.emptyList()));
+
+        Map<String, String> expectedOptions = new HashMap<>();
+        expectedOptions.put("scan.snapshot-id", null);
+        expectedOptions.put("scan.mode", null);
+        expectedOptions.put("incremental-between", "1,2");
+        Mockito.when(baseTable.copy(expectedOptions)).thenReturn(copiedTable);
+
+        try {
+            Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.fail("Paimon system table should accept incremental options, but got: "
+                    + e.getTargetException().getMessage());
+        }
+        Mockito.verify(baseTable).copy(expectedOptions);
+    }
+
+    @Test
+    public void testSystemTableRejectsNonIncrementalScanParams() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getExternalTable()).thenReturn(Mockito.mock(PaimonSysExternalTable.class));
+        Mockito.when(source.getPaimonTable()).thenReturn(Mockito.mock(Table.class));
+        node.setSource(source);
+        node.setScanParams(new TableScanParams(
+                TableScanParams.BRANCH,
+                Collections.singletonMap(TableScanParams.PARAMS_NAME, "branch1"),
+                Collections.emptyList()));
+
+        try {
+            invokePrivateMethod(node, "getProcessedTable");
+            Assert.fail("Paimon system table should reject non-incremental scan params");
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.assertTrue(e.getTargetException().getMessage()
+                    .contains("only support incremental scan params"));
+        }
     }
 
     @Test
