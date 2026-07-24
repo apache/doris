@@ -77,17 +77,19 @@ struct ColumnChunkReaderStatistics {
  * ColumnChunkReader chunk_reader(BufferedStreamReader* reader,
  *                                tparquet::ColumnChunk* column_chunk,
  *                                FieldSchema* fieldSchema);
- * // Initialize chunk reader
+ * // Initialize chunk reader without reading any page
  * chunk_reader.init();
- * while (chunk_reader.has_next_page()) {
- *   // Seek to next page header.  Only read and parse the page header, not page data.
- *   chunk_reader.next_page();
+ * while (true) {
+ *   // Read and parse the current page header, but not page data.
+ *   chunk_reader.parse_page_header();
  *   // Load data to decoder. Load the page data into underlying container.
  *   // Or, we can call the chunk_reader.skip_page() to skip current page.
  *   chunk_reader.load_page_data();
  *   // Decode values into column or slice.
  *   // Or, we can call chunk_reader.skip_values(num_values) to skip some values.
  *   chunk_reader.decode_values(slice, num_values);
+ *   if (!chunk_reader.has_next_page()) break;
+ *   chunk_reader.next_page();
  * }
  */
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -99,7 +101,7 @@ public:
                       const ParquetPageReadContext& page_read_ctx);
     ~ColumnChunkReader() = default;
 
-    // Initialize chunk reader, will generate the decoder and codec.
+    // Initialize the page reader and compression codec without reading any page.
     Status init();
 
     // Whether the chunk reader has a more page to read.
@@ -141,7 +143,9 @@ public:
     level_t max_rep_level() const { return _max_rep_level; }
     level_t max_def_level() const { return _max_def_level; }
 
-    bool has_dict() const { return _has_dict; };
+    // Check and load a leading dictionary page if present. When the first page is a data page,
+    // retain its parsed header for parse_page_header().
+    Status load_dictionary_page(bool* has_dict);
 
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
@@ -215,8 +219,7 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
-    // for check dict page.
-    Status _parse_first_page_header();
+    Status _ensure_dictionary_page_loaded();
     Status _decode_dict_page();
 
     void _reserve_decompress_buf(size_t size);
