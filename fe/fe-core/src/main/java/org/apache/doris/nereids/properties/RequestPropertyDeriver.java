@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -75,16 +74,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -507,29 +502,34 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 addRequestPropertyToChildren(PhysicalProperties.GATHER);
                 return null;
             }
-            List<ExprId> groupByExprIds = agg.getGroupByExpressions().stream()
-                    .filter(SlotReference.class::isInstance)
-                    .map(SlotReference.class::cast)
-                    .map(SlotReference::getExprId)
-                    .collect(Collectors.toList());
+            List<ExprId> groupByExprIds = new ArrayList<>();
+            Map<ExprId, Expression> groupByExprIdToExpr = Maps.newHashMap();
+            for (Expression groupByExpr : agg.getGroupByExpressions()) {
+                if (groupByExpr instanceof SlotReference) {
+                    ExprId groupByExprId = ((SlotReference) groupByExpr).getExprId();
+                    groupByExprIds.add(groupByExprId);
+                    groupByExprIdToExpr.put(groupByExprId, groupByExpr);
+                }
+            }
             DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
                 List<ExprId> parentHashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
-                Set<ExprId> intersectIdSet = Sets.intersection(new HashSet<>(parentHashExprIds),
-                        new HashSet<>(groupByExprIds));
-                if (!intersectIdSet.isEmpty() && intersectIdSet.size() < groupByExprIds.size()) {
-                    List<ExprId> intersectIdList = new ArrayList<>();
-                    for (ExprId exprId : parentHashExprIds) {
-                        if (!intersectIdSet.contains(exprId)) {
-                            continue;
-                        }
-                        intersectIdList.add(exprId);
+                List<ExprId> parentHashExprIdsInGroupBy = new ArrayList<>();
+                List<Expression> parentHashExprsInGroupBy = new ArrayList<>();
+                for (ExprId parentHashExprId : parentHashExprIds) {
+                    Expression parentHashExpr = groupByExprIdToExpr.get(parentHashExprId);
+                    if (parentHashExpr == null) {
+                        continue;
                     }
-                    if (shouldUseParent(intersectIdList, agg, context)) {
-                        addRequestPropertyToChildren(
-                                PhysicalProperties.createHash(intersectIdList, ShuffleType.REQUIRE));
-                    }
+                    parentHashExprIdsInGroupBy.add(parentHashExprId);
+                    parentHashExprsInGroupBy.add(parentHashExpr);
+                }
+                if (!parentHashExprIdsInGroupBy.isEmpty()
+                        && parentHashExprIdsInGroupBy.size() < groupByExprIds.size()
+                        && shouldUseParent(parentHashExprsInGroupBy, agg, context)) {
+                    addRequestPropertyToChildren(
+                            PhysicalProperties.createHash(parentHashExprIdsInGroupBy, ShuffleType.REQUIRE));
                 }
             }
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
@@ -545,35 +545,25 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg,
+    private boolean shouldUseParent(List<Expression> parentHashExprs, PhysicalHashAggregate<? extends Plan> agg,
             PlanContext context) {
         if (!context.getConnectContext().getSessionVariable().aggShuffleUseParentKey) {
             return false;
         }
         Optional<GroupExpression> groupExpression = agg.getGroupExpression();
         if (!groupExpression.isPresent()) {
-            return true;
+            return false;
         }
         if (agg.hasSourceRepeat()) {
             return false;
         }
+        // Reuse parent hash keys only when stats prove enough distinct values to avoid agg shuffle skew.
         Statistics aggChildStats = groupExpression.get().childStatistics(0);
         if (aggChildStats == null) {
-            return true;
-        }
-        List<Slot> aggChildOutput = agg.child().getOutput();
-        Map<ExprId, Slot> exprIdSlotMap = new HashMap<>();
-        for (Slot slot : aggChildOutput) {
-            exprIdSlotMap.put(slot.getExprId(), slot);
-        }
-        List<Expression> parentHashExprs = new ArrayList<>(parentHashExprIds.size());
-        for (ExprId exprId : parentHashExprIds) {
-            if (exprIdSlotMap.containsKey(exprId)) {
-                parentHashExprs.add(exprIdSlotMap.get(exprId));
-            }
+            return false;
         }
         if (AggregateUtils.hasUnknownStatistics(parentHashExprs, aggChildStats)) {
-            return true;
+            return false;
         }
         double combinedNdv = StatsCalculator.estimateGroupByRowCount(parentHashExprs, aggChildStats);
         return combinedNdv > AggregateUtils.LOW_NDV_THRESHOLD;
