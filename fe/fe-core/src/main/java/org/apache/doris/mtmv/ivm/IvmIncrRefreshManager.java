@@ -57,7 +57,7 @@ public class IvmIncrRefreshManager {
     public IvmIncrRefreshManager() {
     }
 
-    public IvmIncrRefreshResult doRefresh(IvmIncrRefreshContext context) {
+    public IvmIncrRefreshResult doRefresh(IvmIncrRefreshContext context) throws Exception {
         Objects.requireNonNull(context, "context can not be null");
         MTMV mtmv = context.getMtmv();
         Objects.requireNonNull(context.getAuditStmt(), "auditStmt can not be null");
@@ -69,19 +69,6 @@ public class IvmIncrRefreshManager {
                     IvmFailureReason.valueOf(forceFallbackReason), "forced by debug point");
         }
         try {
-            return doRefreshInternal(context);
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException("IVM refresh execution failed for mv=" + mtmv.getName()
-                    + ", detail=" + Util.getRootCauseMessage(e), e);
-        }
-    }
-
-    private IvmIncrRefreshResult doRefreshInternal(IvmIncrRefreshContext context) throws Exception {
-        Objects.requireNonNull(context, "context can not be null");
-        MTMV mtmv = context.getMtmv();
-        try {
             executeInternalRefresh(context);
             return IvmIncrRefreshResult.success();
         } catch (IvmException e) {
@@ -92,7 +79,7 @@ public class IvmIncrRefreshManager {
         } catch (Exception e) {
             String detail = Util.getRootCauseMessage(e);
             Optional<IvmFailureReason> failureReason = IvmFailureClassifier.classifyExecutionFailure(detail);
-            if (!failureReason.isPresent()) {
+            if (failureReason.isEmpty()) {
                 throw e;
             }
             IvmIncrRefreshResult result = IvmIncrRefreshResult.fallback(failureReason.get(), detail);

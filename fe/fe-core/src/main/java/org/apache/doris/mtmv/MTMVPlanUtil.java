@@ -110,7 +110,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -158,15 +157,9 @@ public class MTMVPlanUtil {
      */
     public static StmtExecutor executeCommand(MTMV mtmv, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt) throws Exception {
-        return executeCommand(mtmv, command, stmtCtx, auditStmt, null);
-    }
-
-    public static StmtExecutor executeCommand(MTMV mtmv, Command command,
-            StatementContext stmtCtx, @Nullable String auditStmt,
-            @Nullable Consumer<ConnectContext> ctxCustomizer) throws Exception {
         ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         stmtCtx.setConnectContext(ctx);
-        return executeCommand(ctx, command, stmtCtx, auditStmt, ctxCustomizer);
+        return executeCommand(ctx, command, stmtCtx, auditStmt);
     }
 
     /**
@@ -176,19 +169,10 @@ public class MTMVPlanUtil {
      */
     public static StmtExecutor executeCommand(ConnectContext ctx, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt) throws Exception {
-        return executeCommand(ctx, command, stmtCtx, auditStmt, null);
-    }
-
-    public static StmtExecutor executeCommand(ConnectContext ctx, Command command,
-            StatementContext stmtCtx, @Nullable String auditStmt,
-            @Nullable Consumer<ConnectContext> ctxCustomizer) throws Exception {
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
         ctx.getSessionVariable().setEnableDmlMaterializedViewRewrite(false);
-        if (ctxCustomizer != null) {
-            ctxCustomizer.accept(ctx);
-        }
         StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
         ctx.setExecutor(executor);
         ctx.setQueryId(AbstractTask.generateQueryId());

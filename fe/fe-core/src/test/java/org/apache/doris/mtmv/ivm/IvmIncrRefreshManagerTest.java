@@ -43,7 +43,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsSuccessForEmptyBundles() {
+    public void testManagerReturnsSuccessForEmptyBundles() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
         IvmIncrRefreshResult result = manager.doRefresh(manager.context);
@@ -52,7 +52,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerExecutesBundles() {
+    public void testManagerExecutesBundles() throws Exception {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
@@ -77,7 +77,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerPropagatesUnknownExecutorFailure() {
+    public void testManagerPropagatesUnknownExecutorFailure() throws Exception {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
@@ -88,7 +88,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsFallbackWithKnownExecutionFailureReason() {
+    public void testManagerReturnsFallbackWithKnownExecutionFailureReason() throws Exception {
         assertKnownExecutionFailureFallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT,
                 IvmFailureClassifier.MIN_MAX_BOUNDARY_MSG_PREFIX + ": deleted row may be current MIN value");
         assertKnownExecutionFailureFallback(IvmFailureReason.BITMAP_AGG_DELETE,
@@ -98,7 +98,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsBinlogNotEnabledFallbackOnIvmException() {
+    public void testManagerReturnsBinlogNotEnabledFallbackOnIvmException() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.throwBinlogNotEnabledOnAnalyze = true;
@@ -112,7 +112,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsPlanSignatureMismatchFallback() {
+    public void testManagerReturnsPlanSignatureMismatchFallback() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.planSignatureMismatch = new IvmPlanSignature("current plan", "current-signature");
@@ -124,7 +124,7 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
-    public void testManagerReturnsIvmExceptionFailureReasonWhenAnalyzeFails() {
+    public void testManagerReturnsIvmExceptionFailureReasonWhenAnalyzeFails() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());
         manager.throwIvmExceptionOnAnalyze = true;
@@ -137,7 +137,7 @@ public class IvmIncrRefreshManagerTest {
         Assertions.assertFalse(manager.executeCalled);
     }
 
-    private void assertKnownExecutionFailureFallback(IvmFailureReason expectedReason, String detail) {
+    private void assertKnownExecutionFailureFallback(IvmFailureReason expectedReason, String detail) throws Exception {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), makeCommands(cmd));
