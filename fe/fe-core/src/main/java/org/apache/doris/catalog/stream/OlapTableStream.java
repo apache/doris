@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;

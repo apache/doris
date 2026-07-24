@@ -302,6 +302,10 @@ protected:
     }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 
+    virtual bool can_push_down_column_predicate(const SlotDescriptor* slot) {
+        return _parent->cast<typename Derived::Parent>().can_push_down_column_predicate(slot);
+    }
+
     virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 

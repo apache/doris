@@ -635,7 +635,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    if (!_parent->cast<typename Derived::Parent>().can_push_down_column_predicate(*slot_desc)) {
+    if (!can_push_down_column_predicate(*slot_desc)) {
         return false;
     }
     *range = &(sid_to_range->second);

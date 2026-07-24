@@ -79,29 +79,20 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
+    bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
+
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
     PushDownType _should_push_down_bloom_filter() const override {
-        if (_is_binlog_merge_scan()) {
-            return PushDownType::UNACCEPTABLE;
-        }
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_topn_filter() const override {
-        if (_is_binlog_merge_scan()) {
-            return PushDownType::UNACCEPTABLE;
-        }
-        return PushDownType::ACCEPTABLE;
-    }
+    PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
-        if (_is_binlog_merge_scan()) {
-            return PushDownType::UNACCEPTABLE;
-        }
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::ACCEPTABLE
@@ -109,9 +100,6 @@ private:
     }
 
     PushDownType _should_push_down_in_predicate() const override {
-        if (_is_binlog_merge_scan()) {
-            return PushDownType::UNACCEPTABLE;
-        }
         return PushDownType::ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
