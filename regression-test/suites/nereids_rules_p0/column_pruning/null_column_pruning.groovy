@@ -18,7 +18,7 @@
 // Regression tests for the IS NULL / IS NOT NULL column pruning optimization.
 //
 // When IS NULL (or IS NOT NULL) is the *only* use of a nullable column, the FE
-// should emit a DATA access path with a "NULL" component so that the BE can
+// should emit a META access path with a "NULL" component so that the BE can
 // satisfy the query by reading only the null flag instead of the full column data.
 // The EXPLAIN plan should show:
 //   nested columns:  <col>: all access paths: [<col>.NULL]
@@ -183,23 +183,23 @@ suite("null_column_pruning") {
     order_qt_10 "select int_col from ncp_tbl where int_col is null";
 
     // ─── Mixed: struct IS NULL + partial field access ───────────────────────────
-    // struct_col IS NULL in WHERE + element_at in SELECT needs struct data for projection, while
-    // the predicate keeps the parent null map separately.
+    // struct_col IS NULL in WHERE + element_at in SELECT needs only the projected field data,
+    // while the predicate keeps the parent null map separately.
     explain {
         sql "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null"
         contains "nested columns"
-        contains "all access paths: [struct_col]"
+        contains "all access paths: [struct_col.city, struct_col.NULL]"
         contains "predicate access paths: [struct_col.NULL]"
     }
 
     order_qt_11 "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null";
 
     // This query verifies the real correctness risk: predicate paths need both parent and child
-    // null maps, while allAccessPaths keeps the struct data path for projection.
+    // null maps, while allAccessPaths keeps only the projected field data path.
     explain {
         sql "select element_at(struct_col, 'zip') from ncp_tbl where struct_col is null or element_at(struct_col, 'city') is null"
         contains "nested columns"
-        contains "all access paths: [struct_col]"
+        contains "all access paths: [struct_col.zip, struct_col.NULL, struct_col.city.NULL]"
         contains "predicate access paths:"
         contains "struct_col.NULL"
         contains "struct_col.city.NULL"
@@ -220,14 +220,13 @@ suite("null_column_pruning") {
     order_qt_12 "select struct_col from ncp_tbl where struct_col is null";
 
     // ─── Nested struct field IS NULL ────────────────────────────────────────────
-    // element_at(struct_col, 'city') IS NULL should produce a null-flag-only
-    // predicate path [struct_col.city.NULL] while the projection reads city data.
-    // [struct_col.city.NULL] remains in predicateAccessPaths beside the projected city data path.
+    // element_at(struct_col, 'city') IS NULL needs both the parent Struct null map and the
+    // selected field null map, while the projection reads city data.
     explain {
         sql "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null"
         contains "nested columns"
         contains "struct_col.city"
-        contains "predicate access paths: [struct_col.city.NULL]"
+        contains "predicate access paths: [struct_col.NULL, struct_col.city.NULL]"
     }
 
     order_qt_13 "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null";
@@ -385,29 +384,30 @@ suite("null_column_pruning") {
         sql "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null"
         contains "nested columns"
         contains "struct_col.city.NULL"
+        contains "struct_col.NULL"
     }
 
     order_qt_24 "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null";
 
     // ─── Mixed: map_keys IS NULL + map_keys projected ──────────────────────────
-    // Projection needs map data, while the predicate checks whether the parent map is NULL. The
-    // parent NULL path stays in predicateAccessPaths.
+    // Projection needs only map keys, while the predicate checks whether the parent map is NULL.
+    // Keep the parent NULL path independently in both path sets.
     explain {
         sql "select map_keys(map_col) from ncp_tbl where map_keys(map_col) is null"
         contains "nested columns"
-        contains "all access paths: [map_col]"
+        contains "all access paths: [map_col.KEYS, map_col.NULL]"
         contains "predicate access paths: [map_col.NULL]"
     }
 
     order_qt_25 "select map_keys(map_col) from ncp_tbl where map_keys(map_col) is null";
 
     // ─── Mixed: map_values IS NULL + map_values projected ──────────────────────
-    // Projection needs map data, while the predicate checks whether the parent
+    // Projection needs only map values, while the predicate checks whether the parent
     // map is NULL. A NULL value element does not make map_values(map_col) NULL.
     explain {
         sql "select map_values(map_col) from ncp_tbl where map_values(map_col) is null"
         contains "nested columns"
-        contains "all access paths: [map_col]"
+        contains "all access paths: [map_col.VALUES, map_col.NULL]"
         contains "predicate access paths: [map_col.NULL]"
     }
 
