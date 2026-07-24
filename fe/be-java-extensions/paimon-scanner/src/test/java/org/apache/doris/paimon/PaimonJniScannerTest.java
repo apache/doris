@@ -25,6 +25,7 @@ import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -44,12 +45,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonJniScannerTest {
+    private static final String SERIALIZED_TABLE_CACHE_KEY = "serialized_table_cache_key";
+
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @After
+    public void clearTableCache() {
+        PaimonTableCache.clearForTest();
+    }
 
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+    }
+
+    @Test
+    public void testConstructorRejectsMissingTableCacheKey() {
+        Map<String, String> params = createBaseParams();
+        params.remove(SERIALIZED_TABLE_CACHE_KEY);
+
+        try {
+            new PaimonJniScanner(128, params);
+            Assert.fail("expected constructor to reject a missing table cache key");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(e.getMessage().contains(SERIALIZED_TABLE_CACHE_KEY));
+        }
     }
 
     @Test
@@ -194,7 +215,10 @@ public class PaimonJniScannerTest {
 
     @Test
     public void testFailedCloseRetainsResourcesForRetry() throws Exception {
-        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+        String cacheKey = "retryable-close";
+        Map<String, String> params = createBaseParams();
+        params.put(SERIALIZED_TABLE_CACHE_KEY, cacheKey);
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
         AtomicInteger iteratorCloseCalls = new AtomicInteger();
         RecordReader.RecordIterator<InternalRow> recordIterator =
                 new RecordReader.RecordIterator<InternalRow>() {
@@ -235,6 +259,13 @@ public class PaimonJniScannerTest {
         Field ioManagerField = PaimonJniScanner.class.getDeclaredField("ioManager");
         ioManagerField.setAccessible(true);
         ioManagerField.set(scanner, ioManager);
+        PaimonTableCache.TableCacheEntry cacheEntry =
+                new PaimonTableCache.TableCacheEntry(newTestTable(Collections.emptyMap()),
+                        Collections.emptyList());
+        Assert.assertTrue(PaimonTableCache.publish(cacheKey, cacheEntry));
+        Field cacheEntryField = PaimonJniScanner.class.getDeclaredField("tableCacheEntry");
+        cacheEntryField.setAccessible(true);
+        cacheEntryField.set(scanner, cacheEntry);
 
         try {
             scanner.close();
@@ -245,6 +276,7 @@ public class PaimonJniScannerTest {
         Assert.assertSame(recordIterator, recordIteratorField.get(scanner));
         Assert.assertSame(reader, readerField.get(scanner));
         Assert.assertSame(ioManager, ioManagerField.get(scanner));
+        Assert.assertEquals(0, PaimonTableCache.size());
 
         scanner.close();
         Assert.assertNull(recordIteratorField.get(scanner));
@@ -253,6 +285,7 @@ public class PaimonJniScannerTest {
         Assert.assertEquals(2, iteratorCloseCalls.get());
         Assert.assertEquals(2, readerCloseCalls.get());
         Assert.assertEquals(2, ioManager.closeCalls.get());
+        Assert.assertEquals(0, PaimonTableCache.size());
     }
 
     private Map<String, String> createBaseParams() {
@@ -261,11 +294,18 @@ public class PaimonJniScannerTest {
         params.put("columns_types", "");
         params.put("paimon_split", "");
         params.put("paimon_predicate", "");
+        params.put(SERIALIZED_TABLE_CACHE_KEY, "test-table-cache-key");
         return params;
     }
 
     private void setTableOptions(PaimonJniScanner scanner, Map<String, String> options) throws Exception {
-        Table table = (Table) Proxy.newProxyInstance(
+        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        tableField.set(scanner, newTestTable(options));
+    }
+
+    private Table newTestTable(Map<String, String> options) {
+        return (Table) Proxy.newProxyInstance(
                 Table.class.getClassLoader(), new Class[] {Table.class}, (proxy, method, args) -> {
                     if ("options".equals(method.getName())) {
                         return options;
@@ -275,9 +315,6 @@ public class PaimonJniScannerTest {
                     }
                     throw new UnsupportedOperationException(method.getName());
                 });
-        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
-        tableField.setAccessible(true);
-        tableField.set(scanner, table);
     }
 
     public static class TestIOManager implements IOManager {

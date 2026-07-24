@@ -74,6 +74,11 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                       if (range_params->__isset.serialized_table) {
                           params["serialized_table"] = range_params->serialized_table;
                       }
+                      if (range_params->__isset.serialized_table_cache_key &&
+                          !range_params->serialized_table_cache_key.empty()) {
+                          params["serialized_table_cache_key"] =
+                                  range_params->serialized_table_cache_key;
+                      }
                       if (range_params->__isset.paimon_options &&
                           !range_params->paimon_options.empty()) {
                           for (const auto& kv : range_params->paimon_options) {

@@ -331,6 +331,7 @@ TFileRangeDesc make_paimon_range_without_reader_type(TFileFormatType::type forma
 TFileScanRangeParams make_paimon_jni_scan_params() {
     TFileScanRangeParams scan_params;
     scan_params.__set_serialized_table("serialized-paimon-table");
+    scan_params.__set_serialized_table_cache_key("serialized-paimon-table-cache-key");
     scan_params.__set_paimon_predicate("serialized-paimon-predicate");
     return scan_params;
 }
@@ -836,6 +837,7 @@ TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {
     state.set_exec_env(ExecEnv::GetInstance());
 
     auto params = build_paimon_jni_scanner_params(&scan_params, &state);
+    EXPECT_EQ(params["serialized_table_cache_key"], "serialized-paimon-table-cache-key");
     EXPECT_EQ(params["paimon.doris.enable_jni_io_manager"], "true");
     EXPECT_EQ(params["paimon.doris.jni_io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
     EXPECT_EQ(params["paimon.doris.jni_io_manager.impl_class"], "org.example.CustomIOManager");
