@@ -3632,6 +3632,83 @@ TEST(ParquetV2NativeDecoderTest, LazyNestedV1SeekDoesNotOutrunPhysicalPages) {
     EXPECT_FALSE(cross_page);
 }
 
+TEST(ParquetV2NativeDecoderTest, LazyDictionaryNestedV1SeekChecksFirstDataPage) {
+    tparquet::PageHeader dictionary_header;
+    dictionary_header.type = tparquet::PageType::DICTIONARY_PAGE;
+    dictionary_header.__set_compressed_page_size(sizeof(int32_t));
+    dictionary_header.__set_uncompressed_page_size(sizeof(int32_t));
+    dictionary_header.__isset.dictionary_page_header = true;
+    dictionary_header.dictionary_page_header.__set_num_values(1);
+    dictionary_header.dictionary_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+    const int32_t dictionary_value = 7;
+    const auto* dictionary_bytes = reinterpret_cast<const uint8_t*>(&dictionary_value);
+    auto bytes = serialize_page(
+            dictionary_header,
+            std::vector<uint8_t>(dictionary_bytes, dictionary_bytes + sizeof(dictionary_value)));
+
+    auto make_data_page = [] {
+        tparquet::PageHeader header;
+        header.type = tparquet::PageType::DATA_PAGE;
+        const std::vector<uint8_t> payload {2, 0, 0, 0, 2, 0, 0, 0, 0, 0};
+        header.__set_compressed_page_size(payload.size());
+        header.__set_uncompressed_page_size(payload.size());
+        header.__isset.data_page_header = true;
+        header.data_page_header.__set_num_values(1);
+        header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
+        header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+        header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
+        return serialize_page(header, payload);
+    };
+    const auto first_page = make_data_page();
+    const size_t first_page_offset = bytes.size();
+    bytes.insert(bytes.end(), first_page.begin(), first_page.end());
+    const auto second_page = make_data_page();
+    const size_t second_page_offset = bytes.size();
+    bytes.insert(bytes.end(), second_page.begin(), second_page.end());
+    const size_t chunk_size = bytes.size();
+    bytes.resize(chunk_size + 16, 0);
+
+    MemoryBufferedReader stream(bytes);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(2);
+    chunk.meta_data.__set_total_compressed_size(chunk_size);
+    chunk.meta_data.__set_dictionary_page_offset(0);
+    chunk.meta_data.__set_data_page_offset(first_page_offset);
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.repetition_level = 1;
+    tparquet::OffsetIndex offset_index;
+    tparquet::PageLocation first_location;
+    first_location.__set_offset(first_page_offset);
+    first_location.__set_compressed_page_size(first_page.size());
+    first_location.__set_first_row_index(0);
+    tparquet::PageLocation second_location;
+    second_location.__set_offset(second_page_offset);
+    second_location.__set_compressed_page_size(second_page.size());
+    second_location.__set_first_row_index(1);
+    offset_index.__set_page_locations({first_location, second_location});
+    ColumnChunkRange padded_range {.offset = 0, .length = bytes.size()};
+    ParquetPageReadContext context(false, "");
+    ColumnChunkReader<true, true> chunk_reader(&stream, &chunk, &field, &offset_index, 2, nullptr,
+                                               context, &padded_range);
+
+    ASSERT_TRUE(chunk_reader.init().ok());
+    EXPECT_EQ(stream.read_count(), 0);
+    ASSERT_TRUE(chunk_reader.seek_to_nested_row(1).ok());
+    std::vector<level_t> levels;
+    size_t rows = 0;
+    bool cross_page = false;
+    ASSERT_TRUE(chunk_reader.load_page_nested_rows(levels, 1, &rows, &cross_page).ok());
+    if (cross_page) {
+        const auto status = chunk_reader.load_cross_page_nested_row(levels, &cross_page);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    EXPECT_EQ(rows, 1);
+    EXPECT_FALSE(cross_page);
+}
+
 TEST(ParquetV2NativeDecoderTest, NestedV1DiscardedOffsetIndexStopsAtLogicalChunkEnd) {
     tparquet::PageHeader header;
     header.type = tparquet::PageType::DATA_PAGE;
