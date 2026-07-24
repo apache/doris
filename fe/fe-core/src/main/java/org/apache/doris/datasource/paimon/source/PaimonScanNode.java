@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -30,7 +31,9 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonUtils;
@@ -174,9 +177,16 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         long startTime = System.currentTimeMillis();
+        Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+        if (desc.getTable() instanceof PaimonExternalTable) {
+            source = new PaimonSource(desc, relationSnapshot);
+        }
         serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         // Todo: Get the current schema id of the table, instead of using -1.
-        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
+        List<Column> columns = source.getTargetTable() instanceof ExternalTable
+                ? ((ExternalTable) source.getTargetTable()).getFullSchema(relationSnapshot)
+                : source.getTargetTable().getColumns();
+        ExternalUtil.initSchemaInfo(params, -1L, columns);
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),

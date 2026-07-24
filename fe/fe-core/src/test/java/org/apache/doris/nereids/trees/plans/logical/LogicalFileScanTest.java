@@ -72,7 +72,7 @@ public class LogicalFileScanTest {
 
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(table.getFullSchema()).thenReturn(schema);
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(schema);
         Mockito.when(table.getName()).thenReturn("iceberg_tbl");
 
         LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,

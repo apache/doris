@@ -21,11 +21,13 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
@@ -78,7 +80,24 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), "",
-                cachedOutputs);
+                cacheRelationOutputs(table, qualifier, cachedOutputs));
+    }
+
+    private static Optional<List<Slot>> cacheRelationOutputs(ExternalTable table, List<String> qualifier,
+            Optional<List<Slot>> cachedOutputs) {
+        if (cachedOutputs.isPresent()
+                || (!(table instanceof IcebergExternalTable) && !(table instanceof PaimonExternalTable))) {
+            return cachedOutputs;
+        }
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
+        Builder<Slot> slots = ImmutableList.builder();
+        List<String> qualified = Utils.qualifiedNameParts(qualifier, Util.getTempTableDisplayName(table.getName()));
+        // Capture columns while this relation's MVCC snapshot is current; later relations for the
+        // same table may legitimately replace the statement's table-only snapshot entry.
+        table.getFullSchema(MvccUtil.getSnapshotFromContext(table)).stream()
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified))
+                .forEach(slots::add);
+        return Optional.of(slots.build());
     }
 
     /**

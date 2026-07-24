@@ -443,8 +443,7 @@ suite("test_iceberg_schema_time_travel_matrix",
                     from ${dorisNestedTable}@tag(doris_nested_cp0)
                     order by id
                 """))
-        // Negative contract: an old branch currently leaks the latest BIGINT nested types.
-        assertEquals([[1, 10L, 100L, 1000L]],
+        assertEquals([[1, 10, 100, 1000]],
                 sql("""
                     select id, info.metric, events[1].score, attrs['k'].code
                     from ${dorisNestedTable}@branch(doris_nested_cp0_branch)
@@ -547,15 +546,11 @@ suite("test_iceberg_schema_time_travel_matrix",
             from ${topTable}@tag(top_cp0)
             order by id
         """))
-        // Negative contract: an old branch is currently analyzed with the latest rename schema.
-        test {
-            sql """
+        assertEquals(topCp0Rows, sql("""
                 select id, old_name, victim, metric
                 from ${topTable}@branch(top_cp0_branch)
                 order by id
-            """
-            exception "Unknown column 'old_name'"
-        }
+        """))
         assertUnknownColumn("""
             select MixedName from ${topTable} for version as of ${topCp0}
         """, "MixedName")

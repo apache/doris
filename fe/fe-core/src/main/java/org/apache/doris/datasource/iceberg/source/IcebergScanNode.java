@@ -161,6 +161,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long manifestCacheHits;
     private long manifestCacheMisses;
     private long manifestCacheFailures;
+    private Optional<MvccSnapshot> relationSnapshot = Optional.empty();
 
     // Cached values for LocationPath creation optimization
     // These are lazily initialized on first use to avoid parsing overhead for each file
@@ -240,6 +241,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         long startTime = System.currentTimeMillis();
         try {
+            relationSnapshot = getRelationSnapshot();
             icebergTable = source.getIcebergTable();
             partitionMapInfos = new HashMap<>();
             isPartitionedTable = icebergTable.spec().isPartitioned();
@@ -267,13 +269,19 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private Optional<Map<Integer, List<String>>> extractNameMapping() {
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
         if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
             // The mapping must come from the same metadata generation as the pinned schema; a
             // property-only refresh can otherwise change alias semantics within one statement.
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getNameMapping();
         }
         return IcebergUtils.getNameMapping(icebergTable);
+    }
+
+    private Optional<MvccSnapshot> getPinnedRelationSnapshot() {
+        return relationSnapshot.isPresent()
+                ? relationSnapshot
+                : MvccUtil.getSnapshotFromContext(source.getTargetTable());
     }
 
     @Override
@@ -512,7 +520,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
         // projection. Both scanners need the complete current schema to resolve field ids,
         // historical names, types, and initial defaults when an old data file lacks such a key.
-        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
+        List<Column> columns = source.getTargetTable() instanceof ExternalTable
+                ? ((ExternalTable) source.getTargetTable()).getFullSchema(relationSnapshot)
+                : source.getTargetTable().getColumns();
+        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, columns,
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
                 getBase64EncodedInitialDefaultsForScan());
     }
@@ -533,10 +544,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
         }
         IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
-        Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
         Schema scanSchema = null;
-        if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
-            long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            long schemaId = ((IcebergMvccSnapshot) snapshot.get())
                     .getSnapshotCacheValue().getSnapshot().getSchemaId();
             scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
         } else {

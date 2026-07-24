@@ -542,6 +542,42 @@ public class StatementContextTest {
         }
     }
 
+    @Test
+    public void testLoadSnapshotsKeepsEachRelationSnapshotCurrent() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot firstSnapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot secondSnapshot = Mockito.mock(MvccSnapshot.class);
+
+        Mockito.when(table.getName()).thenReturn("historical_table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(table.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(firstSnapshot, secondSnapshot);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.loadSnapshots(table,
+                    Optional.of(new TableSnapshot("1", TableSnapshot.VersionType.VERSION)), Optional.empty());
+            org.junit.jupiter.api.Assertions.assertSame(firstSnapshot,
+                    statementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+
+            statementContext.loadSnapshots(table,
+                    Optional.of(new TableSnapshot("2", TableSnapshot.VersionType.VERSION)), Optional.empty());
+
+            org.junit.jupiter.api.Assertions.assertSame(secondSnapshot,
+                    statementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+            Mockito.verify(table, Mockito.times(2))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private DatabaseIf<TableIf> mockDatabase() {
         return Mockito.mock(DatabaseIf.class);
