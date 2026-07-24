@@ -389,8 +389,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * default delegates here). It is deliberately NOT placed on {@code getWritePlanProvider}: the admission gate
      * calls {@code getWritePlanProvider} to DECIDE, so throwing there would make the gate throw a {@code
      * DorisConnectorException} the engine misclassifies as an internal error instead of the clean "does not
-     * support INSERT" — keep the provider {@code null} and reject explicitly only here (dormant until hms enters
-     * {@code SPI_READY_TYPES}).
+     * support INSERT" — keep the provider {@code null} and reject explicitly only here (with hms live, a user
+     * write against a hudi table reaches this reject on the gateway path).
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {

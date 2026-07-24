@@ -34,8 +34,8 @@ import java.util.Collections;
  * future change cannot silently make a hudi table writable or DDL-mutable, and a hudi write is never
  * mis-executed as an iceberg write.
  *
- * <p>Dormant until hms enters {@code SPI_READY_TYPES} and hudi handles are diverted (no production path reaches
- * this connector yet); this is a Rule-9 behavior lock. The correctness at flip is asserted end-to-end (a
+ * <p>With hms live and hudi handles diverted, this connector answers those calls on the production path;
+ * this is a Rule-9 behavior lock. The correctness at flip is asserted end-to-end (a
  * heterogeneous HMS catalog where hudi INSERT/DELETE/MERGE/EXECUTE all fail loud read-only).
  */
 public class HudiReadOnlyWriteRejectTest {
