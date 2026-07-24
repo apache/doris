@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * JDBC connector implementation. Manages the lifecycle of
@@ -125,11 +126,52 @@ public class JdbcDorisConnector implements Connector {
         return scanPlanProvider;
     }
 
+    // A scheme-less driver_url must be a plain jar file name: letters, digits, dot, underscore, hyphen.
+    // This intentionally forbids any path separator, so it can never escape jdbc_drivers_dir.
+    private static final Pattern SAFE_DRIVER_FILE_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
+
+    /**
+     * Mandatory, non-configurable driver_url security rule. It is invoked from
+     * {@link #preCreateValidation} only, which the engine runs exclusively on the user-facing
+     * create path (CatalogFactory calls {@code checkWhenCreating()} only when {@code !isReplay}).
+     * Therefore this rule never runs during metadata/edit-log replay nor at query time, so existing
+     * catalogs are unaffected and FE startup / follower replay can never be blocked by it.
+     *
+     * <p>The rule cannot be turned off:
+     * <ul>
+     *   <li>any {@code ..} path-traversal segment is rejected, for {@code file://} and {@code http(s)} alike;</li>
+     *   <li>a scheme-less driver_url must be a bare jar file name matching {@code [A-Za-z0-9._-]+.jar}
+     *       (no directories, no special characters), which is then resolved under {@code jdbc_drivers_dir}.</li>
+     * </ul>
+     * Whether a remote/absolute URL is allowed at all remains governed by the fe.conf-only
+     * {@code jdbc_driver_secure_path} / {@code jdbc_driver_url_white_list} configs; this rule only
+     * forbids traversal and enforces the bare-name charset.
+     */
+    // package-private for unit testing; conceptually private.
+    static void checkDriverUrlSecurityRule(String driverUrl) {
+        String probe = driverUrl.replace('\\', '/');
+        for (String segment : probe.split("/")) {
+            if ("..".equals(segment)) {
+                throw new DorisConnectorException(
+                        "Invalid driver_url: path traversal ('..') is not allowed: " + driverUrl);
+            }
+        }
+        if (!driverUrl.contains("://")) {
+            if (!SAFE_DRIVER_FILE_NAME.matcher(driverUrl).matches()) {
+                throw new DorisConnectorException(
+                        "Invalid driver_url: a driver file name must match [A-Za-z0-9._-]+.jar (got: "
+                                + driverUrl + ")");
+            }
+        }
+    }
+
     @Override
     public void preCreateValidation(ConnectorValidationContext context) throws Exception {
         // 1. Validate/resolve JDBC driver — format, whitelist, secure_path, file existence.
         String driverUrl = properties.get(JdbcConnectorProperties.DRIVER_URL);
         if (driverUrl != null && !driverUrl.isEmpty()) {
+            // Mandatory, non-configurable security rule, enforced on catalog creation only.
+            checkDriverUrlSecurityRule(driverUrl);
             context.validateAndResolveDriverPath(driverUrl);
 
             // 2. Compute and verify checksum.
