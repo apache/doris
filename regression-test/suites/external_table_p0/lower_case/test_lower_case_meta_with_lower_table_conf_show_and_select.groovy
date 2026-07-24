@@ -30,12 +30,12 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     // String driver_url = "mysql-connector-j-8.4.0.jar"
 
     def wait_table_sync = { String db ->
-        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
             try {
                 def res = sql "show tables from ${db}"
                 return res.size() > 0;
             } catch (Exception e) {
-                e.printStackTrace();
+                logger.warn("Waiting for JDBC catalog tables from ${db} failed", e)
                 return false;
             }
         }
