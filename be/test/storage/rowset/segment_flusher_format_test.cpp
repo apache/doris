@@ -17,6 +17,7 @@
 
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <google/protobuf/message.h>
@@ -65,6 +66,7 @@
 #include "storage/data_dir.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_search_params.h"
+#include "storage/index/bloom_filter/bloom_filter_index_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_common.h"
@@ -84,6 +86,7 @@
 #include "storage/rowset/segment_creator.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -92,6 +95,7 @@
 #include "storage/utils.h"
 #include "testutil/creators.h"
 #include "testutil/variant_util.h"
+#include "util/coding.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
 
@@ -102,8 +106,8 @@ constexpr std::string_view kTestDir = "./ut_dir/segment_flusher_format_test";
 constexpr std::string_view kGoldenDir = "./be/test/storage/test_data/segment_flusher_format";
 constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_OUTPUT_DIR";
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 76;
-constexpr size_t kExpectedGoldenSegmentCount = 154;
+constexpr size_t kExpectedGoldenCaseCount = 77;
+constexpr size_t kExpectedGoldenSegmentCount = 156;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -265,14 +269,19 @@ public:
         if (!_schema->has_inverted_index() && !_schema->has_ann_index()) {
             return {};
         }
-        // This test creator does not own V1's per-index files. V2 and V3 use the compound index
-        // writer supplied by create(), so those files can be fingerprinted here.
-        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-            return {};
-        }
         const auto segment_path = path(segment_id);
         const auto index_path_prefix =
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
+        if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+            const auto indexes = _schema->inverted_indexes();
+            std::vector<std::string> paths;
+            paths.reserve(indexes.size());
+            for (const auto* index : indexes) {
+                paths.emplace_back(segment_v2::InvertedIndexDescriptor::get_index_file_path_v1(
+                        index_path_prefix, index->index_id(), index->get_index_suffix()));
+            }
+            return paths;
+        }
         return {segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix)};
     }
 
@@ -1131,6 +1140,7 @@ Result<Block> create_flexible_partial_update_block(const TabletSchemaSPtr& schem
 struct IntegerTabletBlockOptions {
     bool include_binlog_columns = false;
     bool include_existing_key_delete = false;
+    bool include_missing_key_delete = true;
 };
 
 Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int segment_ordinal,
@@ -1165,8 +1175,8 @@ Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int se
             } else if (name == COMMIT_TSO_COL) {
                 RETURN_IF_ERROR_RESULT(append_text_value(&block, column_index, "0"));
             } else if (name == DELETE_SIGN) {
-                const bool is_delete =
-                        row == 2 || (options.include_existing_key_delete && row == 1);
+                const bool is_delete = (options.include_missing_key_delete && row == 2) ||
+                                       (options.include_existing_key_delete && row == 1);
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, is_delete ? "1" : "0"));
             } else {
@@ -1190,7 +1200,7 @@ Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
                         &block, column_index, std::to_string(segment_ordinal * 10 + row)));
             } else if (name == "v1") {
                 RETURN_IF_ERROR_RESULT(append_text_value(
-                        &block, column_index, std::to_string(3000 + segment_ordinal * 10 + row)));
+                        &block, column_index, std::to_string(7000 + segment_ordinal * 10 + row)));
             } else if (name == SEQUENCE_COL) {
                 const int sequence_base = stale_first_existing_sequence && row == 0 ? 4999 : 6000;
                 RETURN_IF_ERROR_RESULT(append_text_value(
@@ -1205,8 +1215,11 @@ Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
     return block;
 }
 
-Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
-    constexpr std::array<int, 4> keys {0, 1, 10, 11};
+Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema,
+                                       bool use_cluster_key_order = false) {
+    constexpr std::array<int, 4> primary_key_order {0, 1, 10, 11};
+    constexpr std::array<int, 4> cluster_key_order {11, 10, 1, 0};
+    const auto& keys = use_cluster_key_order ? cluster_key_order : primary_key_order;
     Block block = schema->create_block();
     for (const int key : keys) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
@@ -1220,8 +1233,9 @@ Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, std::to_string(3000 + key)));
             } else if (name == "v2") {
+                const auto value = use_cluster_key_order ? 4000 - key : 4000 + key;
                 RETURN_IF_ERROR_RESULT(
-                        append_text_value(&block, column_index, std::to_string(4000 + key)));
+                        append_text_value(&block, column_index, std::to_string(value)));
             } else if (name == SEQUENCE_COL) {
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, std::to_string(5000 + key)));
@@ -1379,7 +1393,9 @@ Status verify_external_inverted_index_contents(const std::string& index_path_pre
                                                            indexes[0], &signature));
 
     ExternalInvertedIndexSignature expected;
-    expected.field = std::to_string(schema->column(1).unique_id());
+    expected.field = storage_format == InvertedIndexStorageFormatPB::V1
+                             ? schema->column(1).name()
+                             : std::to_string(schema->column(1).unique_id());
     for (size_t row = 0; row < kExternalIndexRows; ++row) {
         if (schema->column(1).is_nullable() && row % 37 == 0) {
             expected.null_rows.push_back(row);
@@ -1478,8 +1494,7 @@ Status verify_ann_index_contents(const std::string& index_path_prefix,
 Status verify_external_index_contents(const TabletSchemaSPtr& schema, uint32_t segment_id,
                                       const std::string& segment_path,
                                       const std::vector<std::string>& auxiliary_paths) {
-    if ((!schema->has_inverted_index() && !schema->has_ann_index()) ||
-        schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+    if (!schema->has_inverted_index() && !schema->has_ann_index()) {
         return Status::OK();
     }
     if (auxiliary_paths.size() != 1) {
@@ -1782,7 +1797,9 @@ public:
 struct LogicalSegmentContents {
     Block block;
     std::vector<std::string> physical_column_metadata;
+    std::string normalized_footer_metadata;
     std::vector<std::string> primary_keys;
+    std::string primary_key_bloom_payload;
     bool has_primary_key_index = false;
     int64_t primary_key_index_rows = 0;
     std::string min_primary_key;
@@ -1826,6 +1843,93 @@ void normalize_physical_column_metadata(segment_v2::ColumnMetaPB* column_meta) {
 std::string physical_column_metadata_signature(segment_v2::ColumnMetaPB column_meta) {
     normalize_physical_column_metadata(&column_meta);
     return TabletSchema::deterministic_string_serialize(column_meta);
+}
+
+Result<segment_v2::SegmentFooterPB> read_segment_footer(const std::string& path) {
+    auto bytes_result = read_file_bytes(path);
+    if (!bytes_result.has_value()) {
+        return unexpected(bytes_result.error());
+    }
+    const auto& bytes = bytes_result.value();
+    constexpr size_t kSegmentTrailerSize = 12;
+    if (bytes.size() < kSegmentTrailerSize) {
+        return ResultError(Status::Corruption("Segment {} is shorter than its trailer", path));
+    }
+
+    const auto* trailer =
+            reinterpret_cast<const uint8_t*>(bytes.data() + bytes.size() - kSegmentTrailerSize);
+    if (std::memcmp(trailer + 8, segment_v2::k_segment_magic, segment_v2::k_segment_magic_length) !=
+        0) {
+        return ResultError(Status::Corruption("Segment {} has invalid magic", path));
+    }
+    const auto footer_length = decode_fixed32_le(trailer);
+    if (footer_length > bytes.size() - kSegmentTrailerSize) {
+        return ResultError(
+                Status::Corruption("Segment {} has invalid footer length {}", path, footer_length));
+    }
+    const auto footer_offset = bytes.size() - kSegmentTrailerSize - footer_length;
+    const auto expected_checksum = decode_fixed32_le(trailer + 4);
+    const auto actual_checksum = crc32c::Crc32c(bytes.data() + footer_offset, footer_length);
+    if (actual_checksum != expected_checksum) {
+        return ResultError(
+                Status::Corruption("Segment {} footer checksum mismatch: actual={}, expected={}",
+                                   path, actual_checksum, expected_checksum));
+    }
+
+    segment_v2::SegmentFooterPB footer;
+    if (!footer.ParseFromString(bytes.substr(footer_offset, footer_length))) {
+        return ResultError(Status::Corruption("failed to parse Segment footer in {}", path));
+    }
+    return footer;
+}
+
+Result<std::string> normalized_segment_footer_signature(segment_v2::SegmentFooterPB footer) {
+    if (footer.has_col_meta_region_start() || footer.column_meta_entries_size() != 0) {
+        return ResultError(Status::NotSupported(
+                "partial-update footer normalization does not support external column metadata"));
+    }
+
+    // Partial update may relocate pages and reorder top-level columns. Preserve every other footer
+    // field, including compression, footprints, short-key metadata, and full PK/Bloom metadata.
+    clear_page_pointer_offsets(&footer);
+    std::vector<std::pair<std::string, segment_v2::ColumnMetaPB>> columns;
+    columns.reserve(footer.columns_size());
+    for (const auto& column : footer.columns()) {
+        columns.emplace_back(TabletSchema::deterministic_string_serialize(column), column);
+    }
+    std::sort(columns.begin(), columns.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    footer.clear_columns();
+    for (const auto& column : columns) {
+        footer.add_columns()->CopyFrom(column.second);
+    }
+    return TabletSchema::deterministic_string_serialize(footer);
+}
+
+Result<std::string> read_primary_key_bloom_payload(
+        const std::shared_ptr<segment_v2::Segment>& segment,
+        const segment_v2::SegmentFooterPB& footer, const std::string& path,
+        OlapReaderStatistics* stats) {
+    if (!footer.has_primary_key_index_meta() ||
+        !footer.primary_key_index_meta().has_bloom_filter_index() ||
+        !footer.primary_key_index_meta().bloom_filter_index().has_bloom_filter_index()) {
+        return ResultError(
+                Status::Corruption("Segment {} is missing primary-key Bloom metadata", path));
+    }
+
+    segment_v2::BloomFilterIndexReader bloom_reader(
+            segment->file_reader(),
+            footer.primary_key_index_meta().bloom_filter_index().bloom_filter_index());
+    RETURN_IF_ERROR_RESULT(bloom_reader.load(false, false, stats));
+    std::unique_ptr<segment_v2::BloomFilterIndexIterator> bloom_iterator;
+    RETURN_IF_ERROR_RESULT(bloom_reader.new_iterator(&bloom_iterator, stats));
+    std::unique_ptr<segment_v2::BloomFilter> bloom_filter;
+    RETURN_IF_ERROR_RESULT(bloom_iterator->read_bloom_filter(0, &bloom_filter));
+    if (bloom_filter == nullptr || bloom_filter->size() == 0) {
+        return ResultError(
+                Status::Corruption("Segment {} has an empty primary-key Bloom filter", path));
+    }
+    return std::string(bloom_filter->data(), bloom_filter->size());
 }
 
 bool logical_field_equal(const Field& current, const Field& golden);
@@ -1900,6 +2004,15 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
     RETURN_IF_ERROR_RESULT(segment_v2::Segment::open(
             io::global_local_filesystem(), path, context.tablet_id, segment_id, context.rowset_id,
             schema, io::FileReaderOptions {}, &segment));
+    auto footer_result = read_segment_footer(path);
+    if (!footer_result.has_value()) {
+        return unexpected(footer_result.error());
+    }
+    auto footer = std::move(footer_result).value();
+    auto normalized_footer_result = normalized_segment_footer_signature(footer);
+    if (!normalized_footer_result.has_value()) {
+        return unexpected(normalized_footer_result.error());
+    }
 
     std::vector<std::string> physical_column_metadata;
     RETURN_IF_ERROR_RESULT(segment->traverse_column_meta_pbs(
@@ -1934,6 +2047,7 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
     int64_t primary_key_index_rows = 0;
     std::string min_primary_key;
     std::string max_primary_key;
+    std::string primary_key_bloom_payload;
     if (read_primary_keys) {
         RETURN_IF_ERROR_RESULT(segment->load_pk_index_and_bf(&stats));
         const auto* primary_key_index = segment->get_primary_key_index();
@@ -1977,14 +2091,22 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
                         lookup_status.to_string()));
             }
         }
+        auto bloom_payload_result = read_primary_key_bloom_payload(segment, footer, path, &stats);
+        if (!bloom_payload_result.has_value()) {
+            return unexpected(bloom_payload_result.error());
+        }
+        primary_key_bloom_payload = std::move(bloom_payload_result).value();
     }
-    return LogicalSegmentContents {.block = contents.to_block(),
-                                   .physical_column_metadata = std::move(physical_column_metadata),
-                                   .primary_keys = std::move(primary_keys),
-                                   .has_primary_key_index = read_primary_keys,
-                                   .primary_key_index_rows = primary_key_index_rows,
-                                   .min_primary_key = std::move(min_primary_key),
-                                   .max_primary_key = std::move(max_primary_key)};
+    return LogicalSegmentContents {
+            .block = contents.to_block(),
+            .physical_column_metadata = std::move(physical_column_metadata),
+            .normalized_footer_metadata = std::move(normalized_footer_result).value(),
+            .primary_keys = std::move(primary_keys),
+            .primary_key_bloom_payload = std::move(primary_key_bloom_payload),
+            .has_primary_key_index = read_primary_keys,
+            .primary_key_index_rows = primary_key_index_rows,
+            .min_primary_key = std::move(min_primary_key),
+            .max_primary_key = std::move(max_primary_key)};
 }
 
 Status verify_segment_field(const Block& block, std::string_view column_name, size_t row_id,
@@ -2002,30 +2124,93 @@ Status verify_segment_field(const Block& block, std::string_view column_name, si
     return Status::OK();
 }
 
-Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t segment_id) {
+Result<Block> read_row_binlog_segment(const TabletSharedPtr& tablet, std::string_view case_name,
+                                      uint32_t segment_id) {
     const auto schema = tablet->row_binlog_tablet_schema();
     RowsetWriterContext read_context;
     read_context.tablet_schema = schema;
     read_context.tablet_id = tablet->tablet_id();
     read_context.rowset_id.init(10002);
     auto contents_result = read_logical_segment(
-            fmt::format("{}/mow_row_binlog_before/segment_{}.dat", kTestDir, segment_id),
-            segment_id, schema, read_context, false);
+            fmt::format("{}/{}/segment_{}.dat", kTestDir, case_name, segment_id), segment_id,
+            schema, read_context, false);
     if (!contents_result.has_value()) {
-        return contents_result.error();
+        return unexpected(contents_result.error());
     }
-    const auto& block = contents_result.value().block;
+    auto contents = std::move(contents_result).value();
+    return std::move(contents.block);
+}
+
+Status verify_row_binlog_partial_update_segment(const TabletSharedPtr& tablet,
+                                                std::string_view case_name, uint32_t segment_id) {
+    auto block_result = read_row_binlog_segment(tablet, case_name, segment_id);
+    if (!block_result.has_value()) {
+        return block_result.error();
+    }
+    const auto& block = block_result.value();
     if (block.rows() != 3) {
-        return Status::InternalError("mow_row_binlog_before segment {} has {} rows, expected 3",
+        return Status::InternalError("{} segment {} has {} rows, expected 3", case_name, segment_id,
+                                     block.rows());
+    }
+
+    const auto key_base = static_cast<Int32>(segment_id * 10);
+    for (size_t row_id = 0; row_id < block.rows(); ++row_id) {
+        const auto key = key_base + static_cast<Int32>(row_id);
+        const auto operation = row_id < 2 ? ROW_BINLOG_UPDATE : ROW_BINLOG_APPEND;
+        RETURN_IF_ERROR(
+                verify_segment_field(block, "k1", row_id, Field::create_field<TYPE_INT>(key)));
+        RETURN_IF_ERROR(verify_segment_field(
+                block, "v1", row_id,
+                Field::create_field<TYPE_INT>(static_cast<Int32>(7000 + key))));
+        if (row_id < 2) {
+            RETURN_IF_ERROR(verify_segment_field(
+                    block, "v2", row_id,
+                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(4000 + key))));
+        } else {
+            RETURN_IF_ERROR(verify_segment_field(block, "v2", row_id, Field {}));
+        }
+        RETURN_IF_ERROR(verify_segment_field(
+                block, BINLOG_OP_COL, row_id,
+                Field::create_field<TYPE_BIGINT>(static_cast<Int64>(operation))));
+    }
+    return Status::OK();
+}
+
+struct RowBinlogBeforeVerificationOptions {
+    std::string_view case_name;
+    bool use_cluster_key_history = false;
+    bool include_existing_key_delete = true;
+    bool include_missing_key_delete = true;
+};
+
+Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t segment_id,
+                                        const RowBinlogBeforeVerificationOptions& options) {
+    auto block_result = read_row_binlog_segment(tablet, options.case_name, segment_id);
+    if (!block_result.has_value()) {
+        return block_result.error();
+    }
+    const auto& block = block_result.value();
+    if (block.rows() != 3) {
+        return Status::InternalError("{} segment {} has {} rows, expected 3", options.case_name,
                                      segment_id, block.rows());
     }
 
     const auto key_base = static_cast<Int32>(segment_id * 10);
     for (size_t row_id = 0; row_id < block.rows(); ++row_id) {
         const auto key = key_base + static_cast<Int32>(row_id);
-        const auto operation = row_id == 0 ? ROW_BINLOG_UPDATE : ROW_BINLOG_DELETE;
+        const bool is_delete = (row_id == 1 && options.include_existing_key_delete) ||
+                               (row_id == 2 && options.include_missing_key_delete);
+        auto operation = row_id < 2 ? ROW_BINLOG_UPDATE : ROW_BINLOG_APPEND;
+        if (is_delete) {
+            operation = ROW_BINLOG_DELETE;
+        }
         RETURN_IF_ERROR(
                 verify_segment_field(block, "k1", row_id, Field::create_field<TYPE_INT>(key)));
+        RETURN_IF_ERROR(verify_segment_field(
+                block, "v1", row_id, Field::create_field<TYPE_INT>(static_cast<Int32>(100 + key))));
+        RETURN_IF_ERROR(verify_segment_field(
+                block, "v2", row_id,
+                Field::create_field<TYPE_BIGINT>(static_cast<Int64>(200 + key))));
         RETURN_IF_ERROR(verify_segment_field(
                 block, BINLOG_OP_COL, row_id,
                 Field::create_field<TYPE_BIGINT>(static_cast<Int64>(operation))));
@@ -2033,9 +2218,10 @@ Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t 
             RETURN_IF_ERROR(verify_segment_field(
                     block, "__BEFORE__v1__", row_id,
                     Field::create_field<TYPE_INT>(static_cast<Int32>(3000 + key))));
+            const auto before_v2 = options.use_cluster_key_history ? 4000 - key : 4000 + key;
             RETURN_IF_ERROR(verify_segment_field(
                     block, "__BEFORE__v2__", row_id,
-                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(4000 + key))));
+                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(before_v2))));
         } else {
             RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v1__", row_id, Field {}));
             RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v2__", row_id, Field {}));
@@ -2050,6 +2236,10 @@ Status compare_logical_segments(std::string_view case_name, uint32_t segment_id,
     if (current.physical_column_metadata != golden.physical_column_metadata) {
         return Status::InternalError("physical column metadata changed for {} segment {}",
                                      case_name, segment_id);
+    }
+    if (current.normalized_footer_metadata != golden.normalized_footer_metadata) {
+        return Status::InternalError("Segment footer metadata changed for {} segment {}", case_name,
+                                     segment_id);
     }
     if (current.block.columns() != golden.block.columns() ||
         current.block.rows() != golden.block.rows()) {
@@ -2089,6 +2279,10 @@ Status compare_logical_segments(std::string_view case_name, uint32_t segment_id,
     if (current.primary_keys != golden.primary_keys) {
         return Status::InternalError("primary key index changed for {} segment {}", case_name,
                                      segment_id);
+    }
+    if (current.primary_key_bloom_payload != golden.primary_key_bloom_payload) {
+        return Status::InternalError("primary-key Bloom payload changed for {} segment {}",
+                                     case_name, segment_id);
     }
     if (current.has_primary_key_index != golden.has_primary_key_index ||
         current.primary_key_index_rows != golden.primary_key_index_rows ||
@@ -2150,7 +2344,7 @@ protected:
             const auto current_path = file_writer_creator.path(segment_id);
             const auto golden_path =
                     fmt::format("{}/{}/segment_{}.dat", kGoldenDir, case_name, segment_id);
-            if (context.partial_update_info != nullptr &&
+            if (!context.write_binlog_opt().enable && context.partial_update_info != nullptr &&
                 context.partial_update_info->is_partial_update()) {
                 // Partial update may intentionally change physical column/page order. Compare all
                 // stored columns and the primary-key index after reading both Segment files.
@@ -2512,7 +2706,8 @@ protected:
 
     Result<RowsetSharedPtr> write_mow_history(const TabletSharedPtr& tablet,
                                               const TabletSchemaSPtr& schema,
-                                              int64_t rowset_numeric_id) {
+                                              int64_t rowset_numeric_id,
+                                              bool use_cluster_key_order = false) {
         RowsetWriterContext context;
         context.rowset_id.init(rowset_numeric_id);
         context.tablet_id = tablet->tablet_id();
@@ -2535,7 +2730,7 @@ protected:
             return unexpected(writer_result.error());
         }
         auto writer = std::move(writer_result).value();
-        auto block_result = create_mow_history_block(schema);
+        auto block_result = create_mow_history_block(schema, use_cluster_key_order);
         if (!block_result.has_value()) {
             return unexpected(block_result.error());
         }
@@ -2549,13 +2744,18 @@ protected:
 
     TabletSharedPtr create_binlog_tablet(int64_t tablet_id, bool enable_mow,
                                          bool include_before_columns = false,
-                                         bool with_sequence = false) {
+                                         bool with_sequence = false,
+                                         bool with_cluster_key = false) {
+        DORIS_CHECK(!with_cluster_key || enable_mow);
         auto request = testutil::create_tablet_request(
                 tablet_id, 270068390, 10001, 1,
                 enable_mow ? TKeysType::UNIQUE_KEYS : TKeysType::DUP_KEYS,
                 {{"k1", TPrimitiveType::INT, true},
                  {"v1", TPrimitiveType::INT, false, true, TAggregationType::NONE},
                  {"v2", TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}});
+        if (with_cluster_key) {
+            request.tablet_schema.cluster_key_uids.push_back(2);
+        }
         if (enable_mow) {
             request.tablet_schema.columns.push_back(testutil::create_tablet_column(
                     {DELETE_SIGN, TPrimitiveType::TINYINT, false, true, TAggregationType::NONE}));
@@ -2601,6 +2801,7 @@ protected:
             request.__set_enable_unique_key_merge_on_write(true);
         }
         testutil::enable_row_binlog(&request);
+        request.row_binlog_schema.cluster_key_uids.clear();
         auto erase_binlog_column = [&](std::string_view name) {
             auto& columns = request.row_binlog_schema.columns;
             const auto it =
@@ -2685,18 +2886,18 @@ protected:
         context.tablet_id = tablet->tablet_id();
         context.tablet = tablet;
         context.data_dir = tablet->data_dir();
-        context.is_transient_rowset_writer = partial_update_info == nullptr && history.empty();
-        context.partial_update_info = partial_update_info;
+        const bool source_is_transient = partial_update_info == nullptr && history.empty();
+        std::shared_ptr<MowContext> source_mow_context;
         if (partial_update_info != nullptr || !history.empty()) {
-            context.mow_context = make_mow_context(tablet->tablet_id(), history);
+            source_mow_context = make_mow_context(tablet->tablet_id(), history);
         }
         context.write_binlog_opt().enable = true;
         context.write_binlog_opt().set_need_before(need_before);
         auto& options = context.write_binlog_opt().write_binlog_config();
         options.source.tablet_schema = tablet->tablet_schema();
         options.source.partial_update_info = partial_update_info;
-        options.source.mow_context = context.mow_context;
-        options.source.is_transient_rowset_writer = context.is_transient_rowset_writer;
+        options.source.mow_context = std::move(source_mow_context);
+        options.source.is_transient_rowset_writer = source_is_transient;
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
         for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
             auto lsn_ids = std::make_shared<std::vector<int64_t>>();
@@ -2968,11 +3169,9 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
         auto result = flush_twice(case_name, schema, std::move(blocks),
                                   index_case.enable_vertical_writer);
         ASSERT_TRUE(result.has_value()) << result.error();
-        if (index_case.storage_format != InvertedIndexStorageFormatPB::V1) {
-            for (const auto& segment : result.value()) {
-                ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
-                ASSERT_FALSE(segment.auxiliary_files[0].bytes.empty()) << case_name;
-            }
+        for (const auto& segment : result.value()) {
+            ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
+            ASSERT_FALSE(segment.auxiliary_files[0].bytes.empty()) << case_name;
         }
     }
 
@@ -3410,6 +3609,11 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
                             configure_row_binlog_context(context, mow_binlog_tablet,
                                                          binlog_partial_update, binlog_history);
                         })));
+    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
+        const auto status = verify_row_binlog_partial_update_segment(
+                mow_binlog_tablet, "mow_row_binlog_horizontal", segment_id);
+        ASSERT_TRUE(status.ok()) << status;
+    }
 
     auto sequence_binlog_tablet = create_binlog_tablet(22004, true, false, true);
     ASSERT_NE(sequence_binlog_tablet, nullptr);
@@ -3481,6 +3685,11 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
         EXPECT_TRUE(sequence_lookup_results[index].first);
         EXPECT_EQ(sequence_lookup_results[index].second, expected_sequence_lookup_statuses[index]);
     }
+    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
+        const auto status = verify_row_binlog_partial_update_segment(
+                sequence_binlog_tablet, "mow_sequence_row_binlog_horizontal", segment_id);
+        ASSERT_TRUE(status.ok()) << status;
+    }
 
     auto before_binlog_tablet = create_binlog_tablet(22003, true, true);
     ASSERT_NE(before_binlog_tablet, nullptr);
@@ -3513,7 +3722,82 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
             });
     ASSERT_TRUE(before_result.has_value()) << before_result.error();
     for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
-        const auto status = verify_row_binlog_before_segment(before_binlog_tablet, segment_id);
+        const auto status = verify_row_binlog_before_segment(
+                before_binlog_tablet, segment_id, {.case_name = "mow_row_binlog_before"});
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    auto cluster_binlog_tablet =
+            create_binlog_tablet(22005, /*enable_mow=*/true, /*include_before_columns=*/true,
+                                 /*with_sequence=*/true, /*with_cluster_key=*/true);
+    ASSERT_NE(cluster_binlog_tablet, nullptr);
+    auto cluster_binlog_history_result =
+            write_mow_history(cluster_binlog_tablet, cluster_binlog_tablet->tablet_schema(), 31011,
+                              /*use_cluster_key_order=*/true);
+    ASSERT_TRUE(cluster_binlog_history_result.has_value()) << cluster_binlog_history_result.error();
+    std::vector<RowsetSharedPtr> cluster_binlog_history {cluster_binlog_history_result.value()};
+    auto cluster_upsert_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(cluster_upsert_info
+                        ->init(cluster_binlog_tablet->tablet_id(), 1,
+                               *cluster_binlog_tablet->tablet_schema(),
+                               UniqueKeyUpdateModePB::UPSERT, PartialUpdateNewRowPolicyPB::APPEND,
+                               {}, false, 0, 0, "UTC", "")
+                        .ok());
+    std::vector<Block> cluster_binlog_blocks;
+    for (int segment_id = 0; segment_id < 2; ++segment_id) {
+        auto block_result =
+                create_integer_tablet_block(cluster_binlog_tablet->tablet_schema(), segment_id,
+                                            {.include_missing_key_delete = false});
+        ASSERT_TRUE(block_result.has_value()) << block_result.error();
+        cluster_binlog_blocks.push_back(std::move(block_result).value());
+    }
+    std::vector<std::pair<bool, int>> cluster_lookup_results;
+    {
+        auto* sync_point = SyncPoint::get_instance();
+        const bool sync_point_was_enabled = sync_point->get_enable();
+        sync_point->enable_processing();
+        Defer restore_sync_point {[sync_point, sync_point_was_enabled] {
+            if (!sync_point_was_enabled) {
+                sync_point->disable_processing();
+            }
+        }};
+        SyncPoint::CallbackGuard lookup_guard;
+        sync_point->set_call_back(
+                "BaseTablet::lookup_row_key:found",
+                [cluster_binlog_tablet, cluster_binlog_history,
+                 &cluster_lookup_results](auto&& args) {
+                    auto* tablet = try_any_cast<BaseTablet*>(args[0]);
+                    auto* rowset = try_any_cast<Rowset*>(args[1]);
+                    if (tablet != cluster_binlog_tablet.get() ||
+                        rowset != cluster_binlog_history.front().get()) {
+                        return;
+                    }
+                    cluster_lookup_results.emplace_back(try_any_cast<bool>(args[2]),
+                                                        try_any_cast<int>(args[3]));
+                },
+                &lookup_guard);
+        ASSERT_TRUE(record(flush_twice(
+                "mow_cluster_sequence_row_binlog_before",
+                cluster_binlog_tablet->row_binlog_tablet_schema(), std::move(cluster_binlog_blocks),
+                false, 0, DataWriteType::TYPE_DIRECT, false,
+                [this, cluster_binlog_tablet, cluster_upsert_info,
+                 cluster_binlog_history](RowsetWriterContext& context) {
+                    configure_row_binlog_context(context, cluster_binlog_tablet,
+                                                 cluster_upsert_info, cluster_binlog_history, true);
+                })));
+    }
+    ASSERT_EQ(cluster_lookup_results.size(), 8);
+    for (const auto& [with_sequence, status_code] : cluster_lookup_results) {
+        EXPECT_TRUE(with_sequence);
+        EXPECT_EQ(status_code, ErrorCode::OK);
+    }
+    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
+        const auto status = verify_row_binlog_before_segment(
+                cluster_binlog_tablet, segment_id,
+                {.case_name = "mow_cluster_sequence_row_binlog_before",
+                 .use_cluster_key_history = true,
+                 .include_existing_key_delete = false,
+                 .include_missing_key_delete = false});
         ASSERT_TRUE(status.ok()) << status;
     }
 
