@@ -250,7 +250,7 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: count("
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: some columns in condition"
         contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
@@ -348,5 +348,137 @@ suite("set_preagg") {
         sql("""
             select count(*) from (select * from numbers("number"="10")) t;
         """)
+    }
+
+    explain {
+        sql("""select count(distinct k6, v7) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""select count(distinct k6, k5) from preagg_t1;""")
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: count(DISTINCT IF(...), value_col) — checkAggWithKeyAndValueSlots
+    // only inspects child(0) (the IF). Without a multi-arg guard, it would
+    // miss v7 in child(1) and incorrectly return ON.
+    explain {
+        sql("""
+            select count(distinct if(k6 > 0, k5, 0), v7) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""
+            select count(distinct case when k6 > 0 then k5 else 0 end, v7) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: count(DISTINCT key + random()) — volatile in the expression
+    // argument. With pre-agg ON, random() would be evaluated per partial row
+    // instead of per merged logical row, changing the distinct count.
+    explain {
+        sql("""select count(distinct k6 + random()) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // max/min(key + random()) have the same volatile concern.
+    explain {
+        sql("""select max(k6 + random()) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""select min(k6 + random()) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Volatile in an IF condition inside a mixed-key-value aggregate.
+    // The condition k6 + random() > 0 uses only key input slots but is
+    // volatile, so pre-agg must be OFF.
+    explain {
+        sql("""
+            select sum(if(k6 + random() > 0, v7, 0)) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Positive: two-project join where both aliases resolve to key-only
+    // expressions. With merge+resolve, x = k5 + 1 resolves fully to base
+    // key columns, so pre-agg can be ON for both scans.
+    explain {
+        sql("""
+            select count(distinct a)
+            from (
+                select l.k1 + l.x as a
+                from (
+                    select t1.k1, t1.k5 + 1 as x from preagg_t1 t1
+                ) l
+                inner join (
+                    select abs(t2.k1) as rk from preagg_t2 t2
+                ) r on l.k1 = r.rk
+            ) t;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+    }
+
+    // Negative: two-project join; x carries v7 + 1 (a value column). Even
+    // with merge+resolve, the fully resolved expression contains v7 so
+    // pre-agg is correctly OFF.
+    explain {
+        sql("""
+            select count(distinct a)
+            from (
+                select l.k1 + l.x as a
+                from (
+                    select t1.k1, t1.v7 + 1 as x from preagg_t1 t1
+                ) l
+                inner join (
+                    select abs(t2.k1) as rk from preagg_t2 t2
+                ) r on l.k1 = r.rk
+            ) t;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Bypass 1: volatile in an other-table aggregate function. max(r.k1 + random())
+    // is whitelisted as a duplicate-insensitive MAX for scan l; the candidate set
+    // for l is empty, so without a central volatile check it returns ON before
+    // reaching the per-function guard. Both scans must be OFF.
+    explain {
+        sql("""
+            select max(r.k1 + random())
+            from preagg_t1 l
+            inner join preagg_t2 r on l.k1 = r.k1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t2), PREAGGREGATION: ON"
+    }
+
+    // Bypass 2: volatile filter with no input slots. random() < 0.5 has an
+    // empty input-slot set, so the slot-based value-column check bypasses it.
+    // The central volatile guard must reject pre-agg on this scan.
+    explain {
+        sql("""
+            select sum(v7) from preagg_t1 where random() < 0.5;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Foreign value column in mixed aggregate: sum(if(abs(l.k1) > 0, r.v7, 0))
+    // references l.k1 (local key) and r.v7 (foreign value). The mixed helper
+    // must not use r.v7's SUM type to justify pre-agg on l — r.v7 is not
+    // a column of l. l must be OFF; r can be ON.
+    explain {
+        sql("""
+            select sum(if(t.a > 0, r.v7, 0))
+            from (select abs(k1) as a from preagg_t1) t
+            inner join preagg_t2 r on t.a = r.k1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
     }
 }
