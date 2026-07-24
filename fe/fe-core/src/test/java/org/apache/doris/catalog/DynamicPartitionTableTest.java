@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -322,10 +323,13 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.start\" = \"-3\",\n"
                 + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
-                + "\"dynamic_partition.prefix\" = \"p\",\n"
-                + "\"dynamic_partition.buckets\" = \"1\"\n"
+                + "\"dynamic_partition.prefix\" = \"p\"\n"
                 + ");";
         createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_miss_buckets");
+        Assert.assertEquals("Default buckets should come from table distribution (BUCKETS 32)",
+                32, table.getTableProperty().getDynamicPartitionProperty().getBuckets());
     }
 
     @Test
@@ -411,10 +415,15 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.end\" = \"3\",\n"
                 + "\"dynamic_partition.time_unit\" = \"day\",\n"
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
-                + "\"dynamic_partition.buckets\" = \"3\",\n"
-                + "\"dynamic_partition.time_zone\" = \"Asia/Shanghai\"\n"
+                + "\"dynamic_partition.buckets\" = \"3\"\n"
                 + ");";
         createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_miss_time_zone");
+        String expectedTz = TimeUtils.getSystemTimeZone().getID();
+        Assert.assertEquals("Default timezone should be system timezone",
+                expectedTz,
+                table.getTableProperty().getDynamicPartitionProperty().getTimeZone().getID());
     }
 
     @Test
