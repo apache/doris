@@ -83,23 +83,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 cacheRelationOutputs(table, qualifier, cachedOutputs));
     }
 
-    private static Optional<List<Slot>> cacheRelationOutputs(ExternalTable table, List<String> qualifier,
-            Optional<List<Slot>> cachedOutputs) {
-        if (cachedOutputs.isPresent()
-                || (!(table instanceof IcebergExternalTable) && !(table instanceof PaimonExternalTable))) {
-            return cachedOutputs;
-        }
-        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
-        Builder<Slot> slots = ImmutableList.builder();
-        List<String> qualified = Utils.qualifiedNameParts(qualifier, Util.getTempTableDisplayName(table.getName()));
-        // Capture columns while this relation's MVCC snapshot is current; later relations for the
-        // same table may legitimately replace the statement's table-only snapshot entry.
-        table.getFullSchema(MvccUtil.getSnapshotFromContext(table)).stream()
-                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified))
-                .forEach(slots::add);
-        return Optional.of(slots.build());
-    }
-
     /**
      * Constructor for LogicalFileScan.
      */
@@ -126,6 +109,23 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
+    }
+
+    private static Optional<List<Slot>> cacheRelationOutputs(ExternalTable table, List<String> qualifier,
+            Optional<List<Slot>> cachedOutputs) {
+        if (cachedOutputs.isPresent()
+                || (!(table instanceof IcebergExternalTable) && !(table instanceof PaimonExternalTable))) {
+            return cachedOutputs;
+        }
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
+        Builder<Slot> slots = ImmutableList.builder();
+        List<String> qualified = Utils.qualifiedNameParts(qualifier, Util.getTempTableDisplayName(table.getName()));
+        // Capture columns while this relation's MVCC snapshot is current; later relations for the
+        // same table may legitimately replace the statement's table-only snapshot entry.
+        table.getFullSchema(MvccUtil.getSnapshotFromContext(table)).stream()
+                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified))
+                .forEach(slots::add);
+        return Optional.of(slots.build());
     }
 
     public SelectedPartitions getSelectedPartitions() {
