@@ -87,7 +87,7 @@ under the License.
                 <artifactId>thrift-maven-plugin</artifactId>
                 <version>0.10.0</version>
                 <configuration>
-                    <generator>java:fullcamel</generator>
+                    <generator>java:fullcamel,generated_annotations=suppress</generator>
                     <thriftExecutable>${doris.thrift.executable}</thriftExecutable>
                     <thriftSourceRoot>${doris.thrift.source}</thriftSourceRoot>
                 </configuration>
