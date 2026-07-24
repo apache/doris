@@ -58,6 +58,11 @@ public class JdbcConnectorProvider implements ConnectorProvider {
             }
         }
 
+        // 1b. Mandatory, non-configurable driver_url security rule. checkProperties() runs this on
+        // both CREATE and ALTER CATALOG (both !isReplay), so a malicious driver_url cannot be
+        // introduced by either; metadata replay of existing catalogs is never affected.
+        JdbcDorisConnector.checkDriverUrlSecurityRule(resolve(properties, JdbcConnectorProperties.DRIVER_URL));
+
         // 2. Reject deprecated lower_case_table_names
         if (properties.containsKey(JdbcConnectorProperties.LOWER_CASE_TABLE_NAMES)
                 || properties.containsKey(

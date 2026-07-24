@@ -46,12 +46,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * External JDBC Catalog resource for external table query.
@@ -297,6 +301,10 @@ public class JdbcResource extends Resource {
         }
     }
 
+    // A scheme-less driver_url must be a plain jar file name: letters, digits, dot, underscore, hyphen.
+    // No path separator (encoded or not) and no other characters, so it can never escape jdbc_drivers_dir.
+    private static final Pattern SAFE_BARE_JAR_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
+
     public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
         if (!(driverUrl.startsWith("file://") || driverUrl.startsWith("http://")
                 || driverUrl.startsWith("https://") || driverUrl.matches("^[^:/]+\\.jar$"))) {
@@ -304,28 +312,131 @@ public class JdbcResource extends Resource {
                     + "file://xxx.jar, http://xxx.jar, https://xxx.jar, or xxx.jar (without prefix).");
         }
 
+        URI uri;
         try {
-            URI uri = new URI(driverUrl);
-            String schema = uri.getScheme();
-            checkCloudWhiteList(driverUrl);
-            if (schema == null && !driverUrl.startsWith("/")) {
-                return checkAndReturnDefaultDriverUrl(driverUrl);
-            }
-
-            if ("*".equals(Config.jdbc_driver_secure_path)) {
-                return driverUrl;
-            }
-
-            boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
-                    .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
-            if (!isAllowed) {
-                throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
-            }
-            return driverUrl;
+            uri = new URI(driverUrl);
         } catch (URISyntaxException e) {
-            LOG.warn("invalid jdbc driver url: " + driverUrl);
+            // Fail closed: an unparsable URL must never be silently accepted, otherwise the
+            // allowed-path check below could be bypassed by a malformed URL.
+            LOG.warn("invalid jdbc driver url: {}", driverUrl, e);
+            throw new IllegalArgumentException("Invalid driver URL: " + driverUrl);
+        }
+
+        String schema = uri.getScheme();
+        checkCloudWhiteList(driverUrl);
+        if (schema == null && !driverUrl.startsWith("/")) {
+            // Enforce the safe bare-name grammar in this shared resolver, before resolving under
+            // jdbc_drivers_dir. Otherwise an encoded separator (e.g. "%2e%2e%2Fevil.jar") passes the
+            // loose format check above and, once resolved and decoded by the loader, escapes the
+            // directory. The connector rule catches "%" too, but Iceberg/Paimon/legacy JDBC consumers
+            // call getFullDriverUrl directly and bypass that rule, so it must be enforced here.
+            if (!SAFE_BARE_JAR_NAME.matcher(driverUrl).matches()) {
+                throw new IllegalArgumentException(
+                        "Invalid driver_url: a driver file name must match [A-Za-z0-9._-]+.jar: " + driverUrl);
+            }
+            return checkAndReturnDefaultDriverUrl(driverUrl);
+        }
+
+        // "*" or an empty/blank value means allow all (the documented, backward-compatible contract).
+        String securePath = Config.jdbc_driver_secure_path;
+        if (securePath == null || securePath.trim().isEmpty() || "*".equals(securePath.trim())) {
             return driverUrl;
         }
+
+        if (!isDriverUrlAllowed(driverUrl, uri)) {
+            throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
+        }
+        return driverUrl;
+    }
+
+    /**
+     * Check whether {@code driverUrl} falls under one of the semicolon-separated prefixes configured in
+     * {@link Config#jdbc_driver_secure_path}. Matching is structural (component-based) rather than a raw string
+     * prefix, so that neither prefix confusion ({@code /opt/drivers} vs {@code /opt/drivers-evil}) nor path
+     * traversal ({@code /opt/drivers/../etc}) can slip a driver outside the allowed location.
+     */
+    private static boolean isDriverUrlAllowed(String driverUrl, URI uri) {
+        String scheme = uri.getScheme();
+        List<String> allowedPaths = new ArrayList<>();
+        for (String p : Config.jdbc_driver_secure_path.split(";")) {
+            String trimmed = p.trim();
+            if (!trimmed.isEmpty()) {
+                allowedPaths.add(trimmed);
+            }
+        }
+        if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+            URI candidate = uri.normalize();
+            return allowedPaths.stream().anyMatch(allowed -> remoteUrlMatches(candidate, allowed));
+        }
+        // Only file:// reaches here; bare absolute paths and bare "*.jar" are handled earlier.
+        // A local file URL must carry no authority, query or fragment. Otherwise validation (which
+        // looks only at URI.getPath()) and the consumers (URLClassLoader / checksum, which act on the
+        // whole original URL) would address different objects — e.g. "file://attacker/dir/x.jar" is
+        // fetched from a remote authority, and "file:///dir/x.jar?evil" maps to a sibling file.
+        String authority = uri.getRawAuthority();
+        if ((authority != null && !authority.isEmpty())
+                || uri.getRawQuery() != null || uri.getRawFragment() != null) {
+            return false;
+        }
+        Path candidate = toLocalPath(driverUrl).normalize();
+        return allowedPaths.stream()
+                .map(allowed -> toLocalPath(allowed).normalize())
+                .anyMatch(candidate::startsWith);
+    }
+
+    /**
+     * Turn a {@code file://} URL or a plain filesystem path into a {@link Path} for structural comparison.
+     * A {@code file://} URL is decoded exactly once via {@link URI#getPath()} so that percent-encoded
+     * segments (e.g. {@code %2e%2e}) are resolved into the same representation the driver-loading
+     * consumers ({@code URL.openStream} / {@code URLClassLoader}) will use; otherwise an encoded parent
+     * segment would survive normalization and escape the allowed directory.
+     */
+    private static Path toLocalPath(String pathOrUrl) {
+        if (pathOrUrl.startsWith("file:")) {
+            try {
+                String decoded = new URI(pathOrUrl).getPath();
+                if (decoded != null && !decoded.isEmpty()) {
+                    return Paths.get(decoded);
+                }
+            } catch (URISyntaxException ignored) {
+                // fall through to literal stripping below
+            }
+            int sep = pathOrUrl.indexOf("//");
+            return Paths.get(sep >= 0 ? pathOrUrl.substring(sep + 2) : pathOrUrl.substring("file:".length()));
+        }
+        return Paths.get(pathOrUrl);
+    }
+
+    /**
+     * Structural match for remote (http/https) driver URLs: scheme, host and port must be equal, and the
+     * candidate path must sit under the allowed path (component-based). A bare path prefix (no scheme) can
+     * never authorize a remote URL.
+     */
+    private static boolean remoteUrlMatches(URI candidate, String allowedPath) {
+        URI base;
+        try {
+            base = new URI(allowedPath).normalize();
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        if (base.getScheme() == null) {
+            return false;
+        }
+        // Scheme/host/port and the path prefix must match, and the resource-selecting components
+        // (user-info and query) that the checksum/classloader consumers act on must match exactly too,
+        // otherwise e.g. ".../download?id=approved" would authorize ".../download?id=evil".
+        return base.getScheme().equalsIgnoreCase(candidate.getScheme())
+                && base.getHost() != null && base.getHost().equalsIgnoreCase(candidate.getHost())
+                && base.getPort() == candidate.getPort()
+                && Objects.equals(base.getUserInfo(), candidate.getUserInfo())
+                && Objects.equals(base.getRawQuery(), candidate.getRawQuery())
+                && pathIsUnder(candidate.getPath(), base.getPath());
+    }
+
+    private static boolean pathIsUnder(String candidatePath, String basePath) {
+        Path candidate = Paths.get(candidatePath == null || candidatePath.isEmpty() ? "/" : candidatePath).normalize();
+        Path base = Paths.get(basePath == null || basePath.isEmpty() ? "/" : basePath).normalize();
+        return candidate.startsWith(base);
     }
 
     private static String checkAndReturnDefaultDriverUrl(String driverUrl) {

@@ -159,7 +159,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The safe path of the JDBC driver. When creating a JDBC Catalog, "
             + "you can configure multiple files or network paths that are allowed to be used, "
             + "separated by semicolons. "
-            + "The default is * to allow all; if set to empty, it also means to allow all"})
+            + "The default is * to allow all; if set to empty, it also means to allow all. "
+            + "When set to concrete paths, driver URLs are matched structurally (component-based), "
+            + "so path traversal and prefix confusion are rejected."})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"Functions that MySQL JDBC Catalog does not support pushing down"})
@@ -172,7 +174,9 @@ public class Config extends ConfigBase {
                     + "these variables, it just needs to accept them without error."})
     public static String[] mysql_compat_var_whitelist = {};
 
-    @ConfField(mutable = true, masterOnly = true, description = {"Force SQLServer Jdbc Catalog encrypt to false"})
+    @ConfField(description = {"Force SQLServer Jdbc Catalog encrypt to false. "
+            + "This is a security-sensitive switch (it disables SQLServer JDBC transport encryption), "
+            + "so it can only be set in fe.conf and is not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -2846,10 +2850,6 @@ public class Config extends ConfigBase {
             "The maximum number of worker threads for the HTTP SQL submitter."})
     public static int http_sql_submitter_max_worker_threads = 2;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "The maximum number of worker threads for the HTTP upload submitter."})
-    public static int http_load_submitter_max_worker_threads = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {
             "The threshold of load labels' number. After this number is exceeded, "
                     + "the labels of the completed import jobs or tasks will be deleted, "
@@ -3256,9 +3256,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "The allowlist for S3 load endpoints. If it is empty, no allowlist will be set. "
-                    + "For example: s3_load_endpoint_white_list=a,b,c"})
+                    + "For example: s3_load_endpoint_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
@@ -3290,9 +3292,11 @@ public class Config extends ConfigBase {
             ".dfs.core.cloudapi.de"
     };
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. "
-                    + "For example: jdbc_driver_url_white_list=a,b,c"})
+                    + "For example: jdbc_driver_url_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] jdbc_driver_url_white_list = {};
 
     @ConfField(description = {"The maximum length of label in Stream Load is limited."})
