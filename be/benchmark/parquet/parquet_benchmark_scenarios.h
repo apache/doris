@@ -37,7 +37,14 @@ enum class Encoding {
 enum class ValueType { INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY };
 enum class Pattern { CLUSTERED, ALTERNATING };
 enum class Projection { PREDICATE_ONLY, PREDICATE_PROJECTED };
-enum class ReaderOperation { OPEN_TO_FIRST_BLOCK, FULL_SCAN, PREDICATE_SCAN, LIMIT_1, LIMIT_1000 };
+enum class ReaderOperation {
+    OPEN_TO_FIRST_BLOCK,
+    FULL_SCAN,
+    PREDICATE_SCAN,
+    COMPLEX_RESIDUAL_SCAN,
+    LIMIT_1,
+    LIMIT_1000
+};
 
 struct DecoderScenario {
     Encoding encoding;
@@ -113,7 +120,8 @@ inline std::vector<ReaderScenario> reader_scenarios() {
                                    .predicate_position = 0};
     for (const auto operation :
          {ReaderOperation::OPEN_TO_FIRST_BLOCK, ReaderOperation::FULL_SCAN,
-          ReaderOperation::PREDICATE_SCAN, ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
+          ReaderOperation::PREDICATE_SCAN, ReaderOperation::COMPLEX_RESIDUAL_SCAN,
+          ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
         auto scenario = baseline;
         scenario.operation = operation;
         add(scenario);
@@ -252,12 +260,22 @@ inline std::string to_string(ReaderOperation value) {
         return "full_scan";
     case ReaderOperation::PREDICATE_SCAN:
         return "predicate_scan";
+    case ReaderOperation::COMPLEX_RESIDUAL_SCAN:
+        return "complex_residual_scan";
     case ReaderOperation::LIMIT_1:
         return "limit_1";
     case ReaderOperation::LIMIT_1000:
         return "limit_1000";
     }
     return "unknown";
+}
+
+inline std::string reader_scenario_name(const ReaderScenario& scenario) {
+    return to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/null_" +
+           std::to_string(scenario.null_percent) + "/" + to_string(scenario.null_pattern) +
+           "/sel_" + std::to_string(scenario.selectivity_percent) + "/" +
+           to_string(scenario.projection) + "/width_" + std::to_string(scenario.schema_width) +
+           "/predicate_" + std::to_string(scenario.predicate_position);
 }
 
 } // namespace doris::parquet_benchmark

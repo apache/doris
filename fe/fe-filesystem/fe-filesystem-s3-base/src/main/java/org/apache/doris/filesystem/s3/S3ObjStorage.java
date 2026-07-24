@@ -99,13 +99,26 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private final boolean usePathStyle;
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
+    private final Set<String> supportedSchemes;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile S3Client client;
 
     public S3ObjStorage(S3FileSystemProperties properties) {
+        this(properties, properties.getSupportedSchemes());
+    }
+
+    /**
+     * Variant for S3-compatible dialect providers (GCS/Minio/Ozone) that delegate to the
+     * generic S3 client but accept their own URI schemes (e.g. {@code gs://}). The inner
+     * {@link S3FileSystemProperties} only knows {@code {s3, s3a, s3n}}, so the dialect's
+     * scheme set must be threaded through explicitly or {@link ObjectStorageUri#parse}
+     * rejects the dialect's native URIs.
+     */
+    public S3ObjStorage(S3FileSystemProperties properties, Set<String> supportedSchemes) {
         this.s3Properties = properties;
         this.usePathStyle = properties.isUsePathStyle();
         this.bucket = properties.getBucket();
+        this.supportedSchemes = supportedSchemes;
     }
 
     public S3ObjStorage(Map<String, String> properties) {
@@ -123,7 +136,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     /** Returns the URI schemes this provider accepts (e.g. {@code {s3, s3a, s3n}}). */
     public Set<String> getSupportedSchemes() {
-        return s3Properties.getSupportedSchemes();
+        return supportedSchemes;
     }
 
     @Override

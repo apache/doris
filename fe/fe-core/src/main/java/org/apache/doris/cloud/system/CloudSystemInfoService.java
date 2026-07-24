@@ -689,7 +689,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    public static void updateFileCacheJobIds(CloudComputeGroupMeta cg, List<String> jobIds) {
+    public static boolean updateFileCacheJobIds(CloudComputeGroupMeta cg, List<String> jobIds) {
         Cloud.ClusterPolicy policy = Cloud.ClusterPolicy.newBuilder()
                 .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
                 .addAllCacheWarmupJobids(jobIds).build();
@@ -711,10 +711,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.info("update file cache jobIds, request: {}, response: {}",
                     getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("update file cache jobIds failed, response: {}", response);
+                LOG.warn("update file cache jobIds, response: {}", response);
+                return false;
             }
+            return true;
         } catch (RpcException e) {
             LOG.warn("failed to update file cache jobIds {}", cg, e);
+            return false;
         }
     }
 
