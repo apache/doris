@@ -904,12 +904,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        showJobState = jobState;
+
         // analyze define stmt
         if (origStmt == null) {
             return;
         }
 
-        showJobState = jobState;
         if (jobState != JobState.PENDING) {
             return;
         }
