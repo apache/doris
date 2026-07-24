@@ -615,7 +615,7 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
     }
 
     if (cnt_val.done) {
-        return Status::InternalError("Runtime filter has been sent",
+        return Status::InternalError("Runtime filter has been sent, filter: {}",
                                      cnt_val.merger->debug_string());
     }
     cnt_val.done = true;

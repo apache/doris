@@ -931,7 +931,7 @@ void FragmentMgr::_collect_invalid_queries(
                                 "Coordinator {}:{} is not found, but its host is still "
                                 "running with an unstable brpc port, not going to "
                                 "cancel "
-                                "it.",
+                                "it, query_id={}.",
                                 q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
                                 print_id(q_ctx->query_id()));
                         continue;

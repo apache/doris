@@ -168,7 +168,7 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     txn_partition_map_t& txn_partition_map = _get_txn_partition_map(transaction_id);
     if (txn_partition_map.size() > config::max_runnings_transactions_per_txn_map) {
         return Status::Error<TOO_MANY_TRANSACTIONS>("too many transactions: {}, limit: {}",
-                                                    txn_tablet_map.size(),
+                                                    txn_partition_map.size(),
                                                     config::max_runnings_transactions_per_txn_map);
     }
 

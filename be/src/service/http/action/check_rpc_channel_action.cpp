@@ -66,7 +66,7 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
             return;
         }
     } catch (const std::exception& e) {
-        std::string err = fmt::format("invalid argument. port: {0}, payload_size: {1}, reason: {}",
+        std::string err = fmt::format("invalid argument. port: {}, payload_size: {}, reason: {}",
                                       req_port, req_payload_size, e.what());
         LOG(WARNING) << err;
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, err);

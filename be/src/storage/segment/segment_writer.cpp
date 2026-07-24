@@ -206,11 +206,11 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         auto gram_size = tablet_index->get_gram_size();
         auto gram_bf_size = tablet_index->get_gram_bf_size();
         if (gram_size > 256 || gram_size < 1) {
-            return Status::NotSupported("Do not support ngram bloom filter for ngram_size: ",
+            return Status::NotSupported("Do not support ngram bloom filter for ngram_size: {}",
                                         gram_size);
         }
         if (gram_bf_size > 65535 || gram_bf_size < 64) {
-            return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
+            return Status::NotSupported("Do not support ngram bloom filter for bf_size: {}",
                                         gram_bf_size);
         }
         opts.gram_size = cast_set<uint8_t>(gram_size);

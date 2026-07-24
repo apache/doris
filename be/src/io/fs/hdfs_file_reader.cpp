@@ -195,7 +195,7 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
 Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                        const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
+        return Status::InternalError("read closed file: {}", _path.native());
     }
 
     if (offset > _handle->file_size()) {

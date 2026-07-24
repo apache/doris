@@ -2251,7 +2251,7 @@ Status OrcReader::_orc_column_to_doris_column(
                                                                   converter::FileFormat::ORC);
             if (!converter->support()) {
                 return Status::InternalError(
-                        "The column type of '{}' has changed and is not supported: ", col_name,
+                        "The column type of '{}' has changed and is not supported: {}", col_name,
                         converter->get_error_msg());
             }
             // reuse the cached converter

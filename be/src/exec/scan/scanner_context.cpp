@@ -528,8 +528,9 @@ std::string ScannerContext::debug_string() {
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, _in_flight_tasks_num: {}, remaining_limit: {}, _num_running_scanners: {}, "
-            "_max_thread_num: {},"
+            " limit: {}, remaining_limit: {}, _in_flight_tasks_num: {}, "
+            "_num_finished_scanners: {}, "
+            "_max_scan_concurrency: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),

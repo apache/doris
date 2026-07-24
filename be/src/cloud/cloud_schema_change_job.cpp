@@ -101,7 +101,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                      << request.base_tablet_id;
         return Status::Error<TRY_LOCK_FAILED>(
                 "Failed to obtain schema change lock, there might be inverted index being "
-                "built on base_tablet=",
+                "built on base_tablet={}",
                 request.base_tablet_id);
     }
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler

@@ -666,7 +666,7 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer, OlapRead
         }
         return Status::Corruption(
                 "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, "
-                "cache_key: ",
+                "cache_key: {}",
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }

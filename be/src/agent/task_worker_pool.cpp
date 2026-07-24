@@ -202,8 +202,8 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                 MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
-                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
+                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id)),
+                engine.memory_limitation_bytes_per_thread_for_schema_change());
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
@@ -277,8 +277,8 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                         std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
-                        std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                        engine.memory_limitation_bytes_per_thread_for_schema_change()));
+                        std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id)),
+            engine.memory_limitation_bytes_per_thread_for_schema_change());
     SCOPED_ATTACH_TASK(mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
 
