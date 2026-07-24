@@ -250,7 +250,7 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: count("
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: some columns in condition"
         contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
@@ -441,6 +441,43 @@ suite("set_preagg") {
                     select abs(t2.k1) as rk from preagg_t2 t2
                 ) r on l.k1 = r.rk
             ) t;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Bypass 1: volatile in an other-table aggregate function. max(r.k1 + random())
+    // is whitelisted as a duplicate-insensitive MAX for scan l; the candidate set
+    // for l is empty, so without a central volatile check it returns ON before
+    // reaching the per-function guard. Both scans must be OFF.
+    explain {
+        sql("""
+            select max(r.k1 + random())
+            from preagg_t1 l
+            inner join preagg_t2 r on l.k1 = r.k1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+        notContains "(preagg_t2), PREAGGREGATION: ON"
+    }
+
+    // Bypass 2: volatile filter with no input slots. random() < 0.5 has an
+    // empty input-slot set, so the slot-based value-column check bypasses it.
+    // The central volatile guard must reject pre-agg on this scan.
+    explain {
+        sql("""
+            select sum(v7) from preagg_t1 where random() < 0.5;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Foreign value column in mixed aggregate: sum(if(abs(l.k1) > 0, r.v7, 0))
+    // references l.k1 (local key) and r.v7 (foreign value). The mixed helper
+    // must not use r.v7's SUM type to justify pre-agg on l — r.v7 is not
+    // a column of l. l must be OFF; r can be ON.
+    explain {
+        sql("""
+            select sum(if(t.a > 0, r.v7, 0))
+            from (select abs(k1) as a from preagg_t1) t
+            inner join preagg_t2 r on t.a = r.k1;
         """)
         notContains "(preagg_t1), PREAGGREGATION: ON"
     }
