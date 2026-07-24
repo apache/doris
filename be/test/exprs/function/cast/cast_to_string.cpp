@@ -57,27 +57,25 @@ TEST_F(FunctionCastToStringTest, from_float) {
                     1234567.000F,
                     "1234567",
             },
-            // 7 > e >= -4: decimal format.
-            // e < -4 or e >= 7: scientific format.
             {
                     123456.12345F,
-                    "123456.1",
+                    "123456.125",
             },
             {
                     1234567.12345F,
-                    "1234567",
+                    "1234567.1",
             },
             {
                     12345678.12345F,
-                    "1.234568e+07",
+                    "12345678",
             },
             {
                     123456789.12345F,
-                    "1.234568e+08",
+                    "123456790",
             },
             {
                     1234567890000.12345F,
-                    "1.234568e+12",
+                    "1234568000000",
             },
             {
                     0.33F,
@@ -89,27 +87,27 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     123.456789F,
-                    "123.4568",
+                    "123.45679",
             },
             {
                     123.456789123F,
-                    "123.4568",
+                    "123.45679",
             },
             {
                     123456.123456789F,
-                    "123456.1",
+                    "123456.125",
             },
             {
                     1234567.123456789F,
-                    "1234567",
+                    "1234567.1",
             },
             {
                     987654336.0F,
-                    "9.876543e+08",
+                    "987654340",
             },
             {
                     16777216.0F,
-                    "1.677722e+07",
+                    "16777216",
             },
             {
                     0.000123456F,
@@ -121,7 +119,7 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     0.00012345678F,
-                    "0.0001234568",
+                    "0.00012345678",
             },
             {
                     0.0000123456F,
@@ -133,7 +131,7 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     0.0000123456789F,
-                    "1.234568e-05",
+                    "1.2345679e-05",
             },
             {
                     0.000000000000001234567F,
@@ -141,7 +139,7 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     0.000000000000001234567890123456F,
-                    "1.234568e-15",
+                    "1.2345679e-15",
             },
             {
                     0.1234567F,
@@ -149,21 +147,21 @@ TEST_F(FunctionCastToStringTest, from_float) {
             },
             {
                     0.123456789F,
-                    "0.1234568",
+                    "0.12345679",
             },
 
             {
                     1234567890123456.12345F,
-                    "1.234568e+15",
+                    "1234568000000000",
             },
             {
                     12345678901234567.12345F,
-                    "1.234568e+16",
+                    "1.2345678e+16",
             },
-            {std::numeric_limits<float>::min(), "1.175494e-38"},
-            {std::numeric_limits<float>::lowest(), "-3.402823e+38"},
-            {std::numeric_limits<float>::denorm_min(), "1.401298e-45"},
-            {std::numeric_limits<float>::max(), "3.402823e+38"},
+            {std::numeric_limits<float>::min(), "1.1754944e-38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028235e+38"},
+            {std::numeric_limits<float>::denorm_min(), "1e-45"},
+            {std::numeric_limits<float>::max(), "3.4028235e+38"},
             {
                     std::numeric_limits<float>::infinity(),
                     "Infinity",
@@ -208,8 +206,6 @@ TEST_F(FunctionCastToStringTest, from_double) {
                     1234567.000,
                     "1234567",
             },
-            // 16 > e >= -4: decimal format.
-            // e < -4 or e >= 16: scientific format.
             {
                     123456.12345,
                     "123456.12345",
@@ -228,7 +224,7 @@ TEST_F(FunctionCastToStringTest, from_double) {
             },
             {
                     1234567890000.12345,
-                    "1234567890000.124",
+                    "1234567890000.1235",
             },
             {
                     0.33,
@@ -309,20 +305,20 @@ TEST_F(FunctionCastToStringTest, from_double) {
             },
             {
                     12345678901234567.12345,
-                    "1.234567890123457e+16",
+                    "1.2345678901234568e+16",
             },
             {
                     123456789012345678.12345,
-                    "1.234567890123457e+17",
+                    "1.2345678901234568e+17",
             },
-            {std::numeric_limits<float>::min(), "1.175494350822288e-38"},
-            {std::numeric_limits<float>::lowest(), "-3.402823466385289e+38"},
+            {std::numeric_limits<float>::min(), "1.1754943508222875e-38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028234663852886e+38"},
             {std::numeric_limits<float>::denorm_min(), "1.401298464324817e-45"},
-            {std::numeric_limits<float>::max(), "3.402823466385289e+38"},
-            {std::numeric_limits<double>::min(), "2.225073858507201e-308"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::denorm_min(), "4.940656458412465e-324"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308"},
+            {std::numeric_limits<float>::max(), "3.4028234663852886e+38"},
+            {std::numeric_limits<double>::min(), "2.2250738585072014e-308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::denorm_min(), "5e-324"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
             {
                     std::numeric_limits<float>::infinity(),
                     "Infinity",
