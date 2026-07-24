@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_aggregate_percentile_approx_array") {
+    sql "SET enable_agg_state = true"
     sql "DROP TABLE IF EXISTS percentile_approx_array_test"
     sql """
         CREATE TABLE percentile_approx_array_test (
@@ -85,6 +86,59 @@ suite("test_aggregate_percentile_approx_array") {
             percentile_approx_array(value, [0.25, 0.5, 0.75], CAST('-Infinity' AS DOUBLE))
         FROM percentile_approx_array_test
     """
+
+    def directMergeResult = sql """
+        SELECT percentile_approx_array_merge(
+            percentile_approx_array_state(value, [0.25, 0.5, 0.75], 2048)
+        )
+        FROM percentile_approx_array_test
+    """
+    def subqueryMergeResult = sql """
+        SELECT percentile_approx_array_merge(state)
+        FROM (
+            SELECT percentile_approx_array_state(
+                value, [0.25, 0.5, 0.75], 2048
+            ) AS state
+            FROM percentile_approx_array_test
+        ) states
+    """
+    assertEquals(directMergeResult, subqueryMergeResult)
+
+    def subqueryUnionResult = sql """
+        SELECT percentile_approx_array_merge(state)
+        FROM (
+            SELECT percentile_approx_array_union(state) AS state
+            FROM (
+                SELECT percentile_approx_array_state(
+                    value, [0.25, 0.5, 0.75], 2048
+                ) AS state
+                FROM percentile_approx_array_test
+            ) states
+        ) unions
+    """
+    assertEquals(directMergeResult, subqueryUnionResult)
+
+    test {
+        sql """
+            SELECT percentile_approx_array_merge(
+                percentile_approx_array_state(value, array(value / 100.0, 0.5))
+            )
+            FROM percentile_approx_array_test
+        """
+        exception "percentile_approx_array requires second parameter must be a constant"
+    }
+
+    test {
+        sql """
+            SELECT percentile_approx_array_merge(
+                percentile_approx_array_union(
+                    percentile_approx_array_state(value, array(value / 100.0, 0.5))
+                )
+            )
+            FROM percentile_approx_array_test
+        """
+        exception "percentile_approx_array requires second parameter must be a constant"
+    }
 
     explain {
         sql """
