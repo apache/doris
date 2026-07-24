@@ -89,18 +89,6 @@ TEST_F(AdaptiveBlockSizePredictorTest, NoHistoryReturnsMaxRows) {
     EXPECT_DOUBLE_EQ(pred.bytes_per_row_for_test(), expected_bpr);
 }
 
-TEST_F(AdaptiveBlockSizePredictorTest, ExplicitMaterializedSampleUsesPreFilterShape) {
-    AdaptiveBlockSizePredictor pred(kBlockBytes, 0.0);
-
-    // Callers that filter a block before returning it can still report the rows and bytes that
-    // were actually materialized upstream.
-    pred.update(32, 32 * 4096);
-
-    EXPECT_TRUE(pred.has_history_for_test());
-    EXPECT_DOUBLE_EQ(pred.bytes_per_row_for_test(), 4096.0);
-    EXPECT_EQ(pred.predict_next_rows(), 2048);
-}
-
 // ── Test 2: EWMA convergence ──────────────────────────────────────────────────
 // When every update delivers the same sample, the EWMA stays exactly at that
 // value (0.9*v + 0.1*v == v for any v).

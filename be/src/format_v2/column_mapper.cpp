@@ -399,33 +399,6 @@ std::string TableColumnMapperOptions::debug_string() const {
     return out.str();
 }
 
-bool requires_char_or_varchar_truncation(const ColumnMapping& mapping) {
-    if (mapping.table_type == nullptr) {
-        return false;
-    }
-    const auto table_type = remove_nullable(mapping.table_type);
-    const auto primitive_type = table_type->get_primitive_type();
-    if (primitive_type != TYPE_VARCHAR && primitive_type != TYPE_CHAR) {
-        return false;
-    }
-    const auto target_len = assert_cast<const DataTypeString*>(table_type.get())->len();
-    if (target_len <= 0) {
-        return false;
-    }
-    if (mapping.file_type == nullptr) {
-        return true;
-    }
-    const auto file_type = remove_nullable(mapping.file_type);
-    DORIS_CHECK(file_type != nullptr);
-    int file_len = -1;
-    if (file_type->get_primitive_type() == TYPE_VARCHAR ||
-        file_type->get_primitive_type() == TYPE_CHAR ||
-        file_type->get_primitive_type() == TYPE_STRING) {
-        file_len = assert_cast<const DataTypeString*>(file_type.get())->len();
-    }
-    return file_len < 0 || target_len < file_len;
-}
-
 std::string ColumnDefinition::debug_string() const {
     std::ostringstream out;
     out << "ColumnDefinition{name=" << name << ", identifier=" << field_debug_string(identifier)
@@ -2188,7 +2161,7 @@ Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_requ
 Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
         const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
-        RuntimeState* runtime_state, FilterLocalizationResult* localization_result) {
+        RuntimeState* runtime_state) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
     // table-column to file-column conversion, so it also owns the file-local block positions.
     file_request->predicate_columns.clear();
@@ -2224,8 +2197,7 @@ Status TableColumnMapper::create_scan_request(
     // 2. Build referenced predicate columns
     // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
-    RETURN_IF_ERROR(
-            localize_filters(table_filters, file_request, runtime_state, localization_result));
+    RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state));
     for (const auto& mapping : _hidden_mappings) {
         if (!mapping.file_local_id.has_value()) {
             continue;
@@ -2239,9 +2211,9 @@ Status TableColumnMapper::create_scan_request(
         if (is_visible_output) {
             continue;
         }
-        // A localized predicate is enforced exactly before TableReader materializes output. Only
-        // truly hidden mappings are absent from the final table block and may discard their
-        // payload after that file-local evaluation.
+        // File-local filtering is an optimization; Scanner still evaluates the original
+        // table-level conjunct after TableReader returns. Only truly hidden mappings are absent
+        // from that scanner-visible block and may safely discard their payload here.
         if (std::ranges::any_of(file_request->predicate_columns,
                                 [local_id](const LocalColumnIndex& projection) {
                                     return projection.column_id() == local_id;
@@ -2290,11 +2262,7 @@ ColumnMapping* TableColumnMapper::_find_filter_mapping(GlobalIndex global_index)
 
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
                                            FileScanRequest* file_request,
-                                           RuntimeState* runtime_state,
-                                           FilterLocalizationResult* localization_result) {
-    if (localization_result != nullptr) {
-        localization_result->localized_filters.assign(table_filters.size(), false);
-    }
+                                           RuntimeState* runtime_state) {
     std::set<LocalColumnId> localized_predicate_columns;
     FilterProjectionMap filter_projections;
     auto filter_mappings = _filter_visible_mappings();
@@ -2332,28 +2300,17 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
     // This keeps expression localization independent from filter iteration order.
     filter_mappings = _filter_visible_mappings();
     const auto global_to_file_slot = build_file_slot_rewrite_map(filter_mappings, _filter_entries);
-    for (size_t filter_index = 0; filter_index < table_filters.size(); ++filter_index) {
-        const auto& table_filter = table_filters[filter_index];
+    for (const auto& table_filter : table_filters) {
         if (table_filter.conjunct != nullptr && table_filter.conjunct->root() != nullptr) {
             const auto root = table_filter.conjunct->root();
             const auto impl = root->get_impl();
             const auto predicate = impl != nullptr ? impl : root;
-            if (!table_filter.can_localize || !predicate->is_deterministic() ||
+            if (!predicate->is_deterministic() ||
                 !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
                 continue;
             }
-            if (runtime_state != nullptr &&
-                runtime_state->query_options().truncate_char_or_varchar_columns &&
-                std::ranges::any_of(table_filter.global_indices, [&](GlobalIndex global_index) {
-                    const auto* mapping = _find_filter_mapping(global_index);
-                    return mapping != nullptr && requires_char_or_varchar_truncation(*mapping);
-                })) {
-                // The table predicate observes the bounded value after finalize; evaluating it on
-                // a wider file string would change equality and range semantics.
-                continue;
-            }
-            // FileReader becomes the exact owner only for a stable predicate whose complete
-            // expression can be rewritten against this split's physical schema.
+            // Scanner evaluates the original conjunct after final materialization. Only predicates
+            // whose result is stable across repeated execution may also run as a file-local copy.
             RewriteContext rewrite_context {.runtime_state = runtime_state};
             VExprSPtr rewrite_root;
             Status clone_status;
@@ -2364,7 +2321,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                 // `element_at(MAP_VALUES(m)[1], 'age') > 30`. The current file-local rewrite only
                 // understands top-level slots and struct-element paths rooted at top-level slots;
                 // cloning such expressions can hit the generic TExpr complex-type limitation.
-                // Leave them for TableReader after final table-schema materialization.
+                // Leave them above TableReader, where Scanner evaluates the original table-level
+                // conjunct after final materialization.
 #ifndef NDEBUG
                 return Status::InternalError(
                         "Failed to clone table filter for file-local rewrite: {}, expr={}",
@@ -2400,9 +2358,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
-            if (localization_result != nullptr) {
-                localization_result->localized_filters[filter_index] = true;
-            }
             for (const auto global_index : table_filter.global_indices) {
                 const auto* mapping = _find_filter_mapping(global_index);
                 if (mapping != nullptr && mapping->file_local_id.has_value() &&

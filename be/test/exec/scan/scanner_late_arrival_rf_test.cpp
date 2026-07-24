@@ -65,23 +65,6 @@ private:
     std::list<Block> _blocks;
 };
 
-class HighCostPredicate final : public VExpr {
-public:
-    HighCostPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
-
-    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
-                               ColumnPtr& result_column) const override {
-        result_column = ColumnUInt8::create(count, 1);
-        return Status::OK();
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-    double execute_cost() const override { return 100.0; }
-
-private:
-    const std::string _expr_name = "high_cost_stateful_predicate";
-};
-
 class ScannerLateArrivalRfTest : public RuntimeFilterTest {
 public:
     void SetUp() override {
@@ -100,7 +83,6 @@ public:
 // the counter advances after RFs arrive and that the second call short-circuits
 // via the fast path at the top of the function.
 TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
-    _runtime_states[0]->_query_options.__set_enable_adjust_conjunct_order_by_cost(true);
     std::vector<TRuntimeFilterDesc> rf_descs = {
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
@@ -122,55 +104,26 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
 
     auto local_state = std::make_shared<MockScanLocalState>(_runtime_states[0].get(), op.get());
 
-    auto initial_conjunct = VExprContext::create_shared(std::make_shared<HighCostPredicate>());
-    ASSERT_TRUE(initial_conjunct->prepare(_runtime_states[0].get(), row_desc).ok());
-    ASSERT_TRUE(initial_conjunct->open(_runtime_states[0].get()).ok());
-    local_state->_conjuncts.push_back(initial_conjunct);
-
     std::vector<std::shared_ptr<Dependency>> rf_dependencies;
     ASSERT_TRUE(local_state->_helper.init(_runtime_states[0].get(), true, 0, 0, rf_dependencies, "")
                         .ok());
+
+    auto scanner = std::make_unique<TestScanner>(_runtime_states[0].get(), local_state.get(),
+                                                 -1 /*limit*/, &_profile);
+    ASSERT_TRUE(scanner->init(_runtime_states[0].get(), {}).ok());
+    ASSERT_EQ(scanner->_total_rf_num, 2);
+    ASSERT_EQ(scanner->_applied_rf_num, 0);
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), rf_descs.data(), &producer).ok());
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     local_state->_helper._consumers[0]->signal(producer.get());
-    ASSERT_TRUE(local_state->_helper
-                        .acquire_runtime_filter(_runtime_states[0].get(), local_state->_conjuncts,
-                                                row_desc)
-                        .ok());
-    ASSERT_EQ(local_state->_conjuncts.size(), 2);
-
-    auto scanner = std::make_unique<TestScanner>(_runtime_states[0].get(), local_state.get(),
-                                                 -1 /*limit*/, &_profile);
-    ASSERT_TRUE(scanner->init(_runtime_states[0].get(), local_state->_conjuncts).ok());
-    auto second_scanner = std::make_unique<TestScanner>(_runtime_states[0].get(), local_state.get(),
-                                                        -1 /*limit*/, &_profile);
-    ASSERT_TRUE(second_scanner->init(_runtime_states[0].get(), local_state->_conjuncts).ok());
-    ASSERT_EQ(scanner->_total_rf_num, 2);
-    ASSERT_EQ(scanner->_applied_rf_num, 0);
-
     local_state->_helper._consumers[1]->signal(producer.get());
 
     // First call after both RFs arrived: counter must advance to total. Before
     // the fix this stayed at 0 because the assignment was missing.
     ASSERT_TRUE(scanner->try_append_late_arrival_runtime_filter().ok());
     ASSERT_EQ(scanner->_applied_rf_num, 2);
-    ASSERT_EQ(scanner->_late_arrival_rf_conjuncts.size(), 1);
-    for (const auto& conjunct : scanner->_late_arrival_rf_conjuncts) {
-        EXPECT_NE(dynamic_cast<const RuntimeFilterExpr*>(conjunct->root().get()), nullptr);
-    }
-    ASSERT_EQ(scanner->_conjuncts.size(), 3);
-    EXPECT_EQ(scanner->_conjuncts.back()->expr_name(), "high_cost_stateful_predicate");
-
-    // The first scanner consumes the shared helper's expression, so another scanner can only get
-    // the exact delta from the local state's append-only RF batch history.
-    ASSERT_TRUE(second_scanner->try_append_late_arrival_runtime_filter().ok());
-    ASSERT_EQ(second_scanner->_applied_rf_num, 2);
-    ASSERT_EQ(second_scanner->_late_arrival_rf_conjuncts.size(), 1);
-    EXPECT_NE(dynamic_cast<const RuntimeFilterExpr*>(
-                      second_scanner->_late_arrival_rf_conjuncts[0]->root().get()),
-              nullptr);
 
     // Second call: must hit the fast-path early return without re-cloning.
     // We clear `_conjuncts` and verify the function does NOT repopulate them;

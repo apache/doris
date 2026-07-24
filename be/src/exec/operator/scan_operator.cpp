@@ -71,19 +71,13 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
-Status ScanLocalStateBase::update_late_arrival_runtime_filter(
-        RuntimeState* state, int applied_rf_num, int& arrived_rf_num,
-        VExprContextSPtrs& arrived_conjuncts) {
+Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
+                                                              int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     LockGuard lock(_conjuncts_lock);
-    arrived_conjuncts.clear();
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
-    if (_conjuncts.size() > conjuncts_before) {
-        VExprContextSPtrs appended(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
-        _late_arrival_conjunct_batches.emplace_back(arrived_rf_num, std::move(appended));
-    }
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
@@ -96,16 +90,6 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(
     // CPU re-evaluating the same set of RFs against the same boundaries.
     if (_conjuncts.size() > conjuncts_before) {
         RETURN_IF_ERROR(_on_runtime_filter_update());
-    }
-    for (const auto& [batch_arrived_rf_num, batch] : _late_arrival_conjunct_batches) {
-        if (batch_arrived_rf_num <= applied_rf_num) {
-            continue;
-        }
-        for (const auto& conjunct : batch) {
-            VExprContextSPtr cloned;
-            RETURN_IF_ERROR(conjunct->clone(state, cloned));
-            arrived_conjuncts.push_back(std::move(cloned));
-        }
     }
     return Status::OK();
 }

@@ -163,12 +163,6 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
         const format::SplitReadOptions& options) {
     RETURN_IF_ERROR(close());
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
-    if (current_split_pruned()) {
-        return Status::OK();
-    }
-    // This synthetic reader has no physical schema where a predicate can be localized, so every
-    // split predicate must run after its system-table columns have been materialized.
-    RETURN_IF_ERROR(_prepare_all_conjuncts_as_remaining());
     // The inner delete-file reader has distinct counters, so the outer preparation can safely
     // contain its cache miss/open work without re-entering the same RuntimeProfile timer.
     SCOPED_TIMER(_profile.total_timer);
@@ -181,7 +175,6 @@ Status IcebergPositionDeleteSysTableV2Reader::prepare_split(
 Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.exec_timer);
-    _reset_materialized_block_stats();
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
@@ -199,19 +192,9 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
         return Status::OK();
     }
 
+    size_t read_rows = 0;
     if (_delete_file_kind == DeleteFileKind::DELETION_VECTOR) {
-        size_t read_rows = 0;
-        RETURN_IF_ERROR(_append_deletion_vector_block(block, &read_rows, eos));
-        if (read_rows > 0) {
-            _record_materialized_block_stats(*block, read_rows);
-            RETURN_IF_ERROR(_filter_remaining_conjuncts(block, &read_rows));
-        }
-        if (read_rows == 0) {
-            // Yield after one deletion-vector batch so cancellation and Scanner row budgets are
-            // observed even when residual predicates reject every synthesized row.
-            block->clear_column_data(_projected_columns.size());
-        }
-        return Status::OK();
+        return _append_deletion_vector_block(block, &read_rows, eos);
     }
 
     DORIS_CHECK(_position_reader != nullptr);
@@ -225,18 +208,8 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
         RETURN_IF_ERROR(_position_reader->get_block(&delete_block, &position_reader_eof));
         const size_t delete_rows = delete_block.rows();
         if (delete_rows > 0) {
-            size_t read_rows = 0;
             RETURN_IF_ERROR(
                     _append_position_delete_block(block, delete_block, delete_rows, &read_rows));
-            _record_materialized_block_stats(*block, read_rows);
-            RETURN_IF_ERROR(_filter_remaining_conjuncts(block, &read_rows));
-            if (read_rows == 0) {
-                // A filtered materialized batch is still progress; return it to Scanner instead of
-                // consuming an unbounded number of position-delete batches in this call.
-                block->clear_column_data(_projected_columns.size());
-                *eos = false;
-                return Status::OK();
-            }
             *eos = false;
             return Status::OK();
         }
