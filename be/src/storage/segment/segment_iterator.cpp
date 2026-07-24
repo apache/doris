@@ -924,7 +924,13 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     bool has_common_expr_push_down = !_common_expr_ctxs_push_down.empty();
     bool has_column_predicate = std::any_of(_is_pred_column.begin(), _is_pred_column.end(),
                                             [](bool is_pred) { return is_pred; });
-    if (!has_ann_index || has_common_expr_push_down || has_column_predicate) {
+    // A column predicate no longer forces a brute-force fallback: it can be pre-evaluated
+    // into the candidate bitmap (see _eager_filter_predicates_into_bitmap). A common-expr
+    // push-down is not yet pre-filtered, so it still falls back.
+    bool prefilter_column_predicate = has_column_predicate && !has_common_expr_push_down &&
+                                      _enable_ann_topn_predicate_prefilter();
+    if (!has_ann_index || has_common_expr_push_down ||
+        (has_column_predicate && !prefilter_column_predicate)) {
         VLOG_DEBUG << fmt::format(
                 "Ann topn can not be evaluated by ann index, has_ann_index: {}, "
                 "has_common_expr_push_down: {}, has_column_predicate: {}",
@@ -969,6 +975,13 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         _need_read_data_indices[src_cid] = true;
         _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
+    }
+
+    // Run the pre-filter here: after the metric/direction checks above (so a query that would
+    // fall back anyway does not pay for it) and before pre_size below (so the small-candidate
+    // threshold sees the post-predicate count).
+    if (prefilter_column_predicate) {
+        RETURN_IF_ERROR(_eager_filter_predicates_into_bitmap());
     }
 
     size_t pre_size = _row_bitmap.cardinality();
@@ -1058,6 +1071,79 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     VLOG_DEBUG << fmt::format(
             "Enable ANN index-only scan for src column cid {} (skip reading data pages)", src_cid);
 
+    return Status::OK();
+}
+
+bool SegmentIterator::_enable_ann_topn_predicate_prefilter() const {
+    return _opts.runtime_state != nullptr &&
+           _opts.runtime_state->query_options().__isset.enable_ann_topn_predicate_prefilter &&
+           _opts.runtime_state->query_options().enable_ann_topn_predicate_prefilter;
+}
+
+Status SegmentIterator::_eager_filter_predicates_into_bitmap() {
+    // The residual column predicates (those not resolvable by zonemap/inverted/bitmap index, hence
+    // not yet reflected in _row_bitmap) are evaluated here over the candidate rows, and the
+    // survivors are intersected back into _row_bitmap. The narrowed bitmap is then fed to the ANN
+    // index as an IDSelector (see AnnTopNRuntime::evaluate_vector_ann_search), so a predicated
+    // TopN query keeps using the index instead of degrading to an O(N) brute-force distance scan.
+    //
+    // This runs before the main scan loop sets up _range_iter / _block_rowids /
+    // _current_return_columns (see _lazy_init), so it allocates the predicate columns and drives a
+    // local pass with the same _read_columns_by_index + predicate-evaluation primitives the main
+    // loop uses. All of those members are re-initialized by the main loop afterwards (_range_iter
+    // is recreated over the narrowed _row_bitmap right after _apply_ann_topn_predicate returns).
+    if (!_is_need_vec_eval && !_is_need_short_eval) {
+        // has_column_predicate was true but every predicate was already resolved via index;
+        // there is nothing left to evaluate per row.
+        return Status::OK();
+    }
+
+    _current_return_columns.resize(_schema->columns().size());
+    for (auto cid : _predicate_column_ids) {
+        auto storage_column_type = _storage_name_and_type[cid].second;
+        RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] = Schema::get_predicate_column_ptr(
+                                          storage_column_type, _opts.io_ctx.reader_type));
+        _current_return_columns[cid]->set_rowset_segment_id(
+                {_segment->rowset_id(), _segment->id()});
+    }
+
+    if (_block_rowids.size() < _opts.block_row_max) {
+        _block_rowids.resize(_opts.block_row_max);
+    }
+
+    _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
+    roaring::Roaring survivors;
+    while (true) {
+        // The predicate columns are reused across batches, so clear them before each read just
+        // like the main scan loop does in _init_current_block. Without this, _read_columns_by_index
+        // appends onto the previous batch's data and predicate evaluation reads stale rows once the
+        // candidate set spans more than one block_row_max batch.
+        for (auto cid : _predicate_column_ids) {
+            _current_return_columns[cid]->clear();
+        }
+        _selected_size = 0;
+        RETURN_IF_ERROR(_read_columns_by_index(_opts.block_row_max, _selected_size));
+        if (_selected_size == 0) {
+            break;
+        }
+        // Mirror the normal scan loop's post-read fixups (_next_batch_internal): __DORIS_VERSION_COL__
+        // and the row-binlog TSO column are stored as placeholders on disk and only become their
+        // real, predicate-visible values after these substitutions. Skipping them here would let a
+        // predicate on one of those columns narrow _row_bitmap using placeholder data, diverging
+        // from what the normal/brute-force path would evaluate.
+        _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
+        _update_tso_col_if_needed(_predicate_column_ids, _selected_size);
+        _sel_rowid_idx.resize(_selected_size);
+        _convert_dict_code_for_predicate_if_necessary();
+        uint16_t selected =
+                _evaluate_vectorization_predicate(_sel_rowid_idx.data(), _selected_size);
+        selected = _evaluate_short_circuit_predicate(_sel_rowid_idx.data(), selected);
+        for (uint16_t i = 0; i < selected; ++i) {
+            survivors.add(_block_rowids[_sel_rowid_idx[i]]);
+        }
+    }
+
+    _row_bitmap &= survivors;
     return Status::OK();
 }
 
