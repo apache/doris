@@ -163,6 +163,17 @@ int main(int argc, char** argv) {
 
 namespace doris::cloud {
 
+static std::unique_ptr<InstanceRecycler> create_mock_recycler(std::shared_ptr<TxnKv> txn_kv,
+                                                              const std::string& resource_id);
+static void put_packed_file_info(TxnKv* txn_kv, const std::string& packed_file_path,
+                                 const PackedFileInfoPB& packed_info);
+static bool get_packed_file_info(TxnKv* txn_kv, const std::string& packed_file_path,
+                                 PackedFileInfoPB* packed_info);
+static PackedSlicePB create_packed_slice(int64_t tablet_id, const std::string& rowset_id,
+                                         int64_t size, bool deleted = false);
+static PackedFileInfoPB create_packed_file_info(const std::string& resource_id,
+                                                std::initializer_list<PackedSlicePB> slices);
+
 TEST(RecyclerTest, WhiteBlackList) {
     WhiteBlackList filter;
     EXPECT_FALSE(filter.filter_out("instance1"));
@@ -178,6 +189,124 @@ TEST(RecyclerTest, WhiteBlackList) {
     filter.reset({"instance1"}, {"instance1"}); // whitelist overrides blacklist
     EXPECT_FALSE(filter.filter_out("instance1"));
     EXPECT_TRUE(filter.filter_out("instance2"));
+}
+
+TEST(RecyclerTest, FlushPackedFileRefsMarksMultipleRowsetsInOneRmw) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string resource_id = "packed_resource_1";
+    const std::string packed_file_path = "data/packed_file/flush_multi";
+    auto recycler = create_mock_recycler(txn_kv, resource_id);
+
+    PackedFileInfoPB packed_info = create_packed_file_info(
+            resource_id,
+            {create_packed_slice(10001, "rowset_a", 10),
+             create_packed_slice(10001, "rowset_a", 20),
+             create_packed_slice(10002, "rowset_b", 30),
+             create_packed_slice(10003, "rowset_c", 40)});
+    put_packed_file_info(txn_kv.get(), packed_file_path, packed_info);
+
+    std::unordered_map<std::string, std::vector<InstanceRecycler::PackedRowsetRef>> refs;
+    refs[packed_file_path].push_back({10001, "rowset_a", 2});
+    refs[packed_file_path].push_back({10002, "rowset_b", 1});
+
+    ASSERT_EQ(recycler->flush_packed_file_refs(refs), 0);
+
+    PackedFileInfoPB updated;
+    ASSERT_TRUE(get_packed_file_info(txn_kv.get(), packed_file_path, &updated));
+    ASSERT_EQ(updated.slices_size(), 4);
+    EXPECT_TRUE(updated.slices(0).deleted());
+    EXPECT_TRUE(updated.slices(0).corrected());
+    EXPECT_TRUE(updated.slices(1).deleted());
+    EXPECT_TRUE(updated.slices(1).corrected());
+    EXPECT_TRUE(updated.slices(2).deleted());
+    EXPECT_TRUE(updated.slices(2).corrected());
+    EXPECT_FALSE(updated.slices(3).deleted());
+    EXPECT_EQ(updated.ref_cnt(), 1);
+    EXPECT_EQ(updated.remaining_slice_bytes(), 40);
+    EXPECT_EQ(updated.state(), PackedFileInfoPB::NORMAL);
+}
+
+TEST(RecyclerTest, FlushPackedFileRefsTreatsAlreadyDeletedSlicesAsIdempotent) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string resource_id = "packed_resource_2";
+    const std::string packed_file_path = "data/packed_file/flush_idempotent";
+    auto recycler = create_mock_recycler(txn_kv, resource_id);
+
+    PackedFileInfoPB packed_info = create_packed_file_info(
+            resource_id,
+            {create_packed_slice(20001, "rowset_a", 10, true),
+             create_packed_slice(20001, "rowset_a", 20, true),
+             create_packed_slice(20002, "rowset_b", 30)});
+    put_packed_file_info(txn_kv.get(), packed_file_path, packed_info);
+
+    std::unordered_map<std::string, std::vector<InstanceRecycler::PackedRowsetRef>> refs;
+    refs[packed_file_path].push_back({20001, "rowset_a", 2});
+
+    ASSERT_EQ(recycler->flush_packed_file_refs(refs), 0);
+
+    PackedFileInfoPB updated;
+    ASSERT_TRUE(get_packed_file_info(txn_kv.get(), packed_file_path, &updated));
+    EXPECT_TRUE(updated.slices(0).deleted());
+    EXPECT_TRUE(updated.slices(1).deleted());
+    EXPECT_FALSE(updated.slices(2).deleted());
+    EXPECT_EQ(updated.ref_cnt(), 1);
+    EXPECT_EQ(updated.remaining_slice_bytes(), 30);
+    EXPECT_EQ(updated.state(), PackedFileInfoPB::NORMAL);
+}
+
+TEST(RecyclerTest, FlushPackedFileRefsRecomputesRefCountAndDeletesEmptyPackedFile) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string resource_id = "packed_resource_3";
+    const std::string packed_file_path = "data/packed_file/flush_empty";
+    auto recycler = create_mock_recycler(txn_kv, resource_id);
+    auto accessor = std::dynamic_pointer_cast<MockAccessor>(recycler->accessor_map_[resource_id]);
+    ASSERT_NE(accessor, nullptr);
+    ASSERT_EQ(accessor->put_file(packed_file_path, "packed"), 0);
+
+    PackedFileInfoPB packed_info = create_packed_file_info(
+            resource_id,
+            {create_packed_slice(30001, "rowset_a", 10),
+             create_packed_slice(30001, "rowset_a", 20)});
+    put_packed_file_info(txn_kv.get(), packed_file_path, packed_info);
+
+    std::unordered_map<std::string, std::vector<InstanceRecycler::PackedRowsetRef>> refs;
+    refs[packed_file_path].push_back({30001, "rowset_a", 2});
+
+    ASSERT_EQ(recycler->flush_packed_file_refs(refs), 0);
+
+    PackedFileInfoPB updated;
+    EXPECT_FALSE(get_packed_file_info(txn_kv.get(), packed_file_path, &updated));
+    EXPECT_EQ(accessor->exists(packed_file_path), 1);
+}
+
+TEST(RecyclerTest, FlushPackedFileRefsKeepsConsistentCountersWhenExpectedSliceCountDiffers) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string resource_id = "packed_resource_4";
+    const std::string packed_file_path = "data/packed_file/flush_mismatch";
+    auto recycler = create_mock_recycler(txn_kv, resource_id);
+
+    PackedFileInfoPB packed_info = create_packed_file_info(
+            resource_id,
+            {create_packed_slice(40001, "rowset_a", 10),
+             create_packed_slice(40002, "rowset_b", 20)});
+    put_packed_file_info(txn_kv.get(), packed_file_path, packed_info);
+
+    std::unordered_map<std::string, std::vector<InstanceRecycler::PackedRowsetRef>> refs;
+    refs[packed_file_path].push_back({40001, "rowset_a", 2});
+
+    ASSERT_EQ(recycler->flush_packed_file_refs(refs), 0);
+
+    PackedFileInfoPB updated;
+    ASSERT_TRUE(get_packed_file_info(txn_kv.get(), packed_file_path, &updated));
+    EXPECT_TRUE(updated.slices(0).deleted());
+    EXPECT_TRUE(updated.slices(0).corrected());
+    EXPECT_FALSE(updated.slices(1).deleted());
+    EXPECT_EQ(updated.ref_cnt(), 1);
+    EXPECT_EQ(updated.remaining_slice_bytes(), 20);
 }
 
 static std::string next_rowset_id() {
@@ -400,6 +529,87 @@ static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                         rowset.rowset_id_v2());
     }
     return 0;
+}
+
+static InstanceInfoPB create_mock_instance_info(const std::string& resource_id) {
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id(resource_id);
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycler_test");
+    return instance;
+}
+
+static void put_packed_file_info(TxnKv* txn_kv, const std::string& packed_file_path,
+                                 const PackedFileInfoPB& packed_info) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_TRUE(packed_info.SerializeToString(&val));
+    txn->put(packed_file_key({instance_id, packed_file_path}), val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static bool get_packed_file_info(TxnKv* txn_kv, const std::string& packed_file_path,
+                                 PackedFileInfoPB* packed_info) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    TxnErrorCode err = txn->get(packed_file_key({instance_id, packed_file_path}), &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return false;
+    }
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK);
+    EXPECT_TRUE(packed_info->ParseFromString(val));
+    return true;
+}
+
+static PackedSlicePB create_packed_slice(int64_t tablet_id, const std::string& rowset_id,
+                                         int64_t size, bool deleted) {
+    PackedSlicePB slice;
+    slice.set_tablet_id(tablet_id);
+    slice.set_rowset_id(rowset_id);
+    slice.set_txn_id(next_small_file_txn_id());
+    slice.set_path(fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, size));
+    slice.set_size(size);
+    slice.set_deleted(deleted);
+    slice.set_corrected(deleted);
+    return slice;
+}
+
+static PackedFileInfoPB create_packed_file_info(const std::string& resource_id,
+                                                std::initializer_list<PackedSlicePB> slices) {
+    PackedFileInfoPB packed_info;
+    packed_info.set_resource_id(resource_id);
+    packed_info.set_state(PackedFileInfoPB::NORMAL);
+    packed_info.set_created_at_sec(current_time);
+    int64_t ref_cnt = 0;
+    int64_t remaining_bytes = 0;
+    for (const auto& slice : slices) {
+        *packed_info.add_slices() = slice;
+        if (!slice.deleted()) {
+            ++ref_cnt;
+            remaining_bytes += slice.size();
+        }
+    }
+    packed_info.set_ref_cnt(ref_cnt);
+    packed_info.set_remaining_slice_bytes(remaining_bytes);
+    return packed_info;
+}
+
+static std::unique_ptr<InstanceRecycler> create_mock_recycler(std::shared_ptr<TxnKv> txn_kv,
+                                                              const std::string& resource_id) {
+    auto instance = create_mock_instance_info(resource_id);
+    auto recycler = std::make_unique<InstanceRecycler>(
+            txn_kv, instance, thread_group,
+            std::make_shared<TxnLazyCommitter>(txn_kv, std::make_shared<ResourceManager>(txn_kv)));
+    EXPECT_EQ(recycler->init(), 0);
+    return recycler;
 }
 
 static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,

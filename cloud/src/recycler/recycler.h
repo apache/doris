@@ -469,9 +469,24 @@ private:
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                            const std::string& rowset_id);
 
+    struct PackedRowsetRef {
+        int64_t tablet_id = 0;
+        std::string rowset_id;
+        int64_t expected_slice_count = 0;
+    };
+
     // return 0 for success otherwise error
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
-                           RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
+                           RowsetRecyclingState type, RecyclerMetricsContext& metrics_context,
+                           std::unordered_map<std::string, std::vector<PackedRowsetRef>>*
+                                   packed_file_refs = nullptr);
+
+    void collect_packed_file_refs(
+            const doris::RowsetMetaCloudPB& rs_meta_pb,
+            std::unordered_map<std::string, std::vector<PackedRowsetRef>>* packed_file_refs);
+
+    int flush_packed_file_refs(
+            const std::unordered_map<std::string, std::vector<PackedRowsetRef>>& packed_file_refs);
 
     // Decrement packed file ref counts for rowset segments.
     // Returns 0 for success, -1 for error.
@@ -488,8 +503,12 @@ private:
     // Returns 0 for success, -1 for error.
     // out_storage_type: if not null, will be set to the delete bitmap storage type.
     int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
-                                                       const std::string& rowset_id,
-                                                       DeleteBitmapStorageType* out_storage_type);
+                                                        const std::string& rowset_id,
+                                                        DeleteBitmapStorageType* out_storage_type);
+
+    int get_delete_bitmap_storage_type(int64_t tablet_id, const std::string& rowset_id,
+                                       DeleteBitmapStorageType* out_storage_type,
+                                       std::string* packed_file_path = nullptr);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,

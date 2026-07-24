@@ -42,6 +42,7 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -3223,6 +3224,231 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     return accessor->delete_files(file_paths);
 }
 
+void InstanceRecycler::collect_packed_file_refs(
+        const doris::RowsetMetaCloudPB& rs_meta_pb,
+        std::unordered_map<std::string, std::vector<PackedRowsetRef>>* packed_file_refs) {
+    DCHECK(packed_file_refs != nullptr);
+    std::unordered_map<std::string, int64_t> expected_slice_counts;
+    expected_slice_counts.reserve(rs_meta_pb.packed_slice_locations_size());
+    for (const auto& [_, index_pb] : rs_meta_pb.packed_slice_locations()) {
+        if (!index_pb.has_packed_file_path() || index_pb.packed_file_path().empty()) {
+            continue;
+        }
+        ++expected_slice_counts[index_pb.packed_file_path()];
+    }
+
+    for (auto& [packed_file_path, expected_slice_count] : expected_slice_counts) {
+        (*packed_file_refs)[packed_file_path].push_back(
+                PackedRowsetRef {.tablet_id = rs_meta_pb.tablet_id(),
+                                 .rowset_id = rs_meta_pb.rowset_id_v2(),
+                                 .expected_slice_count = expected_slice_count});
+    }
+}
+
+int InstanceRecycler::flush_packed_file_refs(
+        const std::unordered_map<std::string, std::vector<PackedRowsetRef>>& packed_file_refs) {
+    const int max_retry_times = std::max(1, config::decrement_packed_file_ref_counts_retry_times);
+    int ret = 0;
+    for (const auto& [packed_file_path, rowset_refs] : packed_file_refs) {
+        if (rowset_refs.empty()) {
+            continue;
+        }
+
+        bool success = false;
+        for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create txn when flushing packed file refs")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt)
+                        .tag("err", err);
+                ret = -1;
+                break;
+            }
+
+            std::string packed_key = packed_file_key({instance_id_, packed_file_path});
+            std::string packed_val;
+            err = txn->get(packed_key, &packed_val);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                LOG_WARNING("packed file info not found when flushing packed file refs")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_ref_count", rowset_refs.size())
+                        .tag("key", hex(packed_key));
+                success = true;
+                break;
+            }
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to get packed file info when flushing packed file refs")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt)
+                        .tag("err", err);
+                ret = -1;
+                break;
+            }
+
+            cloud::PackedFileInfoPB packed_info;
+            if (!packed_info.ParseFromString(packed_val)) {
+                LOG_WARNING("failed to parse packed file info when flushing packed file refs")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt);
+                ret = -1;
+                break;
+            }
+
+            struct RowsetRefKey {
+                int64_t tablet_id = 0;
+                std::string rowset_id;
+
+                bool operator==(const RowsetRefKey& other) const {
+                    return tablet_id == other.tablet_id && rowset_id == other.rowset_id;
+                }
+            };
+            struct RowsetRefKeyHash {
+                size_t operator()(const RowsetRefKey& key) const {
+                    return std::hash<int64_t>()(key.tablet_id) ^
+                           (std::hash<std::string>()(key.rowset_id) << 1);
+                }
+            };
+            std::unordered_map<RowsetRefKey, int64_t, RowsetRefKeyHash> expected_slice_counts;
+            expected_slice_counts.reserve(rowset_refs.size());
+            for (const auto& rowset_ref : rowset_refs) {
+                expected_slice_counts[RowsetRefKey {.tablet_id = rowset_ref.tablet_id,
+                                                    .rowset_id = rowset_ref.rowset_id}] +=
+                        rowset_ref.expected_slice_count;
+            }
+            std::unordered_map<RowsetRefKey, int64_t, RowsetRefKeyHash> matched_slice_counts;
+
+            int64_t changed_slices = 0;
+            int64_t already_deleted_slices = 0;
+            auto* slice_entries = packed_info.mutable_slices();
+            for (auto& slice_entry : *slice_entries) {
+                if (!slice_entry.has_tablet_id() || !slice_entry.has_rowset_id()) {
+                    continue;
+                }
+                RowsetRefKey key {.tablet_id = slice_entry.tablet_id(),
+                                  .rowset_id = slice_entry.rowset_id()};
+                if (!expected_slice_counts.contains(key)) {
+                    continue;
+                }
+                ++matched_slice_counts[key];
+                if (!slice_entry.deleted()) {
+                    slice_entry.set_deleted(true);
+                    if (!slice_entry.corrected()) {
+                        slice_entry.set_corrected(true);
+                    }
+                    ++changed_slices;
+                } else {
+                    ++already_deleted_slices;
+                }
+            }
+
+            for (const auto& [key, expected_slice_count] : expected_slice_counts) {
+                const int64_t matched_slice_count = matched_slice_counts[key];
+                if (matched_slice_count != expected_slice_count) {
+                    LOG_WARNING("packed file rowset slice count mismatch when flushing refs")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("tablet_id", key.tablet_id)
+                            .tag("rowset_id", key.rowset_id)
+                            .tag("expected_slice_count", expected_slice_count)
+                            .tag("matched_slice_count", matched_slice_count);
+                }
+            }
+
+            if (changed_slices == 0) {
+                LOG_INFO("skip packed file ref flush: no slices changed")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_ref_count", rowset_refs.size())
+                        .tag("already_deleted_slices", already_deleted_slices)
+                        .tag("packed_slices", packed_info.slices_size());
+                success = true;
+                break;
+            }
+
+            int64_t left_file_count = 0;
+            int64_t left_file_bytes = 0;
+            for (const auto& slice_entry : packed_info.slices()) {
+                if (!slice_entry.deleted()) {
+                    ++left_file_count;
+                    left_file_bytes += slice_entry.size();
+                }
+            }
+            packed_info.set_remaining_slice_bytes(left_file_bytes);
+            packed_info.set_ref_cnt(left_file_count);
+            if (left_file_count == 0) {
+                packed_info.set_state(cloud::PackedFileInfoPB::RECYCLING);
+            }
+
+            std::string updated_val;
+            if (!packed_info.SerializeToString(&updated_val)) {
+                LOG_WARNING("failed to serialize packed file info when flushing refs")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt);
+                ret = -1;
+                break;
+            }
+
+            txn->put(packed_key, updated_val);
+            err = txn->commit();
+            if (err == TxnErrorCode::TXN_OK) {
+                LOG_INFO("flushed packed file refs")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("rowset_ref_count", rowset_refs.size())
+                        .tag("changed_slices", changed_slices)
+                        .tag("already_deleted_slices", already_deleted_slices)
+                        .tag("ref_cnt", left_file_count)
+                        .tag("remaining_slice_bytes", left_file_bytes);
+                if (left_file_count == 0 &&
+                    delete_packed_file_and_kv(packed_file_path, packed_key, packed_info) != 0) {
+                    ret = -1;
+                }
+                success = true;
+                break;
+            }
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                if (attempt >= max_retry_times) {
+                    LOG_WARNING("packed file ref flush conflict after max retry")
+                            .tag("instance_id", instance_id_)
+                            .tag("packed_file_path", packed_file_path)
+                            .tag("attempt", attempt)
+                            .tag("changed_slices", changed_slices);
+                    ret = -1;
+                    break;
+                }
+                LOG_WARNING("packed file ref flush conflict, retrying")
+                        .tag("instance_id", instance_id_)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt)
+                        .tag("changed_slices", changed_slices);
+                sleep_for_packed_file_retry();
+                continue;
+            }
+
+            LOG_WARNING("failed to commit packed file ref flush")
+                    .tag("instance_id", instance_id_)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("attempt", attempt)
+                    .tag("changed_slices", changed_slices)
+                    .tag("err", err);
+            ret = -1;
+            break;
+        }
+
+        if (!success) {
+            ret = -1;
+        }
+    }
+    return ret;
+}
+
 int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb) {
     LOG_INFO("begin process_packed_file_location_index")
             .tag("instance_id", instance_id_)
@@ -3462,11 +3688,15 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
     return ret;
 }
 
-int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
-        int64_t tablet_id, const std::string& rowset_id,
-        DeleteBitmapStorageType* out_storage_type) {
+int InstanceRecycler::get_delete_bitmap_storage_type(int64_t tablet_id,
+                                                     const std::string& rowset_id,
+                                                     DeleteBitmapStorageType* out_storage_type,
+                                                     std::string* packed_file_path) {
     if (out_storage_type) {
         *out_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+    }
+    if (packed_file_path) {
+        packed_file_path->clear();
     }
 
     // Get delete bitmap storage info from FDB
@@ -3530,8 +3760,24 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
         *out_storage_type = DeleteBitmapStorageType::PACKED_FILE;
     }
 
-    const auto& packed_loc = storage.packed_slice_location();
-    const std::string& packed_file_path = packed_loc.packed_file_path();
+    if (packed_file_path) {
+        *packed_file_path = storage.packed_slice_location().packed_file_path();
+    }
+
+    return 0;
+}
+
+int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
+        int64_t tablet_id, const std::string& rowset_id,
+        DeleteBitmapStorageType* out_storage_type) {
+    std::string packed_file_path;
+    if (get_delete_bitmap_storage_type(tablet_id, rowset_id, out_storage_type, &packed_file_path) !=
+        0) {
+        return -1;
+    }
+    if (!out_storage_type || *out_storage_type != DeleteBitmapStorageType::PACKED_FILE) {
+        return 0;
+    }
 
     LOG_INFO("decrementing delete bitmap packed file ref count")
             .tag("instance_id", instance_id_)
@@ -3542,7 +3788,7 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
     const int max_retry_times = std::max(1, config::decrement_packed_file_ref_counts_retry_times);
     for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
         std::unique_ptr<Transaction> update_txn;
-        err = txn_kv_->create_txn(&update_txn);
+        TxnErrorCode err = txn_kv_->create_txn(&update_txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG_WARNING("failed to create txn for delete bitmap packed file update")
                     .tag("instance_id", instance_id_)
@@ -3810,13 +4056,16 @@ int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_p
 
 int InstanceRecycler::delete_rowset_data(
         const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets, RowsetRecyclingState type,
-        RecyclerMetricsContext& metrics_context) {
+        RecyclerMetricsContext& metrics_context,
+        std::unordered_map<std::string, std::vector<PackedRowsetRef>>* packed_file_refs) {
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
     // (resource_id, tablet_id, rowset_id)
     std::vector<std::tuple<std::string, int64_t, std::string>> rowsets_delete_by_prefix;
+    std::unordered_map<std::string, std::vector<PackedRowsetRef>> pending_packed_file_refs;
     bool is_formal_rowset = (type == RowsetRecyclingState::FORMAL_ROWSET);
+    bool batch_packed_file_update = packed_file_refs != nullptr;
 
     for (const auto& [_, rs] : rowsets) {
         // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
@@ -3861,15 +4110,22 @@ int InstanceRecycler::delete_rowset_data(
                 .tag("tablet_id", tablet_id)
                 .tag("rowset_id", rowset_id)
                 .tag("merge_index_size", rs.packed_slice_locations_size());
-        if (decrement_packed_file_ref_counts(rs) != 0) {
+        if (!batch_packed_file_update && decrement_packed_file_ref_counts(rs) != 0) {
             ret = -1;
             continue;
         }
 
         // Process delete bitmap - check where it's stored.
         DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
-        if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                           &delete_bitmap_storage_type) != 0) {
+        std::string delete_bitmap_packed_file_path;
+        int delete_bitmap_ret =
+                batch_packed_file_update
+                        ? get_delete_bitmap_storage_type(tablet_id, rowset_id,
+                                                         &delete_bitmap_storage_type,
+                                                         &delete_bitmap_packed_file_path)
+                        : decrement_delete_bitmap_packed_file_ref_counts(
+                                  tablet_id, rowset_id, &delete_bitmap_storage_type);
+        if (delete_bitmap_ret != 0) {
             LOG_WARNING("failed to decrement delete bitmap packed file ref count")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
@@ -3879,6 +4135,12 @@ int InstanceRecycler::delete_rowset_data(
         }
         if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
             file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        } else if (delete_bitmap_storage_type == DeleteBitmapStorageType::PACKED_FILE) {
+            DCHECK(batch_packed_file_update || delete_bitmap_packed_file_path.empty());
+            if (batch_packed_file_update) {
+                pending_packed_file_refs[delete_bitmap_packed_file_path].push_back(PackedRowsetRef {
+                        .tablet_id = tablet_id, .rowset_id = rowset_id, .expected_slice_count = 1});
+            }
         }
 
         // Process inverted indexes
@@ -3943,6 +4205,9 @@ int InstanceRecycler::delete_rowset_data(
             // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
             // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
             rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
+            if (batch_packed_file_update) {
+                collect_packed_file_refs(rs, &pending_packed_file_refs);
+            }
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {
@@ -3970,12 +4235,18 @@ int InstanceRecycler::delete_rowset_data(
                         rs, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
             }
         }
+        if (batch_packed_file_update) {
+            collect_packed_file_refs(rs, &pending_packed_file_refs);
+        }
     }
 
     SyncExecutor<int> concurrent_delete_executor(_thread_pool_group.s3_producer_pool,
                                                  "delete_rowset_data",
                                                  [](const int& ret) { return ret != 0; });
     for (auto& [resource_id, file_paths] : resource_file_paths) {
+        if (file_paths.empty()) {
+            continue;
+        }
         concurrent_delete_executor.add([&, rid = &resource_id, paths = &file_paths]() -> int {
             DCHECK(accessor_map_.count(*rid))
                     << "uninitilized accessor, instance_id=" << instance_id_
@@ -4055,6 +4326,13 @@ int InstanceRecycler::delete_rowset_data(
         }
     }
     ret = finished ? ret : -1;
+    if (ret == 0 && batch_packed_file_update) {
+        for (auto& [packed_file_path, refs] : pending_packed_file_refs) {
+            auto& target_refs = (*packed_file_refs)[packed_file_path];
+            target_refs.insert(target_refs.end(), std::make_move_iterator(refs.begin()),
+                               std::make_move_iterator(refs.end()));
+        }
+    }
     return ret;
 }
 
@@ -5005,6 +5283,12 @@ int InstanceRecycler::recycle_rowsets() {
     // Store keys of rowset recycled by background workers
     std::mutex async_recycled_rowset_keys_mutex;
     std::vector<std::string> async_recycled_rowset_keys;
+    std::mutex rowset_keys_to_remove_after_packed_flush_mutex;
+    std::vector<std::string> rowset_keys_to_remove_after_packed_flush;
+    std::mutex delete_bitmaps_to_remove_after_packed_flush_mutex;
+    std::vector<std::pair<int64_t, std::string>> delete_bitmaps_to_remove_after_packed_flush;
+    std::mutex packed_file_refs_mutex;
+    std::unordered_map<std::string, std::vector<PackedRowsetRef>> packed_file_refs;
     std::vector<std::string> rowset_keys_without_data;
     auto worker_pool = std::make_unique<SimpleThreadPool>(
             config::instance_recycler_worker_pool_size, "recycle_rowsets");
@@ -5200,23 +5484,50 @@ int InstanceRecycler::recycle_rowsets() {
                                              std::map<std::string, RowsetMetaCloudPB> rowsets) {
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys),
                              rowsets_to_delete = std::move(rowsets)]() {
+            std::unordered_map<std::string, std::vector<PackedRowsetRef>> local_packed_file_refs;
             if (!rowsets_to_delete.empty() &&
                 delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET,
-                                   metrics_context) != 0) {
+                                   metrics_context, &local_packed_file_refs) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
             }
-            for (const auto& [_, rs] : rowsets_to_delete) {
-                if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+            if (!local_packed_file_refs.empty()) {
+                {
+                    std::lock_guard lock(packed_file_refs_mutex);
+                    for (auto& [packed_file_path, refs] : local_packed_file_refs) {
+                        auto& target_refs = packed_file_refs[packed_file_path];
+                        target_refs.insert(target_refs.end(), std::make_move_iterator(refs.begin()),
+                                           std::make_move_iterator(refs.end()));
+                    }
+                }
+                {
+                    std::lock_guard lock(rowset_keys_to_remove_after_packed_flush_mutex);
+                    rowset_keys_to_remove_after_packed_flush.insert(
+                            rowset_keys_to_remove_after_packed_flush.end(),
+                            std::make_move_iterator(rowset_keys_to_delete.begin()),
+                            std::make_move_iterator(rowset_keys_to_delete.end()));
+                }
+                {
+                    std::lock_guard lock(delete_bitmaps_to_remove_after_packed_flush_mutex);
+                    for (const auto& [_, rs] : rowsets_to_delete) {
+                        delete_bitmaps_to_remove_after_packed_flush.emplace_back(rs.tablet_id(),
+                                                                                 rs.rowset_id_v2());
+                    }
+                }
+            } else {
+                for (const auto& [_, rs] : rowsets_to_delete) {
+                    if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) !=
+                        0) {
+                        return;
+                    }
+                }
+                if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
+                    LOG(WARNING) << "failed to delete recycle rowset kv, instance_id="
+                                 << instance_id_;
                     return;
                 }
+                num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
             }
-            if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
-                LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
-                return;
-            }
-
-            num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
         });
     };
 
@@ -5333,6 +5644,27 @@ int InstanceRecycler::recycle_rowsets() {
 
     mark_abort_worker_pool->stop();
     worker_pool->stop();
+
+    if (!packed_file_refs.empty()) {
+        if (flush_packed_file_refs(packed_file_refs) != 0) {
+            LOG(WARNING) << "failed to flush packed file refs, instance_id=" << instance_id_;
+            ret = -1;
+        } else if (!rowset_keys_to_remove_after_packed_flush.empty()) {
+            for (const auto& [tablet_id, rowset_id] : delete_bitmaps_to_remove_after_packed_flush) {
+                if (delete_versioned_delete_bitmap_kvs(tablet_id, rowset_id) != 0) {
+                    return -1;
+                }
+            }
+            if (txn_remove(txn_kv_.get(), rowset_keys_to_remove_after_packed_flush) != 0) {
+                LOG(WARNING) << "failed to delete recycle rowset kv after packed file ref flush, "
+                                "instance_id="
+                             << instance_id_;
+                return -1;
+            }
+            num_recycled.fetch_add(rowset_keys_to_remove_after_packed_flush.size(),
+                                   std::memory_order_relaxed);
+        }
+    }
 
     if (!async_recycled_rowset_keys.empty()) {
         if (txn_remove(txn_kv_.get(), async_recycled_rowset_keys) != 0) {
