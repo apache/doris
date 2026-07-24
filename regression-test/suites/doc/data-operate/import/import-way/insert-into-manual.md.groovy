@@ -79,6 +79,7 @@ suite("docs/data-operate/import/import-way/insert-into-manual.md") {
         if (!isCloudMode()) {
             // skip this case if this is a cloud cluster
             try {
+                sql "set enable_strict_cast = true;"
                 sql "INSERT INTO tbl1 SELECT LPAD('foo', 100, 'bar');"
                 Assertions.fail("this sql should fail, because we want get err url ")
             } catch (Exception e) {

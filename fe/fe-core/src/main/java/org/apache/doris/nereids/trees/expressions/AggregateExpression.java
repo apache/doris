@@ -109,6 +109,15 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     }
 
     @Override
+    public String shapeInfo() {
+        if (aggregateParam.aggMode.productAggregateBuffer) {
+            return "partial_" + function.shapeInfo();
+        } else {
+            return function.shapeInfo();
+        }
+    }
+
+    @Override
     public String toString() {
         AggMode aggMode = aggregateParam.aggMode;
         String prefix = aggMode.productAggregateBuffer ? "partial_" : "";

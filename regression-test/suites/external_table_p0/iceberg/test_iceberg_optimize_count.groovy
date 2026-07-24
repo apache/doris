@@ -92,7 +92,9 @@ suite("test_iceberg_optimize_count", "p0,external") {
         }
 
         // batch mode
+        sql """set enable_external_table_batch_mode=true"""
         sql """set num_files_in_batch_mode=1"""
+        sql """set enable_file_scanner_v2=false"""
         explain {
             sql("""select * from sample_cow_orc""")
             contains "approximate"
@@ -132,7 +134,9 @@ suite("test_iceberg_optimize_count", "p0,external") {
         }
 
         // don't use push down count
+        sql """set enable_external_table_batch_mode=false"""
         sql """ set enable_count_push_down_for_external_table=false; """
+        sql """set enable_file_scanner_v2=true"""
 
         qt_q05 """${sqlstr1}""" 
         qt_q06 """${sqlstr2}""" 
@@ -178,8 +182,8 @@ suite("test_iceberg_optimize_count", "p0,external") {
 
     } finally {
         sql """ set enable_count_push_down_for_external_table=true; """
+        sql """set enable_external_table_batch_mode=false"""
         sql """set num_partitions_in_batch_mode=1024"""
         // sql """drop catalog if exists ${catalog_name}"""
     }
 }
-

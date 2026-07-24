@@ -187,6 +187,11 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
                                         .append(String.valueOf(Math.max(1, variantSparseHashShardCount))).append("\"");
         }
+        if (enableNestedGroup) {
+            sb.append(",");
+            sb.append("\"variant_enable_nested_group\" = \"")
+                    .append(String.valueOf(enableNestedGroup)).append("\"");
+        }
         sb.append(")>");
         return sb.toString();
     }

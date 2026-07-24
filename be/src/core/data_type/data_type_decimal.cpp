@@ -239,7 +239,7 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
                                min_decimal_precision(), max_precision);
     }
 
-    if (static_cast<UInt64>(scale_value) > precision_value) {
+    if (scale_value > precision_value) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Negative scales and scales larger than precision are not "
                                "supported, scale_value: {}, precision_value: {}",

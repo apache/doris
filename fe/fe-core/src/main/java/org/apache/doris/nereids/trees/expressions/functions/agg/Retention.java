@@ -37,6 +37,13 @@ import java.util.List;
 public class Retention extends NullableAggregateFunction
         implements ExplicitlyCastableSignature {
 
+    // The BE side stores the retention state in a fixed-size array
+    // (RetentionState::MAX_EVENTS, uint8_t events[32]) and also serializes it into a single
+    // int64 bitmap, so at most 32 conditions can be represented. Passing more than 32 params
+    // overflows that array on BE and causes a heap out-of-bounds write/read (BE core).
+    // Keep this in sync with be/src/exprs/aggregate/aggregate_function_retention.h.
+    public static final int MAX_EVENTS = 32;
+
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE)).varArgs(BooleanType.INSTANCE)
     );
@@ -69,6 +76,10 @@ public class Retention extends NullableAggregateFunction
         String functionName = getName();
         if (this.children.isEmpty()) {
             throw new AnalysisException("The " + functionName + " function must have at least one param");
+        }
+        if (children.size() > MAX_EVENTS) {
+            throw new AnalysisException("The " + functionName + " function can accept at most " + MAX_EVENTS
+                    + " params, but got " + children.size());
         }
 
         for (int i = 0; i < children.size(); i++) {

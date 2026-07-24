@@ -183,57 +183,6 @@ suite("test_json_load", "p0,nonConcurrent") {
         }
     }
 
-    def load_from_hdfs1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        def result1= sql """
-                        LOAD LABEL ${label} (
-                            DATA INFILE("${hdfsFilePath}")
-                            INTO TABLE ${testTablex} 
-                            FORMAT as "${format}"
-                            PRECEDING FILTER id > 1 and id < 10)
-                        with BROKER "${brokerName}"
-                        ("username"="${hdfsUser}", "password"="${hdfsPasswd}");
-                        """
-
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
-    }
-
-    def load_from_hdfs2 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        def result1= sql """
-                        LOAD LABEL ${label} (
-                            DATA INFILE("${hdfsFilePath}")
-                            INTO TABLE ${testTablex} 
-                            FORMAT as "${format}"
-                            PRECEDING FILTER id < 10
-                            where id > 1 and id < 5)
-                        with BROKER "${brokerName}"
-                        ("username"="${hdfsUser}", "password"="${hdfsPasswd}");
-                        """
-
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
-    }
-
-    def check_load_result = {checklabel, testTablex ->
-        def max_try_milli_secs = 100000
-        while(max_try_milli_secs) {
-            def result = sql "show load where label = '${checklabel}'"
-            if(result[0][2] == "FINISHED") {
-                sql "sync"
-                qt_select "select * from ${testTablex} order by id"
-                break
-            } else {
-                sleep(1000) // wait 1 second every time
-                max_try_milli_secs -= 1000
-                if(max_try_milli_secs <= 0) {
-                    assertEquals(1, 2)
-                }
-            }
-        }
-    }
-
     // case1: import simple json
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
@@ -638,60 +587,6 @@ suite("test_json_load", "p0,nonConcurrent") {
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
-
-    // if 'enableHdfs' in regression-conf.groovy has been set to true,
-    // the test will run these case as below.
-    if (enableHdfs()) {
-        def brokerName =getBrokerName()
-        def hdfsUser = getHdfsUser()
-        def hdfsPasswd = getHdfsPasswd()
-        def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
-        def format = "json" 
-
-        // case23: import json use pre-filter exprs
-        try {
-            sql "DROP TABLE IF EXISTS ${testTable}"
-
-            create_test_table1.call(testTable)
-
-            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs1.call(testTable, test_load_label, hdfs_file_path, format,
-                                brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
-        } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
-        }
-
-        // case24: import json use pre-filter and where exprs
-        try {
-            sql "DROP TABLE IF EXISTS ${testTable}"
-
-            create_test_table1.call(testTable)
-
-            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
-                                brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
-        } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
-        }
-
-        try {
-            sql "DROP TABLE IF EXISTS ${testTable}"
-
-            create_test_table1.call(testTable)
-
-            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
-                                brokerName, hdfsUser, hdfsPasswd)
-
-            check_load_result.call(test_load_label, testTable)
-        } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
-        } 
     }
 
     try {

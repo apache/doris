@@ -47,6 +47,24 @@ extern ::doris::MetricPrototype METRIC_thread_pool_task_execution_count_total;
 extern ::doris::MetricPrototype METRIC_thread_pool_task_wait_worker_time_ns_total;
 extern ::doris::MetricPrototype METRIC_thread_pool_task_wait_worker_count_total;
 
+namespace {
+
+Result<std::shared_ptr<TimeSharingTaskHandle>> get_time_sharing_task_handle(
+        const std::shared_ptr<TaskHandle>& task_handle, const char* operation) {
+    if (task_handle == nullptr) {
+        return ResultError(Status::InternalError("{} got null task handle", operation));
+    }
+
+    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    if (handle == nullptr) {
+        return ResultError(Status::InternalError("{} got invalid task handle type, task id: {}",
+                                                 operation, task_handle->task_id().to_string()));
+    }
+    return handle;
+}
+
+} // namespace
+
 SplitThreadPoolToken::SplitThreadPoolToken(TimeSharingTaskExecutor* pool,
                                            TimeSharingTaskExecutor::ExecutionMode mode,
                                            std::shared_ptr<SplitQueue> split_queue,
@@ -255,9 +273,7 @@ Status TimeSharingTaskExecutor::init() {
 }
 
 TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
-    if (!_stopped.exchange(true)) {
-        stop();
-    }
+    stop();
 
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
     {
@@ -294,6 +310,9 @@ Status TimeSharingTaskExecutor::start() {
 }
 
 void TimeSharingTaskExecutor::stop() {
+    if (_stopped.exchange(true)) {
+        return;
+    }
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of SplitThreadPool is guaranteed to take place before doris_main exits by
@@ -743,7 +762,7 @@ Status TimeSharingTaskExecutor::add_task(const TaskId& task_id,
 }
 
 Status TimeSharingTaskExecutor::remove_task(std::shared_ptr<TaskHandle> task_handle) {
-    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    auto handle = DORIS_TRY(get_time_sharing_task_handle(task_handle, "remove_task"));
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
 
     {
@@ -806,7 +825,11 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
         }
     }};
     std::vector<SharedListenableFuture<Void>> finished_futures;
-    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    auto handle_result = get_time_sharing_task_handle(task_handle, "enqueue_splits");
+    if (!handle_result.has_value()) {
+        return ResultError(handle_result.error());
+    }
+    auto handle = handle_result.value();
     {
         std::unique_lock<std::mutex> lock(_mutex);
         for (const auto& task_split : splits) {
@@ -839,7 +862,7 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
 Status TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> task_handle,
                                                  bool intermediate,
                                                  const std::shared_ptr<SplitRunner>& split) {
-    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    auto handle = DORIS_TRY(get_time_sharing_task_handle(task_handle, "re_enqueue_split"));
     std::shared_ptr<PrioritizedSplitRunner> prioritized_split =
             handle->get_split(split, intermediate);
     prioritized_split->reset_level_priority();

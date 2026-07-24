@@ -51,8 +51,6 @@ class FunctionContext;
 
 namespace doris {
 
-using namespace segment_v2;
-
 const std::string MATCH_ANY_FUNCTION = "match_any";
 const std::string MATCH_ALL_FUNCTION = "match_all";
 const std::string MATCH_PHRASE_FUNCTION = "match_phrase";
@@ -83,16 +81,14 @@ public:
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
 
-    std::vector<TermInfo> analyse_query_str_token(const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                                  const std::string& match_query_str,
-                                                  const std::string& field_name) const;
+    std::vector<segment_v2::TermInfo> analyse_query_str_token(
+            const InvertedIndexAnalyzerCtx* analyzer_ctx, const std::string& match_query_str,
+            const std::string& field_name) const;
 
-    std::vector<TermInfo> analyse_data_token(const std::string& column_name,
-                                             const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                             const ColumnString* string_col,
-                                             int32_t current_block_row_idx,
-                                             const ColumnArray::Offsets64* array_offsets,
-                                             int32_t& current_src_array_offset) const;
+    std::vector<segment_v2::TermInfo> analyse_data_token(
+            const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
+            const ColumnString* string_col, int32_t current_block_row_idx,
+            const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const;
 
     Status check(FunctionContext* context, const std::string& function_name) const;
 

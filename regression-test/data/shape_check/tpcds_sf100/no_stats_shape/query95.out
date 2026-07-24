@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------hashJoin[INNER_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->ws_order_number;RF1 ws_order_number->ws_order_number
+------hashJoin[INNER_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws1.ws_warehouse_sk = ws2.ws_warehouse_sk))) build RFs:RF0 ws_order_number->ws_order_number;RF1 ws_order_number->ws_order_number
 --------PhysicalProject
 ----------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF1 RF16 RF18
 --------PhysicalProject

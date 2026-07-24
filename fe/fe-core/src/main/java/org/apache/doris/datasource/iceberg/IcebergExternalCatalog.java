@@ -73,13 +73,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initCatalog() {
         try {
             msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
-            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList());
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList(),
+                    getCatalogInitializationSessionContext());
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {
             throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
         }
+    }
+
+    protected SessionContext getCatalogInitializationSessionContext() {
+        return SessionContext.empty();
     }
 
     @Override
@@ -158,15 +163,16 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return metadataOps.tableExist(dbName, tblName);
+        return ((IcebergMetadataOps) metadataOps).tableExist(ctx, dbName, tblName);
     }
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
         // so the combined set of tables and views is used here.
-        List<String> tableNames = metadataOps.listTableNames(dbName);
-        List<String> viewNames = metadataOps.listViewNames(dbName);
+        IcebergMetadataOps ops = (IcebergMetadataOps) metadataOps;
+        List<String> tableNames = ops.listTableNames(ctx, dbName);
+        List<String> viewNames = ops.listViewNames(ctx, dbName);
         tableNames.addAll(viewNames);
         return tableNames;
     }
@@ -189,6 +195,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
+    }
+
+    public boolean viewExists(SessionContext ctx, String dbName, String viewName) {
+        return ((IcebergMetadataOps) metadataOps).viewExists(ctx, dbName, viewName);
     }
 
     /**

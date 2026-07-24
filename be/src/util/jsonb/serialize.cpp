@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/config.h"
 #include "core/arena.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
@@ -71,6 +72,7 @@ size_t JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Bloc
     DataTypeSerDe::FormatOptions options;
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
+    options.enable_row_store_compact_jsonb = config::enable_row_store_compact_jsonb;
     size_t written_rows = 0;
     for (size_t i = row_pos; i < row_pos + num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;

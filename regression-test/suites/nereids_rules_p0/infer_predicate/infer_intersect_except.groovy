@@ -84,22 +84,22 @@ suite("infer_intersect_except") {
     insert into infer_intersect_except3 values(1,'d2',2,2),(-2,'d2',2,2),(0,'d2',3,5);
     """
     qt_except """
-    explain shape plan 
+    explain shape plan
     select a,b from infer_intersect_except1 where a>0 except select a,b from infer_intersect_except2 where b>'ab' except select a,b from infer_intersect_except2 where a<10;
     """
 
     qt_except_to_empty """
-    explain shape plan 
+    explain shape plan
     select a,b from infer_intersect_except1 where a>0 except select a,b from infer_intersect_except2 where b>'ab' except select a,b from infer_intersect_except3 where a<0;
     """
 
     qt_except_not_infer_1_greater_than_0 """
-    explain shape plan 
+    explain shape plan
     select a,b from infer_intersect_except1 where a>0 except select 1,'abc' from infer_intersect_except2 where b>'ab' except select a,b from infer_intersect_except2 where a<0;
     """
 
     qt_except_number_and_string """
-    explain shape plan 
+    explain shape plan
     select a,2 from infer_intersect_except1 where a>0 except select 1,'abc' from infer_intersect_except2 where b>'ab' except select a,b from infer_intersect_except3 where a<0;
     """
 
@@ -127,7 +127,7 @@ suite("infer_intersect_except") {
             select a, b from infer_intersect_except3 where a < 10;
             """
         notContains("a < 10")
-        contains("cast(b as TEXT) = 'abc'")
+        contains("(cast(infer_intersect_except3.b as TEXT) = 'abc'")
         contains("infer_intersect_except3.a = 1")
 // PhysicalResultSink
 // --PhysicalExcept

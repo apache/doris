@@ -231,11 +231,11 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        ColumnPtr column = block.get_by_position(arguments[0]).column;
+        ColumnPtr column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
-        if (column->is_nullable()) {
-            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+        if (const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get())) {
             column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
             null_map = &column_nullable->get_null_map_data();
@@ -526,12 +526,12 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        ColumnPtr column = block.get_by_position(arguments[0]).column;
+        ColumnPtr column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
 
-        if (column->is_nullable()) {
-            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+        if (const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get())) {
             column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
             null_map = &column_nullable->get_null_map_data();

@@ -47,12 +47,12 @@ suite("predefine_schema_change_doc_value", "p0"){
     } else {
         sql """ set enable_match_without_inverted_index = true """
     }
-    
-    sql """ set enable_common_expr_pushdown = true """
+
+    sql """ set enable_segment_limit_pushdown = true """
     qt_sql """ select count() from ${tableName} where cast (var['d'] as string) match '123' """
     qt_sql """ select * from ${tableName} """
     qt_sql """ select variant_type(var) from ${tableName} """
-    
+
     sql """ alter table ${tableName} modify column col1 varchar(200) NULL """
 
     waitForSchemaChangeDone {

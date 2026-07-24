@@ -21,10 +21,12 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -89,6 +91,44 @@ class PushDownFilterThroughWindowTest extends TestWithFeService implements MemoP
                                         })
                                 )
                         )
+                );
+    }
+
+    /**
+     * A filter conjunct containing a unique (non-idempotent) function such as rand() / uuid()
+     * must NOT be pushed below a window node, even when its input slots are a subset of the
+     * common partition keys (note: rand()&gt;0.5 has empty input slots, so the legacy
+     * {@code containsAll(emptySet)} check would otherwise wrongly let it through). Pushing
+     * such a predicate down would filter base rows before window evaluation and therefore
+     * change which rows belong to each partition, altering every window function's result.
+     */
+    @Test
+    void testDoNotPushUniqueFunctionThroughWindow() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+        List<Expression> partitionKeyList = ImmutableList.of(age);
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList,
+                Lists.newArrayList(), windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        // rand() > 0 — empty input slots; would have satisfied containsAll(empty) check.
+        Expression filterPredicate = new GreaterThan(new Random(), Literal.of(0));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .build();
+        PlanChecker.from(context, plan)
+                .applyTopDown(new PushDownFilterThroughWindow())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalWindow(
+                                        logicalOlapScan()
+                                )
+                        ).when(f -> f.getConjuncts().contains(filterPredicate))
                 );
     }
 

@@ -23,6 +23,8 @@
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_execute_util.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -56,6 +58,7 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
+
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -199,7 +202,7 @@ public:
     template <bool is_and>
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
@@ -458,7 +461,7 @@ private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         int16_t new_size = 0;
 
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
@@ -534,20 +537,16 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto& pred_col =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
-                            ->get_data();
-            auto pred_col_data = pred_col.data();
-
-#define EVALUATE_WITH_NULL_IMPL(IDX) \
-    is_opposite ^                    \
-            (!(*null_map)[IDX] &&    \
-             _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false))
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
-    is_opposite ^ _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false)
-            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
-#undef EVALUATE_WITH_NULL_IMPL
-#undef EVALUATE_WITHOUT_NULL_IMPL
+            ColumnElementView<Type> pred_col {*column};
+            auto with_null = [&](uint16_t idx) {
+                return is_opposite ^
+                       (!(*null_map)[idx] && _operator(_find_value(pred_col, idx), false));
+            };
+            auto without_null = [&](uint16_t idx) {
+                return is_opposite ^ _operator(_find_value(pred_col, idx), false);
+            };
+            evaluate_by_selector<is_nullable>(pred_col, size, sel, new_size, with_null,
+                                              without_null);
         }
         return new_size;
     }
@@ -595,15 +594,7 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* nested_col_ptr =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column);
-            if (nested_col_ptr == nullptr) {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "InListPredicateBase: _base_evaluate_bit get invalid column type");
-            }
-
-            auto& data_array = nested_col_ptr->get_data();
-
+            ColumnElementView<Type> view {*column};
             for (uint16_t i = 0; i < size; i++) {
                 if (is_and ^ flags[i]) {
                     continue;
@@ -617,17 +608,13 @@ private:
                         continue;
                     }
                 }
-
+                bool hit = _operator(_find_value(view, idx), false);
                 if constexpr (!is_opposite) {
-                    if (is_and ^
-                        _operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                  false)) {
+                    if (is_and ^ hit) {
                         flags[i] = !is_and;
                     }
                 } else {
-                    if (is_and ^
-                        !_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                   false)) {
+                    if (is_and ^ !hit) {
                         flags[i] = !is_and;
                     }
                 }
@@ -641,6 +628,15 @@ private:
         }
         if (Compare::less(value, _min_value)) {
             _min_value = value;
+        }
+    }
+
+    ALWAYS_INLINE bool _find_value(const ColumnElementView<Type>& pred_col, size_t idx) const {
+        if constexpr (is_string_type(Type)) {
+            const auto value = pred_col.get_element(idx);
+            return _values->find(value.data, value.size);
+        } else {
+            return _values->find(pred_col.get_data() + idx, sizeof(T));
         }
     }
 

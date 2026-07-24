@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <iterator>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -160,8 +162,11 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     DCHECK(block->rows() == 0);
                     break;
                 }
-                _num_rows_read += block->rows();
-                _num_byte_read += block->allocated_bytes();
+                // Some scanners apply owned predicates before returning the block. Account the
+                // materialized input, not only survivors, so the per-turn progress bound remains
+                // effective for highly selective predicates.
+                _num_rows_read += _last_block_rows_read(*block);
+                _num_byte_read += _last_block_bytes_read(*block);
             }
 
             // 2. Filter the output block finally.
@@ -256,7 +261,9 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     }
     DCHECK(_applied_rf_num < _total_rf_num);
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(_state, arrived_rf_num));
+    VExprContextSPtrs arrived_conjuncts;
+    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(
+            _state, _applied_rf_num, arrived_rf_num, arrived_conjuncts));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
@@ -266,9 +273,46 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    _late_arrival_rf_conjuncts.insert(_late_arrival_rf_conjuncts.end(),
+                                      std::make_move_iterator(arrived_conjuncts.begin()),
+                                      std::make_move_iterator(arrived_conjuncts.end()));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
+
+uint64_t Scanner::_current_condition_cache_digest() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_local_state != nullptr);
+    if (_local_state->get_condition_cache_digest() == 0) {
+        return 0;
+    }
+
+    // ScanLocalState computed its digest after collecting the RFs that were ready during open(). A
+    // scanner may later clone more RF conjuncts between file splits, so rebuild from its current
+    // snapshot instead of reusing that stale value. For example, split 0 may use P, while split 1
+    // starts after an IN RF with payload {7, 9} arrives and must use digest(P AND RF{7, 9}). A
+    // different payload {8, 10} consequently receives a different key. get_digest() returning zero
+    // is the correctness fallback for an RF whose complete semantics cannot be represented.
+    return _build_condition_cache_digest(_state->query_options().condition_cache_digest,
+                                         _conjuncts);
+}
+
+uint64_t Scanner::_build_condition_cache_digest(uint64_t seed, const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        seed = conjunct->get_digest(seed);
+        if (seed == 0) {
+            return 0;
+        }
+    }
+    return seed;
+}
+
+#ifdef BE_TEST
+uint64_t Scanner::TEST_build_condition_cache_digest(uint64_t seed,
+                                                    const VExprContextSPtrs& conjuncts) {
+    return _build_condition_cache_digest(seed, conjuncts);
+}
+#endif
 
 Status Scanner::close(RuntimeState* state) {
 #ifndef BE_TEST
@@ -286,9 +330,11 @@ void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
 
-    // Update stats for load
-    _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
-    _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    // Update stats for load. See _should_update_load_counters() for why this is gated.
+    if (_should_update_load_counters()) {
+        _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+        _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    }
 }
 
 void Scanner::_update_scan_cpu_timer() {

@@ -165,9 +165,30 @@ public class HMSTransaction implements Transaction {
         return new ArrayList<>(mm.values());
     }
 
+    private void collectUncompletedMpuPendingUploads(List<THivePartitionUpdate> hivePUs) {
+        for (THivePartitionUpdate pu : hivePUs) {
+            if (pu.getS3MpuPendingUploads() != null) {
+                for (TS3MPUPendingUpload s3MPUPendingUpload : pu.getS3MpuPendingUploads()) {
+                    uncompletedMpuPendingUploads.add(
+                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getWritePath()));
+                }
+            }
+        }
+    }
+
     @Override
     public void rollback() {
         if (hmsCommitter == null) {
+            collectUncompletedMpuPendingUploads(hivePartitionUpdates);
+            if (uncompletedMpuPendingUploads.isEmpty()) {
+                return;
+            }
+            hmsCommitter = new HmsCommitter();
+            try {
+                hmsCommitter.rollback();
+            } finally {
+                hmsCommitter.shutdownExecutorService();
+            }
             return;
         }
         try {
@@ -224,14 +245,7 @@ public class HMSTransaction implements Transaction {
         }
 
         List<THivePartitionUpdate> mergedPUs = mergePartitions(hivePartitionUpdates);
-        for (THivePartitionUpdate pu : mergedPUs) {
-            if (pu.getS3MpuPendingUploads() != null) {
-                for (TS3MPUPendingUpload s3MPUPendingUpload : pu.getS3MpuPendingUploads()) {
-                    uncompletedMpuPendingUploads.add(
-                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getWritePath()));
-                }
-            }
-        }
+        collectUncompletedMpuPendingUploads(mergedPUs);
         List<Pair<THivePartitionUpdate, HivePartitionStatistics>> insertExistsPartitions = new ArrayList<>();
         for (THivePartitionUpdate pu : mergedPUs) {
             TUpdateMode updateMode = pu.getUpdateMode();

@@ -129,11 +129,11 @@ public class TypeTest {
     }
 
     @Test
-    public void testVariantToSqlDoesNotSerializeUnsupportedNestedGroupProperty() {
+    public void testVariantToSqlSerializesNestedGroupProperty() {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
                 false, 0L, 64, true);
 
-        Assert.assertFalse(variantType.toSql().contains("variant_enable_nested_group"));
+        Assert.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
     }
 
     // ===================== Mixed Nesting & Precision =====================

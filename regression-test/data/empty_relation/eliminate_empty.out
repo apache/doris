@@ -51,7 +51,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
-----------filter(( not (n_nationkey = 1)))
+----------filter(( not (nation.n_nationkey = 1)))
 ------------PhysicalOlapScan[nation] apply RFs: RF0
 
 -- !except_data_empty_data --
@@ -118,7 +118,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
-----------filter(( not (n_nationkey = 1)))
+----------filter(( not (nation.n_nationkey = 1)))
 ------------PhysicalOlapScan[nation] apply RFs: RF0
 
 -- !null_except_data_empty_data --

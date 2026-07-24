@@ -29,6 +29,7 @@
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 #include "exprs/function/function_test_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -96,6 +97,14 @@ TEST(function_bitmap_test, function_bitmap_remove) {
 
 namespace doris::config {
 DECLARE_Bool(enable_set_in_bitmap_value);
+}
+
+std::string encode_bitmap_to_base64(const BitmapValue& bitmap) {
+    std::string serialized(bitmap.getSizeInBytes(), '\0');
+    bitmap.write_to(serialized.data());
+    std::string encoded;
+    base64_encode(serialized, &encoded);
+    return encoded;
 }
 
 TEST(function_bitmap_test, function_bitmap_to_base64) {
@@ -175,10 +184,8 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     {
         DataSet data_set = {
                 {{&bitmap32_1}, std::string("AQEAAAA=")},
-                {{&bitmap32_2}, std::string("BQIBAAAAAAAAAH+WmAAAAAAA")},
                 {{&bitmap32_3}, std::string("AjswAAABAAAgAAEAAAAgAA==")},
                 {{&bitmap64_1}, std::string("AwAAAAABAAAA")},
-                {{&bitmap64_2}, std::string("BQIAAAAAAQAAAAEAAAAAAAAA")},
                 {{&bitmap64_3},
                  std::string("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==")},
                 {{&empty_bitmap}, std::string("AA==")},
@@ -188,13 +195,20 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
     }
 
     {
-        std::string base64("BQQAAAAAAAAAAAEAAAAAAAAAAgAAAAAAAAADAAAAAAAAAA==");
+        // SET serialization depends on hash-set iteration order, so do not pin a hard-coded
+        // base64 string here. The contract is that the current serialization can round-trip.
+        DataSet data_set = {{{&bitmap32_2}, encode_bitmap_to_base64(bitmap32_2)},
+                            {{&bitmap64_2}, encode_bitmap_to_base64(bitmap64_2)}};
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
         BitmapValue bitmap;
         bitmap.add(0);
         bitmap.add(1);
         bitmap.add(2);
         bitmap.add(3);
-        DataSet data_set = {{{&bitmap}, base64}};
+        DataSet data_set = {{{&bitmap}, encode_bitmap_to_base64(bitmap)}};
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 
@@ -289,6 +303,15 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
         bitmap.add(0);
         bitmap.add(1);
         DataSet data_set = {{{base64}, &bitmap}};
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
+    }
+    {
+        // Historical SET bytes may store the same elements in different orders; decoding must
+        // preserve the bitmap contents instead of relying on the serialized payload order.
+        std::string set_v1_reversed("BQJ/lpgAAAAAAAEAAAAAAAAA");
+        std::string set_v2_reversed("CgIAAAB/lpgAAAAAAAEAAAAAAAAA");
+        BitmapValue bitmap({1, 9999999});
+        DataSet data_set = {{{set_v1_reversed}, &bitmap}, {{set_v2_reversed}, &bitmap}};
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
     {

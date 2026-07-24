@@ -199,6 +199,10 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
                         .get_aggregate_function(AGG_READER_SUFFIX,
                                                 read_params.get_be_exec_version());
         DCHECK(function != nullptr);
+        const auto* column_ptr = _stored_data_columns[idx].get();
+        const IColumn* columns[] = {column_ptr};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*column_ptr);
         _agg_functions.push_back(function);
         // create aggregate data
         auto* place = new char[function->size_of_data()];
@@ -633,7 +637,7 @@ void VerticalBlockReader::_prepare_sparse_columns(MutableColumns& columns, size_
 
     for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
         auto& col = columns[col_idx];
-        if (col->is_nullable()) {
+        if (is_column_nullable(*col)) {
             auto* nullable_col =
                     assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(col.get());
             nullable_dst_cols[col_idx] = nullable_col;

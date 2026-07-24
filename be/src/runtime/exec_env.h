@@ -265,6 +265,7 @@ public:
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
     ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
+    ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
@@ -502,6 +503,7 @@ private:
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
     // Threadpool used to prefetch segment file cache blocks
     std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
+    std::unique_ptr<ThreadPool> _peer_race_s3_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;

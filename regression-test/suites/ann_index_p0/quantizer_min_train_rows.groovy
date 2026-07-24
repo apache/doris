@@ -16,7 +16,7 @@
 // under the License.
 
 suite("quantizer_min_train_rows") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // Test PQ quantizer minimum training rows requirement
     // PQ min_train_rows formula is (1 << pq_nbits) * 100.

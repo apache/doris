@@ -35,6 +35,7 @@ import org.apache.doris.foundation.util.BasicPrintableMap;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -96,6 +97,24 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     public void setAdditionalHiddenKeys(Set<String> additionalHiddenKeys) {
         this.additionalHiddenKeys = additionalHiddenKeys;
+    }
+
+    /**
+     * Registers additional sensitive property key aliases to be masked when printing property maps.
+     *
+     * <p>fe-core is decoupled from the filesystem provider implementations at the Maven level, so it
+     * cannot statically reference their typed properties classes the way the static block does for the
+     * legacy {@code *Properties}. Instead, {@code FileSystemPluginManager} aggregates each loaded
+     * provider's {@code sensitivePropertyKeys()} and registers them here at FE startup, before any
+     * SHOW CREATE / error-log printing occurs.
+     */
+    public static void registerSensitiveKeys(Collection<String> keys) {
+        if (keys == null) {
+            return;
+        }
+        synchronized (SENSITIVE_KEY) {
+            SENSITIVE_KEY.addAll(keys);
+        }
     }
 
     @Override

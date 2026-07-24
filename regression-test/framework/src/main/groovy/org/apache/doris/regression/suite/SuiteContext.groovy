@@ -53,6 +53,7 @@ class SuiteContext implements Closeable {
     public final ThreadLocal<Connection> threadHive2DockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHive3DockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadSparkIcebergConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
@@ -239,6 +240,15 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
+    Connection getSparkIcebergConnection() {
+        def threadConn = threadSparkIcebergConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionBySparkIcebergConfig()
+            threadSparkIcebergConn.set(threadConn)
+        }
+        return threadConn
+    }
+
     Connection getDB2DockerConnection() {
         def threadConn = threadDB2DockerConn.get()
         if (threadConn == null) {
@@ -312,6 +322,21 @@ class SuiteContext implements Closeable {
         String hiveJdbcUser =  "hadoop"
         String hiveJdbcPassword = "hadoop"
         return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
+    Connection getConnectionBySparkIcebergConfig() {
+        Class.forName("org.apache.hive.jdbc.HiveDriver");
+        String sparkJdbcUser =  "hadoop"
+        String sparkJdbcPassword = "hadoop"
+        String sparkJdbcUrl = getSparkIcebergJdbcUrl()
+        log.info("Create Spark Iceberg JDBC connection to ${sparkJdbcUrl}".toString())
+        return DriverManager.getConnection(sparkJdbcUrl, sparkJdbcUser, sparkJdbcPassword)
+    }
+
+    String getSparkIcebergJdbcUrl() {
+        String sparkHost = config.otherConfigs.get("externalEnvIp")
+        String sparkPort = config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
+        return "jdbc:hive2://${sparkHost}:${sparkPort}/default"
     }
 
     Connection getConnectionByDB2DockerConfig() {
@@ -612,6 +637,16 @@ class SuiteContext implements Closeable {
             threadHiveRemoteConn.remove()
             try {
                 hive_remote_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
+        Connection spark_iceberg_conn = threadSparkIcebergConn.get()
+        if (spark_iceberg_conn != null) {
+            threadSparkIcebergConn.remove()
+            try {
+                spark_iceberg_conn.close()
             } catch (Throwable t) {
                 log.warn("Close connection failed", t)
             }

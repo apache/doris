@@ -33,6 +33,9 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -266,7 +269,67 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     public static Resource read(DataInput in) throws IOException {
         String json = Text.readString(in);
+        json = addLegacyClazzIfMissing(json);
         return GsonUtils.GSON.fromJson(json, Resource.class);
+    }
+
+    // Compatibility for legacy Resource JSON written without RuntimeTypeAdapterFactory's "clazz"
+    // discriminator. This can be removed after such old metadata no longer needs to be supported.
+    static String addLegacyClazzIfMissing(String json) {
+        JsonElement jsonElement = JsonParser.parseString(json);
+        if (!jsonElement.isJsonObject()) {
+            return json;
+        }
+
+        JsonObject jsonObject = jsonElement.getAsJsonObject();
+        if (addLegacyClazzIfMissing(jsonObject)) {
+            return jsonObject.toString();
+        }
+        return json;
+    }
+
+    static boolean addLegacyClazzIfMissing(JsonObject jsonObject) {
+        if (jsonObject.has("clazz") || !jsonObject.has("type")) {
+            return false;
+        }
+
+        JsonElement typeElement = jsonObject.get("type");
+        if (!typeElement.isJsonPrimitive()) {
+            return false;
+        }
+
+        ResourceType resourceType = ResourceType.fromString(typeElement.getAsString());
+        String clazz = getLegacyClazz(resourceType);
+        if (clazz == null) {
+            return false;
+        }
+        jsonObject.addProperty("clazz", clazz);
+        return true;
+    }
+
+    private static String getLegacyClazz(ResourceType resourceType) {
+        switch (resourceType) {
+            case SPARK:
+                return SparkResource.class.getSimpleName();
+            case ODBC_CATALOG:
+                return OdbcCatalogResource.class.getSimpleName();
+            case S3:
+                return S3Resource.class.getSimpleName();
+            case JDBC:
+                return JdbcResource.class.getSimpleName();
+            case HDFS:
+                return HdfsResource.class.getSimpleName();
+            case HMS:
+                return HMSResource.class.getSimpleName();
+            case ES:
+                return EsResource.class.getSimpleName();
+            case AZURE:
+                return AzureResource.class.getSimpleName();
+            case AI:
+                return AIResource.class.getSimpleName();
+            default:
+                return null;
+        }
     }
 
     @Override

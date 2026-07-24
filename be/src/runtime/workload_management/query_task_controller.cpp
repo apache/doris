@@ -226,6 +226,19 @@ std::vector<PipelineTask*> QueryTaskController::get_revocable_tasks() {
     return tasks;
 }
 
+bool QueryTaskController::get_user(std::string* user) {
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return false;
+    }
+    // Only expose user metadata when it is explicitly attached to the query context.
+    if (query_ctx->set_rsc_info) {
+        *user = query_ctx->user;
+        return true;
+    }
+    return false;
+}
+
 void QueryTaskController::add_total_task_num(int delta) {
     _total_task_num.fetch_add(delta, std::memory_order_relaxed);
 }

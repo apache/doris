@@ -207,6 +207,7 @@ protected:
     virtual Status _create_line_reader();
     virtual Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice);
     virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice);
+    virtual bool _empty_line_as_record() const { return false; }
     // check the utf8 encoding of a line.
     // return error status to stop processing.
     // If return Status::OK but "success" is false, which means this is load request
@@ -235,6 +236,11 @@ private:
     Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns,
                               size_t* rows);
     Status _fill_empty_line(std::vector<MutableColumnPtr>& columns, size_t* rows);
+    // Called once per batch: verifies the nullable string columns' concrete types (so the
+    // per-row casts in _deserialize_nullable_string can skip the release-build type check)
+    // and reserves their offsets/null_map capacity to avoid incremental growth per row.
+    void _reserve_nullable_string_columns(std::vector<MutableColumnPtr>& columns,
+                                          size_t batch_size);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     void _init_system_properties();

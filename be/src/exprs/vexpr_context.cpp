@@ -19,10 +19,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -31,6 +34,7 @@
 #include "core/column/column_const.h"
 #include "exec/common/util.hpp"
 #include "exprs/function_context.h"
+#include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/vexpr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -44,6 +48,8 @@ class RowDescriptor;
 
 namespace doris {
 
+VExprContext::VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
+
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
     // prepare or open, so that it is not need to call close. And call close may core
@@ -56,6 +62,13 @@ VExprContext::~VExprContext() {
     } catch (const Exception& e) {
         LOG(WARNING) << "Exception occurs when expr context deconstruct: " << e.to_string();
     }
+}
+
+LambdaExecutionContext& VExprContext::lambda_execution_context() {
+    if (!_lambda_execution_context) {
+        _lambda_execution_context = std::make_unique<LambdaExecutionContext>();
+    }
+    return *_lambda_execution_context;
 }
 
 Status VExprContext::execute(Block* block, int* result_column_id) {
@@ -184,6 +197,54 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
     return st;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtrs& conjuncts,
+                                                          const ZoneMapEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        if (root->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_dictionary_filter(const VExprContextSPtrs& conjuncts,
+                                                             const DictionaryEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_dictionary_filter()) {
+            continue;
+        }
+        if (root->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_bloom_filter(const VExprContextSPtrs& conjuncts,
+                                                        const BloomFilterEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        if (root->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
 }
 
 bool VExprContext::all_expr_inverted_index_evaluated() {
@@ -440,8 +501,9 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, bool* ann_range_search_executed) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        bool* ann_range_search_executed) {
     if (ann_range_search_executed != nullptr) {
         *ann_range_search_executed = false;
     }
@@ -452,7 +514,7 @@ Status VExprContext::evaluate_ann_range_search(
     AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
+            rows_of_segment, row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
 
     if (!evaluation_result.executed) {
         return Status::OK();

@@ -23,10 +23,14 @@
 #include <optional>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/field.h"
 #include "exprs/bloom_filter_func.h"
@@ -39,6 +43,39 @@
 #include "runtime/descriptors.h"
 
 namespace doris {
+
+namespace {
+
+template <PrimitiveType PT>
+bool bloom_may_match_fixed_values(const ColumnValueRange<PT>& cvr,
+                                  BloomFilterFuncBase* bloom_filter) {
+    if (cvr.get_fixed_value_size() == 0) {
+        return false;
+    }
+
+    using CppType = typename PrimitiveTypeTraits<PT>::CppType;
+    using ColumnType = typename PrimitiveTypeTraits<PT>::ColumnType;
+
+    MutableColumnPtr values_column;
+    if constexpr (IsDecimalNumber<CppType>) {
+        values_column = ColumnType::create(0, cvr.scale());
+    } else {
+        values_column = ColumnType::create();
+    }
+    auto* typed_column = static_cast<ColumnType*>(values_column.get());
+    for (const auto& value : cvr.get_fixed_value_set()) {
+        typed_column->insert_value(value);
+    }
+    const size_t row_count = values_column->size();
+
+    std::vector<uint8_t> results(row_count, 0);
+    ColumnPtr values_column_ptr = std::move(values_column);
+    bloom_filter->find_fixed_len(values_column_ptr, results.data());
+    return std::any_of(results.begin(), results.end(),
+                       [](uint8_t matched) { return matched != 0; });
+}
+
+} // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,readability-function-size)
 // Complexity is inflated by macro expansion for each PrimitiveType case.
@@ -79,6 +116,7 @@ Status ParsedPartitionBoundaries::parse(
         bool is_list = tb.__isset.list_values && !tb.list_values.empty();                         \
         bool is_range = tb.__isset.range_start || tb.__isset.range_end;                           \
         DORIS_CHECK(is_list || is_range);                                                         \
+        boundary.is_list_boundary = is_list;                                                      \
         ColumnValueRange<TYPE_##NAME> cvr(slot->col_name(), is_nullable, precision, scale);       \
         /* Returns nullopt if `node` is a NULL literal; the caller then sets contain_null  */     \
         /* on the CVR instead of trying to extract a typed value (which would dereference  */     \
@@ -381,8 +419,9 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             DCHECK(cvr != nullptr);                                                              \
             DCHECK(!boundary.only_null);                                                         \
             DCHECK(!boundary.contains_null);                                                     \
-            boundary_is_list[i] = cvr->is_fixed_value_range();                                   \
+            boundary_is_list[i] = boundary.is_list_boundary;                                     \
             if (boundary_is_list[i]) {                                                           \
+                DORIS_CHECK(cvr->is_fixed_value_range());                                        \
                 list_result_begin[i] = list_row_count;                                           \
                 for (const auto& value : cvr->get_fixed_value_set()) {                           \
                     list_inner->insert_value(value);                                             \
@@ -516,6 +555,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
                 projected_boundary.partition_id = orig_boundary.partition_id;                   \
                 projected_boundary.slot_id = leaf_slot_id;                                      \
                 projected_boundary.is_nullable = out_nullable;                                  \
+                projected_boundary.is_list_boundary = true;                                     \
                 projected_boundary.contains_null = list_has_null;                               \
                 projected_boundary.only_null = list_has_null && !list_has_value;                \
                 projected_boundary.boundary_cvr = std::move(cvr);                               \
@@ -552,6 +592,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             projected_boundary.partition_id = orig_boundary.partition_id;                       \
             projected_boundary.slot_id = leaf_slot_id;                                          \
             projected_boundary.is_nullable = out_nullable;                                      \
+            projected_boundary.is_list_boundary = false;                                        \
             projected_boundary.only_null = orig_boundary.only_null;                             \
             projected_boundary.contains_null = orig_boundary.contains_null;                     \
             projected_boundary.boundary_cvr = std::move(cvr);                                   \
@@ -627,12 +668,49 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
     // FilterBase::contain_null() already folds in `_null_aware`, so we only
     // get a true result when the build side is actually null-aware AND
     // produced a NULL value.
+    if (impl->node_type() == TExprNodeType::BLOOM_PRED) {
+        auto bloom = impl->get_bloom_filter_func();
+        DORIS_CHECK(bloom != nullptr);
+        bool rf_contains_null = bloom->contain_null();
+
+        for (const auto& pb : boundaries) {
+            if (_pruned_partition_ids.contains(pb.partition_id) ||
+                newly_pruned.contains(pb.partition_id)) {
+                continue;
+            }
+
+            if (pb.only_null) {
+                if (!rf_contains_null) {
+                    newly_pruned.insert(pb.partition_id);
+                }
+                continue;
+            }
+            if (pb.contains_null && rf_contains_null) {
+                continue;
+            }
+            if (!pb.is_list_boundary) {
+                continue;
+            }
+
+            bool may_match = true;
+            std::visit(
+                    [&](const auto& boundary_cvr) {
+                        if (!boundary_cvr.is_fixed_value_range()) {
+                            return;
+                        }
+                        may_match = bloom_may_match_fixed_values(boundary_cvr, bloom.get());
+                    },
+                    pb.boundary_cvr);
+            if (!may_match) {
+                newly_pruned.insert(pb.partition_id);
+            }
+        }
+        return;
+    }
+
     bool rf_contains_null = false;
     if (auto hybrid_set = impl->get_set_func()) {
         rf_contains_null = hybrid_set->contain_null();
-    } else if (impl->node_type() == TExprNodeType::BLOOM_PRED) {
-        auto bloom = impl->get_bloom_filter_func();
-        rf_contains_null = bloom && bloom->contain_null();
     } else if (impl->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED) {
         // Min/Max RF built on a null-safe equal join. The literal child holds
         // the min or max bound; the NULL semantic is conveyed by the node

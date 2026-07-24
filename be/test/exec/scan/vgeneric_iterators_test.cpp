@@ -359,4 +359,47 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_EQ(seg_iter_num - 1, actual_value);
 }
 
+// Mirror of MergeWithSeqColumn but with small_seq_first=true.
+// Same key across all segments, seq values are 0..seg_iter_num-1; the merge
+// iterator should keep exactly one row whose seq value is the smallest (0).
+TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+
+    int seq_column_id = 2;
+    int seg_iter_num = 10;
+    int num_rows = 1;
+    int rows_begin = 0;
+    for (int i = 0; i < seg_iter_num; i++) {
+        int seq_id_in_every_file = i;
+        inputs.push_back(std::make_unique<SeqColumnUtIterator>(
+                schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
+    }
+
+    // small_seq_first = true => smaller seq value sorts first / wins on tie.
+    auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/true,
+                                   /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
+                                   /*small_seq_first=*/true);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    Block block;
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
+    create_block(schema, block);
+
+    do {
+        st = iter->next_batch(&block_with_same_bit);
+    } while (st.ok());
+
+    EXPECT_TRUE(st.is<END_OF_FILE>());
+    EXPECT_EQ(block.rows(), 1);
+
+    auto seq_col = block.get_by_position(seq_column_id).column;
+    size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
+    EXPECT_EQ(0, actual_value);
+}
+
 } // namespace doris

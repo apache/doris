@@ -760,6 +760,14 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     return 0;
 }
 
+static bool has_non_empty_role_arn(const ObjectStoreInfoPB& obj) {
+    return obj.has_role_arn() && !obj.role_arn().empty();
+}
+
+static bool use_credential_provider(const ObjectStoreInfoPB& obj) {
+    return obj.has_cred_provider_type() || has_non_empty_role_arn(obj);
+}
+
 static void create_object_info_with_encrypt(const InstanceInfoPB& instance, ObjectStoreInfoPB* obj,
                                             bool sse_enabled, MetaServiceCode& code,
                                             std::string& msg) {
@@ -1250,7 +1258,9 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
            external_id] = obj_desc;
 
-    if (!obj.has_role_arn()) {
+    bool use_credential_provider_for_add_vault =
+            request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT && obj.has_cred_provider_type();
+    if (!obj.has_role_arn() && !use_credential_provider_for_add_vault) {
         if (!obj.has_ak() || !obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
@@ -1306,13 +1316,15 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
         last_item.set_user_id(obj.user_id());
     }
 
-    if (!obj.has_role_arn()) {
+    if (!use_credential_provider(obj)) {
         last_item.set_ak(std::move(cipher_ak_sk_pair.first));
         last_item.set_sk(std::move(cipher_ak_sk_pair.second));
         last_item.mutable_encryption_info()->CopyFrom(encryption_info);
     } else {
-        last_item.set_role_arn(role_arn);
-        last_item.set_external_id(external_id);
+        if (has_non_empty_role_arn(obj)) {
+            last_item.set_role_arn(role_arn);
+            last_item.set_external_id(external_id);
+        }
         last_item.set_cred_provider_type(get_cred_provider_type(obj));
     }
     last_item.set_bucket(bucket);
@@ -1476,18 +1488,17 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
+        if (((ak.empty() || sk.empty()) && !use_credential_provider(obj)) || bucket.empty() ||
             endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
         }
 
-        if (!role_arn.empty()) {
-            if (!obj.has_cred_provider_type() || !obj.has_provider() ||
-                obj.provider() != ObjectStoreInfoPB::S3) {
+        if (use_credential_provider(obj)) {
+            if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "s3 conf info err with role_arn, please check it";
+                msg = "s3 conf info err with credentials_provider_type, please check it";
                 return;
             }
         }

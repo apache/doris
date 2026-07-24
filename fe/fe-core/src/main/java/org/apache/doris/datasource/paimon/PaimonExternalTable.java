@@ -320,6 +320,16 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        return true;
+    }
+
+    @Override
     public List<Column> getFullSchema() {
         return getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)).getSchema();
     }
@@ -336,7 +346,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
             List<Column> partitionColumns = Lists.newArrayList();
             for (DataField field : columns) {
-                Column column = new Column(field.name().toLowerCase(),
+                Column column = new Column(field.name(),
                         PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary(),
                                 getCatalog().getEnableMappingTimestampTz()),
                         true,

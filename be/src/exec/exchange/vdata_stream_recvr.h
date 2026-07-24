@@ -181,6 +181,8 @@ public:
 
     Status get_batch(Block* next_block, bool* eos);
 
+    bool has_data_or_finished();
+
     Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
@@ -198,7 +200,20 @@ public:
 
     void close();
 
-    void set_dependency(std::shared_ptr<Dependency> dependency) { _source_dependency = dependency; }
+    void set_dependency(std::shared_ptr<Dependency> dependency) {
+        // Assign under _lock: set_source_ready() (reached via decrement_senders/cancel/close
+        // on other threads) reads _source_dependency while holding _lock, so a lock-free
+        // shared_ptr assignment here would race with that read.
+        std::lock_guard<std::mutex> l(_lock);
+        _source_dependency = dependency;
+        // A queue created with zero senders (bucket-shuffle orphan instance, see
+        // ExchangeLocalState::create_stream_recvr) never goes through decrement_senders,
+        // so the usual reached-zero set_ready never fires — mark it ready at wiring time
+        // or its task blocks forever on SHUFFLE_DATA_DEPENDENCY.
+        if (_num_remaining_senders == 0) {
+            set_source_ready(l);
+        }
+    }
 
 protected:
     struct BlockItem;

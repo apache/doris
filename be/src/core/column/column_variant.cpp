@@ -59,6 +59,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -68,7 +69,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/json_functions.h"
 #include "storage/olap_common.h"
-#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
@@ -229,6 +229,7 @@ void ColumnVariant::Subcolumn::insert(FieldWithDataType field) {
     info.scale = field.scale;
     info.scalar_type_id = field.base_scalar_type_id;
     info.num_dimensions = field.num_dimensions;
+    info.need_convert = field.need_convert;
     insert(std::move(field.field), info);
 }
 
@@ -825,17 +826,26 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
-void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
+void ColumnVariant::mutate_subcolumns() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            callback(part);
+            mutate_subcolumn(part);
         }
     }
-    callback(serialized_sparse_column);
-    callback(serialized_doc_value_column);
-    // callback may be filter, so the row count may be changed
+    mutate_subcolumn(serialized_sparse_column);
+    mutate_subcolumn(serialized_doc_value_column);
     num_rows = serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(this);
+}
+
+void ColumnVariant::for_each_subcolumn(ColumnCallback callback) const {
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            callback(*static_cast<const IColumn::Ptr&>(part));
+        }
+    }
+    callback(*static_cast<const IColumn::Ptr&>(serialized_sparse_column));
+    callback(*static_cast<const IColumn::Ptr&>(serialized_doc_value_column));
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
@@ -1080,7 +1090,8 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                               .num_dimensions = static_cast<uint8_t>(
                                                       data.second.num_dimensions),
                                               .precision = data.second.precision,
-                                              .scale = data.second.scale});
+                                              .scale = data.second.scale,
+                                              .need_convert = data.second.need_convert});
     }
     try_get_from_doc_value_column(n, res);
     if (object.empty()) {
@@ -1825,6 +1836,11 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         }
     }
 
+    const auto& sparse_offsets = serialized_sparse_column_offsets();
+    if (sparse_offsets[nrow - 1] != sparse_offsets[nrow]) {
+        return false;
+    }
+
     const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
     // doc snapshot column is not empty
     if (doc_value_column_map.get_offsets()[nrow - 1] != doc_value_column_map.get_offsets()[nrow]) {
@@ -2299,7 +2315,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
 }
 
 void ColumnVariant::finalize() {
-    static_cast<void>(finalize(FinalizeMode::READ_MODE));
+    finalize(FinalizeMode::READ_MODE);
 }
 
 void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) const {
@@ -2373,7 +2389,7 @@ size_t ColumnVariant::filter(const Filter& filter) {
         for (auto& subcolumn : subcolumns) {
             subcolumn->data.num_rows = count;
         }
-        for_each_subcolumn([&](auto& part) {
+        auto filter_part = [&](IColumn::WrappedPtr& part) {
             if (part->size() != count) {
                 if (part->is_exclusive()) {
                     const auto result_size = part->filter(filter);
@@ -2388,7 +2404,14 @@ size_t ColumnVariant::filter(const Filter& filter) {
                     part = part->filter(filter, count);
                 }
             }
-        });
+        };
+        for (auto& entry : subcolumns) {
+            for (auto& part : entry->data.data) {
+                filter_part(part);
+            }
+        }
+        filter_part(serialized_sparse_column);
+        filter_part(serialized_doc_value_column);
     }
     num_rows = count;
     ENABLE_CHECK_CONSISTENCY(this);
@@ -2729,7 +2752,7 @@ void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString
     const auto& data_ref = value->get_data_at(row);
     const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     const PrimitiveType type =
-            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
+            storage_field_type_to_primitive_type(static_cast<FieldType>(*start_data));
     auto check_end = [&](const uint8_t* end_ptr) {
         DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };

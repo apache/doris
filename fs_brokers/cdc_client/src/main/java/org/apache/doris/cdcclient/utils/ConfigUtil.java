@@ -37,6 +37,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.mysql.cj.conf.ConnectionUrl;
+import io.debezium.config.CommonConnectorConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -123,9 +124,35 @@ public class ConfigUtil {
         return ZoneId.systemDefault();
     }
 
+    public static final String MAX_QUEUE_BYTES_SYS_PROP = "cdc.max.queue.size.in.bytes";
+
+    // Heap-adaptive byte cap for the debezium ChangeEventQueue buffer.
+    // heap 1G->64MB, 2G->128MB, >=4G->256MB. -D<MAX_QUEUE_BYTES_SYS_PROP> overrides
+    // (<=0 disables); a malformed override is logged and ignored, falling back to the cap.
+    private static long resolveMaxQueueSizeInBytes() {
+        String override = System.getProperty(MAX_QUEUE_BYTES_SYS_PROP);
+        if (override != null) {
+            try {
+                long bytes = Long.parseLong(override.trim());
+                return bytes <= 0 ? 0 : bytes;
+            } catch (NumberFormatException e) {
+                LOG.warn(
+                        "Ignoring invalid -D{}={}, expected an integer byte count; "
+                                + "falling back to the adaptive cap",
+                        MAX_QUEUE_BYTES_SYS_PROP,
+                        override);
+            }
+        }
+        long target = Runtime.getRuntime().maxMemory() / 16;
+        return Math.max(64L * 1024 * 1024, Math.min(target, 256L * 1024 * 1024));
+    }
+
     /** Optimized debezium parameters */
     public static Properties getDefaultDebeziumProps() {
         Properties properties = new Properties();
+        properties.put(
+                CommonConnectorConfig.MAX_QUEUE_SIZE_IN_BYTES.name(),
+                String.valueOf(resolveMaxQueueSizeInBytes()));
         return properties;
     }
 

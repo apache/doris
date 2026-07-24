@@ -37,7 +37,6 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
@@ -53,13 +52,6 @@ public class PhysicalNestedLoopJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>
         implements BlockFuncDepsPropagation {
-
-    /*
-    bitmap_contains(...) or Not(bitmap_contains(...)) can be used as bitmap runtime filter condition
-    bitmapRF is different from other RF in that scan node must wait for it.
-    if a condition is used in rf, it can be removed from join conditions. we collect these conditions here.
-     */
-    private final Set<Expression> bitMapRuntimeFilterConditions = Sets.newHashSet();
 
     public PhysicalNestedLoopJoin(
             JoinType joinType,
@@ -195,18 +187,6 @@ public class PhysicalNestedLoopJoin<
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, left(), right()));
-    }
-
-    public void addBitmapRuntimeFilterCondition(Expression expr) {
-        bitMapRuntimeFilterConditions.add(expr);
-    }
-
-    public boolean isBitmapRuntimeFilterCondition(Expression expr) {
-        return bitMapRuntimeFilterConditions.contains(expr);
-    }
-
-    public boolean isBitMapRuntimeFilterConditionsEmpty() {
-        return bitMapRuntimeFilterConditions.isEmpty();
     }
 
     /**

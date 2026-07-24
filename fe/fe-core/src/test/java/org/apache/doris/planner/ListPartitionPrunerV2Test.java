@@ -104,8 +104,8 @@ public class ListPartitionPrunerV2Test {
             NameMapping nameMapping = NameMapping.createForTest(catalogId, dbName, tblName);
             PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, types);
             HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(key);
-            Assert.assertEquals(1, partitionValues.getIdToPartitionItem().size());
-            List<PartitionKey> items = partitionValues.getIdToPartitionItem().values().iterator().next().getItems();
+            Assert.assertEquals(1, partitionValues.getNameToPartitionItem().size());
+            List<PartitionKey> items = partitionValues.getNameToPartitionItem().values().iterator().next().getItems();
             Assert.assertEquals(1, items.size());
             PartitionKey partitionKey = items.get(0);
             Assert.assertEquals("1.234", partitionKey.getKeys().get(0).toString());
@@ -117,9 +117,9 @@ public class ListPartitionPrunerV2Test {
             cache.addPartitionsCache(nameMapping, values, types);
             HiveExternalMetaCache.HivePartitionValues partitionValues2 = cache.getPartitionValues(
                 new PartitionValueCacheKey(nameMapping, types));
-            Assert.assertEquals(2, partitionValues2.getIdToPartitionItem().size());
+            Assert.assertEquals(2, partitionValues2.getNameToPartitionItem().size());
             PartitionKey partitionKey2 = null;
-            for (PartitionItem partitionItem : partitionValues2.getIdToPartitionItem().values()) {
+            for (PartitionItem partitionItem : partitionValues2.getNameToPartitionItem().values()) {
                 List<PartitionKey> partitionKeys = partitionItem.getItems();
                 Assert.assertEquals(1, partitionKeys.size());
                 if ("5.678000".equals(partitionKeys.get(0).getOriginHiveKeys().get(0))) {
@@ -136,8 +136,8 @@ public class ListPartitionPrunerV2Test {
             cache.invalidateTableCache(nameMapping);
             HiveExternalMetaCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(
                 new PartitionValueCacheKey(nameMapping, types));
-            Assert.assertEquals(1, partitionValues3.getIdToPartitionItem().size());
-            List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().values().iterator().next().getItems();
+            Assert.assertEquals(1, partitionValues3.getNameToPartitionItem().size());
+            List<PartitionKey> items3 = partitionValues3.getNameToPartitionItem().values().iterator().next().getItems();
             Assert.assertEquals(1, items3.size());
             PartitionKey partitionKey3 = items3.get(0);
             Assert.assertEquals("1.234", partitionKey3.getKeys().get(0).toString());

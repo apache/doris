@@ -645,6 +645,11 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
+        // An incomplete baseline cannot be checked by isMTMVSync, because the current exclude rules may
+        // skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it with a full refresh.
+        if (!mtmv.hasCompleteRefreshSnapshot()) {
+            return Lists.newArrayList(mtmv.getPartitionNames());
+        }
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId

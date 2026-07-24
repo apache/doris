@@ -42,7 +42,7 @@ public:
     EmptySetSourceOperatorX() = default;
 #endif
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 };

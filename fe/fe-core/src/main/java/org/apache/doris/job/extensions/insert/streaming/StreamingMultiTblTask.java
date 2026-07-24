@@ -25,6 +25,7 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -83,7 +84,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long loadBytes = 0L;
     private long filteredRows = 0L;
     private long loadedRows = 0L;
-    private long runningBackendId;
+    private volatile long runningBackendId;
+    long lastScannedRows = -1;
+    long lastProgressMs = 0;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
@@ -111,8 +114,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.info("streaming multi task has been canceled, task id is {}", getTaskId());
             return;
         }
-        this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
+        this.lastProgressMs = this.startTimeMs;
+        this.status = TaskStatus.RUNNING;
         this.runningOffset = offsetProvider.getNextOffset(null, sourceProperties);
         log.info("streaming multi task {} get running offset: {}", taskId, runningOffset.toString());
     }
@@ -127,7 +131,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     private void sendWriteRequest() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = resolveBackend();
         log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
                 taskId, backend.getId(), backend.getHost(), runningOffset.toString());
         this.runningBackendId = backend.getId();
@@ -168,11 +172,34 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.warn("cdc_client RPC timeout api=/api/writeRecords taskId={} jobId={} backend={}:{} timeout_sec={}",
                     taskId, getJobId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_heavy_rpc_timeout_sec);
+            // the request may have been dispatched and still running remotely
+            noRetry = true;
             throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             log.error("Send write request failed: ", ex);
+            noRetry = true;
             throw new JobException(ex);
         }
+    }
+
+    private Backend resolveBackend() throws JobException {
+        // Snapshot phase keeps per-round selection; binlog phase binds to a fixed BE for reuse.
+        if (((JdbcOffset) runningOffset).snapshotSplit()) {
+            return StreamingJobUtils.selectBackend(cloudCluster);
+        }
+        return getStreamingJob().resolveBoundBackend();
+    }
+
+    // Fail loud on a dropped/wrong-type job rather than return null and risk a downstream NPE.
+    private StreamingInsertJob getStreamingJob() throws JobException {
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        if (job == null) {
+            throw new JobException("Streaming job " + getJobId() + " not found");
+        }
+        return (StreamingInsertJob) job;
     }
 
     private String getToken() throws JobException {
@@ -210,6 +237,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
         request.setTaskTimeoutMs(getTaskTimeoutMs());
+        request.setRebuildReader(getStreamingJob().isNeedRebuildReader());
+        // Reader reuse applies only to the binlog phase (snapshot rebinds/closes per split).
+        request.setReuseReader(!offset.snapshotSplit());
         if (offsetProvider instanceof JdbcSourceOffsetProvider) {
             String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
             if (schemas != null) {
@@ -308,28 +338,31 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     protected void onFail(String errMsg) throws JobException {
-        // Release this task's reader before reschedule so it stops competing for the shared slot.
+        // Stop a possibly still-running reader now, so the PG slot frees before auto-resume re-acquires it.
         releaseRemoteReader();
         super.onFail(errMsg);
     }
 
     @Override
     public void cancel(boolean needWaitCancelComplete) {
-        // No release here: DROP/STOP/PAUSE clean up via /api/close; releasing would orphan the engine.
+        // No release here: drop/stop free via /api/close and manual pause via /api/releaseReader;
+        // releasing in cancel would orphan the reused engine.
         super.cancel(needWaitCancelComplete);
     }
 
     @Override
     public void closeOrReleaseResources() {
-        // No-op: reader is shared across tasks; release on reschedule is done in onFail().
+        // No-op: the reader is async and reused; releasing here (per-iteration finally) would kill it.
     }
 
-    /**
-     * Best-effort, onFail reschedule only: stop this job's reader on {@link #runningBackendId} so a
-     * reschedule to another backend never leaves two readers competing for the same source (e.g. one
-     * PG replication slot, which is kept, not dropped). Failures are swallowed and must not block
-     * rescheduling.
-     */
+    @Override
+    public long getRunningBackendId() {
+        return runningBackendId;
+    }
+
+    // Best-effort release on runningBackendId (keep slot): on task failure to stop a stuck/zombie
+    // reader early, and on manual pause so resume can rebind. Failures swallowed; idle reaper backs up.
+    @Override
     public void releaseRemoteReader() {
         if (runningBackendId <= 0) {
             return;
@@ -361,15 +394,29 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         return Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
     }
 
-    public boolean isTimeout() {
+    // Local pre-check, no RPC: gates whether to pull real progress this tick.
+    boolean isLocalTimeout() {
+        if (startTimeMs == null) {
+            return false;
+        }
+        return System.currentTimeMillis() - lastProgressMs > getTaskTimeoutMs();
+    }
+
+    boolean isTimeout(StreamingTaskStatus status) {
         if (startTimeMs == null) {
             // It's still pending, waiting for scheduling.
             return false;
         }
+        long now = System.currentTimeMillis();
+        if (status != null && status.getScannedRows() > lastScannedRows) {
+            lastScannedRows = status.getScannedRows();
+            lastProgressMs = now;
+        }
         long timeoutMs = getTaskTimeoutMs();
-        long elapsed = System.currentTimeMillis() - startTimeMs;
+        long elapsed = now - lastProgressMs;
         if (elapsed > timeoutMs) {
-            log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
+            log.info("Task {} timeout detected: no progress for {}ms, timeoutMs={}ms",
+                    taskId, elapsed, timeoutMs);
             return true;
         }
         return false;
@@ -377,56 +424,39 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     // Read multiplier live so config changes affect already-running tasks.
     private long getTaskTimeoutMs() {
-        return Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
+        return Math.max(
+                Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L,
+                Config.streaming_task_min_timeout_sec * 1000L);
     }
 
-    /**
-     * When a task encounters a write error, it will time out.
-     * The job needs to obtain the reason for the timeout,
-     * such as a data quality error, and needs to expose it to the user.
-     */
-    public String getTimeoutReason() {
+    StreamingTaskStatus fetchTaskStatus() {
         if (runningBackendId <= 0) {
-            log.info("No running backend for task {}", runningBackendId);
-            return "";
+            return null;
         }
         Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
+        if (backend == null) {
+            return null;
+        }
         try {
             InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
-                    .setApi("/api/getFailReason/" + getTaskId())
+                    .setApi("/api/getTaskStatus/" + getTaskId())
                     .build();
             TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-            InternalService.PRequestCdcClientResult result = null;
             Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
                     .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
-            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            if (code != TStatusCode.OK) {
-                log.warn("Failed to get task timeout reason, {}", result.getStatus().getErrorMsgs(0));
-                return "";
+            PRequestCdcClientResult result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
+            if (TStatusCode.findByValue(result.getStatus().getStatusCode()) != TStatusCode.OK) {
+                return null;
             }
-            String response = result.getResponse();
-            try {
-                ResponseBody<String> responseObj = objectMapper.readValue(
-                        response,
-                        new TypeReference<ResponseBody<String>>() {
-                        }
-                );
-                if (responseObj.getCode() == RestApiStatusCode.OK.code) {
-                    return responseObj.getData();
-                }
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to get task timeout reason, response: {}", response);
-            }
-        } catch (TimeoutException te) {
-            log.warn("cdc_client RPC timeout api=/api/getFailReason jobId={} taskId={} backend={}:{} "
-                            + "timeout_sec={}",
-                    getJobId(), getTaskId(), backend.getHost(), backend.getBrpcPort(),
-                    Config.streaming_cdc_light_rpc_timeout_sec);
-        } catch (ExecutionException | InterruptedException ex) {
-            log.warn("Send get task fail reason request failed: ", ex);
+            ResponseBody<StreamingTaskStatus> body = objectMapper.readValue(
+                    result.getResponse(),
+                    new TypeReference<ResponseBody<StreamingTaskStatus>>() {
+                    });
+            return body.getCode() == RestApiStatusCode.OK.code ? body.getData() : null;
+        } catch (Exception e) {
+            log.warn("fetch task status failed, job {} task {}", getJobId(), getTaskId(), e);
+            return null;
         }
-        return "";
     }
 
     @Override

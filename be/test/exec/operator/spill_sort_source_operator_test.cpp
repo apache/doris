@@ -188,7 +188,27 @@ void delete_spill_files(const std::vector<SpillFileSPtr>& spill_files) {
     }
 }
 
+constexpr auto CANCEL_REASON = "spill sort source cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
 } // namespace
+
+TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesReturnsCancelAtEntry) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    auto local_state = std::make_unique<SpillSortLocalState>(_helper.runtime_state.get(),
+                                                             source_operator.get());
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(local_state->execute_merge_sort_spill_files(_helper.runtime_state.get()));
+}
 
 TEST_F(SpillSortSourceOperatorTest, Basic) {
     auto [source_operator, sink_operator] = _helper.create_operators();

@@ -17,10 +17,11 @@
 
 package org.apache.doris.common.security.authentication;
 
+import org.apache.doris.foundation.security.KerberosTicketUtils;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import io.trino.plugin.base.authentication.KerberosTicketUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.security.UserGroupInformation;

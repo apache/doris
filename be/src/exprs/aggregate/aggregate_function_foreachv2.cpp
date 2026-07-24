@@ -48,14 +48,16 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const AggregateFunctionForEachData& state = data(place);
 
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& offsets_to = arr_to.get_offsets();
         IColumn& elems_nullable = arr_to.get_data();
 
-        DCHECK(elems_nullable.is_nullable());
-        auto& elems_to = assert_cast<ColumnNullable&>(elems_nullable).get_nested_column();
+        DCHECK(is_column_nullable(elems_nullable));
+        auto& elems_to = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(elems_nullable)
+                                 .get_nested_column();
         auto& elements_null_map =
-                assert_cast<ColumnNullable&>(elems_nullable).get_null_map_column();
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(elems_nullable)
+                        .get_null_map_column();
 
         if (nested_function->get_return_type()->is_nullable()) {
             char* nested_state = state.array_of_aggregate_datas;

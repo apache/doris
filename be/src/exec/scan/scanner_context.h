@@ -336,6 +336,7 @@ protected:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<Dependency> _dependency = nullptr;
     std::shared_ptr<doris::TaskHandle> _task_handle;
+    std::weak_ptr<doris::TaskExecutor> _task_executor;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 

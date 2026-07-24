@@ -81,6 +81,8 @@ public:
 
     void stop();
 
+    void destroy_schedulers();
+
     void refresh_workload_group_memory_state();
 
     void get_wg_resource_usage(Block* block);

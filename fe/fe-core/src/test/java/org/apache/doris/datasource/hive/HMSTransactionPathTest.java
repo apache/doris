@@ -23,9 +23,17 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.local.LocalFileSystem;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.THiveLocationParams;
+import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TS3MPUPendingUpload;
 
 import org.junit.After;
@@ -173,6 +181,12 @@ public class HMSTransactionPathTest {
         return new HMSTransaction(null, spiFs, Runnable::run);
     }
 
+    private static void setEmptyStagingDirectory(HMSTransaction tx) throws Exception {
+        Field stagingDirField = HMSTransaction.class.getDeclaredField("stagingDirectory");
+        stagingDirField.setAccessible(true);
+        stagingDirField.set(tx, java.util.Optional.empty());
+    }
+
     private static class FakeFileSystem implements FileSystem {
         IOException listDirectoriesThrows;
         IOException listFilesThrows;
@@ -302,9 +316,7 @@ public class HMSTransactionPathTest {
         uploads.add(upload);
 
         // stagingDirectory is only initialized inside commit(); initialize it here to avoid NPE in rollback().
-        Field stagingDirField = HMSTransaction.class.getDeclaredField("stagingDirectory");
-        stagingDirField.setAccessible(true);
-        stagingDirField.set(tx, java.util.Optional.empty());
+        setEmptyStagingDirectory(tx);
 
         // Instantiate HmsCommitter (package-private inner class) for this transaction.
         Class<?> committerClass = Arrays.stream(HMSTransaction.class.getDeclaredClasses())
@@ -322,5 +334,132 @@ public class HMSTransactionPathTest {
 
         // After rollback, uncompletedMpuPendingUploads must be cleared.
         Assert.assertTrue("uncompletedMpuPendingUploads must be cleared after rollback", uploads.isEmpty());
+    }
+
+    @Test
+    public void testRollbackAbortsPendingMpuBeforeCommitterCreated() throws Exception {
+        TrackingObjStorage storage = new TrackingObjStorage();
+        HMSTransaction tx = createTransaction(new TestObjFileSystem(storage));
+
+        TS3MPUPendingUpload mpu = new TS3MPUPendingUpload();
+        mpu.setBucket("test-bucket");
+        mpu.setKey("warehouse/table/data-0.parquet");
+        mpu.setUploadId("upload-id-1");
+
+        THiveLocationParams location = new THiveLocationParams();
+        location.setWritePath("s3://test-bucket/warehouse/table");
+
+        THivePartitionUpdate update = new THivePartitionUpdate();
+        update.setLocation(location);
+        update.setFileNames(Collections.emptyList());
+        update.setRowCount(0);
+        update.setFileSize(0);
+        update.setS3MpuPendingUploads(Collections.singletonList(mpu));
+        tx.updateHivePartitionUpdates(Collections.singletonList(update));
+        setEmptyStagingDirectory(tx);
+
+        tx.rollback();
+
+        Assert.assertEquals(Collections.singletonList("s3://test-bucket/warehouse/table/data-0.parquet"),
+                storage.abortedPaths);
+        Assert.assertEquals(Collections.singletonList("upload-id-1"), storage.abortedUploadIds);
+    }
+
+    private static class TestObjFileSystem extends ObjFileSystem {
+        TestObjFileSystem(ObjStorage<?> storage) {
+            super(storage);
+        }
+
+        @Override
+        public void mkdirs(Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void delete(Location location, boolean recursive) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void rename(Location src, Location dst) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public FileIterator list(Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public DorisInputFile newInputFile(Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public DorisOutputFile newOutputFile(Location location) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static class TrackingObjStorage implements ObjStorage<Object> {
+        private final List<String> abortedPaths = new ArrayList<>();
+        private final List<String> abortedUploadIds = new ArrayList<>();
+
+        @Override
+        public Object getClient() throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public RemoteObject headObject(String remotePath) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void putObject(String remotePath, RequestBody requestBody) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void deleteObject(String remotePath) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void copyObject(String srcPath, String dstPath) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String initiateMultipartUpload(String remotePath) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
+                RequestBody body) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void completeMultipartUpload(String remotePath, String uploadId,
+                List<UploadPartResult> parts) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
+            abortedPaths.add(remotePath);
+            abortedUploadIds.add(uploadId);
+        }
+
+        @Override
+        public void close() throws IOException {
+        }
     }
 }

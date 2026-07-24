@@ -80,12 +80,23 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         }
     }
 
-    @Override
+    /**
+     * Whether the given child should be pruned. Default checks if the child's
+     * output contains all lazy slots. Override to bypass when logical properties
+     * are stale after plan restructuring.
+     */
+    protected boolean shouldPruneChild(Plan child, Context context) {
+        return child.getOutput().containsAll(context.lazySlots);
+    }
+
+    /**
+     * visit
+     */
     public Plan visit(Plan plan, Context context) {
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
-            if (child.getOutput().containsAll(context.lazySlots)) {
+            if (shouldPruneChild(child, context)) {
                 Plan newChild = child.accept(this, context);
                 if (newChild != child) {
                     hasNewChildren = true;

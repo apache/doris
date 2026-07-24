@@ -91,6 +91,25 @@ suite("test_aggregate_all_functions2") {
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
     qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
     sql """
+        select percentile_reservoir(cast(number as double), 0.5)
+        from numbers("number" = "200000")
+        group by number % 16
+    """
+    sql """
+        select percentile_reservoir(cast(number as double), 0.5)
+        from numbers("number" = "200000")
+        group by number - number
+        limit 1
+    """
+    sql """
+        select percentile_reservoir(cast(number as double), 0.5) over (
+            partition by number % 2
+            order by number
+            rows between 1 following and 1 following)
+        from numbers("number" = "4096")
+        order by number
+    """
+    sql """
         select percentile_reservoir(number,0.5) from numbers("number" = "1000000");
     """
     test {

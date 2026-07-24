@@ -57,6 +57,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -311,7 +312,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
                 ConnectContext connectContext = ConnectContext.get();
-                return totalBucketNum < connectContext.getTotalInstanceNum() * 0.8;
+                // <= 0 disables the downgrade entirely: with the FE local shuffle planner's
+                // bucket -> local-hash upgrade (local_shuffle_bucket_upgrade_ratio), few-bucket
+                // bucket shuffle no longer funnels, so keeping bucket shuffle (anchored side
+                // needs no re-shuffle) can beat downgrading to shuffle join.
+                double downgradeRatio = connectContext.getSessionVariable().getBucketShuffleDowngradeRatio();
+                if (downgradeRatio <= 0) {
+                    return false;
+                }
+                return totalBucketNum < connectContext.getTotalInstanceNum() * downgradeRatio;
             }
         }
     }
@@ -643,83 +652,103 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else if (requiredDistributionSpec instanceof DistributionSpecHash) {
             // TODO: should use the most common hash spec as basic
             DistributionSpecHash basic = (DistributionSpecHash) requiredDistributionSpec;
-            // TODO: open comment when support `enable_local_shuffle_planner`
-            // int bucketShuffleBasicIndex = -1;
-            // double basicRowCount = -1;
+            int bucketShuffleBasicIndex = -1;
+            double basicRowCount = -1;
 
-            // find the bucket shuffle basic index
-            // try {
-            //     ImmutableSet<ShuffleType> supportBucketShuffleTypes = ImmutableSet.of(
-            //             ShuffleType.NATURAL,
-            //             ShuffleType.STORAGE_BUCKETED
-            //     );
-            //     for (int i = 0; i < originChildrenProperties.size(); i++) {
-            //         PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
-            //         DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
-            //         if (childDistribution instanceof DistributionSpecHash
-            //                 && supportBucketShuffleTypes.contains(
-            //                         ((DistributionSpecHash) childDistribution).getShuffleType())
-            //                 && !(isBucketShuffleDownGrade(setOperation.child(i)))) {
-            //             Statistics stats = setOperation.child(i).getStats();
-            //             double rowCount = stats.getRowCount();
-            //             if (rowCount > basicRowCount) {
-            //                 basicRowCount = rowCount;
-            //                 bucketShuffleBasicIndex = i;
-            //             }
-            //         }
-            //     }
-            // } catch (Throwable t) {
-            //     // catch stats exception
-            //     LOG.warn("Can not find the most (bucket num, rowCount): " + t, t);
-            //     bucketShuffleBasicIndex = -1;
-            // }
-
-            // use bucket shuffle
-            // if (bucketShuffleBasicIndex >= 0) {
-            //     DistributionSpecHash notShuffleSideRequire
-            //             = (DistributionSpecHash) requiredProperties.get(bucketShuffleBasicIndex)
-            //                   .getDistributionSpec();
-            //
-            //     DistributionSpecHash notNeedShuffleOutput
-            //             = (DistributionSpecHash) originChildrenProperties.get(bucketShuffleBasicIndex)
-            //                 .getDistributionSpec();
-            //
-            //     for (int i = 0; i < originChildrenProperties.size(); i++) {
-            //         DistributionSpecHash current
-            //                 = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-            //         if (i == bucketShuffleBasicIndex) {
-            //             continue;
-            //         }
-            //
-            //         DistributionSpecHash currentRequire
-            //                 = (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec();
-            //
-            //         PhysicalProperties target = calAnotherSideRequired(
-            //                 ShuffleType.STORAGE_BUCKETED,
-            //                 notNeedShuffleOutput, current,
-            //                 notShuffleSideRequire,
-            //                 currentRequire);
-            //         updateChildEnforceAndCost(i, target);
-            //     }
-            //     setOperation.setMutableState(
-            //         PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, bucketShuffleBasicIndex);
-            // use partitioned shuffle
-            // } else {
-            for (int i = 0; i < originChildrenProperties.size(); i++) {
-                DistributionSpecHash current
-                        = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-                if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
-                        || !bothSideShuffleKeysAreSameOrder(basic, current,
-                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                        (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
-                    PhysicalProperties target = calAnotherSideRequired(
-                            ShuffleType.EXECUTION_BUCKETED, basic, current,
-                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
-                    updateChildEnforceAndCost(i, target);
+            // find the bucket shuffle basic index: the largest natural / storage-bucketed child
+            // keeps its bucket distribution, every other child is bucket-shuffled to it.
+            // RequestPropertyDeriver only asks ShuffleType.REQUIRE when set-op bucket shuffle
+            // is allowed, so the required shuffle type is the single source of truth here:
+            // for any other required type keep bucketShuffleBasicIndex = -1 and fall back to
+            // the execution-bucketed (partitioned) shuffle below.
+            // isBucketShuffleDownGrade reuses the join-side heuristics on purpose, including
+            // the enable_bucket_shuffle_join switch and bucket_shuffle_downgrade_ratio: bucket
+            // shuffle for set operation belongs to the same optimization family as bucket
+            // shuffle join, so the join switches govern both instead of introducing a separate
+            // session variable.
+            if (basic.getShuffleType() == ShuffleType.REQUIRE) {
+                try {
+                    ImmutableSet<ShuffleType> supportBucketShuffleTypes = ImmutableSet.of(
+                            ShuffleType.NATURAL,
+                            ShuffleType.STORAGE_BUCKETED
+                    );
+                    for (int i = 0; i < originChildrenProperties.size(); i++) {
+                        PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
+                        DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
+                        // The table id is deliberately not checked here: DistributionSpecHash.satisfy
+                        // aligns the other children by shuffle type and columns regardless of the table
+                        // id, and a basic child with an unknown layout (a hash join output with the table
+                        // id cleared to -1 by withShuffleTypeAndForbidColocateJoin) produces a
+                        // STORAGE_BUCKETED output, which couldColocateJoin never co-locates (it requires
+                        // NATURAL on both sides) so it cannot mislead a parent into a wrong co-location.
+                        if (childDistribution instanceof DistributionSpecHash
+                                && supportBucketShuffleTypes.contains(
+                                        ((DistributionSpecHash) childDistribution).getShuffleType())
+                                && canMapBucketKeysToRequire((DistributionSpecHash) childDistribution,
+                                        (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())
+                                && !(isBucketShuffleDownGrade(setOperation.child(i)))) {
+                            Statistics stats = setOperation.child(i).getStats();
+                            double rowCount = stats.getRowCount();
+                            if (rowCount > basicRowCount) {
+                                basicRowCount = rowCount;
+                                bucketShuffleBasicIndex = i;
+                            }
+                        }
+                    }
+                } catch (Throwable t) {
+                    // catch stats exception
+                    LOG.warn("Can not find the most (bucket num, rowCount): " + t, t);
+                    bucketShuffleBasicIndex = -1;
                 }
             }
-            // }
+
+            if (bucketShuffleBasicIndex >= 0) {
+                // use bucket shuffle
+                DistributionSpecHash notShuffleSideRequire
+                        = (DistributionSpecHash) requiredProperties.get(bucketShuffleBasicIndex)
+                              .getDistributionSpec();
+
+                DistributionSpecHash notNeedShuffleOutput
+                        = (DistributionSpecHash) originChildrenProperties.get(bucketShuffleBasicIndex)
+                            .getDistributionSpec();
+
+                for (int i = 0; i < originChildrenProperties.size(); i++) {
+                    if (i == bucketShuffleBasicIndex) {
+                        continue;
+                    }
+
+                    DistributionSpecHash currentRequire
+                            = (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec();
+
+                    // The enforced child is bucket-shuffled to the basic child's buckets by the
+                    // storage hash on shuffleSideIds. Only the shuffle type and the column order
+                    // carry the alignment: DistributionSpecHash.satisfy compares shuffle type and
+                    // columns (the equivalence set), never the storage layout, and the set operation
+                    // output is STORAGE_BUCKETED which couldColocateJoin never co-locates, so the
+                    // basic child's table / index / partition ids are inert here.
+                    List<ExprId> shuffleSideIds = calAnotherSideRequiredShuffleIds(
+                            notNeedShuffleOutput, notShuffleSideRequire, currentRequire);
+                    PhysicalProperties target = new PhysicalProperties(
+                            new DistributionSpecHash(shuffleSideIds, ShuffleType.STORAGE_BUCKETED));
+                    updateChildEnforceAndCost(i, target);
+                }
+            } else {
+                // use partitioned shuffle
+                for (int i = 0; i < originChildrenProperties.size(); i++) {
+                    DistributionSpecHash current
+                            = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
+                    if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
+                            || !bothSideShuffleKeysAreSameOrder(basic, current,
+                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
+                        PhysicalProperties target = calAnotherSideRequired(
+                                ShuffleType.EXECUTION_BUCKETED, basic, current,
+                                (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                                (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
+                        updateChildEnforceAndCost(i, target);
+                    }
+                }
+            }
         }
         return ImmutableList.of(originChildrenProperties);
     }
@@ -791,6 +820,32 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             }
             return isSatisfy;
         }
+    }
+
+    /**
+     * Whether every bucket key of the candidate basic child can be mapped into the child's
+     * required hash columns (directly or through its equivalence sets). When the candidate's
+     * bucket key is wider than the set operation output (e.g. a table bucketed by (k, v)
+     * feeding INTERSECT on k only), the mapping is impossible and choosing it as the basic
+     * child would fail calAnotherSideRequiredShuffleIds, so the caller falls back to the
+     * execution-bucketed shuffle instead.
+     */
+    private boolean canMapBucketKeysToRequire(DistributionSpecHash childOutput, DistributionSpecHash childRequired) {
+        for (ExprId scanId : childOutput.getOrderedShuffledColumns()) {
+            int index = childRequired.getOrderedShuffledColumns().indexOf(scanId);
+            if (index == -1) {
+                for (ExprId alternativeExpr : childOutput.getEquivalenceExprIdsOf(scanId)) {
+                    index = childRequired.getOrderedShuffledColumns().indexOf(alternativeExpr);
+                    if (index != -1) {
+                        break;
+                    }
+                }
+            }
+            if (index == -1) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

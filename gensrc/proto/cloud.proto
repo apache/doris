@@ -394,6 +394,7 @@ message TxnCoordinatorPB {
 message RoutineLoadProgressPB {
     map<int32, int64> partition_to_offset = 1;
     optional RoutineLoadJobStatisticPB stat = 2;
+    // Error log URLs and first error messages are transient diagnostics and are not stored here.
 }
 
 message RLTaskTxnCommitAttachmentPB {
@@ -406,6 +407,7 @@ message RLTaskTxnCommitAttachmentPB {
     optional int64 task_execution_time_ms = 7;
     optional RoutineLoadProgressPB progress = 8;
     optional string error_log_url = 9;
+    optional string first_error_msg = 10;
 }
 
 message RoutineLoadJobStatisticPB {
@@ -1458,7 +1460,8 @@ message MetaServiceResponseStatus {
     // Legacy-compatible status code. Keep this value recognizable by all released clients.
     optional MetaServiceCode code = 1;
     optional string msg = 2;
-    // Exact status code encoded as int32, so proto2 clients do not drop unknown enum values.
+    // Exact client-visible status code encoded as int32, so proto2 clients do not drop unknown
+    // enum values. Internal retry signals must be converted before the response is sent.
     // New clients should use this field when the local enum descriptor recognizes the value,
     // otherwise fall back to `code`.
 
@@ -1802,9 +1805,10 @@ enum MetaServiceCode {
     // Compatibility rule: proto2 optional enum fields drop unknown enum values into
     // UnknownFieldSet, so old clients read an unset `MetaServiceResponseStatus.code` as OK.
 
-    // MetaService must write the exact code to `MetaServiceResponseStatus.aux_code` and write
-    // only a legacy fallback code to `MetaServiceResponseStatus.code`. Any newly added error
-    // code that may be returned to clients must be mapped in get_legacy_code().
+    // MetaService must write the exact client-visible code to
+    // `MetaServiceResponseStatus.aux_code` and write only a legacy fallback code to
+    // `MetaServiceResponseStatus.code`. Any newly added error code that may be returned to
+    // clients must be mapped in get_legacy_code().
     OK = 0;
 
     //Meta service internal error

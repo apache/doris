@@ -39,6 +39,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
@@ -1504,7 +1505,7 @@ Status CompactionMixin::modify_rowsets() {
 
         {
             std::lock_guard<std::mutex> wrlock_(tablet()->get_rowset_update_lock());
-            std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+            std::lock_guard wrlock(_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
             // Here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
@@ -1559,7 +1560,7 @@ Status CompactionMixin::modify_rowsets() {
             RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
     } else {
-        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+        std::lock_guard wrlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
@@ -2020,6 +2021,10 @@ int64_t CloudCompactionMixin::num_input_rowsets() const {
 }
 
 bool CloudCompactionMixin::should_cache_compaction_output() {
+    if (config::enable_file_cache_write_index_file_only) {
+        return false;
+    }
+
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         return true;
     }

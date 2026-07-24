@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
+import org.apache.doris.nereids.stats.MemoStatsAndCostRecomputer;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -135,6 +136,19 @@ public class Optimizer {
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        /*
+        * Re-estimate logical row counts and rebuild physical costs for the entire memo,
+        * then reconstruct the lowest-cost plan table for every group.
+        *
+        * This is called after DPHyp join enumeration which copies projected join
+        * alternatives into the memo.  DPHyp's own cost model is a lightweight
+        * heuristic; once all alternatives are in place the memo needs a full
+        * bottom-up statistics refresh so that the subsequent cascades optimization
+        * phase (OptimizeGroupJob) sees accurate row counts and costs.
+        */
+        MemoStatsAndCostRecomputer.recompute(root, PhysicalProperties.ANY, cascadesContext,
+                MemoStatsAndCostRecomputer.LogicalExpressionRowCountSyncPolicy
+                        .KEEP_INDIVIDUAL_EXPRESSION_ROW_COUNT);
 
         // 1) copy out logical plan from memo
         Plan plan = cascadesContext.getMemo().copyOutBestLogicalPlan();
@@ -142,17 +156,17 @@ public class Optimizer {
         // 2) run PushDownExpressionsInHashCondition as a plan rewrite on a temporary context
         org.apache.doris.nereids.CascadesContext tempCtx = CascadesContext.newCurrentTreeContext(cascadesContext);
         tempCtx.setRewritePlan(plan);
-        RewriteJob pushDownRewrite = AbstractBatchJobExecutor.topDown(new PushDownExpressionsInHashCondition(),
-                new MergeProjectable());
+        RewriteJob pushDownRewrite = AbstractBatchJobExecutor.topDown(new PushDownExpressionsInHashCondition());
         RewriteJob columnPrune = AbstractBatchJobExecutor.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new);
+        RewriteJob mergeProjects = AbstractBatchJobExecutor.topDown(new MergeProjectable());
         RewriteJob adjustNullable = AbstractBatchJobExecutor.custom(RuleType.ADJUST_NULLABLE,
                 () -> new AdjustNullable(false));
         RewriteJob checkAfterRewrite = AbstractBatchJobExecutor.bottomUp(new CheckAfterRewrite());
         AbstractBatchJobExecutor executor = new AbstractBatchJobExecutor(tempCtx) {
             @Override
             public java.util.List<org.apache.doris.nereids.jobs.rewrite.RewriteJob> getJobs() {
-                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, adjustNullable,
-                        checkAfterRewrite);
+                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, mergeProjects,
+                        adjustNullable, checkAfterRewrite);
             }
         };
         boolean oldFeDebugValue = tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug;

@@ -56,10 +56,10 @@ TEST(MetaServiceHelperTest, ResponseStatusUsesExactAndLegacyCodes) {
     EXPECT_EQ(status.aux_code(), MetaServiceCode::MS_TOO_BUSY);
     EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
 
-    set_response_status(&status, MetaServiceCode::KV_TXN_MAYBE_COMMITTED, "maybe committed");
-    EXPECT_EQ(status.code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
-    EXPECT_EQ(status.aux_code(), MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
-    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+    set_response_status(&status, MetaServiceCode::KV_TXN_CONFLICT, "conflict");
+    EXPECT_EQ(status.code(), MetaServiceCode::KV_TXN_CONFLICT);
+    EXPECT_EQ(status.aux_code(), MetaServiceCode::KV_TXN_CONFLICT);
+    EXPECT_EQ(get_response_code(status), MetaServiceCode::KV_TXN_CONFLICT);
 }
 
 TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
@@ -83,21 +83,20 @@ TEST(MetaServiceHelperTest, ResponseStatusCoversEveryMetaServiceCode) {
     expect_response_status(MetaServiceCode::KV_TXN_CREATE_ERR, MetaServiceCode::KV_TXN_CREATE_ERR);
     expect_response_status(MetaServiceCode::KV_TXN_GET_ERR, MetaServiceCode::KV_TXN_GET_ERR);
     expect_response_status(MetaServiceCode::KV_TXN_COMMIT_ERR, MetaServiceCode::KV_TXN_COMMIT_ERR);
-    expect_response_status(MetaServiceCode::KV_TXN_CONFLICT,
-                           MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES);
+    expect_response_status(MetaServiceCode::KV_TXN_CONFLICT, MetaServiceCode::KV_TXN_CONFLICT);
     expect_response_status(MetaServiceCode::PROTOBUF_PARSE_ERR,
                            MetaServiceCode::PROTOBUF_PARSE_ERR);
     expect_response_status(MetaServiceCode::PROTOBUF_SERIALIZE_ERR,
                            MetaServiceCode::PROTOBUF_SERIALIZE_ERR);
     expect_response_status(MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE,
-                           MetaServiceCode::KV_TXN_GET_ERR);
+                           MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE);
     expect_response_status(MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE,
-                           MetaServiceCode::KV_TXN_COMMIT_ERR);
+                           MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
     expect_response_status(MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE,
-                           MetaServiceCode::KV_TXN_CREATE_ERR);
+                           MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE);
     expect_response_status(MetaServiceCode::KV_TXN_TOO_OLD, MetaServiceCode::KV_TXN_TOO_OLD);
     expect_response_status(MetaServiceCode::KV_TXN_MAYBE_COMMITTED,
-                           MetaServiceCode::KV_TXN_COMMIT_ERR);
+                           MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
     expect_response_status(MetaServiceCode::TXN_GEN_ID_ERR, MetaServiceCode::TXN_GEN_ID_ERR);
     expect_response_status(MetaServiceCode::TXN_DUPLICATED_REQ,
                            MetaServiceCode::TXN_DUPLICATED_REQ);

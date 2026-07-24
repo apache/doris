@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
@@ -142,6 +143,44 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_BF_FPP, "0.05");
         Assert.assertEquals(0.05, PropertyAnalyzer.analyzeBloomFilterFpp(properties), 0.0001);
+    }
+
+    @Test
+    public void testAnalyzeFileCacheTtlSeconds() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0");
+        Assert.assertEquals(0L, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
+        Assert.assertEquals(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS + 1L));
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("please use "
+                    + PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
+        }
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, String.valueOf(Long.MAX_VALUE));
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Larger values may overflow in BE"));
+            Assert.assertTrue(e.getMessage().contains("please use"));
+        }
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "invalid");
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("formats error or is out of range"));
+        }
     }
 
     @Test
@@ -345,6 +384,19 @@ public class PropertyAnalyzerTest {
     @Test
     public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "0");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "1");
+        Assertions.assertEquals(1, PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0));
+        Assertions.assertFalse(properties.containsKey(
+                PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE));
+        properties.clear();
         properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "-1");
         try {
             PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
@@ -368,6 +420,14 @@ public class PropertyAnalyzerTest {
         } catch (AnalysisException e) {
             Assertions.assertNotNull(e.getMessage());
         }
+    }
+
+    @Test
+    public void testCheckDefaultVariantMaxSparseColumnStatisticsSize() {
+        SessionVariable sessionVariable = new SessionVariable();
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
+        sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
     }
 
     @Test

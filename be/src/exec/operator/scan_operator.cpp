@@ -21,6 +21,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 
@@ -70,15 +71,21 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
-Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
-                                                              int& arrived_rf_num) {
+Status ScanLocalStateBase::update_late_arrival_runtime_filter(
+        RuntimeState* state, int applied_rf_num, int& arrived_rf_num,
+        VExprContextSPtrs& arrived_conjuncts) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     LockGuard lock(_conjuncts_lock);
+    arrived_conjuncts.clear();
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
+    if (_conjuncts.size() > conjuncts_before) {
+        VExprContextSPtrs appended(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+        _late_arrival_conjunct_batches.emplace_back(arrived_rf_num, std::move(appended));
+    }
     if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };
@@ -89,6 +96,16 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     // CPU re-evaluating the same set of RFs against the same boundaries.
     if (_conjuncts.size() > conjuncts_before) {
         RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
+    for (const auto& [batch_arrived_rf_num, batch] : _late_arrival_conjunct_batches) {
+        if (batch_arrived_rf_num <= applied_rf_num) {
+            continue;
+        }
+        for (const auto& conjunct : batch) {
+            VExprContextSPtr cloned;
+            RETURN_IF_ERROR(conjunct->clone(state, cloned));
+            arrived_conjuncts.push_back(std::move(cloned));
+        }
     }
     return Status::OK();
 }
@@ -469,12 +486,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                                                     status);
                             }
                             break;
-                        case TExprNodeType::BITMAP_PRED:
-                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                                        context, root, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            break;
                         case TExprNodeType::BLOOM_PRED:
                             RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
                                                         context, root, slot,
@@ -563,34 +574,6 @@ Status ScanLocalStateBase::_normalize_topn_filter(
         if (_push_down_topn(tmp)) {
             pred = tmp.get_predicate(_parent->node_id());
         }
-    }
-    return Status::OK();
-}
-
-Status ScanLocalStateBase::_normalize_bitmap_filter(
-        VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
-    std::shared_ptr<ColumnPredicate> pred = nullptr;
-    Defer defer = [&]() {
-        if (pred) {
-            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
-            predicates.emplace_back(pred);
-        } else {
-            // If exception occurs during processing, do not push down
-            *pdt = PushDownType::UNACCEPTABLE;
-        }
-    };
-    DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
-    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
-    *pdt = _should_push_down_bitmap_filter();
-    if (*pdt != PushDownType::UNACCEPTABLE) {
-        DCHECK(expr->get_num_children() == 1);
-        DCHECK(root->is_rf_wrapper());
-        pred = create_bitmap_filter_predicate(
-                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
-                slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
-                                                                   : slot->type(),
-                expr->get_bitmap_filter_func());
     }
     return Status::OK();
 }
@@ -1080,6 +1063,12 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
+    return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
+}
+
+template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
 }
@@ -1264,6 +1253,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
+    if (tnode.__isset.push_down_count_slot_ids) {
+        _push_down_count_slot_ids = tnode.push_down_count_slot_ids;
+    }
 
     if (tnode.__isset.topn_filter_source_node_ids) {
         _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
@@ -1348,7 +1340,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status ScanOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

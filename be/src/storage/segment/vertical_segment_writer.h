@@ -34,6 +34,7 @@
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -107,10 +108,12 @@ public:
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                    SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     Status finalize_columns_index(uint64_t* index_size);
-    Status finalize_footer(uint64_t* segment_file_size);
+    Status finalize_footer(uint64_t* segment_file_size,
+                           SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     Slice min_encoded_key();
     Slice max_encoded_key();
@@ -199,8 +202,12 @@ private:
     Status _check_column_writer_disk_capacity(size_t cid);
     Status _finalize_column_writer_and_update_meta(size_t cid);
 
-    bool _is_mow();
-    bool _is_mow_with_cluster_key();
+    bool _is_mow() {
+        return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
+    }
+    bool _is_mow_with_cluster_key() {
+        return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
+    }
 
 private:
     friend class ::doris::BlockAggregator;
@@ -216,6 +223,7 @@ private:
     IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
+    SegmentIndexFileCacheInfo _index_file_cache_info;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;

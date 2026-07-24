@@ -20,10 +20,15 @@
 #include <brpc/channel.h>
 #include <brpc/server.h>
 
+#include <array>
+#include <unordered_map>
+
+#include "common/config.h"
 #include "exec/sink/load_stream_stub.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 
 namespace doris {
@@ -47,13 +52,16 @@ const std::string DATA0 = "segment data";
 const std::string DATA1 = "hello world";
 
 static std::atomic<int64_t> g_num_request;
+static std::unordered_map<int64_t, int64_t> g_num_requests_by_dst;
 
 class StreamSinkFileWriterTest : public testing::Test {
     class MockStreamStub : public LoadStreamStub {
     public:
-        MockStreamStub(PUniqueId load_id, int64_t src_id)
+        MockStreamStub(PUniqueId load_id, int64_t src_id, int64_t dst_id)
                 : LoadStreamStub(load_id, src_id, std::make_shared<IndexToTabletSchema>(),
-                                 std::make_shared<IndexToEnableMoW>()) {};
+                                 std::make_shared<IndexToEnableMoW>()) {
+            _dst_id = dst_id;
+        }
 
         virtual ~MockStreamStub() = default;
 
@@ -76,6 +84,7 @@ class StreamSinkFileWriterTest : public testing::Test {
                 EXPECT_EQ(0, offset);
             }
             g_num_request++;
+            g_num_requests_by_dst[_dst_id]++;
             return Status::OK();
         }
     };
@@ -88,15 +97,30 @@ protected:
     virtual void SetUp() {
         _load_id.set_hi(LOAD_ID_HI);
         _load_id.set_lo(LOAD_ID_LO);
+        std::array<int64_t, NUM_STREAM> dst_ids {103, 101, 102};
         for (int src_id = 0; src_id < NUM_STREAM; src_id++) {
-            _streams.emplace_back(new MockStreamStub(_load_id, src_id));
+            _streams.emplace_back(new MockStreamStub(_load_id, src_id, dst_ids[src_id]));
         }
+        _enable_debug_points = config::enable_debug_points;
+        g_num_requests_by_dst.clear();
     }
 
-    virtual void TearDown() {}
+    virtual void TearDown() {
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = _enable_debug_points;
+    }
+
+    void write_with_streams(const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+        io::StreamSinkFileWriter writer(streams);
+        writer.init(_load_id, PARTITION_ID, INDEX_ID, TABLET_ID, SEGMENT_ID);
+        std::vector<Slice> slices {DATA0, DATA1};
+        CHECK_STATUS_OK(writer.appendv(&(*slices.begin()), slices.size()));
+        CHECK_STATUS_OK(writer.close());
+    }
 
     PUniqueId _load_id;
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+    bool _enable_debug_points;
 };
 
 TEST_F(StreamSinkFileWriterTest, Test) {
@@ -109,6 +133,30 @@ TEST_F(StreamSinkFileWriterTest, Test) {
     EXPECT_EQ(NUM_STREAM, g_num_request);
     CHECK_STATUS_OK(writer.close());
     EXPECT_EQ(NUM_STREAM * 2, g_num_request);
+}
+
+TEST_F(StreamSinkFileWriterTest, DeterministicOneReplicaFaultInjection) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("StreamSinkFileWriter.appendv.write_segment_failed_one_replica");
+
+    write_with_streams(_streams);
+    write_with_streams({_streams[2], _streams[0], _streams[1]});
+
+    EXPECT_EQ(0, g_num_requests_by_dst[101]);
+    EXPECT_EQ(4, g_num_requests_by_dst[102]);
+    EXPECT_EQ(4, g_num_requests_by_dst[103]);
+}
+
+TEST_F(StreamSinkFileWriterTest, DeterministicTwoReplicaFaultInjection) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("StreamSinkFileWriter.appendv.write_segment_failed_two_replica");
+
+    write_with_streams(_streams);
+    write_with_streams({_streams[2], _streams[0], _streams[1]});
+
+    EXPECT_EQ(0, g_num_requests_by_dst[101]);
+    EXPECT_EQ(0, g_num_requests_by_dst[102]);
+    EXPECT_EQ(4, g_num_requests_by_dst[103]);
 }
 
 } // namespace doris

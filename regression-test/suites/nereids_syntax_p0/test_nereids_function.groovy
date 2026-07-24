@@ -55,4 +55,31 @@ suite("test_nereids_function") {
         SELECT sequence_match('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
     """
 
+    test {
+        sql """
+            SELECT sequence_match('(?0)', date, number = 1, number = 7) FROM sequence_match_test1;
+        """
+        exception "Event number 0 is out of range"
+    }
+
+    test {
+        sql """
+            SELECT sequence_count('(?0)', date, number = 1, number = 7) FROM sequence_match_test1;
+        """
+        exception "Event number 0 is out of range"
+    }
+
+    test {
+        sql """
+            SELECT sequence_match('(?3)', date, number = 1, number = 7) FROM sequence_match_test1;
+        """
+        exception "Event number 3 is out of range"
+    }
+
+    test {
+        sql """
+            SELECT sequence_count('(?3)', date, number = 1, number = 7) FROM sequence_match_test1;
+        """
+        exception "Event number 3 is out of range"
+    }
 }

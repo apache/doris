@@ -1048,8 +1048,11 @@ private:
 
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
-            MetaServiceCode code = get_legacy_code(resp->status().code());
+            if (resp->status().code() == MetaServiceCode::KV_TXN_MAYBE_COMMITTED) {
+                resp->mutable_status()->set_code(MetaServiceCode::KV_TXN_COMMIT_ERR);
+            }
             if (DCHECK_IS_ON()) {
+                MetaServiceCode code = resp->status().code();
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE)
                         << "KV_TXN_STORE_GET_RETRYABLE should not be sent back to client";
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE)
@@ -1094,6 +1097,15 @@ private:
             if (retry_times >= config::txn_store_retry_times ||
                 // Retrying KV_TXN_TOO_OLD is very expensive, so we only retry once.
                 (retry_times > 1 && code == MetaServiceCode::KV_TXN_TOO_OLD)) {
+                // Convert internal retry signals only after MetaService stops retrying.
+                resp->mutable_status()->set_code(
+                        code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
+                        : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
+                        : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
+                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED        ? KV_TXN_COMMIT_ERR
+                        : code == MetaServiceCode::KV_TXN_CONFLICT
+                                ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
+                                : MetaServiceCode::KV_TXN_TOO_OLD);
                 return;
             }
 

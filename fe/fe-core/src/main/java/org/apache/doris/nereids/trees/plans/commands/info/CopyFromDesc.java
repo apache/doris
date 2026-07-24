@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.CopyFromParam;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -203,23 +202,33 @@ public class CopyFromDesc {
         if (exprList == null) {
             return false;
         }
-        List<SlotRef> slotRefs = Lists.newArrayList();
-        //        Expr.collectList(exprList, SlotRef.class, slotRefs);
+        boolean hasFileColumnPlaceholder = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (SlotRef slotRef : slotRefs) {
-            String columnName = slotRef.getColumnName();
-            if (columnName.startsWith(DOLLAR)) {
-                if (fileColumns.size() > 0) {
+        List<Expression> fileColumnExpressions = exprList.stream().map(expr -> (Expression) expr)
+                .collect(Collectors.toList());
+        fileFilterExpr.ifPresent(fileColumnExpressions::add);
+        for (Expression expr : fileColumnExpressions) {
+            for (UnboundSlot slot : expr.<UnboundSlot>collectToList(UnboundSlot.class::isInstance)) {
+                String columnName = slot.getName();
+                if (columnName.startsWith(DOLLAR)) {
+                    if (!fileColumns.isEmpty()) {
+                        throw new AnalysisException("can not mix column name and dollar sign");
+                    }
+                    hasFileColumnPlaceholder = true;
+                    continue;
+                }
+                if (hasFileColumnPlaceholder) {
                     throw new AnalysisException("can not mix column name and dollar sign");
                 }
-                return false;
-            }
-            if (columnSet.add(columnName)) {
-                fileColumns.add(columnName);
+                if (columnSet.add(columnName)) {
+                    fileColumns.add(columnName);
+                }
             }
         }
+        if (hasFileColumnPlaceholder) {
+            return false;
+        }
         if (addDeleteSign) {
-            //            exprList.add(new SlotRef(null, Column.DELETE_SIGN));
             fileColumns.add(Column.DELETE_SIGN);
         }
         return true;

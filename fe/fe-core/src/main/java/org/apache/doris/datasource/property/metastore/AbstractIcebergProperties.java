@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
@@ -132,6 +133,12 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      */
     public final Catalog initializeCatalog(String catalogName,
                                            List<StorageProperties> storagePropertiesList) {
+        return initializeCatalog(catalogName, storagePropertiesList, SessionContext.empty());
+    }
+
+    public final Catalog initializeCatalog(String catalogName,
+                                           List<StorageProperties> storagePropertiesList,
+                                           SessionContext sessionContext) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
@@ -140,7 +147,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         // Add manifest cache properties if configured
         addManifestCacheProperties(catalogProps);
 
-        Catalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList);
+        Catalog catalog = initCatalog(catalogName, catalogProps, storagePropertiesList, sessionContext);
 
         if (catalog == null) {
             throw new IllegalStateException("Catalog must not be null after initialization.");
@@ -197,6 +204,15 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList
     );
+
+    protected Catalog initCatalog(
+            String catalogName,
+            Map<String, String> catalogProps,
+            List<StorageProperties> storagePropertiesList,
+            SessionContext sessionContext
+    ) {
+        return initCatalog(catalogName, catalogProps, storagePropertiesList);
+    }
 
     /**
      * Unified method to configure FileIO properties for Iceberg catalog.

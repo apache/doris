@@ -255,7 +255,7 @@ public class PaimonSysExternalTable extends ExternalTable {
 
         for (DataField field : fields) {
             Column column = new Column(
-                    field.name().toLowerCase(),
+                    field.name(),
                     PaimonUtil.paimonTypeToDorisType(
                             field.type(),
                             getCatalog().getEnableMappingVarbinary(),

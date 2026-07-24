@@ -19,8 +19,8 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -71,7 +71,7 @@ public class CloudSystemInfoServiceTest {
     //public void testGetPhysicalClusterEmptyVirtualCluster() {
     //    infoService = new CloudSystemInfoService();
     //    String vcgName = "v_cluster_1";
-    //    ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
+    //    CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
     //    infoService.addComputeGroup(vcgName, vcg);
 
     //    String res = infoService.getPhysicalCluster(vcgName);
@@ -86,14 +86,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -111,14 +111,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -148,14 +148,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -185,14 +185,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -234,14 +234,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -283,14 +283,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup(vcgId, vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta(vcgId, vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         policy.setUnhealthyNodeThresholdPercent(100);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgId, vcg);
         infoService.clusterNameToId.put(pcgName1, "id2");
         infoService.addComputeGroup("id3", pcg2);
@@ -342,14 +342,14 @@ public class CloudSystemInfoServiceTest {
         String pcgName1 = "p_cluster_1";
         String pcgName2 = "p_cluster_2";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -395,15 +395,15 @@ public class CloudSystemInfoServiceTest {
         String pcgName2 = "p_cluster_2";
         String pcgName3 = "p_cluster_3";
 
-        ComputeGroup vcg = new ComputeGroup("id1", vcgName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta vcg = new CloudComputeGroupMeta("id1", vcgName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(pcgName1);
         policy.setStandbyComputeGroup(pcgName2);
         vcg.setPolicy(policy);
 
-        ComputeGroup pcg1 = new ComputeGroup("id2", pcgName1, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg2 = new ComputeGroup("id3", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup pcg3 = new ComputeGroup("id4", pcgName2, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg1 = new CloudComputeGroupMeta("id2", pcgName1, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg2 = new CloudComputeGroupMeta("id3", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta pcg3 = new CloudComputeGroupMeta("id4", pcgName2, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(vcgName, vcg);
         infoService.addComputeGroup(pcgName1, pcg1);
         infoService.addComputeGroup(pcgName2, pcg2);
@@ -427,7 +427,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "test_cluster_id";
 
         // Mock an empty cluster (no backends)
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Set ConnectContext to select the cluster
@@ -449,7 +449,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "test_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add a backend with pipeline executor size = 8
@@ -483,7 +483,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "test_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add multiple backends with different pipeline executor sizes
@@ -534,7 +534,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "test_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add backends with zero and positive pipeline executor sizes
@@ -585,7 +585,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "test_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add backends with only zero or negative pipeline executor sizes
@@ -645,7 +645,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "mixed_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add backends with mixed valid and invalid pipeline executor sizes
@@ -708,7 +708,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "large_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add backends with large pipeline executor sizes
@@ -759,7 +759,7 @@ public class CloudSystemInfoServiceTest {
         String clusterId = "consistency_cluster_id";
 
         // Setup cluster
-        ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg = new CloudComputeGroupMeta(clusterId, clusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
         // Add backends with same pipeline executor sizes
@@ -800,11 +800,11 @@ public class CloudSystemInfoServiceTest {
         String cluster2Id = "cluster2_id";
 
         // Setup cluster1
-        ComputeGroup cg1 = new ComputeGroup(cluster1Id, cluster1Name, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg1 = new CloudComputeGroupMeta(cluster1Id, cluster1Name, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(cluster1Id, cg1);
 
         // Setup cluster2
-        ComputeGroup cg2 = new ComputeGroup(cluster2Id, cluster2Name, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg2 = new CloudComputeGroupMeta(cluster2Id, cluster2Name, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(cluster2Id, cg2);
 
         // Add backends to cluster1 with smaller pipeline executor sizes
@@ -872,20 +872,20 @@ public class CloudSystemInfoServiceTest {
         String otherClusterId = "other_cluster_id";
 
         // Setup virtual cluster
-        ComputeGroup virtualCg = new ComputeGroup(virtualClusterId, virtualClusterName,
-                ComputeGroup.ComputeTypeEnum.VIRTUAL);
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta virtualCg = new CloudComputeGroupMeta(virtualClusterId, virtualClusterName,
+                CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(physicalClusterName);
         virtualCg.setPolicy(policy);
         infoService.addComputeGroup(virtualClusterId, virtualCg);
 
         // Setup physical cluster
-        ComputeGroup physicalCg = new ComputeGroup(physicalClusterId, physicalClusterName,
-                ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta physicalCg = new CloudComputeGroupMeta(physicalClusterId, physicalClusterName,
+                CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(physicalClusterId, physicalCg);
 
         // Setup other cluster
-        ComputeGroup otherCg = new ComputeGroup(otherClusterId, otherClusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta otherCg = new CloudComputeGroupMeta(otherClusterId, otherClusterName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(otherClusterId, otherCg);
 
         // Add backends to physical cluster
@@ -972,11 +972,11 @@ public class CloudSystemInfoServiceTest {
         String cluster2Id = "ctx_cluster2_id";
 
         // Setup cluster1
-        ComputeGroup cg1 = new ComputeGroup(cluster1Id, cluster1Name, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg1 = new CloudComputeGroupMeta(cluster1Id, cluster1Name, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(cluster1Id, cg1);
 
         // Setup cluster2
-        ComputeGroup cg2 = new ComputeGroup(cluster2Id, cluster2Name, ComputeGroup.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta cg2 = new CloudComputeGroupMeta(cluster2Id, cluster2Name, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(cluster2Id, cg2);
 
         // Add backends to cluster1 with smaller pipeline executor sizes
@@ -1037,6 +1037,21 @@ public class CloudSystemInfoServiceTest {
             // Clean up ConnectContext
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testContainsCloudCluster() {
+        infoService = new CloudSystemInfoService();
+        // Empty / null inputs short-circuit without touching the map.
+        Assert.assertFalse(infoService.containsCloudCluster(null));
+        Assert.assertFalse(infoService.containsCloudCluster(""));
+        // Unknown cluster name -> false.
+        Assert.assertFalse(infoService.containsCloudCluster("absent_cluster"));
+        // Register a cluster; lookup must hit.
+        infoService.addVirtualClusterInfoToMapsNoLock("cid_1", "cluster_1");
+        Assert.assertTrue(infoService.containsCloudCluster("cluster_1"));
+        // Different name in same map -> still false.
+        Assert.assertFalse(infoService.containsCloudCluster("cluster_2"));
     }
 
     /**

@@ -114,6 +114,10 @@ CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
+// Max expired recycle_rowset entries to process for one tablet in one recycle_rowsets scan.
+// Remaining entries are left for later scans so deletion can spread across tablet prefixes.
+CONF_mInt32(recycle_rowsets_per_tablet_batch_size, "1000");
+CONF_mInt32(recycle_rowsets_delete_batch_size, "300000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
@@ -203,7 +207,7 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
-CONF_mBool(enable_ms_rate_limit, "true");
+CONF_mBool(enable_ms_rate_limit, "false");
 // Fault injection: randomly return meta service rate limit error for testing.
 // ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_ms_rate_limit_injection, "false");
@@ -278,6 +282,9 @@ CONF_mBool(enable_s3_rate_limiter, "false");
 // s3_rate_limit_inject_probility is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_s3_rate_limit_inject, "false");
 CONF_mInt32(s3_rate_limit_inject_probility, "30");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+CONF_mInt64(s3_rate_limiter_log_interval, "1000");
+CONF_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 
@@ -355,6 +362,7 @@ CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
 // This reduces contention during transaction commit by extending delete bitmap locks.
 CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

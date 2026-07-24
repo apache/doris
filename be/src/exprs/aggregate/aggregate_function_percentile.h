@@ -48,6 +48,33 @@ namespace doris {
 class Arena;
 class BufferReadable;
 
+inline void check_percentile_array_column_type(const IAggregateFunction& function,
+                                               const IColumn& column, size_t index) {
+    const auto* array_column = check_and_get_column<ColumnArray>(column);
+    if (UNLIKELY(array_column == nullptr)) {
+        throw doris::Exception(Status::InternalError(
+                "Aggregate function {} argument {} type check failed: Column type {} is not "
+                "ColumnArray",
+                function.get_name(), index, column.get_name()));
+    }
+
+    const auto* nullable_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+    if (UNLIKELY(nullable_column == nullptr)) {
+        throw doris::Exception(Status::InternalError(
+                "Aggregate function {} argument {} type check failed: Array nested column type {} "
+                "is not ColumnNullable",
+                function.get_name(), index, array_column->get_data().get_name()));
+    }
+
+    if (UNLIKELY(check_and_get_column<ColumnFloat64>(nullable_column->get_nested_column()) ==
+                 nullptr)) {
+        throw doris::Exception(Status::InternalError(
+                "Aggregate function {} argument {} type check failed: Array nested data column "
+                "type {} is not ColumnFloat64",
+                function.get_name(), index, nullable_column->get_nested_column().get_name()));
+    }
+}
+
 struct PercentileApproxState {
     static constexpr double INIT_QUANTILE = -1.0;
     PercentileApproxState() = default;
@@ -171,6 +198,12 @@ public:
                      Arena&) const override {
         this->data(place).read(buf);
     }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        for (size_t i = 0; i < this->argument_types.size(); ++i) {
+            this->template check_argument_column_type<ColumnFloat64>(columns[i]);
+        }
+    }
 };
 
 class AggregateFunctionPercentileApproxTwoParams final
@@ -194,14 +227,8 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = this->data(place).get();
-
-        if (std::isnan(result)) {
-            col.insert_default();
-        } else {
-            col.get_data().push_back(result);
-        }
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        col.get_data().push_back(this->data(place).get());
     }
 };
 
@@ -231,14 +258,8 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = this->data(place).get();
-
-        if (std::isnan(result)) {
-            col.insert_default();
-        } else {
-            col.get_data().push_back(result);
-        }
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        col.get_data().push_back(this->data(place).get());
     }
 };
 
@@ -269,14 +290,8 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = this->data(place).get();
-
-        if (std::isnan(result)) {
-            col.insert_default();
-        } else {
-            col.get_data().push_back(result);
-        }
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        col.get_data().push_back(this->data(place).get());
     }
 };
 
@@ -309,14 +324,8 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = this->data(place).get();
-
-        if (std::isnan(result)) {
-            col.insert_default();
-        } else {
-            col.get_data().push_back(result);
-        }
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        col.get_data().push_back(this->data(place).get());
     }
 };
 
@@ -422,7 +431,7 @@ struct PercentileState {
     double get() const { return vec_counts.empty() ? 0 : vec_counts[0].terminate(vec_quantile[0]); }
 
     void insert_result_into(IColumn& to) const {
-        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
+        auto& column_data = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data();
         for (int i = 0; i < vec_counts.size(); ++i) {
             column_data.push_back(vec_counts[i].terminate(vec_quantile[i]));
         }
@@ -509,7 +518,7 @@ struct PercentileExactState {
 
     double get() const {
         if (!inited_flag || levels.empty() || values.empty()) {
-            return 0.0;
+            return std::numeric_limits<double>::quiet_NaN();
         }
 
         DCHECK_EQ(levels.quantiles.size(), 1);
@@ -517,8 +526,8 @@ struct PercentileExactState {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
-        if (!inited_flag || levels.empty() || values.empty()) {
+        auto& column_data = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data();
+        if (!inited_flag || levels.empty()) {
             return;
         }
 
@@ -526,6 +535,13 @@ struct PercentileExactState {
         size_t size = levels.quantiles.size();
         column_data.resize(old_size + size);
         auto* result = column_data.data() + old_size;
+
+        if (values.empty()) {
+            for (size_t i = 0; i < size; ++i) {
+                result[i] = std::numeric_limits<double>::quiet_NaN();
+            }
+            return;
+        }
 
         if (values.size() == 1) {
             for (size_t i = 0; i < size; ++i) {
@@ -588,7 +604,15 @@ private:
             return;
         }
         values.reserve(values.size() + count);
-        values.insert_assume_reserved(data, data + count);
+        if constexpr (std::is_floating_point_v<ValueType>) {
+            for (size_t i = 0; i < count; ++i) {
+                if (!std::isnan(data[i])) {
+                    values.push_back(data[i]);
+                }
+            }
+        } else {
+            values.insert_assume_reserved(data, data + count);
+        }
     }
 
     double _get_result(double quantile) const {
@@ -651,6 +675,11 @@ public:
                                                            quantile.get_data()[0]);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
+    }
+
     void reset(AggregateDataPtr __restrict place) const override {
         AggregateFunctionPercentile::data(place).reset();
     }
@@ -670,7 +699,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.insert_value(AggregateFunctionPercentile::data(place).get());
     }
 };
@@ -714,6 +743,11 @@ public:
                 offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        check_percentile_array_column_type(*this, *columns[1], 1);
+    }
+
     void reset(AggregateDataPtr __restrict place) const override {
         AggregateFunctionPercentileArray::data(place).reset();
     }
@@ -734,9 +768,9 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        if (to_nested_col.is_nullable()) {
+        if (is_column_nullable(to_nested_col)) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             AggregateFunctionPercentileArray::data(place).insert_result_into(
                     col_null->get_nested_column());
@@ -797,6 +831,11 @@ public:
                 quantile.get_data()[0]);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
+    }
+
     void reset(AggregateDataPtr __restrict place) const override {
         AggregateFunctionPercentileV2::data(place).reset();
     }
@@ -816,7 +855,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.insert_value(AggregateFunctionPercentileV2::data(place).get());
     }
 };
@@ -904,6 +943,11 @@ public:
                 cast_set<int64_t>(offset_column_data[batch_begin] - start));
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        check_percentile_array_column_type(*this, *columns[1], 1);
+    }
+
     void reset(AggregateDataPtr __restrict place) const override {
         AggregateFunctionPercentileArrayV2::data(place).reset();
     }
@@ -924,9 +968,9 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        if (to_nested_col.is_nullable()) {
+        if (is_column_nullable(to_nested_col)) {
             auto* col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             AggregateFunctionPercentileArrayV2::data(place).insert_result_into(
                     col_null->get_nested_column());

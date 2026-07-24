@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
@@ -25,11 +28,13 @@ import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryRowWriter;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.Assert;
 import org.junit.Test;
@@ -37,6 +42,7 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -84,7 +90,20 @@ public class PaimonUtilTest {
     }
 
     @Test
-    public void testGetPartitionInfoMapUsesLowerCaseKeys() {
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(0, "mIxEd_COL", DataTypes.INT()),
+                DataTypes.FIELD(1, "PART", DataTypes.STRING()));
+
+        List<Column> columns = PaimonUtil.parseSchema(rowType, Collections.singletonList("PART"), false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
+        Assert.assertTrue(columns.get(1).isKey());
+    }
+
+    @Test
+    public void testGetPartitionInfoMapPreservesNonLowercaseKeys() {
         DataField mixedCasePartition = DataTypes.FIELD(0, "Dt", DataTypes.STRING());
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.name()).thenReturn("mock_table");
@@ -95,8 +114,127 @@ public class PaimonUtilTest {
 
         Map<String, String> partitionInfoMap = PaimonUtil.getPartitionInfoMap(table, partitionValues, "UTC");
 
-        Assert.assertFalse(partitionInfoMap.containsKey("Dt"));
-        Assert.assertEquals("2026-05-26", partitionInfoMap.get("dt"));
+        Assert.assertFalse(partitionInfoMap.containsKey("dt"));
+        Assert.assertEquals("2026-05-26", partitionInfoMap.get("Dt"));
+    }
+
+    @Test
+    public void testGeneratePartitionInfoWithSpecialCharacters() {
+        List<Column> partitionColumns = Arrays.asList(
+                new Column("source", Type.STRING),
+                new Column("part_str", Type.STRING),
+                new Column("pass", Type.STRING));
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("source", "dataset/team-a/segment-01");
+        spec.put("part_str", "/ymd=20260701/hour=[0-9][0-9]/*.jsonl");
+        spec.put("pass", "s1");
+        Partition partition = new Partition(spec, 1L, 1L, 1L, 1L, false);
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                partitionColumns, Collections.singletonList(partition), false);
+
+        Assert.assertFalse(partitionInfo.isPartitionInvalid());
+        Assert.assertEquals(1, partitionInfo.getNameToPartition().size());
+        Assert.assertEquals(1, partitionInfo.getNameToPartitionItem().size());
+        String partitionName = "source=dataset%2Fteam-a%2Fsegment-01"
+                + "/part_str=%2Fymd%3D20260701%2Fhour%3D%5B0-9%5D%5B0-9%5D%2F%2A.jsonl/pass=s1";
+        Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
+        PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().values().iterator().next();
+        List<String> actualValues = ((ListPartitionItem) partitionItem).getItems().get(0)
+                .getPartitionValuesAsStringList();
+        Assert.assertEquals(Arrays.asList(
+                "dataset/team-a/segment-01",
+                "/ymd=20260701/hour=[0-9][0-9]/*.jsonl",
+                "s1"), actualValues);
+    }
+
+    @Test
+    public void testGeneratePartitionInfoUsesPartitionColumnOrder() {
+        List<Column> partitionColumns = Arrays.asList(
+                new Column("source", Type.STRING),
+                new Column("part_str", Type.STRING),
+                new Column("pass", Type.STRING));
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("pass", "s1");
+        spec.put("part_str", "/ymd=20260721");
+        spec.put("source", "dataset/team-a/segment-01");
+        Partition partition = new Partition(spec, 1L, 1L, 1L, 1L, false);
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                partitionColumns, Collections.singletonList(partition), false);
+
+        String partitionName = "source=dataset%2Fteam-a%2Fsegment-01"
+                + "/part_str=%2Fymd%3D20260721/pass=s1";
+        Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
+        PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().get(partitionName);
+        List<String> actualValues = ((ListPartitionItem) partitionItem).getItems().get(0)
+                .getPartitionValuesAsStringList();
+        Assert.assertEquals(Arrays.asList(
+                "dataset/team-a/segment-01", "/ymd=20260721", "s1"), actualValues);
+    }
+
+    @Test
+    public void testGeneratePartitionInfoPreservesLegacyDateConversion() {
+        List<Column> partitionColumns = Collections.singletonList(new Column("dt", Type.DATEV2));
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("dt", "19737");
+        Partition partition = new Partition(spec, 1L, 1L, 1L, 1L, false);
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                partitionColumns, Collections.singletonList(partition), true);
+
+        String partitionName = "dt=2024-01-15";
+        Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
+        PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().get(partitionName);
+        Assert.assertEquals(Collections.singletonList("2024-01-15"),
+                ((ListPartitionItem) partitionItem).getItems().get(0).getPartitionValuesAsStringList());
+    }
+
+    @Test
+    public void testGeneratePartitionInfoUsesCollisionFreePartitionNames() {
+        List<Column> partitionColumns = Arrays.asList(
+                new Column("a", Type.STRING),
+                new Column("b", Type.STRING));
+        Map<String, String> firstSpec = new LinkedHashMap<>();
+        firstSpec.put("a", "x/b=y");
+        firstSpec.put("b", "z");
+        Map<String, String> secondSpec = new LinkedHashMap<>();
+        secondSpec.put("a", "x");
+        secondSpec.put("b", "y/b=z");
+        Partition firstPartition = new Partition(firstSpec, 1L, 1L, 1L, 1L, false);
+        Partition secondPartition = new Partition(secondSpec, 2L, 2L, 2L, 2L, false);
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                partitionColumns, Arrays.asList(firstPartition, secondPartition), false);
+
+        String firstPartitionName = "a=x%2Fb%3Dy/b=z";
+        String secondPartitionName = "a=x/b=y%2Fb%3Dz";
+        Assert.assertFalse(partitionInfo.isPartitionInvalid());
+        Assert.assertEquals(2, partitionInfo.getNameToPartition().size());
+        Assert.assertEquals(2, partitionInfo.getNameToPartitionItem().size());
+        Assert.assertSame(firstPartition, partitionInfo.getNameToPartition().get(firstPartitionName));
+        Assert.assertSame(secondPartition, partitionInfo.getNameToPartition().get(secondPartitionName));
+        Assert.assertEquals(Arrays.asList("x/b=y", "z"),
+                ((ListPartitionItem) partitionInfo.getNameToPartitionItem().get(firstPartitionName))
+                        .getItems().get(0).getPartitionValuesAsStringList());
+        Assert.assertEquals(Arrays.asList("x", "y/b=z"),
+                ((ListPartitionItem) partitionInfo.getNameToPartitionItem().get(secondPartitionName))
+                        .getItems().get(0).getPartitionValuesAsStringList());
+    }
+
+    @Test
+    public void testGeneratePartitionInfoRejectsDuplicatePartitionNames() {
+        List<Column> partitionColumns = Collections.singletonList(new Column("part", Type.STRING));
+        Map<String, String> firstSpec = Collections.singletonMap("part", "same");
+        Map<String, String> secondSpec = Collections.singletonMap("part", "same");
+        Partition firstPartition = new Partition(firstSpec, 1L, 1L, 1L, 1L, false);
+        Partition secondPartition = new Partition(secondSpec, 2L, 2L, 2L, 2L, false);
+
+        IllegalStateException exception = Assert.assertThrows(IllegalStateException.class,
+                () -> PaimonUtil.generatePartitionInfo(
+                        partitionColumns, Arrays.asList(firstPartition, secondPartition), false));
+
+        Assert.assertTrue(exception.getMessage().contains("Duplicate Paimon partition name"));
     }
 
     @Test

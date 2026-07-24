@@ -107,8 +107,7 @@ int64_t base64_decode(const char* data, size_t length, char* decoded_data) {
     auto ret = do_base64_decode(reinterpret_cast<const char*>(data), length, decoded_data,
                                 &decode_len, BASE64_FORCE_NEON64);
 #else
-    auto ret = do_base64_decode(reinterpret_cast<const char*>(data), length, decoded_data,
-                                &decode_len, 0);
+    auto ret = do_base64_decode(data, length, decoded_data, &decode_len, 0);
 #endif
     return ret > 0 ? decode_len : -1;
 }

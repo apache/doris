@@ -20,8 +20,8 @@
 #include "core/assert_cast.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
-#include "core/column/predicate_column.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter_expr.h"
@@ -80,11 +80,8 @@ private:
             new_size = _specific_filter->template find_dict_olap_engine<is_nullable>(
                     dict_col, null_map, sel, size);
         } else {
-            const auto& data =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
-                            ->get_data();
-            new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
-                                                                    sel, size, data.size() != size);
+            new_size = _specific_filter->find_fixed_len_olap_engine(
+                    column, null_map, sel, size, /*is_parse_column=*/column.size() != size);
         }
         return new_size;
     }
@@ -96,7 +93,7 @@ private:
 template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
                                                         uint16_t size) const {
-    if (column.is_nullable()) {
+    if (is_column_nullable(column)) {
         const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
         const auto& null_map_data = nullable_col->get_null_map_column().get_data();
         return evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);

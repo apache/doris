@@ -24,6 +24,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "storage/storage_engine.h"
@@ -101,6 +102,30 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
     return state->get_query_ctx()->get_remote_scan_scheduler();
 }
 
+#ifdef BE_TEST
+bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                         bool is_load,
+                                                         const TFileScanRangeParams& scan_params) {
+    return _should_use_file_scanner_v2(query_options, is_load, scan_params);
+}
+#endif
+
+bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                     bool is_load,
+                                                     const TFileScanRangeParams& scan_params) {
+    const bool is_transactional_hive =
+            scan_params.__isset.table_format_params &&
+            scan_params.table_format_params.table_format_type == "transactional_hive";
+    // JNI reader selection is stored per split, but this scan-level selector cannot inspect the
+    // split yet. Older FEs may omit both the scan-level Paimon marker and split-level reader_type,
+    // so keep JNI scans on V1 until scanner selection can distinguish every compatibility shape.
+    return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
+           !is_load && scan_params.format_type != TFileFormatType::FORMAT_WAL &&
+           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
+           scan_params.format_type != TFileFormatType::FORMAT_LANCE &&
+           scan_params.format_type != TFileFormatType::FORMAT_JNI && !is_transactional_hive;
+}
+
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
@@ -119,10 +144,30 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                      _max_scanners);
     shard_num = std::max(shard_num, 1U);
     _kv_cache = std::make_unique<ShardedKVCache>(shard_num);
+    const TFileScanRangeParams* scan_params = nullptr;
+    if (state()->get_query_ctx() != nullptr &&
+        state()->get_query_ctx()->file_scan_range_params_map.count(parent_id()) > 0) {
+        scan_params = &state()->get_query_ctx()->file_scan_range_params_map[parent_id()];
+    } else {
+        scan_params = _split_source->get_params();
+    }
+    const bool is_load =
+            state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
+    // TODO: Use scanner v2 for all queries.
+    const bool use_file_scanner_v2 =
+            _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
+    _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     for (int i = 0; i < _max_scanners; ++i) {
-        std::unique_ptr<FileScanner> scanner = FileScanner::create_unique(
-                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
-                &p._colname_to_slot_id);
+        ScannerSPtr scanner;
+        if (use_file_scanner_v2) {
+            scanner = FileScannerV2::create_shared(state(), this, p._limit, _split_source,
+                                                   _scanner_profile.get(), _kv_cache.get(),
+                                                   &p._colname_to_slot_id);
+        } else {
+            scanner = FileScanner::create_shared(state(), this, p._limit, _split_source,
+                                                 _scanner_profile.get(), _kv_cache.get(),
+                                                 &p._colname_to_slot_id);
+        }
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }

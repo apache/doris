@@ -34,10 +34,9 @@ namespace doris {
 bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& data) {
     const IColumn* array_col = &src;
     // extract array nullable info
-    if (src.is_nullable()) {
-        const auto& null_col = reinterpret_cast<const ColumnNullable&>(src);
-        data.array_nullmap_data = null_col.get_null_map_data().data();
-        array_col = null_col.get_nested_column_ptr().get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(&src)) {
+        data.array_nullmap_data = nullable->get_null_map_data().data();
+        array_col = nullable->get_nested_column_ptr().get();
     }
 
     // check and get array column
@@ -50,10 +49,9 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     data.offsets_ptr = &data.array_col->get_offsets();
     data.nested_col = data.array_col->get_data_ptr();
     // extract nested column is nullable
-    if (data.nested_col->is_nullable()) {
-        const auto& nested_null_col = reinterpret_cast<const ColumnNullable&>(*data.nested_col);
-        data.nested_nullmap_data = nested_null_col.get_null_map_data().data();
-        data.nested_col = nested_null_col.get_nested_column_ptr();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(data.nested_col.get())) {
+        data.nested_nullmap_data = nullable->get_null_map_data().data();
+        data.nested_col = nullable->get_nested_column_ptr();
     }
     if (data.output_as_variant &&
         data.nested_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {

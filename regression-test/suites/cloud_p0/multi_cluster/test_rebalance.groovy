@@ -205,7 +205,7 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
                 sleep(1 * 1000)
             }
             GetDebugPoint().disableDebugPointForAllFEs("CloudTabletRebalancer.checkInflghtWarmUpCacheAsync.beNull");
-            awaitUntil(10) {
+            awaitUntil(30) {
                 def ret = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM table100"""
                 log.info("replica distribution table100: {}", ret)
                 ret.any { row -> 

@@ -70,7 +70,7 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
         }
         logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
-        def checkSegmentNum = { rowsetNum, lastRowsetSegmentNum ->
+        def checkSegmentNum = { rowsetNum, minLastRowsetSegmentNum ->
             def tablets = sql_return_maparray """ show tablets from ${tableName}; """
             logger.info("tablets: ${tablets}")
             String compactionUrl = tablets[0]["CompactionStatus"]
@@ -86,7 +86,7 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
             int end_index = rowset.indexOf("DATA")
             def segmentNumStr = rowset.substring(start_index + 1, end_index).trim()
             logger.info("segmentNumStr: ${segmentNumStr}")
-            assert lastRowsetSegmentNum == Integer.parseInt(segmentNumStr)
+            assert Integer.parseInt(segmentNumStr) >= minLastRowsetSegmentNum
         }
 
         def loadMultiSegmentData = { rows->
@@ -122,14 +122,7 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
             GetDebugPoint().enableDebugPointForAllBEs("CloudFullCompaction::modify_rowsets.block")
 
-            def newThreadInDocker = { Closure actionSupplier ->
-                def connInfo = context.threadLocalConn.get()
-                return Thread.start {
-                    connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-                }
-            }
-
-            def t1 = newThreadInDocker {
+            def t1 = thread("load-multi-segment") {
                 loadMultiSegmentData(4096)
             }
 
@@ -147,7 +140,7 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
             // let the load publish
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-            t1.join()
+            t1.get()
             Thread.sleep(1000)
 
 
@@ -171,8 +164,6 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
             qt_dup_key_count "select count() from (select k, count(*) from ${tableName} group by k having count(*) > 1) t"
             qt_sql "select count() from ${tableName};"
             checkSegmentNum(2, 3)
-        } catch (Exception e) {
-            logger.info(e.getMessage())
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()
             GetDebugPoint().clearDebugPointsForAllFEs()

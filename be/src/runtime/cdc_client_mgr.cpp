@@ -214,6 +214,11 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     argv_storage.emplace_back(java_opts);
     // OOM safety net (last-wins, user opts cannot disable).
     argv_storage.emplace_back("-XX:+ExitOnOutOfMemoryError");
+    // JDK17 opens for debezium ObjectSizeCalculator reflection.
+    argv_storage.emplace_back("--add-opens=java.base/java.lang=ALL-UNNAMED");
+    argv_storage.emplace_back("--add-opens=java.base/java.util=ALL-UNNAMED");
+    argv_storage.emplace_back("--add-opens=java.base/java.math=ALL-UNNAMED");
+    argv_storage.emplace_back("--add-opens=java.base/java.nio=ALL-UNNAMED");
     argv_storage.emplace_back("-jar");
     argv_storage.emplace_back(cdc_jar_path);
     argv_storage.emplace_back(cdc_jar_port);

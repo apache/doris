@@ -81,6 +81,20 @@ using IndexToEnableMoW =
                                       std::allocator<phmap::Pair<const int64_t, bool>>, 4,
                                       std::mutex>;
 
+class CloseWaitNotifier {
+public:
+    int64_t close_wait_version() const;
+
+    void wait_for_close_event(int64_t observed_version, int64_t timeout_ms);
+
+    void notify_close_wait();
+
+private:
+    std::atomic<int64_t> _close_wait_version {0};
+    bthread::Mutex _close_wait_mutex;
+    bthread::ConditionVariable _close_wait_cv;
+};
+
 class LoadStreamReplyHandler : public brpc::StreamInputHandler {
 public:
     LoadStreamReplyHandler(PUniqueId load_id, int64_t dst_id, std::weak_ptr<LoadStreamStub> stub)
@@ -108,12 +122,17 @@ public:
     // construct new stub
     LoadStreamStub(PUniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false);
+                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false,
+                   std::shared_ptr<CloseWaitNotifier> close_wait_notifier =
+                           std::make_shared<CloseWaitNotifier>());
 
     LoadStreamStub(UniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
-            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map, incremental) {};
+                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false,
+                   std::shared_ptr<CloseWaitNotifier> close_wait_notifier =
+                           std::make_shared<CloseWaitNotifier>())
+            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map, incremental,
+                             std::move(close_wait_notifier)) {};
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -243,6 +262,8 @@ public:
                     tablet_load_infos);
 
 private:
+    void notify_close_wait();
+
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
     Status _send_with_retry(butil::IOBuf& buf);
@@ -281,6 +302,7 @@ protected:
     std::unordered_map<int64_t, Status> _failed_tablets;
 
     bool _is_incremental = false;
+    std::shared_ptr<CloseWaitNotifier> _close_wait_notifier;
 
     bthread::Mutex _write_mutex;
     size_t _bytes_written = 0;
@@ -293,12 +315,14 @@ class LoadStreamStubs {
 public:
     LoadStreamStubs(size_t num_streams, UniqueId load_id, int64_t src_id,
                     std::shared_ptr<IndexToTabletSchema> schema_map,
-                    std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
+                    std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false,
+                    std::shared_ptr<CloseWaitNotifier> close_wait_notifier =
+                            std::make_shared<CloseWaitNotifier>())
             : _is_incremental(incremental) {
         _streams.reserve(num_streams);
         for (size_t i = 0; i < num_streams; i++) {
-            _streams.emplace_back(
-                    new LoadStreamStub(load_id, src_id, schema_map, mow_map, incremental));
+            _streams.emplace_back(new LoadStreamStub(load_id, src_id, schema_map, mow_map,
+                                                     incremental, close_wait_notifier));
         }
     }
 

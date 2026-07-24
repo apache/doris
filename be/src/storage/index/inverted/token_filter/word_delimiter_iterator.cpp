@@ -216,8 +216,7 @@ std::string WordDelimiterIterator::to_string() const {
     std::ostringstream oss;
     std::string substring(_text + _current, _end - _current);
     oss << substring << " [" << _current << "-" << _end << "]"
-        << " type=0x" << std::hex << std::setw(2) << std::setfill('0')
-        << static_cast<int32_t>(type());
+        << " type=0x" << std::hex << std::setw(2) << std::setfill('0') << type();
     return oss.str();
 }
 

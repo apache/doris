@@ -25,8 +25,7 @@ suite("test_compound_arr", "array_contains_inverted_index"){
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     def indexTblName = "test_compound_arr"
 
@@ -50,8 +49,8 @@ suite("test_compound_arr", "array_contains_inverted_index"){
 	);
     """
 
-    sql """ 
-        INSERT INTO $indexTblName VALUES 
+    sql """
+        INSERT INTO $indexTblName VALUES
         (1, ['1'], ['1'], ['1']),
         (2, ['2'], ['2'], ['2']),
         (3, ['3'], ['3'], ['3']),
@@ -62,7 +61,7 @@ suite("test_compound_arr", "array_contains_inverted_index"){
         (8, ['8'], ['8'], ['8']),
         (9, ['9'], ['9'], ['9']),
         (10, ['10'], ['10'], ['10']);
-    """ 
+    """
 
     qt_sql """SELECT count() FROM $indexTblName WHERE (id >= 2 AND id < 9) and (array_contains(a, '2') or array_contains(b, '5') and array_contains(c, '5'));"""
     qt_sql "SELECT count() FROM $indexTblName WHERE (id >= 2 AND id < 9) and (array_contains(a, '2') or array_contains(b, '5') or array_contains(c, '6'));"

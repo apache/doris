@@ -98,6 +98,7 @@ suite("test_insert_statistic", "p0") {
      PROPERTIES ("replication_num"="1");
     """
     sql """ set enable_insert_strict = true """
+    sql """ set enable_strict_cast = true """
     try {
         sql """ INSERT INTO ${insert_tbl}_fail SELECT 'this_value_is_too_long_for_varchar3' """
     } catch (Exception e) {

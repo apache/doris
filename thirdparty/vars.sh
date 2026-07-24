@@ -242,10 +242,10 @@ BROTLI_SOURCE="brotli-1.0.9"
 BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
 
 # flatbuffers
-FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v2.0.0.tar.gz"
-FLATBUFFERS_NAME=flatbuffers-2.0.0.tar.gz
-FLATBUFFERS_SOURCE=flatbuffers-2.0.0
-FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-23.5.26.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-23.5.26
+FLATBUFFERS_MD5SUM="2ef00eaaa86ab5e9ad5eafe09c2e7b60"
 
 # c-ares
 CARES_DOWNLOAD="https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz"
@@ -573,6 +573,12 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
+# lance-c
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.2.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.2.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.2"
+LANCE_C_MD5SUM="eb6ec9bc63fa5245864282f24b521d0b"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -658,6 +664,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'PAIMON_CPP'
+    'LANCE_C'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

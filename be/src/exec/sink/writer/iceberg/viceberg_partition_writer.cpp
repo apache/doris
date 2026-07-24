@@ -47,7 +47,11 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _compress_type(compress_type),
-          _hadoop_conf(hadoop_conf) {}
+          _hadoop_conf(hadoop_conf) {
+    if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
+        _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
+    }
+}
 
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                      const RowDescriptor* row_desc) {
@@ -78,6 +82,12 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         }
         case TFileCompressType::ZSTD: {
             parquet_compression_type = TParquetCompressionType::ZSTD;
+            break;
+        }
+        case TFileCompressType::LZ4BLOCK: {
+            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
+            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
             break;
         }
         default: {
@@ -118,7 +128,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     }
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
-        auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
+        // delete the actual created file, otherwise an orphan file is left behind
+        auto path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
@@ -149,6 +160,10 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);
+    // ORC collection reopens the file, so honor the FE policy before any footer work.
+    if (!_collect_column_stats) {
+        return Status::OK();
+    }
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         TIcebergColumnStats column_stats;
         RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())
@@ -177,6 +192,10 @@ std::string VIcebergPartitionWriter::_get_file_extension(
     }
     case TFileCompressType::ZSTD: {
         compress_name = ".zstd";
+        break;
+    }
+    case TFileCompressType::LZ4BLOCK: {
+        compress_name = ".lz4";
         break;
     }
     default: {

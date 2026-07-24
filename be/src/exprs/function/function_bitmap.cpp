@@ -323,10 +323,15 @@ struct BitmapFromArray {
         const auto& nested_column_data = static_cast<const ColumnType&>(nested_column).get_data();
         auto size = offset_column_data.size();
         res.reserve(size);
-        std::vector<uint64_t> bits;
+        // Preserve the nested column's native integer type here.
+        // For Array<Int32>/Array<UInt32>-like inputs can reach the 32-bit `add_many` fast path
+        // instead of widening every element to uint64_t first.
+        using ValueType = typename ColumnType::value_type;
+        std::vector<ValueType> bits;
         for (size_t i = 0; i < size; ++i) {
             auto curr_offset = offset_column_data[i];
             auto prev_offset = offset_column_data[i - 1];
+            bits.reserve(curr_offset - prev_offset);
             for (auto j = prev_offset; j < curr_offset; ++j) {
                 auto data = nested_column_data[j];
                 // invaild value
@@ -904,25 +909,19 @@ struct BitmapHasAny {
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lvec[i];
-            bitmap &= rvec[i];
-            res[i] = bitmap.cardinality() != 0;
+            res[i] = lvec[i].intersects(rvec[i]);
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lvec[i];
-            bitmap &= rval;
-            res[i] = bitmap.cardinality() != 0;
+            res[i] = lvec[i].intersects(rval);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lval;
-            bitmap &= rvec[i];
-            res[i] = bitmap.cardinality() != 0;
+            res[i] = lval.intersects(rvec[i]);
         }
     }
 };
@@ -942,28 +941,19 @@ struct BitmapHasAll {
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            uint64_t lhs_cardinality = lvec[i].cardinality();
-            auto bitmap = lvec[i];
-            bitmap |= rvec[i];
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            res[i] = lvec[i].contains_all(rvec[i]);
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            uint64_t lhs_cardinality = lvec[i].cardinality();
-            auto bitmap = lvec[i];
-            bitmap |= rval;
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            res[i] = lvec[i].contains_all(rval);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
-        uint64_t lhs_cardinality = lval.cardinality();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lval;
-            bitmap |= rvec[i];
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            res[i] = lval.contains_all(rvec[i]);
         }
     }
 };

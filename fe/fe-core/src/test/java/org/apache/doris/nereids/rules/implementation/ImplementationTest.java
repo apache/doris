@@ -28,9 +28,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -134,5 +137,25 @@ public class ImplementationTest {
         PhysicalLimit<GroupPlan> physicalLimit = (PhysicalLimit<GroupPlan>) physicalPlan;
         Assertions.assertEquals(limit, physicalLimit.getLimit());
         Assertions.assertEquals(offset, physicalLimit.getOffset());
+    }
+
+    @Test
+    public void physicalPartitionTopNSeparatesSortKeysFromOutputOrderKeys() {
+        SlotReference partitionKey = new SlotReference("col1", IntegerType.INSTANCE);
+        SlotReference orderExpr = new SlotReference("col2", IntegerType.INSTANCE);
+        OrderKey orderKey = new OrderKey(orderExpr, true, true);
+        PhysicalPartitionTopN<GroupPlan> partitionTopN = new PhysicalPartitionTopN<>(
+                WindowFuncType.ROW_NUMBER,
+                ImmutableList.of(partitionKey),
+                ImmutableList.of(orderKey),
+                false,
+                10,
+                PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN,
+                groupPlan.getLogicalProperties(),
+                groupPlan);
+
+        Assertions.assertEquals(ImmutableList.of(orderKey), partitionTopN.getOrderKeys());
+        Assertions.assertEquals(ImmutableList.of(new OrderKey(partitionKey, true, false), orderKey),
+                partitionTopN.getOutputOrderKeys());
     }
 }

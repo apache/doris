@@ -281,6 +281,24 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) 
         }
     }
 
+    // LargeBinaryBuilder path (no nulls)
+    {
+        auto builder = std::make_shared<arrow::LargeBinaryBuilder>();
+        auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* bin = dynamic_cast<arrow::LargeBinaryArray*>(arr.get());
+        ASSERT_NE(bin, nullptr);
+        ASSERT_EQ(bin->length(), static_cast<int>(vals.size()));
+        for (int i = 0; i < bin->length(); ++i) {
+            ASSERT_FALSE(bin->IsNull(i));
+            ASSERT_EQ(bin->value_length(i), static_cast<int64_t>(vals[i].size()));
+            const uint8_t* raw = bin->value_data()->data() + bin->value_offset(i);
+            EXPECT_EQ(memcmp(raw, vals[i].data(), vals[i].size()), 0);
+        }
+    }
+
     // Unsupported builder type
     {
         arrow::Int32Builder ib;

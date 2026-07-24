@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.spi;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 
 import java.io.IOException;
 import java.util.Comparator;
@@ -33,10 +34,8 @@ import java.util.stream.Collectors;
 public abstract class ObjFileSystem implements FileSystem {
 
     protected final ObjStorage<?> objStorage;
-    protected final String name;
 
-    protected ObjFileSystem(String name, ObjStorage<?> objStorage) {
-        this.name = name;
+    protected ObjFileSystem(ObjStorage<?> objStorage) {
         this.objStorage = objStorage;
     }
 

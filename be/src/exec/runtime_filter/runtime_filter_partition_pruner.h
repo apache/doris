@@ -43,6 +43,10 @@ struct ParsedBoundary {
     int64_t partition_id = 0;
     SlotId slot_id = 0;
     bool is_nullable = false;
+    // True only when the original/projection boundary is a finite LIST value set.
+    // Bloom RF pruning relies on complete value enumeration and must not use RANGE
+    // boundaries, even when a RANGE projection degenerates to a single point.
+    bool is_list_boundary = false;
     ColumnValueRangeType boundary_cvr;
     // True if the partition's value set is exactly {NULL} (e.g. LIST
     // partition whose only key is NULL). The CVR alone cannot encode

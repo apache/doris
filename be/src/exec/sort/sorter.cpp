@@ -57,11 +57,11 @@ namespace doris {
 //
 
 void MergeSorterState::reset() {
-    std::vector<std::shared_ptr<MergeSortCursorImpl>> empty_cursors(0);
-    std::vector<std::shared_ptr<Block>> empty_blocks(0);
-    _sorted_blocks.swap(empty_blocks);
+    _sorted_blocks.clear();      // replaces swap-with-empty idiom
+    _queue = MergeSorterQueue(); // release stale cursors from prior flush cycle
     unsorted_block() = Block::create_unique(unsorted_block()->clone_empty());
     _in_mem_sorted_bocks_size = 0;
+    _num_rows = 0;
 }
 
 void MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {

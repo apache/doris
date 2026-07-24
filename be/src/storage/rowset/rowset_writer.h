@@ -140,6 +140,11 @@ public:
                 "RowsetWriter not support flush_single_block");
     }
 
+    virtual Status flush_single_block(const Block* block, int32_t segment_id) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_single_block with segment_id");
+    }
+
     virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }

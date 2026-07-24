@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("oceanbase.md", "p0,external,oceanbase,external_docker,external_docker_oceanbase") {
+suite("oceanbase.md", "p2,external,oceanbase,external_docker,external_docker_oceanbase") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "oceanbase_catalog_md";
@@ -30,7 +30,7 @@ suite("oceanbase.md", "p0,external,oceanbase,external_docker,external_docker_oce
         sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root@test",
-            "password"="",
+            "password"="123456",
             "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${oceanbase_port}/doris_test",
             "driver_url" = "${driver_url}",
             "driver_class" = "com.oceanbase.jdbc.Driver"

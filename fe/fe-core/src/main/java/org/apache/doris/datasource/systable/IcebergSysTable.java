@@ -20,7 +20,6 @@ package org.apache.doris.datasource.systable;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import org.apache.iceberg.MetadataTableType;
 
@@ -40,27 +39,20 @@ import java.util.stream.Collectors;
  * @see org.apache.iceberg.MetadataTableType for all supported system table types
  */
 public class IcebergSysTable extends NativeSysTable {
-    public static final String POSITION_DELETES = MetadataTableType.POSITION_DELETES.name().toLowerCase(Locale.ROOT);
-
     /**
      * All supported Iceberg system tables.
      * Key is the system table name (e.g., "snapshots", "history").
      */
     public static final Map<String, SysTable> SUPPORTED_SYS_TABLES = Collections.unmodifiableMap(
             Arrays.stream(MetadataTableType.values())
-                    .filter(type -> type != MetadataTableType.POSITION_DELETES)
-                    .map(type -> new IcebergSysTable(type.name().toLowerCase(Locale.ROOT), true))
+                    .map(type -> new IcebergSysTable(type.name().toLowerCase(Locale.ROOT)))
                     .collect(Collectors.toMap(SysTable::getSysTableName, Function.identity())));
-    public static final SysTable UNSUPPORTED_POSITION_DELETES_TABLE =
-            new IcebergSysTable(POSITION_DELETES, false);
 
     private final String tableName;
-    private final boolean supported;
 
-    private IcebergSysTable(String tableName, boolean supported) {
+    private IcebergSysTable(String tableName) {
         super(tableName);
         this.tableName = tableName;
-        this.supported = supported;
     }
 
     @Override
@@ -70,9 +62,6 @@ public class IcebergSysTable extends NativeSysTable {
 
     @Override
     public ExternalTable createSysExternalTable(ExternalTable sourceTable) {
-        if (!supported) {
-            throw new AnalysisException("SysTable " + tableName + " is not supported yet");
-        }
         if (!(sourceTable instanceof IcebergExternalTable)) {
             throw new IllegalArgumentException(
                     "Expected IcebergExternalTable but got " + sourceTable.getClass().getSimpleName());

@@ -59,9 +59,8 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
     	}
     }
 
-    // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    // Pin enable_segment_limit_pushdown to keep inverted-index pushdown stable under fuzzy testing
+    sql """ set enable_segment_limit_pushdown = true; """
     sql """ set enable_profile = true;"""
     sql """ set profile_level = 2;"""
 

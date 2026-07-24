@@ -17,10 +17,12 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -82,7 +84,12 @@ public final class StoragePropertiesConverter {
             }
             map.put("_STORAGE_TYPE_", "AZURE");
         } else if (props instanceof HdfsCompatibleProperties) {
-            map.put("_STORAGE_TYPE_", "HDFS");
+            // OSS-HDFS (JindoFS) and plain HDFS share the HDFS-compatible base but are served by
+            // distinct fe-filesystem providers, so they must carry distinct authoritative markers.
+            map.put("_STORAGE_TYPE_", props instanceof OSSHdfsProperties ? "OSS_HDFS" : "HDFS");
+            // Pass the FE-side hadoop config directory down as a system-injected context key so
+            // fe-filesystem (which has no fe-core Config) can resolve `hadoop.config.resources`.
+            map.put("_HADOOP_CONFIG_DIR_", Config.hadoop_config_dir);
         } else if (props instanceof BrokerProperties) {
             map.put("_STORAGE_TYPE_", "BROKER");
         }

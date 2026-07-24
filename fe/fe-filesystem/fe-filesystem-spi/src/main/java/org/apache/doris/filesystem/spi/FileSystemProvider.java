@@ -20,10 +20,14 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemCapability;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI interface for filesystem provider discovery via Java ServiceLoader.
@@ -38,7 +42,7 @@ import java.util.Map;
  * 2. Register in META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  * 3. Have NO dependency on fe-core, fe-common, or fe-catalog.
  */
-public interface FileSystemProvider extends PluginFactory {
+public interface FileSystemProvider<P extends FileSystemProperties> extends PluginFactory {
 
     /**
      * Returns true if this provider can handle the given properties.
@@ -56,7 +60,7 @@ public interface FileSystemProvider extends PluginFactory {
      * return a validated immutable properties object. Legacy providers can continue to implement
      * {@link #create(Map)} directly during the migration period.
      */
-    default FileSystemProperties bind(Map<String, String> properties) {
+    default P bind(Map<String, String> properties) {
         throw new UnsupportedOperationException(
                 name() + " does not support typed FileSystemProperties binding yet.");
     }
@@ -64,11 +68,22 @@ public interface FileSystemProvider extends PluginFactory {
     /**
      * Creates a FileSystem instance from validated typed properties.
      *
-     * <p>The default implementation preserves compatibility for providers whose typed
-     * properties can still be represented as legacy FileSystem key-value pairs.
+     * <p>Typed providers should override this method and construct the runtime client
+     * directly from typed accessors. The migration-compatible map entry remains
+     * {@link #create(Map)}.
      */
-    default FileSystem create(FileSystemProperties properties) throws IOException {
-        return create(properties.toFileSystemKv());
+    default FileSystem create(P properties) throws IOException {
+        throw new UnsupportedOperationException(
+                name() + " does not support typed FileSystem creation yet.");
+    }
+
+    /**
+     * Creates a FileSystem instance from a properties object whose static type is not known
+     * at the registry or factory call site.
+     */
+    @SuppressWarnings("unchecked")
+    default FileSystem createUntyped(FileSystemProperties properties) throws IOException {
+        return create((P) properties);
     }
 
     /**
@@ -80,6 +95,38 @@ public interface FileSystemProvider extends PluginFactory {
      * @throws IOException if the filesystem cannot be initialized
      */
     FileSystem create(Map<String, String> properties) throws IOException;
+
+    /**
+     * Returns the raw property key aliases this provider treats as sensitive credentials.
+     *
+     * <p>Framework code (e.g. {@code DatasourcePrintableMap}) aggregates these from all loaded
+     * providers to mask credential values when printing property maps (SHOW CREATE, error logs),
+     * without fe-core needing a compile-time dependency on provider implementations. Providers with
+     * typed properties should return {@code ConnectorPropertiesUtils.getSensitiveKeys(XxxProperties.class)}
+     * so the {@code @ConnectorProperty(sensitive = true)} annotation stays the single source of truth.
+     *
+     * @return sensitive property key aliases; empty if the provider has no credentials to mask
+     */
+    default Set<String> sensitivePropertyKeys() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Negotiates the capabilities this provider exposes for the given bound configuration.
+     *
+     * <p>Capability is a function of the resolved configuration, not of the provider type alone:
+     * the same provider may expose different capabilities depending on the config (e.g. Ozone via
+     * the S3 gateway has no {@link FileSystemCapability#ATOMIC_RENAME}, but Ozone via {@code ofs://}
+     * does). Defaults to the empty set; providers override to declare what they support.
+     *
+     * <p>Capability negotiation is intentionally typed: the caller binds the raw property map via
+     * {@link #bind(Map)} first, then negotiates against the resulting configuration. There is no
+     * raw-map bridge here — a legacy provider that has not migrated to {@link #bind(Map)} cannot be
+     * negotiated against, and a silent fallback would hide that instead of surfacing it.
+     */
+    default Set<FileSystemCapability> capabilities(P boundProperties) {
+        return EnumSet.noneOf(FileSystemCapability.class);
+    }
 
     /**
      * Human-readable name for logging/diagnostics (e.g., "S3", "HDFS", "Azure").

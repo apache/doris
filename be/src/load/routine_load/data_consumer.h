@@ -113,7 +113,7 @@ public:
 
         case RdKafka::Event::EVENT_THROTTLE:
             LOG(INFO) << "kafka throttled: " << event.throttle_time() << "ms by "
-                      << event.broker_name() << " id " << (int)event.broker_id();
+                      << event.broker_name() << " id " << event.broker_id();
             break;
 
         default:

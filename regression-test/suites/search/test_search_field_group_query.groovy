@@ -29,10 +29,10 @@
 suite("test_search_field_group_query") {
     def tableName = "search_field_group_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
     // When false, search() expressions are not pushed to the inverted index evaluation
     // path, causing "SearchExpr should not be executed without inverted index" errors.
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 

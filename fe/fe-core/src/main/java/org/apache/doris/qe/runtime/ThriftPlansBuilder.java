@@ -54,10 +54,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
+import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
@@ -67,11 +69,11 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRecCTENode;
 import org.apache.doris.thrift.TRecCTEResetInfo;
 import org.apache.doris.thrift.TRecCTETarget;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTopnFilterDesc;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ArrayListMultimap;
@@ -96,6 +98,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class ThriftPlansBuilder {
     private static final Logger LOG = LogManager.getLogger(ThriftPlansBuilder.class);
@@ -115,8 +118,12 @@ public class ThriftPlansBuilder {
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
 
+        int broadcastRuntimeFilterProducerNum = coordinatorContext.connectContext == null
+                ? 0
+                : coordinatorContext.connectContext.getSessionVariable()
+                        .getRuntimeFilterBroadcastJoinProducerNum();
         RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder = RuntimeFiltersThriftBuilder.compute(
-                coordinatorContext.runtimeFilters, distributedPlans);
+                coordinatorContext.runtimeFilters, distributedPlans, broadcastRuntimeFilterProducerNum);
         Supplier<List<TTopnFilterDesc>> topNFilterThriftSupplier
                 = topNFilterToThrift(coordinatorContext.topnFilters);
 
@@ -136,7 +143,8 @@ public class ThriftPlansBuilder {
                 TPipelineFragmentParams currentFragmentParam = fragmentToThriftIfAbsent(
                         currentFragmentPlan, instanceJob, workerToCurrentFragment,
                         instancesPerWorker, exchangeSenderNum, sharedFileScanRangeParams,
-                        workerProcessInstanceNum, fragmentToNotifyClose, coordinatorContext);
+                        workerProcessInstanceNum, fragmentToNotifyClose, coordinatorContext,
+                        runtimeFiltersThriftBuilder);
 
                 TPipelineInstanceParams instanceParam = instanceToThrift(
                         currentFragmentParam, instanceJob, currentInstanceIndex++);
@@ -247,7 +255,22 @@ public class ThriftPlansBuilder {
             }
         }
 
+        Map<Integer, List<TPipelineFragmentParams>> olapSinkParamsByFragmentId = Maps.newLinkedHashMap();
+        for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
+            for (TPipelineFragmentParams fragmentParams : kv.getValue().getParamsList()) {
+                TDataSink outputSink = fragmentParams.getFragment().getOutputSink();
+                if (outputSink != null && outputSink.getType() == TDataSinkType.OLAP_TABLE_SINK) {
+                    olapSinkParamsByFragmentId.computeIfAbsent(fragmentParams.getFragmentId(),
+                            ignored -> new ArrayList<>()).add(fragmentParams);
+                }
+            }
+        }
+        for (List<TPipelineFragmentParams> sinkParams : olapSinkParamsByFragmentId.values()) {
+            assignAdaptiveRandomBucketForSinkParams(sinkParams);
+        }
+
         ConnectContext connectContext = coordinatorContext.connectContext;
+
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
             TPipelineFragmentParamsList fragments = kv.getValue();
             for (TPipelineFragmentParams fragmentParams : fragments.getParamsList()) {
@@ -266,6 +289,49 @@ public class ThriftPlansBuilder {
         }
     }
 
+    private static void assignAdaptiveRandomBucketForSinkParams(List<TPipelineFragmentParams> sinkParams) {
+        if (sinkParams.isEmpty()) {
+            return;
+        }
+        TOlapTableSink sink = sinkParams.get(0).getFragment().getOutputSink().getOlapTableSink();
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        List<Long> sinkBackendIds = sinkParams.stream()
+                .map(TPipelineFragmentParams::getBackendId)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        int sinkInstanceNum = sinkParams.stream()
+                .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
+                .sum();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket planning in nereids fragment={}, sinkBackendIds={}, "
+                            + "sinkInstanceNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, sinkInstanceNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), sinkInstanceNum);
+        for (TPipelineFragmentParams sinkParam : sinkParams) {
+            Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
+                    assignments.get(sinkParam.getBackendId());
+            if (partitionAssignments == null) {
+                continue;
+            }
+            TOlapTableSink copiedSink = deepCopyOlapTableSinkForCurrentBackend(sinkParam);
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    copiedSink.getPartition().getPartitions(),
+                    partitionAssignments);
+        }
+    }
+
+    private static TOlapTableSink deepCopyOlapTableSinkForCurrentBackend(TPipelineFragmentParams sinkParam) {
+        TDataSink copiedOutputSink = sinkParam.getFragment().getOutputSink().deepCopy();
+        sinkParam.getFragment().setOutputSink(copiedOutputSink);
+        return copiedOutputSink.getOlapTableSink();
+    }
+
     private static Multiset<DistributedPlanWorker> computeInstanceNumPerWorker(
             List<PipelineDistributedPlan> distributedPlans) {
         Multiset<DistributedPlanWorker> workerCounter = LinkedHashMultiset.create();
@@ -277,7 +343,8 @@ public class ThriftPlansBuilder {
         return workerCounter;
     }
 
-    private static Map<Integer, Integer> computeExchangeSenderNum(PipelineDistributedPlan distributedPlan) {
+    private static Map<Integer, Integer> computeExchangeSenderNum(
+            PipelineDistributedPlan distributedPlan) {
         Map<Integer, Integer> senderNum = Maps.newLinkedHashMap();
         for (Entry<ExchangeNode, DistributedPlan> kv : distributedPlan.getInputs().entries()) {
             ExchangeNode exchangeNode = kv.getKey();
@@ -367,7 +434,8 @@ public class ThriftPlansBuilder {
             Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap,
             Multiset<DistributedPlanWorker> workerProcessInstanceNum,
             Set<Integer> fragmentToNotifyClose,
-            CoordinatorContext coordinatorContext) {
+            CoordinatorContext coordinatorContext,
+            RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder) {
         DistributedPlanWorker worker = assignedJob.getAssignedWorker();
         return workerToFragmentParams.computeIfAbsent(worker, w -> {
             PlanFragment fragment = fragmentPlan.getFragmentJob().getFragment();
@@ -422,10 +490,18 @@ public class ThriftPlansBuilder {
             params.setSendQueryStatisticsWithEveryBatch(fragment.isTransferQueryStatisticsWithEveryBatch());
 
             TPlanFragment planThrift = fragment.toThrift();
+            runtimeFiltersThriftBuilder.pruneBroadcastRuntimeFilterProducers(planThrift, worker);
             planThrift.query_cache_param = fragment.queryCacheParam;
             params.setFragment(planThrift);
             params.setLocalParams(Lists.newArrayList());
             params.setWorkloadGroups(coordinatorContext.getWorkloadGroups());
+
+            if (connectContext != null && connectContext.getCurrentUserIdentity() != null) {
+                TResourceInfo resourceInfo = new TResourceInfo();
+                resourceInfo.setUser(connectContext.getCurrentUserIdentity().getQualifiedUser());
+                resourceInfo.setGroup("");
+                params.setResourceInfo(resourceInfo);
+            }
 
             params.setFileScanParams(fileScanRangeParamsMap);
 
@@ -707,15 +783,12 @@ public class ThriftPlansBuilder {
             // collect all assigned instance network addresses for this fragment
             List<AssignedJob> fragmentAssignedJobs = plan.getInstanceJobs();
             Set<TNetworkAddress> networkAddresses = new TreeSet<>();
-            Map<TNetworkAddress, TUniqueId> addressTUniqueIdMap = new TreeMap<>();
             for (AssignedJob assignedJob : fragmentAssignedJobs) {
                 DistributedPlanWorker distributedPlanWorker = assignedJob.getAssignedWorker();
                 // use brpc port + host as the address used by BE for control/reset
                 TNetworkAddress networkAddress = new TNetworkAddress(distributedPlanWorker.host(),
                         distributedPlanWorker.brpcPort());
-                if (networkAddresses.add(networkAddress)) {
-                    addressTUniqueIdMap.put(networkAddress, assignedJob.instanceId());
-                }
+                networkAddresses.add(networkAddress);
             }
             PlanFragment planFragment = plan.getFragmentJob().getFragment();
             // remember addresses for later when building reset infos
@@ -736,15 +809,8 @@ public class ThriftPlansBuilder {
                     throw new IllegalStateException(
                             "fragmentAssignedJobs is empty for recursive cte scan node");
                 }
-                // Build a TRecCTETargets
-                List<TRecCTETarget> recCTETargets = new ArrayList<>(addressTUniqueIdMap.size());
-                for (Entry<TNetworkAddress, TUniqueId> entry : addressTUniqueIdMap.entrySet()) {
-                    TRecCTETarget tRecCTETarget = new TRecCTETarget();
-                    tRecCTETarget.setAddr(entry.getKey());
-                    tRecCTETarget.setFragmentInstanceId(entry.getValue());
-                    tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
-                    recCTETargets.add(tRecCTETarget);
-                }
+                List<TRecCTETarget> recCTETargets = buildRecCTETargets(
+                        fragmentAssignedJobs, recursiveCteScanNodes.get(0));
                 // store the target for producers to reference later
                 fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), recCTETargets);
             }
@@ -826,6 +892,47 @@ public class ThriftPlansBuilder {
             }
         }
         return fragmentToNotifyClose;
+    }
+
+    static List<TRecCTETarget> buildRecCTETargets(List<AssignedJob> fragmentAssignedJobs,
+            RecursiveCteScanNode recursiveCteScanNode) {
+        List<AssignedJob> targetJobs = selectRecCTETargetJobs(fragmentAssignedJobs);
+        List<TRecCTETarget> targets = new ArrayList<>(targetJobs.size());
+        for (AssignedJob assignedJob : targetJobs) {
+            DistributedPlanWorker worker = assignedJob.getAssignedWorker();
+            TRecCTETarget target = new TRecCTETarget();
+            target.setAddr(new TNetworkAddress(worker.host(), worker.brpcPort()));
+            target.setFragmentInstanceId(assignedJob.instanceId());
+            target.setNodeId(recursiveCteScanNode.getId().asInt());
+            targets.add(target);
+        }
+        return targets;
+    }
+
+    static List<AssignedJob> selectRecCTETargetJobs(List<AssignedJob> fragmentAssignedJobs) {
+        List<AssignedJob> targetJobs = new ArrayList<>(fragmentAssignedJobs.size());
+        Map<TNetworkAddress, Integer> localShuffleTargetIndexMap = Maps.newLinkedHashMap();
+        for (AssignedJob assignedJob : fragmentAssignedJobs) {
+            if (!(assignedJob instanceof LocalShuffleAssignedJob)) {
+                targetJobs.add(assignedJob);
+                continue;
+            }
+
+            DistributedPlanWorker worker = assignedJob.getAssignedWorker();
+            TNetworkAddress address = new TNetworkAddress(worker.host(), worker.brpcPort());
+            Integer targetIndex = localShuffleTargetIndexMap.get(address);
+            if (targetIndex == null) {
+                localShuffleTargetIndexMap.put(address, targetJobs.size());
+                targetJobs.add(assignedJob);
+                continue;
+            }
+
+            AssignedJob selectedJob = targetJobs.get(targetIndex);
+            if (assignedJob.indexInUnassignedJob() < selectedJob.indexInUnassignedJob()) {
+                targetJobs.set(targetIndex, assignedJob);
+            }
+        }
+        return targetJobs;
     }
 
     private static void collectAllRecursiveCteNodesInRecursiveSide(PlanNode planNode, boolean needCollect,

@@ -50,6 +50,14 @@ suite("percentile_approx_weighted") {
         properties("replication_num" = "1");
     """
 
+    qt_percentile_approx_weighted_tinyint_empty """select percentile_approx_weighted(col_tinyint, col_float, 0.5) from d_table;"""
+    qt_percentile_approx_weighted_smallint_empty """select percentile_approx_weighted(col_smallint, col_float, 0.5) from d_table;"""
+    qt_percentile_approx_weighted_int_empty """select percentile_approx_weighted(col_int, col_float, 0.5) from d_table;"""
+    qt_percentile_approx_weighted_bigint_empty """select percentile_approx_weighted(col_bigint, col_float, 0.5) from d_table;"""
+    qt_percentile_approx_weighted_largeint_empty """select percentile_approx_weighted(col_largeint, col_float, 0.5) from d_table;"""
+    qt_percentile_approx_weighted_float_empty """select percentile_approx_weighted(col_float, col_float, 0.5) from d_table;"""
+    qt_percentile_approx_weighted_double_empty """select percentile_approx_weighted(col_double, col_float, 0.5) from d_table;"""
+
     // 插入测试数据
     sql """
     insert into d_table values 

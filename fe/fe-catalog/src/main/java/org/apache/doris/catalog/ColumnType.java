@@ -190,66 +190,85 @@ public abstract class ColumnType {
         }
     }
 
-    // This method checks if a primitive type change is allowed in nested complex types.
-    // Supports:
-    // 1. VARCHAR length increase
-    // 2. Safe numeric type promotions (INT -> BIGINT, FLOAT -> DOUBLE, etc.)
-    // 3. Exact type match
-    private static boolean checkSupportSchemaChangeForNestedPrimitive(Type checkType, Type other) throws DdlException {
-        // 1. Check VARCHAR length increase
+    private static boolean checkSupportSchemaChangeForNestedPrimitive(Type checkType, Type other,
+            boolean allowDecimalPrecisionPromotion) throws DdlException {
         if (checkType.getPrimitiveType() == PrimitiveType.VARCHAR
                 && other.getPrimitiveType() == PrimitiveType.VARCHAR) {
             checkForTypeLengthChange(checkType, other);
             return true;
         }
 
-        // 2. Check exact type match (including STRING == STRING)
         if (checkType.equals(other)) {
             return true;
         }
 
-        // 3. Check safe numeric type promotions for nested types
-        // These are safe promotions that don't lose precision:
-        // - INT -> BIGINT, LARGEINT
-        // - FLOAT -> DOUBLE
-        PrimitiveType srcType = checkType.getPrimitiveType();
-        PrimitiveType dstType = other.getPrimitiveType();
-
-        // INT -> BIGINT, LARGEINT
-        if (srcType == PrimitiveType.INT
-                && (dstType == PrimitiveType.BIGINT || dstType == PrimitiveType.LARGEINT)) {
+        if (allowDecimalPrecisionPromotion && isSupportedIcebergNestedDecimalPromotion(checkType, other)) {
             return true;
         }
-
-        // TINYINT -> SMALLINT, INT, BIGINT, LARGEINT
-        if (srcType == PrimitiveType.TINYINT
-                && (dstType == PrimitiveType.SMALLINT || dstType == PrimitiveType.INT
-                    || dstType == PrimitiveType.BIGINT || dstType == PrimitiveType.LARGEINT)) {
-            return true;
-        }
-
-        // SMALLINT -> INT, BIGINT, LARGEINT
-        if (srcType == PrimitiveType.SMALLINT
-                && (dstType == PrimitiveType.INT || dstType == PrimitiveType.BIGINT
-                    || dstType == PrimitiveType.LARGEINT)) {
-            return true;
-        }
-
-        // BIGINT -> LARGEINT
-        if (srcType == PrimitiveType.BIGINT && dstType == PrimitiveType.LARGEINT) {
-            return true;
-        }
-
-        // FLOAT -> DOUBLE
-        if (srcType == PrimitiveType.FLOAT && dstType == PrimitiveType.DOUBLE) {
-            return true;
-        }
-
-        return false;
+        return isSupportedStrictNestedPrimitivePromotion(checkType, other);
     }
 
-    private static void validateStructFieldCompatibility(StructField originalField, StructField newField)
-            throws DdlException {
+    // This strict nested promotion rule is shared by internal table complex type schema change and
+    // Iceberg complex column schema evolution. Do not reuse schemaChangeMatrix here, because it
+    // includes Doris internal cast/rewrite conversions that are not valid nested metadata changes.
+    static boolean isSupportedStrictNestedPrimitivePromotion(Type src, Type dst) {
+        return isSupportedStrictNestedIntegerPromotion(src.getPrimitiveType(), dst.getPrimitiveType())
+                || isSupportedStrictNestedFloatingPointPromotion(src.getPrimitiveType(), dst.getPrimitiveType());
+    }
+
+    private static boolean isSupportedStrictNestedIntegerPromotion(PrimitiveType srcType, PrimitiveType dstType) {
+        // These are safe promotions that don't lose integer precision:
+        // - TINYINT -> SMALLINT, INT, BIGINT, LARGEINT
+        // - SMALLINT -> INT, BIGINT, LARGEINT
+        // - INT -> BIGINT, LARGEINT
+        // - BIGINT -> LARGEINT
+        if (srcType == PrimitiveType.TINYINT) {
+            return dstType == PrimitiveType.SMALLINT || dstType == PrimitiveType.INT
+                    || dstType == PrimitiveType.BIGINT || dstType == PrimitiveType.LARGEINT;
+        }
+        if (srcType == PrimitiveType.SMALLINT) {
+            return dstType == PrimitiveType.INT || dstType == PrimitiveType.BIGINT
+                    || dstType == PrimitiveType.LARGEINT;
+        }
+        if (srcType == PrimitiveType.INT) {
+            return dstType == PrimitiveType.BIGINT || dstType == PrimitiveType.LARGEINT;
+        }
+        return srcType == PrimitiveType.BIGINT && dstType == PrimitiveType.LARGEINT;
+    }
+
+    private static boolean isSupportedStrictNestedFloatingPointPromotion(
+            PrimitiveType srcType, PrimitiveType dstType) {
+        return srcType == PrimitiveType.FLOAT && dstType == PrimitiveType.DOUBLE;
+    }
+
+    // Iceberg decimal promotion is metadata-only and only allows precision widening with the
+    // same scale: decimal(P, S) -> decimal(P', S), where P' >= P.
+    // Scale is part of decimal value interpretation. For example, the same unscaled value 123
+    // means 12.3 with scale 1, but 1.23 with scale 2. If scale changes without rewriting old
+    // files, historical values would be decoded differently, so decimal(5, 1) -> decimal(10, 2)
+    // must be rejected here.
+    static boolean isSupportedIcebergNestedDecimalPromotion(Type src, Type dst) {
+        if (!(src instanceof ScalarType) || !(dst instanceof ScalarType)) {
+            return false;
+        }
+        PrimitiveType srcType = src.getPrimitiveType();
+        PrimitiveType dstType = dst.getPrimitiveType();
+        if (!isDecimalType(srcType) || !isDecimalType(dstType)) {
+            return false;
+        }
+
+        ScalarType srcDecimal = (ScalarType) src;
+        ScalarType dstDecimal = (ScalarType) dst;
+        return srcDecimal.getScalarScale() == dstDecimal.getScalarScale()
+                && srcDecimal.getScalarPrecision() <= dstDecimal.getScalarPrecision();
+    }
+
+    private static boolean isDecimalType(PrimitiveType type) {
+        return type.isDecimalV3Type() || type == PrimitiveType.DECIMALV2;
+    }
+
+    private static void validateStructFieldCompatibility(StructField originalField, StructField newField,
+            boolean allowDecimalPrecisionPromotion) throws DdlException {
         // check field name
         if (!originalField.getName().equals(newField.getName())) {
             throw new DdlException(
@@ -262,7 +281,7 @@ public abstract class ColumnType {
 
         // deal with type change
         if (!originalType.equals(newType)) {
-            checkSupportSchemaChangeForComplexType(originalType, newType, true);
+            checkSupportSchemaChangeForComplexType(originalType, newType, true, allowDecimalPrecisionPromotion);
         }
     }
 
@@ -270,6 +289,16 @@ public abstract class ColumnType {
     // to support the schema-change behavior of length growth.
     public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested)
             throws DdlException {
+        checkSupportSchemaChangeForComplexType(checkType, other, nested, false);
+    }
+
+    public static void checkSupportIcebergSchemaChangeForComplexType(Type checkType, Type other, boolean nested)
+            throws DdlException {
+        checkSupportSchemaChangeForComplexType(checkType, other, nested, true);
+    }
+
+    private static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested,
+            boolean allowDecimalPrecisionPromotion) throws DdlException {
         if (checkType.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;
@@ -289,15 +318,14 @@ public abstract class ColumnType {
                 StructField originalField = originalFields.get(i);
                 StructField newField = newFields.get(i);
 
-                validateStructFieldCompatibility(originalField, newField);
+                validateStructFieldCompatibility(originalField, newField, allowDecimalPrecisionPromotion);
                 existingNames.add(originalField.getName());
             }
 
-            // check new field name is not conflict with old field name
+            // check appended field names do not conflict with existing or earlier appended fields
             for (int i = originalFields.size(); i < otherStructType.getFields().size(); i++) {
-                // to check new field name is not conflict with old field name
                 String newFieldName = otherStructType.getFields().get(i).getName();
-                if (existingNames.contains(newFieldName)) {
+                if (!existingNames.add(newFieldName)) {
                     throw new DdlException("Added struct field '" + newFieldName + "' conflicts with existing field");
                 }
             }
@@ -306,16 +334,17 @@ public abstract class ColumnType {
                 throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
             }
             checkSupportSchemaChangeForComplexType(((ArrayType) checkType).getItemType(),
-                    ((ArrayType) other).getItemType(), true);
+                    ((ArrayType) other).getItemType(), true, allowDecimalPrecisionPromotion);
         } else if (checkType.isMapType() && other.isMapType()) {
             checkSupportSchemaChangeForComplexType(((MapType) checkType).getKeyType(),
-                    ((MapType) other).getKeyType(), true);
+                    ((MapType) other).getKeyType(), true, allowDecimalPrecisionPromotion);
             checkSupportSchemaChangeForComplexType(((MapType) checkType).getValueType(),
-                    ((MapType) other).getValueType(), true);
+                    ((MapType) other).getValueType(), true, allowDecimalPrecisionPromotion);
         } else {
             // Support safe type promotions for nested primitive types
             // if nested is false, we do not check return value.
-            if (nested && !checkSupportSchemaChangeForNestedPrimitive(checkType, other)) {
+            if (nested && !checkSupportSchemaChangeForNestedPrimitive(checkType, other,
+                    allowDecimalPrecisionPromotion)) {
                 throw new DdlException(
                         "Cannot change " + checkType.toSql() + " to " + other.toSql() + " in nested types");
             }

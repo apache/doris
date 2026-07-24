@@ -25,7 +25,9 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -217,6 +219,91 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
     test_func(*serde_time_v2_0, column_time_v2_0);
 }
 
+TEST_F(DataTypeDateTimeV2SerDeTest, SerializeDateTimeV2KeepsScale) {
+    auto column = ColumnDateTimeV2::create();
+
+    auto insert_datetime = [&](int microsecond) {
+        DateV2Value<DateTimeV2ValueType> value;
+        value.unchecked_set_time(2026, 6, 6, 15, 54, 51, microsecond);
+        column->insert_value(value);
+    };
+    insert_datetime(442123);
+    insert_datetime(442000);
+    insert_datetime(0);
+
+    auto serialize_one = [&](int scale, int64_t row_num, int nesting_level = 1) {
+        DataTypeDateTimeV2SerDe serde(scale, nesting_level);
+        DataTypeSerDe::FormatOptions option;
+        auto ser_col = ColumnString::create();
+        VectorBufferWriter buffer_writer(*ser_col);
+        auto st = serde.serialize_one_cell_to_json(*column, row_num, buffer_writer, option);
+        EXPECT_TRUE(st.ok()) << "Failed to serialize datetimev2 at row " << row_num << ": " << st;
+        buffer_writer.commit();
+        return ser_col->get_data_at(0).to_string();
+    };
+
+    auto default_to_string = [](int microsecond) {
+        DateV2Value<DateTimeV2ValueType> value;
+        value.unchecked_set_time(2026, 6, 6, 15, 54, 51, microsecond);
+        char buf[64];
+        value.to_string(buf);
+        return std::string(buf);
+    };
+
+    auto scaled_to_string = [](int microsecond, int scale) {
+        DateV2Value<DateTimeV2ValueType> value;
+        value.unchecked_set_time(2026, 6, 6, 15, 54, 51, microsecond);
+        char buf[64];
+        value.to_string(buf, scale);
+        return std::string(buf);
+    };
+
+    EXPECT_EQ("2026-06-06 15:54:51.120000", default_to_string(120000));
+    EXPECT_EQ("2026-06-06 15:54:51", default_to_string(0));
+    EXPECT_EQ("2026-06-06 15:54:51.120", scaled_to_string(120000, 3));
+    EXPECT_EQ("2026-06-06 15:54:51.000", scaled_to_string(0, 3));
+
+    struct SerializeCase {
+        int scale;
+        const char* full_microsecond;
+        const char* millisecond;
+        const char* zero_microsecond;
+    };
+    const std::vector<SerializeCase> cases = {
+            {0, "2026-06-06 15:54:51", "2026-06-06 15:54:51", "2026-06-06 15:54:51"},
+            {1, "2026-06-06 15:54:51.4", "2026-06-06 15:54:51.4", "2026-06-06 15:54:51.0"},
+            {2, "2026-06-06 15:54:51.44", "2026-06-06 15:54:51.44", "2026-06-06 15:54:51.00"},
+            {3, "2026-06-06 15:54:51.442", "2026-06-06 15:54:51.442", "2026-06-06 15:54:51.000"},
+            {4, "2026-06-06 15:54:51.4421", "2026-06-06 15:54:51.4420", "2026-06-06 15:54:51.0000"},
+            {5, "2026-06-06 15:54:51.44212", "2026-06-06 15:54:51.44200",
+             "2026-06-06 15:54:51.00000"},
+            {6, "2026-06-06 15:54:51.442123", "2026-06-06 15:54:51.442000",
+             "2026-06-06 15:54:51.000000"},
+    };
+
+    for (const auto& c : cases) {
+        EXPECT_EQ(c.full_microsecond, serialize_one(c.scale, 0)) << "scale=" << c.scale;
+        EXPECT_EQ(c.millisecond, serialize_one(c.scale, 1)) << "scale=" << c.scale;
+        EXPECT_EQ(c.zero_microsecond, serialize_one(c.scale, 2)) << "scale=" << c.scale;
+    }
+
+    EXPECT_EQ("\"2026-06-06 15:54:51.442\"", serialize_one(3, 1, 2));
+
+    DataTypeDateTimeV2SerDe serde(3);
+    DataTypeSerDe::FormatOptions option;
+    option.field_delim = "|";
+    auto ser_col = ColumnString::create();
+    VectorBufferWriter buffer_writer(*ser_col);
+    auto st = serde.serialize_column_to_json(*column, 0, column->size(), buffer_writer, option);
+    EXPECT_TRUE(st.ok()) << "Failed to serialize datetimev2 column: " << st;
+    buffer_writer.commit();
+    std::string serialized((char*)ser_col->get_chars().data(), ser_col->get_chars().size());
+    EXPECT_EQ(
+            "2026-06-06 15:54:51.442|2026-06-06 15:54:51.442|"
+            "2026-06-06 15:54:51.000",
+            serialized);
+}
+
 // Run with UBSan enabled to catch misalignment errors.
 TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDate) {
     // 1.Prepare the data.
@@ -277,6 +364,35 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDateTime) {
     auto st =
             serde_datetime_v2_6->read_column_from_arrow(*column_datetime_v2_6, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
+}
+
+TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampBeforeEpoch) {
+    auto source_column = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> source_value;
+    source_value.unchecked_set_time(1969, 12, 31, 23, 59, 59, 123456);
+    source_column->insert_value(source_value);
+    std::string insert_value = "1969-12-31 23:59:59.123456";
+    ASSERT_EQ(insert_value, source_value.to_string(6));
+
+    arrow::TimestampBuilder builder(arrow::timestamp(arrow::TimeUnit::MICRO),
+                                    arrow::default_memory_pool());
+    ASSERT_TRUE(serde_datetime_v2_6
+                        ->write_column_to_arrow(*source_column, nullptr, &builder, 0,
+                                                source_column->size(), cctz::utc_time_zone())
+                        .ok());
+
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+    const auto* timestamp_array = assert_cast<const arrow::TimestampArray*>(array.get());
+    ASSERT_EQ(-876544, timestamp_array->Value(0));
+
+    auto dest_column = ColumnDateTimeV2::create();
+    ASSERT_TRUE(serde_datetime_v2_6
+                        ->read_column_from_arrow(*dest_column, array.get(), 0, array->length(),
+                                                 cctz::utc_time_zone())
+                        .ok());
+    ASSERT_EQ(1, dest_column->size());
+    EXPECT_EQ(insert_value, dest_column->get_element(0).to_string(6));
 }
 
 } // namespace doris

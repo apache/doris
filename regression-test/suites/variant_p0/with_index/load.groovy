@@ -35,7 +35,7 @@ suite("regression_test_variant_with_index", "p0"){
     """
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
     sql """set enable_match_without_inverted_index = false"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     qt_sql_inv_1 """select v["a"] from var_with_index where inv match 'hello' order by k"""
     qt_sql_inv_2 """select v["a"] from var_with_index where inv match 'hello' and cast(v['a'] as int) > 0 order by k"""
     qt_sql_inv_3 """select * from var_with_index where inv match 'hello' and cast(v["a"] as int) > 0 order by k"""
@@ -45,7 +45,7 @@ suite("regression_test_variant_with_index", "p0"){
     sql """insert into var_with_index values(1, '{"a1" : 0, "b1": 3}', 'hello world'), (2, '{"a2" : 123}', 'world'),(3, '{"a3" : 123}', 'hello world')"""
     sql """insert into var_with_index values(4, '{"b1" : 0, "b2": 3}', 'hello world'), (5, '{"b2" : 123}', 'world'),(6, '{"b3" : 123}', 'hello world')"""
     def drop_result = sql """
-                      ALTER TABLE var_with_index 
+                      ALTER TABLE var_with_index
                           drop index idx
                   """
     logger.info("drop index " + "${table_name}" +  "; result: " + drop_result)
@@ -63,7 +63,7 @@ suite("regression_test_variant_with_index", "p0"){
     assertEquals(show_result.size(), 1)
     sql """insert into var_with_index values(7, '{"a1" : 0, "b1": 3}', 'hello world'), (8, '{"a2" : 123}', 'world'),(9, '{"a3" : 123}', 'hello world')"""
     qt_sql_inv6 """select * from ${table_name} order by k desc limit 4"""
-    
+
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""
 
     sql """insert into var_with_index values(1, '{"a" : 0, "b": 3}', 'hello world'), (2, '{"a" : 123}', 'world'),(3, '{"a" : 123}', 'hello world')"""

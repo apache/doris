@@ -18,8 +18,7 @@
 import org.apache.doris.regression.util.Http
 
 suite("test_tso_rowset_commit_tso", "nonConcurrent") {
-    def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
-    def url = String.format("http://%s/api/tso", masterFeHttpAddress)
+    def url = String.format("http://%s/api/tso", context.config.feHttpAddress)
     def tsoResp = Http.GET(url, true, true)
     if (tsoResp.code != 0) {
         logger.info("tso api not available, skip test_tso_rowset_commit_tso")
@@ -33,7 +32,10 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
                 id INT
             )
             DISTRIBUTED BY HASH(id) BUCKETS 1
-            PROPERTIES ("replication_num" = "1", "enable_tso" = "true", "disable_auto_compaction" = "true")
+            PROPERTIES ("replication_num" = "1",
+                        "binlog.enable" = "true",
+                        "binlog.format" = "ROW",
+                        "disable_auto_compaction" = "true")
         """
 
     sql """INSERT INTO ${tableName} VALUES (1), (2), (3)"""

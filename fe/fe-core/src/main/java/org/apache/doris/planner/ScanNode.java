@@ -42,11 +42,15 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -733,7 +737,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         ConnectContext context = ConnectContext.get();
         if (context == null) {
             return numScanBackends() <= 0;
@@ -747,7 +751,15 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     @Override
     public boolean hasSerialScanChildren() {
-        return isSerialOperator();
+        return isSerialNode();
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        // Base ScanNode returns NOOP — only OlapScanNode overrides with BUCKET_HASH_SHUFFLE
+        // for non-pooling scans that have bucket distribution.
+        return Pair.of(this, LocalExchangeType.NOOP);
     }
 
     public void setDesc(TupleDescriptor desc) {

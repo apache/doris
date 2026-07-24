@@ -178,6 +178,9 @@ std::string CGroupUtil::cgroupv2_of_process() {
     }
     // With cgroups v2, there will be a *single* line with prefix "0::/"
     // (see https://docs.kernel.org/admin-guide/cgroup-v2.html)
+    // such as 0::/user.slice/user-1005.slice/session-213906.scope this is the cgroup name
+    // it should be combined with the default cgroup mount point to get the full path to the cgroup, e.g.
+    // /sys/fs/cgroup/user.slice/user-1005.slice/session-213906.scope
     std::string cgroup;
     std::getline(cgroup_name_file, cgroup);
     static const std::string v2_prefix = "0::/";
@@ -198,6 +201,7 @@ std::optional<std::string> CGroupUtil::get_cgroupsv2_path(const std::string& sub
     }
 
     std::string cgroup = CGroupUtil::cgroupv2_of_process();
+    //    /sys/fs/cgroup/user.slice/user-1005.slice/session-213906.scope
     auto current_cgroup = cgroup.empty() ? default_cgroups_mount : (default_cgroups_mount / cgroup);
 
     // Return the bottom-most nested current memory file. If there is no such file at the current
@@ -259,6 +263,9 @@ void CGroupUtil::read_int_metric_from_cgroup_file(
                 metrics_map[key] = value;
             } else if (fields[2] == "kB") {
                 metrics_map[key] = value * 1024L;
+            } else {
+                LOG(WARNING) << "Unknown unit in cgroup file " << file_path.string()
+                             << ", line: " << line;
             }
         }
     }

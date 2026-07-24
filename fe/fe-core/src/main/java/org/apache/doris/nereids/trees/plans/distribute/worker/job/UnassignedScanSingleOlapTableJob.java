@@ -62,6 +62,16 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         this.olapScanNode = olapScanNode;
     }
 
+    /**
+     * Select a replica and its hosting worker for every tablet of the OLAP scan node,
+     * without bucket awareness. Each tablet is assigned to the best available backend
+     * holding a replica, and tablets on the same backend are grouped together.
+     *
+     * @param distributeContext the distribute context
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a map from worker to its assigned tablets (as {@link UninstancedScanSource}),
+     *         e.g. {@code {BackendWorker("172.0.0.1") -> [tablet_10001..10004]}}
+     */
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
@@ -78,6 +88,20 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         );
     }
 
+    /**
+     * For each worker, split its assigned tablets into one or more instances.
+     * When the fragment uses query cache and the tablet count exceeds the threshold,
+     * a partition-based grouping strategy is attempted first: tablets belonging to
+     * the same partition are kept within the same instance to reduce backend
+     * concurrency pressure during cache lookup. If partition-based grouping is not
+     * applicable or fails, falls back to the default even-split strategy from
+     * {@link AbstractUnassignedScanJob#insideMachineParallelization}.
+     *
+     * @param workerToScanRanges map from worker to its un-instanced tablet ranges
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @param distributeContext the distribute context for parallelism configuration
+     * @return the list of assigned jobs, each bound to a worker with its tablet portion
+     */
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
@@ -225,6 +249,17 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         return partitionToScanRanges;
     }
 
+    /**
+     * If the normal parallelization produced an empty list (e.g. all tablets have been
+     * pruned by TABLET() hint specifying a non-existent tablet), create a single empty
+     * instance on a random worker so the fragment can still execute and return an empty
+     * result set rather than failing.
+     *
+     * @param assignedJobs the list produced by {@link #insideMachineParallelization}
+     * @param workerManager the worker manager to select a fallback worker from
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return the original list if non-empty, otherwise a single empty instance
+     */
     @Override
     protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

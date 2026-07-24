@@ -44,6 +44,7 @@ class Arena;
 class Block;
 class BufferWritable;
 class IColumn;
+class QueryContext;
 
 class AggFnEvaluator {
 public:
@@ -82,16 +83,71 @@ public:
     Status streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                              const size_t num_rows, Arena& arena);
 
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena, UInt8* use_null_result,
+                                UInt8* could_use_previous_result);
+
+    void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
+                                           int64_t frame_start, int64_t frame_end,
+                                           AggregateDataPtr place, const IColumn** columns,
+                                           Arena& arena, bool previous_is_nul, bool end_is_nul,
+                                           bool has_null, UInt8* use_null_result,
+                                           UInt8* could_use_previous_result);
+
     void insert_result_info(AggregateDataPtr place, IColumn* column);
 
     void insert_result_info_vec(const std::vector<AggregateDataPtr>& place, size_t offset,
                                 IColumn* column, const size_t num_rows);
 
+    void insert_result_info_range(ConstAggregateDataPtr place, IColumn* column, size_t start,
+                                  size_t end);
+
     void reset(AggregateDataPtr place);
 
     DataTypePtr& data_type() { return _data_type; }
 
-    const AggregateFunctionPtr& function() { return _function; }
+    String get_name() const { return _function->get_name(); }
+    DataTypePtr get_return_type() const { return _function->get_return_type(); }
+    size_t size_of_data() const { return _function->size_of_data(); }
+    size_t align_of_data() const { return _function->align_of_data(); }
+    bool result_column_could_resize() const { return _function->result_column_could_resize(); }
+    bool supported_incremental_mode() const { return _function->supported_incremental_mode(); }
+    bool is_simple_count() const { return _function->is_simple_count(); }
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena& arena) const {
+        _function->merge(place, rhs, arena);
+    }
+    void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
+                             MutableColumnPtr& dst, const size_t num_rows) const {
+        _function->serialize_to_column(places, offset, dst, num_rows);
+    }
+    void serialize_without_key_to_column(ConstAggregateDataPtr place, IColumn& to) const {
+        _function->serialize_without_key_to_column(place, to);
+    }
+    void deserialize_and_merge_from_column(AggregateDataPtr place, const IColumn& column,
+                                           Arena& arena) const {
+        _function->deserialize_and_merge_from_column(place, column, arena);
+    }
+    void deserialize_and_merge_from_column_range(AggregateDataPtr place, const IColumn& column,
+                                                 size_t begin, size_t end, Arena& arena) const {
+        _function->deserialize_and_merge_from_column_range(place, column, begin, end, arena);
+    }
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
+                                   const size_t num_rows) const {
+        _function->deserialize_and_merge_vec(places, offset, rhs, column, arena, num_rows);
+    }
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, const size_t num_rows) const {
+        _function->deserialize_and_merge_vec_selected(places, offset, rhs, column, arena, num_rows);
+    }
+    MutableColumnPtr create_serialize_column() const {
+        return _function->create_serialize_column();
+    }
+    DataTypePtr get_serialized_type() const { return _function->get_serialized_type(); }
+    void set_query_context(QueryContext* context) { _function->set_query_context(context); }
+
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
     bool is_merge() const { return _is_merge; }

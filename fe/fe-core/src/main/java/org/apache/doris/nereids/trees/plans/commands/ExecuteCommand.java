@@ -103,7 +103,7 @@ public class ExecuteCommand extends Command {
         executor.setParsedStmt(planAdapter);
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
         boolean shortCircuitContextReusable = hasShortCircuitContext
-                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable();
+                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
         // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
         // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
         if (statementContext.isShortCircuitQuery()

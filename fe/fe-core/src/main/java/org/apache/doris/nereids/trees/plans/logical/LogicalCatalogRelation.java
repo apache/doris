@@ -25,6 +25,7 @@ import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -192,6 +193,10 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     public String getTableAlias() {
         return tableAlias;
+    }
+
+    public Optional<StreamReadMode> getStreamReadMode() {
+        return Optional.empty();
     }
 
     @Override

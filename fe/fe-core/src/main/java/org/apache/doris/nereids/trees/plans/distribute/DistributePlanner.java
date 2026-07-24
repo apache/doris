@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.StaticAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJobBuilder;
@@ -49,6 +49,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
@@ -211,7 +212,7 @@ public class DistributePlanner {
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
                 receiverPlan, enableShareHashTableForBroadcastJoin, linkNode);
         if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
-            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances);
+            receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances, linkNode);
         }
 
         DataSink sink = senderPlan.getFragmentJob().getFragment().getSink();
@@ -231,25 +232,84 @@ public class DistributePlanner {
 
     private List<AssignedJob> getDestinationsByBuckets(
             PipelineDistributedPlan joinSide,
-            List<AssignedJob> receiverInstances) {
+            List<AssignedJob> receiverInstances,
+            ExchangeNode linkNode) {
         UnassignedScanBucketOlapTableJob bucketJob = (UnassignedScanBucketOlapTableJob) joinSide.getFragmentJob();
         int bucketNum = bucketJob.getOlapScanNodes().get(0).getBucketNum();
+        // The spread is only valid for a NON-serial exchange: a serial exchange
+        // (use_serial_exchange / UNPARTITIONED) receives through one task per worker and
+        // expects funnel destinations; spreading them loses every row addressed to a
+        // non-first instance. Mirrors the !is_serial_operator() gate on the BE orphan
+        // receiver fix.
+        if (isEnableLocalShufflePlanner()
+                && !linkNode.isSerialOperatorOnBe(statementContext.getConnectContext())
+                && !joinSide.getInstanceJobs().isEmpty()
+                && joinSide.getInstanceJobs().stream()
+                        .allMatch(LocalShuffleBucketJoinAssignedJob.class::isInstance)) {
+            // When FE local shuffle planner is on, spread bucket destinations across all pooled
+            // instances by their assigned join buckets — the same bucket -> instance mapping as
+            // bucket_seq_to_instance_id sent to BE — instead of funneling every bucket of a worker
+            // into its first instance and relying on BE local exchange to fan out.
+            return sortDestinationInstancesByJoinBuckets(joinSide, bucketNum);
+        }
         return sortDestinationInstancesByBuckets(joinSide, receiverInstances, bucketNum);
     }
 
-    private List<AssignedJob> filterInstancesWhichCanReceiveDataFromRemote(
+    private boolean isEnableLocalShufflePlanner() {
+        ConnectContext connectContext = statementContext.getConnectContext();
+        return connectContext != null && connectContext.getSessionVariable().isEnableLocalShufflePlanner();
+    }
+
+    @VisibleForTesting
+    List<AssignedJob> filterInstancesWhichCanReceiveDataFromRemote(
             PipelineDistributedPlan receiverPlan,
             boolean enableShareHashTableForBroadcastJoin,
             ExchangeNode linkNode) {
-        boolean useLocalShuffle = receiverPlan.getInstanceJobs().stream()
-                .anyMatch(LocalShuffleAssignedJob.class::isInstance);
-        if (useLocalShuffle) {
+        // Funnel to the first instance per worker only when the exchange runs a single receiver
+        // per worker on BE, i.e. it is serial. A non-serial exchange builds a live receiver on
+        // every instance, each waiting for the full sender set, so the sender must address all of
+        // them; funneling would leave the non-first instances blocked forever on an EOS that never
+        // arrives. This must not key on LocalShuffleAssignedJob: once the FE local-shuffle planner
+        // decoupled an exchange's serial flag from the fragment's serial scan, a local-shuffle
+        // fragment can host a non-serial RANDOM/HASH exchange, and only the BUCKET_SHUFFLE path
+        // re-spreads its destinations (see getDestinationsByBuckets).
+        if (linkNode.isSerialOperatorOnBe(statementContext.getConnectContext())) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else if (enableShareHashTableForBroadcastJoin && linkNode.isRightChildOfBroadcastHashJoin()) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else {
             return receiverPlan.getInstanceJobs();
         }
+    }
+
+    private List<AssignedJob> sortDestinationInstancesByJoinBuckets(
+            PipelineDistributedPlan plan, int bucketNum) {
+        AssignedJob[] instances = new AssignedJob[bucketNum];
+        for (AssignedJob instanceJob : plan.getInstanceJobs()) {
+            LocalShuffleBucketJoinAssignedJob localShuffleJob = (LocalShuffleBucketJoinAssignedJob) instanceJob;
+            for (Integer bucketIndex : localShuffleJob.getAssignedJoinBucketIndexes()) {
+                if (instances[bucketIndex] != null) {
+                    throw new IllegalStateException(
+                            "Multi instances assigned same join bucket: " + instances[bucketIndex]
+                                    + " and " + instanceJob
+                    );
+                }
+                instances[bucketIndex] = instanceJob;
+            }
+        }
+
+        for (int i = 0; i < instances.length; i++) {
+            if (instances[i] == null) {
+                instances[i] = new StaticAssignedJob(
+                        i,
+                        new TUniqueId(-1, -1),
+                        plan.getFragmentJob(),
+                        DummyWorker.INSTANCE,
+                        new DefaultScanSource(ImmutableMap.of())
+                );
+            }
+        }
+        return Arrays.asList(instances);
     }
 
     private List<AssignedJob> sortDestinationInstancesByBuckets(

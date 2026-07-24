@@ -53,11 +53,11 @@ suite("test_index_multi_match", "p0"){
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -101,7 +101,7 @@ suite("test_index_multi_match", "p0"){
 
         sql "sync"
 
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName1} where (clientip match_phrase_prefix '2'); """
         qt_sql """ select count() from ${indexTbName1} where (clientip match_phrase_prefix '2' or request match_phrase_prefix '2'); """
@@ -123,7 +123,7 @@ suite("test_index_multi_match", "p0"){
         qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, request, status, size, 'phrase_prefix', '2'); """
         qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, request, status, size, 'phrase_prefix', 'a'); """
 
-        // match_any        
+        // match_any
         qt_sql """ select count() from ${indexTbName1} where (clientip match_any '2' or request match_any '2' or status match_any '2' or size match_any '2'); """
         qt_sql """ select count() from ${indexTbName2} where (clientip match_any '2' or request match_any '2' or status match_any '2' or size match_any '2'); """
         qt_sql """ select count() from ${indexTbName3} where (clientip match_any '2' or request match_any '2' or status match_any '2' or size match_any '2'); """
@@ -142,7 +142,7 @@ suite("test_index_multi_match", "p0"){
         qt_sql """ select count() from ${indexTbName3} where multi_match(clientip, request, status, size, 'any', 'a'); """
         qt_sql """ select count() from ${indexTbName4} where multi_match(clientip, request, status, size, 'any', 'a'); """
 
-        // match_all        
+        // match_all
         qt_sql """ select count() from ${indexTbName1} where (clientip match_all '2' or request match_all '2' or status match_all '2' or size match_all '2'); """
         qt_sql """ select count() from ${indexTbName2} where (clientip match_all '2' or request match_all '2' or status match_all '2' or size match_all '2'); """
         qt_sql """ select count() from ${indexTbName3} where (clientip match_all '2' or request match_all '2' or status match_all '2' or size match_all '2'); """

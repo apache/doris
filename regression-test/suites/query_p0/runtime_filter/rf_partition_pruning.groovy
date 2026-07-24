@@ -33,18 +33,28 @@ suite("rf_partition_pruning", "nonConcurrent") {
 
     // ---- Profile utilities ----
     def profileAction = new ProfileAction(context)
+    def profileCompletionStateName = "Profile Completion State"
+    def profileCompletionStateComplete = "COMPLETE"
 
     def getProfileByToken = { String token, List requiredCounters = [] ->
         String profileContent = ""
+        String profileState = ""
         for (int attempt = 0; attempt < 60; attempt++) {
             List profileData = profileAction.getProfileList()
             for (final def profileItem in profileData) {
                 if (profileItem["Sql Statement"].toString().contains(token)) {
-                    profileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                    profileState = profileItem[profileCompletionStateName]?.toString()
+                    def currentProfileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                    if (currentProfileContent != "") {
+                        profileContent = currentProfileContent
+                    }
                     break
                 }
             }
-            if (profileContent != "" && requiredCounters.every { profileContent.contains(it) }) break
+            if (profileState == profileCompletionStateComplete && profileContent != ""
+                    && requiredCounters.every { profileContent.contains(it) }) {
+                break
+            }
             Thread.sleep(500)
         }
         return profileContent
@@ -431,6 +441,24 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_int f JOIN rf_prune_dim_region d ON f.region_id = d.dim_region",
         "IN_OR_BLOOM_FILTER", 5, 3)
+
+    // Test 6b: List partition (INT) - Bloom filter prune.
+    // Regions {1, 3} keep two LIST partitions and prune the other three.
+    order_qt_list_int_bloom """
+        SELECT /*+ SET_VAR(runtime_filter_type='BLOOM_FILTER') */
+            f.id, f.region_id, f.value
+        FROM rf_prune_list_int f
+        JOIN rf_prune_dim_region d ON f.region_id = d.dim_region
+    """
+    assertPruningProfile(
+        "* FROM rf_prune_list_int f JOIN rf_prune_dim_region d ON f.region_id = d.dim_region",
+        "BLOOM_FILTER", 5, 3)
+
+    // Test 6c: Range partition (INT) - Bloom filter must not register RF partition pruning.
+    // A Bloom filter can disprove individual values, not an arbitrary [a, b) range.
+    assertNoPartitionPruningProfile(
+        "* FROM rf_prune_range_int f JOIN rf_prune_dim_int d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER")
 
     // Test 7: No pruning - dim matches all partitions
     sql "drop table if exists rf_prune_dim_all"
@@ -1060,6 +1088,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_five d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 3, 2)
+    assertPruningProfile(
+        "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_five d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 3, 2)
 
     // Test 31: Mixed partition {NULL,5} + RF {7} (no value match, RF non-null-aware)
     //   p_a still pruned (NULL row can't match non-null RF; concrete 5 != 7)
@@ -1086,6 +1117,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_seven d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 3, 3)
+    assertPruningProfile(
+        "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_seven d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 3, 3)
 
     // Test 32: Null-safe equal join (<=>) on mixed partition. RF is null_aware AND
     //   contains NULL (build side has NULL key), so p_a (which contains NULL) MUST
@@ -1107,6 +1141,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
         FROM rf_prune_list_mixed f
         JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key
     """
+    assertPruningProfile(
+        "* FROM rf_prune_list_mixed f JOIN rf_prune_dim_null d ON f.part_col <=> d.dim_key",
+        "BLOOM_FILTER", 3, 2)
 
     // Test 32b: Nullable RANGE partition columns can store NULL rows in the
     // MINVALUE-side first partition. A null-aware RF containing only NULL must
@@ -1431,6 +1468,69 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "count(*) FROM rf_prune_list_int f JOIN rf_prune_dim_region_twice d "
                 + "ON f.region_id + f.region_id = d.dim_region",
         "IN_OR_BLOOM_FILTER", 5, 3)
+    order_qt_list_expr_bloom """
+        SELECT /*+ SET_VAR(runtime_filter_type='BLOOM_FILTER') */
+            f.id, f.region_id, f.value
+        FROM rf_prune_list_int f
+        JOIN rf_prune_dim_region_twice d ON f.region_id + f.region_id = d.dim_region
+    """
+    assertPruningProfile(
+        "count(*) FROM rf_prune_list_int f JOIN rf_prune_dim_region_twice d "
+                + "ON f.region_id + f.region_id = d.dim_region",
+        "BLOOM_FILTER", 5, 3)
+
+    // Test 50b: NoneMovable target expressions must not be evaluated speculatively
+    // against LIST partition values. The part_key=0 row is removed by keep_row=1
+    // before the join, so assert_true must not fail only because RF partition pruning
+    // evaluates the target expression on the p_zero boundary.
+    sql "drop table if exists rf_prune_expr_fact"
+    sql """
+        CREATE TABLE rf_prune_expr_fact (
+            id BIGINT NOT NULL,
+            part_key INT NOT NULL,
+            keep_row INT NOT NULL
+        ) DUPLICATE KEY(id)
+        PARTITION BY LIST(part_key) (
+            PARTITION p_zero VALUES IN (0),
+            PARTITION p_one VALUES IN (1)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql "INSERT INTO rf_prune_expr_fact VALUES (0, 0, 0), (1, 1, 1)"
+
+    sql "drop table if exists rf_prune_expr_dim"
+    sql """
+        CREATE TABLE rf_prune_expr_dim (
+            flag BOOLEAN NOT NULL
+        ) DUPLICATE KEY(flag)
+        DISTRIBUTED BY HASH(flag) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql "INSERT INTO rf_prune_expr_dim VALUES (true)"
+
+    sql "set enable_runtime_filter_partition_prune=false"
+    qt_rf_prune_expr_without_partition_prune """
+        SELECT /*+ SET_VAR(runtime_filter_type='IN') */ COUNT(*)
+        FROM rf_prune_expr_fact fact
+        JOIN [broadcast] rf_prune_expr_dim dim
+          ON assert_true(fact.part_key != 0, 'rfpp_expr_in_only_error') = dim.flag
+        WHERE fact.keep_row = 1
+    """
+
+    sql "set enable_runtime_filter_partition_prune=true"
+    qt_rf_prune_expr_with_partition_prune """
+        SELECT /*+ SET_VAR(runtime_filter_type='IN') */ COUNT(*)
+        FROM rf_prune_expr_fact fact
+        JOIN [broadcast] rf_prune_expr_dim dim
+          ON assert_true(fact.part_key != 0, 'rfpp_expr_in_only_error') = dim.flag
+        WHERE fact.keep_row = 1
+    """
+    assertNoPartitionPruningProfile(
+        "COUNT(*) FROM rf_prune_expr_fact fact JOIN [broadcast] rf_prune_expr_dim dim "
+                + "ON assert_true(fact.part_key != 0, 'rfpp_expr_in_only_error') = dim.flag "
+                + "WHERE fact.keep_row = 1",
+        "IN")
 
     // ============================================================
     // Test 51: String partition column (LIST partition on VARCHAR).
@@ -1475,6 +1575,15 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_str f JOIN rf_prune_dim_str d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 4, 3)
+    order_qt_list_str_bloom """
+        SELECT /*+ SET_VAR(runtime_filter_type='BLOOM_FILTER') */
+            f.id, f.part_col
+        FROM rf_prune_list_str f
+        JOIN rf_prune_dim_str d ON f.part_col = d.dim_key
+    """
+    assertPruningProfile(
+        "* FROM rf_prune_list_str f JOIN rf_prune_dim_str d ON f.part_col = d.dim_key",
+        "BLOOM_FILTER", 4, 3)
 
     // ============================================================
     // Test 52: Grouped RF with multiple targets.

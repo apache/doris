@@ -36,6 +36,8 @@ TabletColumnPtr create_int_value(
         FieldAggregationMethod agg_method = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
         bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false);
 
+TabletColumnPtr create_commit_tso_column(int32_t id);
+
 TabletColumnPtr create_char_key(int32_t id, bool is_nullable = true, int32_t length = 8);
 
 TabletColumnPtr create_varchar_key(int32_t id, bool is_nullable = true, int32_t length = 65533);

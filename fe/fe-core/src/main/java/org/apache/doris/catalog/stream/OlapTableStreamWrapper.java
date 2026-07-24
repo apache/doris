@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -26,25 +27,48 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TPrimitiveType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 // runtime-only class for unified query/insert experience, created when bind relation with OlapTableStream
 public class OlapTableStreamWrapper extends OlapTable {
-    private OlapTableStream stream;
-    private OlapTable baseTable;
-    protected Map<Long, Pair<Long, Long>> outputUpdateMap = Maps.newHashMap();
+    private final OlapTableStream stream;
+    private final OlapTable baseTable;
+    protected final Map<Long, Pair<Long, Long>> outputUpdateMap;
+    private final KeysType keysType;
 
-    public OlapTableStreamWrapper(OlapTableStream stream, OlapTable baseTable) {
+    public OlapTableStreamWrapper(OlapTableStream stream, OlapTable baseTable, List<Long> selectedPartitionIds) {
         super(stream.getId(), stream.getName(), stream.getFullSchema(), baseTable.getKeysType(),
                 baseTable.getPartitionInfo(), baseTable.getDefaultDistributionInfo());
+        // Inherit base table's qualifiedDbName so that wrapper.getDatabase() can resolve the
+        // owning Database via Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName).
+        // Otherwise downstream consumers (e.g. QueryPartitionCollector, partition routing,
+        // MV partition compensation) treat the wrapper as having no database and silently
+        // fall back to empty results when scanning the stream.
+        setQualifiedDbName(baseTable.getQualifiedDbName());
         this.stream = stream;
         this.baseTable = baseTable;
+        this.keysType = baseTable.getKeysType();
+        this.outputUpdateMap = buildOutputUpdateMap(selectedPartitionIds);
         this.getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(baseTable.getEnableUniqueKeyMergeOnWrite());
+    }
+
+    public Map<Long, Pair<Long, Long>> buildOutputUpdateMap(List<Long> selectedPartitionIds) {
+        Map<Long, Pair<Long, Long>> outputUpdateMap = Maps.newHashMapWithExpectedSize(selectedPartitionIds.size());
+        for (Long partitionId : selectedPartitionIds) {
+            if (!baseTable.getPartition(partitionId).hasData()) {
+                continue;
+            }
+            outputUpdateMap.put(partitionId, stream.getStreamUpdate(partitionId));
+        }
+        return outputUpdateMap;
     }
 
     @Override
@@ -118,11 +142,8 @@ public class OlapTableStreamWrapper extends OlapTable {
         return baseTable.getPartitionIds();
     }
 
-    public Pair<Long, Long> getStreamUpdate(Long partitionId) {
-        if (!outputUpdateMap.containsKey(partitionId)) {
-            outputUpdateMap.put(partitionId, stream.getStreamUpdate(partitionId));
-        }
-        return stream.getStreamUpdate(partitionId);
+    public Map<Long, Pair<Long, Long>> getOutputUpdateMap() {
+        return outputUpdateMap;
     }
 
     public Long getStreamDbId() {
@@ -154,7 +175,12 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     @Override
-    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
+        StreamReadMode readMode = streamReadMode.orElse(StreamReadMode.INCREMENTAL);
+        if (readMode == StreamReadMode.SNAPSHOT || readMode == StreamReadMode.RESET) {
+            return baseTable.selectNonEmptyPartitionIds(partitionIds, Optional.of(readMode));
+        }
         List<Long> nonEmptyIds = Lists.newArrayListWithCapacity(partitionIds.size());
         for (Long partitionId : partitionIds) {
             if (stream.hasData(getPartition(partitionId))) {
@@ -162,5 +188,58 @@ public class OlapTableStreamWrapper extends OlapTable {
             }
         }
         return nonEmptyIds;
+    }
+
+    public List<Long> filterHistoryPartitionIds(List<Long> partitionIds) {
+        return partitionIds.stream()
+                .filter(partitionId -> stream.hasHistoricalData(partitionId))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public List<Long> filterIncrementalPartitionIds(List<Long> partitionIds) {
+        return partitionIds.stream()
+                .filter(partitionId -> !stream.hasHistoricalData(partitionId)
+                        && stream.hasData(getPartition(partitionId)))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public List<Long> filterConsumedPartitionIds(List<Long> partitionIds) {
+        return partitionIds.stream()
+                .filter(partitionId -> stream.hasConsumedData(partitionId))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public OlapTable getBaseTable() {
+        return baseTable;
+    }
+
+    public BaseTableStream.StreamScanType getStreamScanType() {
+        if (keysType == KeysType.DUP_KEYS) {
+            return BaseTableStream.StreamScanType.APPEND_ONLY;
+        }
+        return stream.getStreamScanType();
+    }
+
+    public Map<Long, Pair<Long, Long>> getPartitionOffsets(List<Long> selectedPartitionIds) {
+        return outputUpdateMap.entrySet().stream()
+                .filter(s -> selectedPartitionIds.contains(s.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    // get history partition offsets partitionId -> (null, historicalTimestampOffset)
+    public Map<Long, Pair<Long, Long>> getHistoryPartitionOffsets(List<Long> selectedPartitionIds) {
+        return outputUpdateMap.entrySet().stream()
+                .filter(s -> selectedPartitionIds.contains(s.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, s -> Pair.of(null, s.getValue().first)));
+    }
+
+    public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {
+        return partitionIds.stream()
+                .filter(partitionId -> !stream.hasData(getPartition(partitionId)))
+                .collect(Collectors.toList());
+    }
+
+    public boolean isHistoryPartition(long partitionId) {
+        return stream.hasHistoricalData(partitionId);
     }
 }

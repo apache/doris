@@ -180,8 +180,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnMap* map_column = nullptr;
         ColumnPtr nullmap_column = nullptr;
-        if (left_column->is_nullable()) {
-            auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(left_column.get())) {
             map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
             nullmap_column = nullable_column->get_null_map_column_ptr();
         } else {
@@ -269,8 +268,7 @@ public:
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnMap* map_column = nullptr;
-        if (left_column->is_nullable()) {
-            auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(left_column.get())) {
             map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
         } else {
             map_column = check_and_get_column<ColumnMap>(*left_column.get());
@@ -678,9 +676,8 @@ private:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnMap* map_column = nullptr;
         ColumnPtr map_row_nullmap_col = nullptr;
-        if (map_column_ptr->is_nullable()) {
-            const auto* nullable_column =
-                    reinterpret_cast<const ColumnNullable*>(map_column_ptr.get());
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(map_column_ptr.get())) {
             map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
             map_row_nullmap_col = nullable_column->get_null_map_column_ptr();
         } else {
@@ -702,17 +699,16 @@ private:
         const UInt8* key_nullmap = nullptr;
         const UInt8* value_nullmap = nullptr;
 
-        if (key_column_ptr->is_nullable()) {
-            const auto* nullable_column = assert_cast<const ColumnNullable*>(key_column_ptr.get());
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(key_column_ptr.get())) {
             key_column = &nullable_column->get_nested_column();
             key_nullmap = nullable_column->get_null_map_column().get_data().data();
         } else {
             key_column = key_column_ptr.get();
         }
 
-        if (value_column_ptr->is_nullable()) {
-            const auto* nullable_column =
-                    assert_cast<const ColumnNullable*>(value_column_ptr.get());
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(value_column_ptr.get())) {
             value_column = &nullable_column->get_nested_column();
             value_nullmap = nullable_column->get_null_map_column().get_data().data();
         } else {

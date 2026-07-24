@@ -17,6 +17,7 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
@@ -80,6 +81,7 @@ public class FileSystemPluginManager {
         ServiceLoader.load(FileSystemProvider.class)
                 .forEach(p -> {
                     providers.add(p);
+                    DatasourcePrintableMap.registerSensitiveKeys(p.sensitivePropertyKeys());
                     LOG.info("Registered built-in filesystem provider: {}", p.name());
                 });
     }
@@ -109,7 +111,9 @@ public class FileSystemPluginManager {
         }
 
         for (PluginHandle<FileSystemProvider> handle : report.getSuccesses()) {
-            providers.add(handle.getFactory());
+            FileSystemProvider provider = handle.getFactory();
+            providers.add(provider);
+            DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
             LOG.info("Loaded filesystem plugin: name={}, pluginDir={}, jarCount={}",
                     handle.getPluginName(), handle.getPluginDir(),
                     handle.getResolvedJars().size());
@@ -134,6 +138,7 @@ public class FileSystemPluginManager {
     /** Registers a provider at highest priority. For testing overrides. */
     public void registerProvider(FileSystemProvider provider) {
         providers.add(0, provider);
+        DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
     }
 
     private String providerNames() {

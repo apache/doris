@@ -24,6 +24,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +36,7 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
+import java.time.zone.ZoneOffsetTransition;
 import java.util.Locale;
 import java.util.Set;
 
@@ -405,5 +407,18 @@ public class DateUtils {
             return ZoneId.systemDefault();
         }
         return ZoneId.of(ConnectContext.get().getSessionVariable().getTimeZone());
+    }
+
+    /**Determine whether there is a fallback transition within the interval (lower, upper].
+     * @return If there is one, return true.*/
+    public static boolean hasFallbackTransitionInInstantRange(ZoneId zoneId, Instant lower, Instant upper) {
+        ZoneOffsetTransition transition = zoneId.getRules().nextTransition(lower);
+        while (transition != null && !transition.getInstant().isAfter(upper)) {
+            if (transition.isOverlap()) {
+                return true;
+            }
+            transition = zoneId.getRules().nextTransition(transition.getInstant());
+        }
+        return false;
     }
 }

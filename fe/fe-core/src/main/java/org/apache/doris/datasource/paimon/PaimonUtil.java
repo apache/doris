@@ -29,7 +29,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -77,6 +76,7 @@ import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
+import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
@@ -91,8 +91,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -163,47 +163,50 @@ public class PaimonUtil {
         List<Type> types = partitionColumns.stream()
                 .map(Column::getType)
                 .collect(Collectors.toList());
-        Map<String, Type> columnNameToType = partitionColumns.stream()
-                .collect(Collectors.toMap(Column::getName, Column::getType));
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
-            StringBuilder sb = new StringBuilder();
-            for (Map.Entry<String, String> entry : spec.entrySet()) {
-                sb.append(entry.getKey()).append("=");
+            // Paimon partition specs contain logical values, which may include path separators.
+            // Build partition values directly instead of parsing them as a Hive partition path.
+            List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
+            LinkedHashMap<String, String> orderedPartitionSpec = new LinkedHashMap<>();
+            for (Column partitionColumn : partitionColumns) {
+                String partitionColumnName = partitionColumn.getName();
+                String partitionValue = spec.get(partitionColumnName);
                 // When partition.legacy-name = true (default), Paimon stores DATE type as days since
                 // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
                 // When partition.legacy-name = false, the value is already a human read date string.
-                if (legacyPartitionName
-                        && columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
-                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
-                } else {
-                    sb.append(entry.getValue()).append("/");
+                if (legacyPartitionName && partitionColumn.getType().isDateV2()) {
+                    partitionValue = DateTimeUtils.formatDate(Integer.parseInt(partitionValue));
                 }
+                partitionValues.add(partitionValue);
+                orderedPartitionSpec.put(partitionColumnName, partitionValue);
             }
-            if (sb.length() > 0) {
-                sb.deleteCharAt(sb.length() - 1);
-            }
-            String partitionName = sb.toString();
-            nameToPartition.put(partitionName, partition);
+            String partitionPath = PartitionPathUtils.generatePartitionPath(orderedPartitionSpec);
+            String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
+            Partition previousPartition = nameToPartition.putIfAbsent(partitionName, partition);
+            Preconditions.checkState(previousPartition == null,
+                    "Duplicate Paimon partition name: " + partitionName);
+            PartitionItem partitionItem;
             try {
                 // partition values return by paimon api, may have problem,
                 // to avoid affecting the query, we catch exceptions here
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
+                partitionItem = toListPartitionItem(partitionValues, types);
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
                         partitionColumns, partition.spec(), e);
+                continue;
             }
+            PartitionItem previousPartitionItem = nameToPartitionItem.putIfAbsent(partitionName, partitionItem);
+            Preconditions.checkState(previousPartitionItem == null,
+                    "Duplicate Paimon partition item name: " + partitionName);
         }
         return partitionInfo;
     }
 
-    public static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
+    public static ListPartitionItem toListPartitionItem(List<String> partitionValues, List<Type> types)
             throws AnalysisException {
-        // Partition name will be in format: nation=cn/city=beijing
-        // parse it to get values "cn" and "beijing"
-        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
-        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        Preconditions.checkState(partitionValues.size() == types.size(), partitionValues + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
             // null  will in partition 'null'
@@ -504,7 +507,7 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name().toLowerCase(),
+            resSchema.add(new Column(field.name(),
                     PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
@@ -553,7 +556,7 @@ public class PaimonUtil {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
                         partitionValuesArray[i], timeZone);
-                partitionInfoMap.put(partitionKeys.get(i).toLowerCase(Locale.ROOT), partitionValue);
+                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
                         partitionKeys.get(i), e.getMessage());

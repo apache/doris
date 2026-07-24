@@ -71,7 +71,7 @@ suite("test_cross_field_or_with_null") {
     // Test 1: Simple cross-field OR with NULL
     // title MATCH "Philosophy" OR content MATCH "Disney+ Hotstar"
     // Expected: Rows 1-16 (rows 1-15 have title match, row 16 has content match)
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     def result1_match = sql """
         SELECT COUNT(*) FROM ${tableName}
@@ -163,7 +163,7 @@ suite("test_cross_field_or_with_null") {
     logger.info("Test 5 passed: AND with cross-field OR containing NULL")
 
     // Test 6: Test with pushdown disabled (should also work correctly)
-    sql "SET enable_common_expr_pushdown = false"
+    sql "SET enable_segment_limit_pushdown = false"
 
     def result6_nopush = sql """
         SELECT COUNT(*) FROM ${tableName}
@@ -174,7 +174,7 @@ suite("test_cross_field_or_with_null") {
     logger.info("Test 6 passed: Query works correctly without pushdown")
 
     // Test 7: Multiple OR conditions with different NULL patterns
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     def result7_match = sql """
         SELECT COUNT(*) FROM ${tableName}

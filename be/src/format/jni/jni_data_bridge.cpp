@@ -107,8 +107,7 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     }
     auto mutable_doris_column = IColumn::mutate(std::move(doris_column));
     MutableColumnPtr data_column;
-    if (mutable_doris_column->is_nullable()) {
-        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_doris_column.get());
+    if (auto* nullable_column = check_and_get_column<ColumnNullable>(mutable_doris_column.get())) {
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
@@ -507,10 +506,9 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
 
     // insert null map address
     const IColumn* data_column = nullptr;
-    if (column->is_nullable()) {
-        const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-        data_column = &(nullable_column.get_nested_column());
-        const auto& null_map = nullable_column.get_null_map_data();
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column)) {
+        data_column = &(nullable_column->get_nested_column());
+        const auto& null_map = nullable_column->get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
     } else {
         meta_data.emplace_back(0);

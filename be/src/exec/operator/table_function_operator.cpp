@@ -279,7 +279,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
     IColumn* value_col_ptr = nullptr;
     ColumnInt32* pos_col_ptr = nullptr;
     if (is_posexplode) {
-        if (out_col->is_nullable()) {
+        if (is_column_nullable(*out_col)) {
             auto* nullable = assert_cast<ColumnNullable*>(out_col.get());
             struct_col_ptr = assert_cast<ColumnStruct*>(nullable->get_nested_column_ptr().get());
             outer_struct_nullmap_ptr = nullable->get_null_map_column_ptr().get();
@@ -336,7 +336,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
                     reinterpret_cast<const char*>(segment_ctx.seg_positions.data()),
                     segment_ctx.seg_positions.size());
             // Write nested values to the struct's value sub-column
-            DCHECK(value_col_ptr->is_nullable())
+            DCHECK(is_column_nullable(*value_col_ptr))
                     << "posexplode fast path requires nullable value column";
             auto* val_nullable = assert_cast<ColumnNullable*>(value_col_ptr);
             val_nullable->get_nested_column_ptr()->insert_range_from(
@@ -358,7 +358,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
             if (outer_struct_nullmap_ptr) {
                 outer_struct_nullmap_ptr->insert_many_defaults(segment_ctx.seg_nested_count);
             }
-        } else if (out_col->is_nullable()) {
+        } else if (is_column_nullable(*out_col)) {
             auto* out_nullable = assert_cast<ColumnNullable*>(out_col.get());
             out_nullable->get_nested_column_ptr()->insert_range_from(
                     *_block_fast_path_ctx.nested_col, segment_ctx.seg_nested_start,

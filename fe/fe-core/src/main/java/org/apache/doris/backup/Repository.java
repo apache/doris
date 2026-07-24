@@ -509,7 +509,10 @@ public class Repository implements Writable, GsonPostProcessable {
         }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
-        String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
+        // Use getLocation() like every other repo path assembly: concrete filesystems only
+        // accept their native schemes, and a legacy repo location may use a compatibility
+        // scheme (e.g. cos:// with s3.* properties).
+        String path = getLocation() + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
         try {
             URI checkUri = new URI(path);
             org.apache.doris.filesystem.FileSystem fs = acquireSpiFs();

@@ -138,7 +138,7 @@ TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutQueuesBackgroundCopyAndReturns)
 
     std::atomic<bool> returned = false;
     std::thread caller([&] {
-        manager.warm_up_rowset(*rs_meta, -1);
+        manager.warm_up_rowset(*rs_meta, /*table_id=*/0, /*sync_wait_timeout_ms=*/-1);
         returned = true;
     });
 
@@ -206,7 +206,7 @@ TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutSkipsWarmupWhenAsyncRowsetMetaI
             },
             &warmup_enter_guard);
 
-    manager.warm_up_rowset(*rs_meta, -1);
+    manager.warm_up_rowset(*rs_meta, /*table_id=*/0, /*sync_wait_timeout_ms=*/-1);
 
     {
         std::unique_lock lock(observed_mtx);
@@ -261,7 +261,7 @@ TEST_F(CloudWarmUpManagerTest, PositiveTimeoutIgnoresSpuriousWakeupUntilWorkerFi
 
     std::atomic<bool> returned = false;
     std::thread caller([&] {
-        manager.warm_up_rowset(*rs_meta, 1000);
+        manager.warm_up_rowset(*rs_meta, /*table_id=*/0, /*sync_wait_timeout_ms=*/1000);
         returned = true;
     });
 

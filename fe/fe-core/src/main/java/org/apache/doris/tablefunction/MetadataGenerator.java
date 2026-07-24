@@ -2116,9 +2116,9 @@ public class MetadataGenerator {
 
         HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(tbl));
-        Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
+        Map<String, List<String>> valuesMap = hivePartitionValues.getNameToPartitionValues();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();
             List<String> values = entry.getValue();
             if (values.size() != partitionCols.size()) {

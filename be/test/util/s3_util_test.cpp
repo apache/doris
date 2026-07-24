@@ -21,6 +21,7 @@
 
 #include <string>
 
+#include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
 #include "util/s3_uri.h"
 
@@ -74,6 +75,50 @@ TEST_F(S3UTILTest, hide_access_key_typical_aws_key) {
     std::string aws_key = "AKIAIOSFODNN7EXAMPLE";
     std::string result = hide_access_key(aws_key);
     EXPECT_EQ("xxxxxxxFODNN7xxxxxxx", result);
+}
+
+// Verifies that check_s3_rate_limiter_config_changed() rebuilds the global GET rate
+// limiter when the related configs change. This is the behavior the cloud vault refresh
+// thread relies on to apply dynamically modified s3_get_* rate limiter configs without
+// having to (re)create an S3 client.
+TEST_F(S3UTILTest, check_s3_rate_limiter_config_changed_rebuilds_limiter) {
+    auto* get_limiter = S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET);
+    ASSERT_NE(get_limiter, nullptr);
+
+    // Save originals so other tests are not affected.
+    const int64_t orig_tps = config::s3_get_token_per_second;
+    const int64_t orig_bucket = config::s3_get_bucket_tokens;
+    const int64_t orig_limit = config::s3_get_token_limit;
+
+    // Establish a known baseline (no count limit, no throttling).
+    config::s3_get_token_per_second = 1000000000;
+    config::s3_get_bucket_tokens = 1000000000;
+    config::s3_get_token_limit = 0;
+    check_s3_rate_limiter_config_changed();
+
+    // Impose a hard request-count limit of 3. Since the limit value changes (0 -> 3),
+    // the limiter is rebuilt with a fresh counter.
+    config::s3_get_token_limit = 3;
+    check_s3_rate_limiter_config_changed();
+
+    // The bucket/speed are huge so add() never throttles (returns 0); only the count
+    // limit takes effect: the first 3 requests pass, the 4th is rejected (-1).
+    EXPECT_GE(get_limiter->add(1), 0);
+    EXPECT_GE(get_limiter->add(1), 0);
+    EXPECT_GE(get_limiter->add(1), 0);
+    EXPECT_LT(get_limiter->add(1), 0);
+
+    // Raise the limit. The checker must rebuild the limiter so the exhausted counter is
+    // reset; otherwise the next request would still be rejected.
+    config::s3_get_token_limit = 100;
+    check_s3_rate_limiter_config_changed();
+    EXPECT_GE(get_limiter->add(1), 0);
+
+    // Restore original configs and apply them back to the limiter.
+    config::s3_get_token_per_second = orig_tps;
+    config::s3_get_bucket_tokens = orig_bucket;
+    config::s3_get_token_limit = orig_limit;
+    check_s3_rate_limiter_config_changed();
 }
 
 } // end namespace doris

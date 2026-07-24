@@ -89,7 +89,11 @@ suite("test_show_create_table_with_storage_policy") {
     String createSql = ret[0][1]
 
     ret = sql """ SHOW PARTITIONS FROM ${tableName} """
-    assertEquals(ret[9][12], storagePolicyName)
+    if (!isCloudMode()) {
+        assertEquals(ret[9][12], storagePolicyName)
+    } else {
+        assertEquals(ret[9][12], "")
+    }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     // create table successfully with stmt from show create table

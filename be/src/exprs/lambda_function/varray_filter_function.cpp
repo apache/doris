@@ -75,7 +75,7 @@ public:
         auto input_rows = first_column->size();
         auto first_outside_null_map = ColumnUInt8::create(input_rows, 0);
         auto first_arg_column = first_column;
-        if (first_arg_column->is_nullable()) {
+        if (is_column_nullable(*first_arg_column)) {
             first_arg_column =
                     assert_cast<const ColumnNullable*>(first_column.get())->get_nested_column_ptr();
             const auto& column_array_nullmap =
@@ -97,7 +97,7 @@ public:
 
         auto second_arg_column = second_column;
         auto second_outside_null_map = ColumnUInt8::create(input_rows, 0);
-        if (second_arg_column->is_nullable()) {
+        if (is_column_nullable(*second_arg_column)) {
             second_arg_column = assert_cast<const ColumnNullable*>(second_column.get())
                                         ->get_nested_column_ptr();
             const auto& column_array_nullmap =

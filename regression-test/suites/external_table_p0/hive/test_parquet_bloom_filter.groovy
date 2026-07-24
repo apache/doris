@@ -52,7 +52,7 @@ suite("test_parquet_bloom_filter", "p0,external") {
         order_qt_sql11 """ select * from parquet_bloom_filter where created_date = '2024-01-03'; """ 
         order_qt_sql12 """ select * from parquet_bloom_filter where last_login = '2025-11-18 14:18:13.927333'; """ 
         order_qt_sql13 """ select * from parquet_bloom_filter where numeric_array[2] = 2.2; """ 
-        order_qt_sql14 """ select * from parquet_bloom_filter where struct_element(address_info, "city") = 'city_7';"""
+        order_qt_sql14 """ select * from parquet_bloom_filter where element_at(address_info, "city") = 'city_7';"""
         order_qt_sql15 """ select * from parquet_bloom_filter where metrics['score'] = '33.546909893506374'; """
 
         sql """drop catalog ${catalog_name};"""

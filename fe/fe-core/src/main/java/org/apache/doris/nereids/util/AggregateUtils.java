@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDist
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -39,6 +40,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -61,10 +63,11 @@ public class AggregateUtils {
 
     /**countDistinctMultiExprToCountIf*/
     public static Expression countDistinctMultiExprToCountIf(Count count) {
-        Set<Expression> arguments = ImmutableSet.copyOf(count.getArguments());
-        Expression countExpr = count.getArgument(arguments.size() - 1);
-        for (int i = arguments.size() - 2; i >= 0; --i) {
-            Expression argument = count.getArgument(i);
+        Iterator<Expression> arguments = ImmutableSet.copyOf(count.getArguments())
+                .asList().reverse().iterator();
+        Expression countExpr = arguments.next();
+        while (arguments.hasNext()) {
+            Expression argument = arguments.next();
             If ifNull = new If(new IsNull(argument), NullLiteral.INSTANCE, countExpr);
             countExpr = assignNullType(ifNull);
         }
@@ -147,6 +150,23 @@ public class AggregateUtils {
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
+    /** count agg function distinct group, up to 2*/
+    public static int distinctArgumentGroupCountUpToTwo(Aggregate<? extends Plan> aggregate) {
+        Set<Expression> distinctArgumentGroup = null;
+        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
+            if (!aggregateFunction.isDistinct()) {
+                continue;
+            }
+            Set<Expression> currentGroup = ImmutableSet.copyOf(aggregateFunction.getDistinctArguments());
+            if (distinctArgumentGroup == null) {
+                distinctArgumentGroup = currentGroup;
+            } else if (!distinctArgumentGroup.equals(currentGroup)) {
+                return 2;
+            }
+        }
+        return distinctArgumentGroup == null ? 0 : 1;
+    }
+
     /**getAllKeySet*/
     public static Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
         Set<NamedExpression> distinctArguments = getDistinctNamedExpr(aggregate);
@@ -169,7 +189,7 @@ public class AggregateUtils {
     public static Set<NamedExpression> getDistinctNamedExpr(LogicalAggregate<? extends Plan> aggregate) {
         return aggregate.getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
-                .flatMap(aggFunc -> aggFunc.getArguments().stream())
+                .flatMap(aggFunc -> aggFunc.getDistinctArguments().stream())
                 .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());

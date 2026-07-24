@@ -61,7 +61,6 @@ import java.util.stream.Stream;
 
 public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
-    private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
     // erase meta at least after minEraseLatency milliseconds
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
@@ -104,7 +103,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     String unused;
 
     public CatalogRecycleBin() {
-        super("recycle bin", FeConstants.runningUnitTest ? 10 * 1000L : DEFAULT_INTERVAL_SECONDS * 1000L);
+        super("recycle bin", FeConstants.runningUnitTest ? 10 * 1000L : Config.catalog_recycle_bin_interval_ms);
         idToDatabase = new ConcurrentHashMap<>();
         idToTable = new ConcurrentHashMap<>();
         idToPartition = new ConcurrentHashMap<>();

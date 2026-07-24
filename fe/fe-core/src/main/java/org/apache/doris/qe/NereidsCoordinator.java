@@ -101,6 +101,7 @@ public class NereidsCoordinator extends Coordinator {
             setForInsert(-1L);
         }
 
+        syncLocalShufflePlannerOption();
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -115,6 +116,7 @@ public class NereidsCoordinator extends Coordinator {
 
         // we don't need to check the dataSink, Because setting jobId means this must be a load operation
         setForInsert(jobId);
+        syncLocalShufflePlannerOption();
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -132,9 +134,18 @@ public class NereidsCoordinator extends Coordinator {
         // same reason in `setForInsert`
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.needEnqueue = false;
+        syncLocalShufflePlannerOption();
 
         Preconditions.checkState(!fragments.isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+    }
+
+    private void syncLocalShufflePlannerOption() {
+        coordinatorContext.queryOptions.setEnableLocalShufflePlanner(
+                coordinatorContext.distributedPlans != null
+                && !coordinatorContext.distributedPlans.isEmpty()
+                && coordinatorContext.connectContext != null
+                && coordinatorContext.connectContext.getSessionVariable().isEnableLocalShufflePlanner());
     }
 
     @Override

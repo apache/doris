@@ -205,6 +205,84 @@ TEST_F(CloudSchemaChangeJobTest, FillVersionHolesBeforeNewTabletRunning) {
     ASSERT_EQ(versions[1], Version(4, 4));
 }
 
+TEST_F(CloudSchemaChangeJobTest, RefreshBaseTabletBeforeRegisteringSchemaChangeJob) {
+    int64_t base_tablet_id = 50001;
+    int64_t new_tablet_id = 50002;
+
+    TabletMetaSharedPtr base_meta(new TabletMeta(
+            1, 2, base_tablet_id, base_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    TabletMetaSharedPtr new_meta(new TabletMeta(
+            1, 2, new_tablet_id, new_tablet_id + 100, 4, 5, TTabletSchema(), 6, {{7, 8}},
+            UniqueId(11, 12), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+
+    auto base_tablet = std::make_shared<CloudTablet>(_engine, std::move(base_meta));
+    auto new_tablet = std::make_shared<CloudTablet>(_engine, std::move(new_meta));
+    static_cast<void>(new_tablet->set_tablet_state(TABLET_NOTREADY));
+
+    auto base_initial_rowset = create_rowset(base_tablet->tablet_schema(), base_tablet_id, 2, 6);
+    auto base_latest_rowset = create_rowset(base_tablet->tablet_schema(), base_tablet_id, 7, 10);
+
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        auto tablet_id = try_any_cast<int64_t>(args[0]);
+        auto* meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        if (tablet_id == base_tablet_id) {
+            *meta_ptr = base_tablet->tablet_meta();
+        } else if (tablet_id == new_tablet_id) {
+            *meta_ptr = new_tablet->tablet_meta();
+        }
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+
+    int base_sync_count = 0;
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& outcome) {
+        auto* tablet = try_any_cast<CloudTablet*>(outcome[0]);
+        if (tablet->tablet_id() == base_tablet_id) {
+            ++base_sync_count;
+            std::unique_lock lock(tablet->get_header_lock());
+            if (base_sync_count == 1) {
+                tablet->add_rowsets({base_initial_rowset}, false, lock);
+            } else {
+                tablet->add_rowsets({base_latest_rowset}, false, lock);
+            }
+        }
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+    });
+
+    int64_t prepared_alter_version = -1;
+    sp->set_call_back("CloudMetaMgr::prepare_tablet_job", [&](auto&& outcome) {
+        auto job = try_any_cast<cloud::TabletJobInfoPB>(outcome[0]);
+        ASSERT_TRUE(job.has_schema_change());
+        prepared_alter_version = job.schema_change().alter_version();
+
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::InternalError("mock job already success");
+
+        auto* resp = try_any_cast<cloud::StartTabletJobResponse*>(outcome[1]);
+        resp->mutable_status()->set_code(cloud::JOB_ALREADY_SUCCESS);
+    });
+
+    TAlterTabletReqV2 request;
+    request.base_tablet_id = base_tablet_id;
+    request.new_tablet_id = new_tablet_id;
+    request.alter_version = 4;
+    request.__set_alter_tablet_type(TAlterTabletType::SCHEMA_CHANGE);
+
+    CloudSchemaChangeJob sc_job(_engine, "test_refresh_base_tablet_before_sc", 9999999999);
+    auto status = sc_job.process_alter_tablet(request);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(base_sync_count, 2);
+    ASSERT_EQ(prepared_alter_version, 10);
+}
+
 // Test: cross-V1 compaction detected → abort SC job → return SC_COMPACTION_CONFLICT
 TEST_F(CloudSchemaChangeJobTest, CrossV1CompactionDetected) {
     int64_t base_tablet_id = 10001;

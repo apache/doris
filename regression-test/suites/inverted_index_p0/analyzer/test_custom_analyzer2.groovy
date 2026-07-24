@@ -49,9 +49,9 @@ suite("test_custom_analyzer2", "p0") {
     try {
         sql """ insert into test_custom_analyzer2_1 values(1, "中国人民"); """
         sql """ insert into test_custom_analyzer2_1 values(2, "美国人民"); """
-        
+
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select count(1) from test_custom_analyzer2_1 where ch match '中'; """
         qt_sql """ select count(1) from test_custom_analyzer2_1 where ch match '国'; """

@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.exceptions;
 
-import java.util.Optional;
-
 /**
  * cast exception.
  */
@@ -27,7 +25,7 @@ public class CastException extends AnalysisException {
     private final String message;
 
     public CastException(String message) {
-        super(ErrorCode.NONE, message, Optional.of(0), Optional.of(0));
+        super(ErrorCode.NONE, message);
         this.message = message;
     }
 

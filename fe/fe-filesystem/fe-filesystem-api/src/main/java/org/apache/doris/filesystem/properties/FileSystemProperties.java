@@ -28,10 +28,9 @@ import java.util.Optional;
  * <p>The API layer exposes this interface so framework code can pass typed
  * configuration between filesystem modules without depending on provider
  * implementations. Each provider is responsible for binding raw key-value
- * properties, validating them, and converting them to the formats required by
- * runtime clients, BE RPC adapters, or Hadoop clients.</p>
+ * properties, validating them, and creating runtime clients from typed accessors.</p>
  */
-public interface FileSystemProperties {
+public interface FileSystemProperties extends StorageProperties {
 
     /**
      * Returns the provider name, such as S3, OSS, COS, or OBS.
@@ -68,13 +67,32 @@ public interface FileSystemProperties {
     Map<String, String> matchedProperties();
 
     /**
-     * Converts to the legacy key-value format used by existing FileSystem implementations.
+     * Validates and normalizes a single storage URI against this provider's configuration.
      *
-     * <p>This method exists as a migration bridge. New provider code should use
-     * typed accessors internally, while callers that still depend on the old map
-     * contract can continue to consume this representation.</p>
+     * <p>This is pure configuration logic (no I/O) and lives on the properties model rather than
+     * on {@link org.apache.doris.filesystem.FileSystem} on purpose: many callers validate a URI
+     * before — or without ever — creating a FileSystem (e.g. HTTP has no FileSystem). Providers
+     * with scheme/endpoint/path-style specific rules override this; the default returns the URI
+     * unchanged.
+     *
+     * @throws IllegalArgumentException if the URI is invalid for this provider
      */
-    Map<String, String> toFileSystemKv();
+    default String validateAndNormalizeUri(String uri) {
+        return uri;
+    }
+
+    /**
+     * Extracts the storage URI from the given load properties and validates it via
+     * {@link #validateAndNormalizeUri(String)}.
+     *
+     * <p>The default looks up the {@code "uri"} key. Providers whose URI lives under a different
+     * key, or that need extra extraction logic (e.g. HDFS nameservices), override this.
+     *
+     * @throws IllegalArgumentException if the URI is missing or invalid for this provider
+     */
+    default String validateAndGetUri(Map<String, String> loadProperties) {
+        return validateAndNormalizeUri(loadProperties == null ? null : loadProperties.get("uri"));
+    }
 
     /**
      * Converts to backend storage properties if this provider supports BE access.

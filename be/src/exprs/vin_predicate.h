@@ -18,9 +18,11 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/field.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
@@ -58,10 +60,27 @@ public:
 
     bool is_not_in() const { return _is_not_in; };
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+    bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+    bool can_evaluate_dictionary_filter() const override;
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override;
+    bool can_evaluate_bloom_filter() const override;
 
     uint64_t get_digest(uint64_t seed) const override { return 0; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TInPredicate in_predicate;
+        in_predicate.__set_is_not_in(_is_not_in);
+        node.__set_in_predicate(in_predicate);
+        *cloned_expr = VInPredicate::create_shared(node);
+        return Status::OK();
+    }
 
 private:
+    Status _materialize_for_zonemap_filter(VExprContext* context);
+
     FunctionBasePtr _function;
     std::string _expr_name;
 
@@ -69,5 +88,10 @@ private:
     static const constexpr char* function_name = "in";
     uint32_t _in_list_value_count_threshold = 10;
     bool _is_args_all_constant = false;
+    bool _zonemap_materialized = false;
+    bool _seg_filter_contains_null = false;
+    std::vector<Field> _seg_filter_values;
+    Field _seg_filter_min;
+    Field _seg_filter_max;
 };
 } // namespace doris

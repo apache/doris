@@ -77,7 +77,6 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -441,6 +440,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        // HMSExternalTable may represent Hive, Hudi, or Iceberg tables.
+        // Only snapshot-aware table types should preload latest snapshot metadata.
+        return getDlaType() == DLAType.HUDI || getDlaType() == DLAType.ICEBERG;
+    }
+
+    @Override
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
         if (getDlaType() != DLAType.HIVE) {
             return Optional.empty();
@@ -451,6 +462,28 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         HiveExternalMetaCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(this));
         return hivePartitionValues.getSortedPartitionRanges();
+    }
+
+    @Override
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        // For Hive, read the cached HivePartitionValues once and freeze both the partition
+        // map and the cached sortedPartitionRanges from the same snapshot. This reuses the
+        // cached sorted ranges (no just-in-time rebuild) and keeps the two views consistent,
+        // avoiding the TOCTOU divergence where sortedPartitionRanges was re-read from cache
+        // at pruning time while the partition map was frozen earlier.
+        if (getDlaType() != DLAType.HIVE) {
+            return super.initSelectedPartitions(snapshot);
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        HiveExternalMetaCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        Map<String, PartitionItem> nameToPartitionItems = hivePartitionValues.getNameToPartitionItem();
+        Optional<SortedPartitionRanges<String>> sortedPartitionRanges
+                = hivePartitionValues.getSortedPartitionRanges();
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false, false,
+                sortedPartitionRanges);
     }
 
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
@@ -471,6 +504,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             nameToPartitionItems.put(idToNameMap.get(entry.getKey()), entry.getValue());
         }
 
+        // Hudi has no cached sorted ranges; leave it empty here and let PruneFileScanPartition
+        // build it lazily from this frozen map only when binary search filtering is enabled.
         return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
@@ -485,14 +520,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         HiveExternalMetaCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(this));
-        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
-        // transfer id to name
-        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
-        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
-        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
-            nameToPartitionItem.put(idToName.get(entry.getKey()), entry.getValue());
-        }
-        return nameToPartitionItem;
+        return Maps.newHashMap(hivePartitionValues.getNameToPartitionItem());
     }
 
     public boolean isHiveTransactionalTable() {
@@ -1049,7 +1077,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(getCatalog().getId());
         List<HivePartition> partitionList = cache.getAllPartitionsWithCache(this,
-                Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
+                Lists.newArrayList(hivePartitionValues.getNameToPartitionValues().values()));
         if (CollectionUtils.isEmpty(partitionList)) {
             return 0;
         }
@@ -1103,7 +1131,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return UNKNOWN_ROW_COUNT;
             }
 
-            int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
+            int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getNameToPartitionItem().size();
             if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
                 LOG.info("Table {} sampled {} of {} partitions, sampled size is {}",
                         name, samplePartitionSize, totalPartitionSize, totalSize);
@@ -1132,11 +1160,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // no need to worry that this call will invalid or refresh the cache.
             // because it has enough space to keep partition info of all tables in cache.
             partitionValues = getHivePartitionValues(snapshot);
-            if (partitionValues == null || partitionValues.getPartitionNameToIdMap() == null) {
+            if (partitionValues == null || partitionValues.getNameToPartitionItem() == null) {
                 LOG.warn("Partition values for hive table {} is null", name);
             } else {
                 LOG.info("Partition values size for hive table {} is {}",
-                        name, partitionValues.getPartitionNameToIdMap().size());
+                        name, partitionValues.getNameToPartitionItem().size());
             }
         }
         return partitionValues;
@@ -1153,18 +1181,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .hive(getCatalog().getId());
         List<HivePartition> hivePartitions = Lists.newArrayList();
         if (partitionValues != null) {
-            Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            int totalPartitionSize = idToPartitionItem.size();
+            Map<String, PartitionItem> nameToPartitionItem = partitionValues.getNameToPartitionItem();
+            int totalPartitionSize = nameToPartitionItem.size();
             Collection<PartitionItem> partitionItems;
             List<List<String>> partitionValuesList;
             // If partition number is too large, randomly choose part of them to estimate the whole table.
             if (sampleSize > 0 && sampleSize < totalPartitionSize) {
-                List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
+                List<PartitionItem> items = new ArrayList<>(nameToPartitionItem.values());
                 Collections.shuffle(items);
                 partitionItems = items.subList(0, sampleSize);
                 partitionValuesList = Lists.newArrayListWithCapacity(sampleSize);
             } else {
-                partitionItems = idToPartitionItem.values();
+                partitionItems = nameToPartitionItem.values();
                 partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
             }
             for (PartitionItem item : partitionItems) {
@@ -1249,6 +1277,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public TFileFormatType getFileFormatType(SessionVariable sessionVariable) throws UserException {
         TFileFormatType type = null;
         Table table = getRemoteTable();
+        // now hive self only support mixed with orc/parquet files in table and different partitions
+        // But if mixed with orc/parquet files in table and same partition, will failed when read.
+        // now here hive used table format, so BE will regrard all files in table is same format.
         String inputFormatName = table.getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
         if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {

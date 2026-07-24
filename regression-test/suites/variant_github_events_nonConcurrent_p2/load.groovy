@@ -84,7 +84,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
     """
     // 2015
@@ -116,7 +116,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             exception "The idx_var index can not be built on the v column, because it is a variant type column"
         }
     }
-    
+
 
     // // add bloom filter at the end of loading data
 
@@ -125,7 +125,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     trigger_and_wait_compaction("github_events", "full", 1800)
 
     sql """set enable_match_without_inverted_index = false"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
 
@@ -146,7 +146,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             v variant<properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")> not null
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""

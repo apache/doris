@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import java.util.Objects;
@@ -61,6 +62,15 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
     @Override
     public DataType conversion() {
         return MapType.of(keyType.conversion(), valueType.conversion());
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof MapType) {
+            MapType mapType = (MapType) target;
+            return keyType.isInjectiveCastTo(mapType.keyType) && valueType.isInjectiveCastTo(mapType.valueType);
+        }
+        return target instanceof CharacterType;
     }
 
     @Override

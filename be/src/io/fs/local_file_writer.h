@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <butil/iobuf.h>
+
 #include <cstddef>
 
 #include "common/status.h"
@@ -32,6 +34,7 @@ public:
     ~LocalFileWriter() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;
+    Status append_iobuf(const butil::IOBuf& data);
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
     State state() const override { return _state; }

@@ -57,7 +57,7 @@ import javax.tools.StandardLocation;
 /**
  * annotation processor for generate GeneratedPattern.java.
  */
-@SupportedSourceVersion(SourceVersion.RELEASE_8)
+@SupportedSourceVersion(SourceVersion.RELEASE_17)
 @SupportedAnnotationTypes("org.apache.doris.nereids.pattern.generator.PatternDescribable")
 public class PatternDescribableProcessor extends AbstractProcessor {
     private List<File> paths;

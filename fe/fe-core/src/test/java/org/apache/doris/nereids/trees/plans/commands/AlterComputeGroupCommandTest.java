@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -113,7 +113,7 @@ public class AlterComputeGroupCommandTest extends TestWithFeService {
         Config.deploy_mode = "cloud";
 
         CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
-        ComputeGroup mockComputeGroup = Mockito.mock(ComputeGroup.class);
+        CloudComputeGroupMeta mockComputeGroup = Mockito.mock(CloudComputeGroupMeta.class);
         Mockito.doReturn(mockComputeGroup).when(mockCloudSIS).getComputeGroupByName("virtual_group");
         Mockito.doReturn(true).when(mockComputeGroup).isVirtual();
         Deencapsulation.setField(env, "systemInfo", mockCloudSIS);
@@ -130,7 +130,7 @@ public class AlterComputeGroupCommandTest extends TestWithFeService {
         Config.deploy_mode = "cloud";
 
         CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
-        ComputeGroup mockComputeGroup = Mockito.mock(ComputeGroup.class);
+        CloudComputeGroupMeta mockComputeGroup = Mockito.mock(CloudComputeGroupMeta.class);
         Mockito.doReturn(mockComputeGroup).when(mockCloudSIS).getComputeGroupByName("test_group");
         Mockito.doReturn(false).when(mockComputeGroup).isVirtual();
         Mockito.doThrow(new DdlException("Invalid property")).when(mockComputeGroup)
@@ -149,7 +149,7 @@ public class AlterComputeGroupCommandTest extends TestWithFeService {
         Config.deploy_mode = "cloud";
 
         CloudSystemInfoService mockCloudSIS = Mockito.mock(CloudSystemInfoService.class);
-        ComputeGroup mockComputeGroup = Mockito.mock(ComputeGroup.class);
+        CloudComputeGroupMeta mockComputeGroup = Mockito.mock(CloudComputeGroupMeta.class);
         Mockito.doReturn(mockComputeGroup).when(mockCloudSIS).getComputeGroupByName("test_group");
         Mockito.doReturn(false).when(mockComputeGroup).isVirtual();
         Mockito.doNothing().when(mockComputeGroup).checkProperties(Mockito.anyMap());

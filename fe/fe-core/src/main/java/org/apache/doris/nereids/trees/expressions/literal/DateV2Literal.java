@@ -45,6 +45,10 @@ public class DateV2Literal extends DateLiteral {
         super(DateV2Type.INSTANCE, year, month, day);
     }
 
+    public static long dateDiffInDays(DateLiteral lhs, DateLiteral rhs) {
+        return lhs.getTotalDays() - rhs.getTotalDays();
+    }
+
     @Override
     public org.apache.doris.analysis.DateLiteral toLegacyLiteral() {
         return legacyLiteral.get();

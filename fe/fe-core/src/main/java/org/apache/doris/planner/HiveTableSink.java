@@ -213,7 +213,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             HiveExternalMetaCache.HivePartitionValues partitionValues =
                     targetTable.getHivePartitionValues(MvccUtil.getSnapshotFromContext(targetTable));
             List<List<String>> partitionValuesList =
-                    new ArrayList<>(partitionValues.getPartitionValuesMap().values());
+                    new ArrayList<>(partitionValues.getNameToPartitionValues().values());
             hivePartitions = cache.getAllPartitionsWithCache(targetTable, partitionValuesList);
         }
 

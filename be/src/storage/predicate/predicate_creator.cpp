@@ -19,7 +19,6 @@
 
 #include "common/exception.h"
 #include "exprs/create_predicate_function.h"
-#include "storage/predicate/bitmap_filter_predicate.h"
 #include "storage/predicate/bloom_filter_predicate.h"
 
 namespace doris {
@@ -111,30 +110,6 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
     default:
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         fmt::format("Cannot use bloom filter for type: {}",
-                                    type_to_string(data_type->get_primitive_type())));
-        return nullptr;
-    }
-}
-
-std::shared_ptr<ColumnPredicate> create_bitmap_filter_predicate(
-        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
-        const std::shared_ptr<BitmapFilterFuncBase>& filter) {
-    switch (data_type->get_primitive_type()) {
-    case TYPE_TINYINT: {
-        return BitmapFilterColumnPredicate<TYPE_TINYINT>::create_shared(cid, col_name, filter);
-    }
-    case TYPE_SMALLINT: {
-        return BitmapFilterColumnPredicate<TYPE_SMALLINT>::create_shared(cid, col_name, filter);
-    }
-    case TYPE_INT: {
-        return BitmapFilterColumnPredicate<TYPE_INT>::create_shared(cid, col_name, filter);
-    }
-    case TYPE_BIGINT: {
-        return BitmapFilterColumnPredicate<TYPE_BIGINT>::create_shared(cid, col_name, filter);
-    }
-    default:
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        fmt::format("Cannot use bitmap filter for type: {}",
                                     type_to_string(data_type->get_primitive_type())));
         return nullptr;
     }

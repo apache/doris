@@ -76,7 +76,7 @@ import javax.annotation.Nullable;
  * =>
  *  insert into t1 (c1, c3) select t2.c1, t2.c3 * 100 from t1 join t2 inner join t3 on t2.id = t3.id where t1.id = t2.id
  */
-public class UpdateCommand extends Command implements ForwardWithSync, Explainable {
+public class UpdateCommand extends Command implements ForwardWithSync, Explainable, SupportProfile {
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
     private final @Nullable String tableAlias;
@@ -293,6 +293,11 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
+    }
+
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return nameParts;
     }
 
     @Override

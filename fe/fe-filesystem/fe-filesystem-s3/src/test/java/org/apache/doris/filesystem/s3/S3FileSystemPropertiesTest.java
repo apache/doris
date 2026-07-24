@@ -31,6 +31,35 @@ import java.util.Map;
 class S3FileSystemPropertiesTest {
 
     @Test
+    void toString_masksSecretsButShowsAccessKey() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("region", "us-west-2");
+        raw.put("s3.access_key", "s3-ak-plain");
+        raw.put("s3.secret_key", "s3-sk-plain");
+        raw.put("s3.session_token", "s3-token-plain");
+
+        String rendered = S3FileSystemProperties.of(raw).toString();
+
+        Assertions.assertFalse(rendered.contains("s3-sk-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("s3-token-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=s3-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("https://minio.local"), rendered);
+    }
+
+    @Test
+    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+        java.util.Set<String> keys = new S3FileSystemProvider().sensitivePropertyKeys();
+
+        Assertions.assertTrue(keys.contains("s3.secret_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("s3.session_token"), keys.toString());
+        Assertions.assertFalse(keys.contains("s3.access_key"), keys.toString());
+        Assertions.assertFalse(keys.contains("AWS_ACCESS_KEY"), keys.toString());
+    }
+
+    @Test
     void of_bindsAliasesAndExposesEffectiveViews() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");

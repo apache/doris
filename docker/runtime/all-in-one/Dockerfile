@@ -41,12 +41,11 @@ RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no
 
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} \
-        PATH="/opt/apache-doris/fe/bin:/opt/apache-doris/be/bin:/opt/apache-doris/broker/bin:${PATH}"
+        PATH="/opt/apache-doris/fe/bin:/opt/apache-doris/be/bin:${PATH}"
 
 # apache-doris/be from doris release xxxx.tar.gz.please update the version in follows x.x.x.
 ADD resource/apache-doris-x.x.x-bin-${TARGETARCH:-amd64}/fe /opt/apache-doris/fe
 ADD resource/apache-doris-x.x.x-bin-${TARGETARCH:-amd64}/be /opt/apache-doris/be
-ADD resource/apache-doris-x.x.x-bin-${TARGETARCH:-amd64}/broker /opt/apache-doris/broker
 
 COPY resource/entry_point.sh /usr/local/bin/
 

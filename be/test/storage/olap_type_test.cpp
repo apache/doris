@@ -240,160 +240,53 @@ TEST_F(OlapTypeTest, deser_double_old) {
     input_file.close();
 }
 TEST_F(OlapTypeTest, ser_deser_float) {
+    // to_olap_string uses the shortest round-trippable form; the expected strings
+    // below are that shortest representation for each value.
     std::vector<std::pair<float, std::string>> normal_input_values = {
-            {
-                    1.230F,
-                    "1.23", // trailing zero of fractional part is not printed
-            },
-            {
-                    123.456000F,
-                    "123.456",
-            },
-            {
-                    123.000F,
-                    "123", // decimal point is printed if fractional part is zero
-            },
-            {
-                    1234567.000F,
-                    "1234567",
-            },
-            // 7 > e >= -4: decimal format.
-            // e < -4 or e >= 7: scientific format.
-            {
-                    123456.12345F,
-                    "123456.1",
-            },
-            {
-                    1234567.12345F,
-                    "1234567",
-            },
-            {
-                    12345678.12345F,
-                    "1.234568e+07",
-            },
-            {
-                    123456789.12345F,
-                    "1.234568e+08",
-            },
-            {
-                    1234567890000.12345F,
-                    "1.234568e+12",
-            },
-            {
-                    0.33F,
-                    "0.33",
-            },
-            {
-                    123.456F,
-                    "123.456",
-            },
-            {
-                    123.456789F,
-                    "123.4568",
-            },
-            {
-                    123.456789123F,
-                    "123.4568",
-            },
-            {
-                    123456.123456789F,
-                    "123456.1",
-            },
-            {
-                    1234567.123456789F,
-                    "1234567",
-            },
-            {
-                    987654336.0F,
-                    "9.876543e+08",
-            },
-            {
-                    16777216.0F,
-                    "1.677722e+07",
-            },
-            {
-                    0.000123456F,
-                    "0.000123456",
-            },
-            {
-                    0.0001234567F,
-                    "0.0001234567",
-            },
-            {
-                    0.00012345678F,
-                    "0.0001234568",
-            },
-            {
-                    0.0000123456F,
-                    "1.23456e-05", // e < -4
-            },
-            {
-                    0.00001234567F,
-                    "1.234567e-05", // e < -4
-            },
-            {
-                    0.0000123456789F,
-                    "1.234568e-05",
-            },
-            {
-                    0.000000000000001234567F,
-                    "1.234567e-15",
-            },
-            {
-                    0.000000000000001234567890123456F,
-                    "1.234568e-15",
-            },
-            {
-                    0.1234567F,
-                    "0.1234567",
-            },
-            {
-                    0.123456789F,
-                    "0.1234568",
-            },
-
-            {
-                    1234567890123456.12345F,
-                    "1.234568e+15",
-            },
-            {
-                    12345678901234567.12345F,
-                    "1.234568e+16",
-            }};
-    for (int i = 1; i < 10; ++i) {
-        normal_input_values.emplace_back(i * 0.0000001F, fmt::format("{}e-07", i));
-        normal_input_values.emplace_back(i * 0.000000001F, fmt::format("{}e-09", i));
-    }
+            {1.230F, "1.23"},
+            {123.456000F, "123.456"},
+            {123.000F, "123"},
+            {1234567.000F, "1234567"},
+            {123456.12345F, "123456.125"},
+            {1234567.12345F, "1234567.1"},
+            {12345678.12345F, "12345678"},
+            {123456789.12345F, "123456790"},
+            {1234567890000.12345F, "1234568000000"},
+            {0.33F, "0.33"},
+            {123.456F, "123.456"},
+            {123.456789F, "123.45679"},
+            {123.456789123F, "123.45679"},
+            {123456.123456789F, "123456.125"},
+            {1234567.123456789F, "1234567.1"},
+            {987654336.0F, "987654340"},
+            {16777216.0F, "16777216"},
+            {0.000123456F, "0.000123456"},
+            {0.0001234567F, "0.0001234567"},
+            {0.00012345678F, "0.00012345678"},
+            {0.0000123456F, "1.23456e-05"},
+            {0.00001234567F, "1.234567e-05"},
+            {0.0000123456789F, "1.2345679e-05"},
+            {0.000000000000001234567F, "1.234567e-15"},
+            {0.000000000000001234567890123456F, "1.2345679e-15"},
+            {0.1234567F, "0.1234567"},
+            {0.123456789F, "0.12345679"},
+            {1234567890123456.12345F, "1234568000000000"},
+            {12345678901234567.12345F, "1.2345678e+16"}};
     std::vector<std::pair<float, std::string>> test_input_values;
     for (const auto& [float_value, expected_str] : normal_input_values) {
         test_input_values.emplace_back(float_value, expected_str);
         test_input_values.emplace_back(-float_value, fmt::format("-{}", expected_str));
     }
     std::vector<std::pair<float, std::string>> special_input_values = {
-            {
-                    0.0,
-                    "0",
-            },
-            {
-                    -0.0,
-                    "-0",
-            },
-            {std::numeric_limits<float>::min(), "1.175494e-38"},
-            {std::numeric_limits<float>::lowest(), "-3.402823e+38"},
-            {std::numeric_limits<float>::denorm_min(), "1.401298e-45"},
-            {std::numeric_limits<float>::max(), "3.402823e+38"},
-            {
-                    std::numeric_limits<float>::infinity(),
-                    "Infinity",
-            },
-            {
-                    -std::numeric_limits<float>::infinity(),
-                    "-Infinity",
-            },
-            {
-                    std::numeric_limits<float>::quiet_NaN(),
-                    "NaN",
-            }};
+            {0.0, "0"},
+            {-0.0, "-0"},
+            {std::numeric_limits<float>::min(), "1.1754944e-38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028235e+38"},
+            {std::numeric_limits<float>::denorm_min(), "1e-45"},
+            {std::numeric_limits<float>::max(), "3.4028235e+38"},
+            {std::numeric_limits<float>::infinity(), "Infinity"},
+            {-std::numeric_limits<float>::infinity(), "-Infinity"},
+            {std::numeric_limits<float>::quiet_NaN(), "NaN"}};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
@@ -401,7 +294,8 @@ TEST_F(OlapTypeTest, ser_deser_float) {
     for (const auto& [float_value, expected_str] : test_input_values) {
         auto field = Field::create_field<TYPE_FLOAT>(float_value);
         auto result_str = data_type_serde->to_olap_string(field);
-        EXPECT_EQ(result_str, expected_str);
+        EXPECT_EQ(result_str, expected_str)
+                << "Float to_olap_string mismatch for " << fmt::format("{:.9g}", float_value);
         Field restored_field;
         auto status = data_type_serde->from_fe_string(result_str, restored_field);
         // from_fe_string rejects NaN/Infinity strings
@@ -410,193 +304,67 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             continue;
         }
         EXPECT_TRUE(status.ok()) << status.to_string();
-        float deser_float_value = restored_field.get<TYPE_FLOAT>();
-        float diff_ratio = std::abs(deser_float_value - float_value) / abs(float_value);
-        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-6)
-                << "expected float value: " << fmt::format("{:.9g}", float_value)
-                << ", expected float str: " << expected_str
-                << ", deser float value: " << fmt::format("{:.9g}", deser_float_value)
-                << ", diff_ratio: " << fmt::format("{:.9g}", diff_ratio);
+        // Shortest form round-trips exactly.
+        EXPECT_EQ(restored_field.get<TYPE_FLOAT>(), float_value)
+                << "Float round-trip mismatch for '" << result_str << "'";
     }
 }
 TEST_F(OlapTypeTest, ser_deser_double) {
+    // to_olap_string uses the shortest round-trippable form; the expected strings
+    // below are that shortest representation for each value.
     std::vector<std::pair<double, std::string>> normal_input_values = {
-            {
-                    1.230,
-                    "1.23", // trailing zero of fractional part is not printed
-            },
-            {
-                    123.456000,
-                    "123.456",
-            },
-            {
-                    123.000,
-                    "123", // decimal point is printed if fractional part is zero
-            },
-            {
-                    1234567.000,
-                    "1234567",
-            },
-            // 16 > e >= -4: decimal format.
-            // e < -4 or e >= 16: scientific format.
-            {
-                    123456.12345,
-                    "123456.12345",
-            },
-            {
-                    1234567.12345,
-                    "1234567.12345",
-            },
-            {
-                    12345678.12345,
-                    "12345678.12345",
-            },
-            {
-                    123456789.12345,
-                    "123456789.12345",
-            },
-            {
-                    1234567890000.12345,
-                    "1234567890000.124",
-            },
-            {
-                    0.33,
-                    "0.33",
-            },
-            {
-                    123.456,
-                    "123.456",
-            },
-            {
-                    123.456789,
-                    "123.456789",
-            },
-            {
-                    123.456789123,
-                    "123.456789123",
-            },
-            {
-                    123456.123456789,
-                    "123456.123456789",
-            },
-            {
-                    1234567.123456789,
-                    "1234567.123456789",
-            },
-            {
-                    987654336.0,
-                    "987654336",
-            },
-            {
-                    16777216.0,
-                    "16777216",
-            },
-            {
-                    0.000123456,
-                    "0.000123456",
-            },
-            {
-                    0.0001234567,
-                    "0.0001234567",
-            },
-            {
-                    0.00012345678,
-                    "0.00012345678",
-            },
-            {
-                    0.0000123456,
-                    "1.23456e-05", // e < -4
-            },
-            {
-                    0.00001234567,
-                    "1.234567e-05", // e < -4
-            },
-            {
-                    0.0000123456789,
-                    "1.23456789e-05",
-            },
-            {
-                    0.000000000000001234567,
-                    "1.234567e-15",
-            },
-            {
-                    0.000000000000001234567890123456,
-                    "1.234567890123456e-15",
-            },
-            {
-                    0.1234567,
-                    "0.1234567",
-            },
-            {
-                    0.123456789,
-                    "0.123456789",
-            },
-
-            {
-                    1234567890123456.12345,
-                    "1234567890123456",
-            },
-            {
-                    12345678901234567.12345,
-                    "1.234567890123457e+16",
-            },
-            {
-                    123456789012345678.12345,
-                    "1.234567890123457e+17",
-            }};
-    for (int i = 1; i < 10; ++i) {
-        if (i == 7) {
-            normal_input_values.emplace_back(i * 0.0000000000000001, "6.999999999999999e-16");
-            continue;
-        }
-        normal_input_values.emplace_back(i * 0.0000000000000001, fmt::format("{}e-16", i));
-    }
+            {1.230, "1.23"},
+            {123.456000, "123.456"},
+            {123.000, "123"},
+            {1234567.000, "1234567"},
+            {123456.12345, "123456.12345"},
+            {1234567.12345, "1234567.12345"},
+            {12345678.12345, "12345678.12345"},
+            {123456789.12345, "123456789.12345"},
+            {1234567890000.12345, "1234567890000.1235"},
+            {0.33, "0.33"},
+            {123.456, "123.456"},
+            {123.456789, "123.456789"},
+            {123.456789123, "123.456789123"},
+            {123456.123456789, "123456.123456789"},
+            {1234567.123456789, "1234567.123456789"},
+            {987654336.0, "987654336"},
+            {16777216.0, "16777216"},
+            {0.000123456, "0.000123456"},
+            {0.0001234567, "0.0001234567"},
+            {0.00012345678, "0.00012345678"},
+            {0.0000123456, "1.23456e-05"},
+            {0.00001234567, "1.234567e-05"},
+            {0.0000123456789, "1.23456789e-05"},
+            {0.000000000000001234567, "1.234567e-15"},
+            {0.000000000000001234567890123456, "1.234567890123456e-15"},
+            {0.1234567, "0.1234567"},
+            {0.123456789, "0.123456789"},
+            {1234567890123456.12345, "1234567890123456"},
+            {12345678901234567.12345, "1.2345678901234568e+16"},
+            {123456789012345678.12345, "1.2345678901234568e+17"}};
     std::vector<std::pair<double, std::string>> test_input_values;
     for (const auto& [float_value, expected_str] : normal_input_values) {
         test_input_values.emplace_back(float_value, expected_str);
         test_input_values.emplace_back(-float_value, fmt::format("-{}", expected_str));
     }
     std::vector<std::pair<double, std::string>> special_input_values = {
-            {
-                    0.0,
-                    "0",
-            },
-            {
-                    -0.0,
-                    "-0",
-            },
-            {std::numeric_limits<float>::min(), "1.175494350822288e-38"},
-            {std::numeric_limits<float>::lowest(), "-3.402823466385289e+38"},
+            {0.0, "0"},
+            {-0.0, "-0"},
+            {std::numeric_limits<float>::min(), "1.1754943508222875e-38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028234663852886e+38"},
             {std::numeric_limits<float>::denorm_min(), "1.401298464324817e-45"},
-            {std::numeric_limits<float>::max(), "3.402823466385289e+38"},
-            {std::numeric_limits<double>::min(), "2.225073858507201e-308"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::denorm_min(), "4.940656458412465e-324"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308"},
-            {
-                    std::numeric_limits<double>::infinity(),
-                    "Infinity",
-            },
-            {
-                    -std::numeric_limits<double>::infinity(),
-                    "-Infinity",
-            },
-            {
-                    std::numeric_limits<double>::quiet_NaN(),
-                    "NaN",
-            },
-            {
-                    std::numeric_limits<float>::infinity(),
-                    "Infinity",
-            },
-            {
-                    -std::numeric_limits<float>::infinity(),
-                    "-Infinity",
-            },
-            {
-                    std::numeric_limits<float>::quiet_NaN(),
-                    "NaN",
-            }};
+            {std::numeric_limits<float>::max(), "3.4028234663852886e+38"},
+            {std::numeric_limits<double>::min(), "2.2250738585072014e-308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::denorm_min(), "5e-324"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
+            {std::numeric_limits<double>::infinity(), "Infinity"},
+            {-std::numeric_limits<double>::infinity(), "-Infinity"},
+            {std::numeric_limits<double>::quiet_NaN(), "NaN"},
+            {std::numeric_limits<float>::infinity(), "Infinity"},
+            {-std::numeric_limits<float>::infinity(), "-Infinity"},
+            {std::numeric_limits<float>::quiet_NaN(), "NaN"}};
     test_input_values.insert(test_input_values.end(), special_input_values.begin(),
                              special_input_values.end());
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
@@ -604,25 +372,19 @@ TEST_F(OlapTypeTest, ser_deser_double) {
     for (const auto& [float_value, expected_str] : test_input_values) {
         auto field = Field::create_field<TYPE_DOUBLE>(float_value);
         auto result_str = data_type_serde->to_olap_string(field);
-        EXPECT_EQ(result_str, expected_str);
+        EXPECT_EQ(result_str, expected_str)
+                << "Double to_olap_string mismatch for " << fmt::format("{:.17g}", float_value);
         Field restored_field;
         auto status = data_type_serde->from_fe_string(result_str, restored_field);
-        // from_fe_string rejects NaN/Infinity strings, and also rejects
-        // double::max()/lowest() whose string representation parses to Infinity
-        if (std::isnan(float_value) || std::isinf(float_value) ||
-            float_value == std::numeric_limits<double>::max() ||
-            float_value == std::numeric_limits<double>::lowest()) {
+        // from_fe_string rejects NaN/Infinity strings
+        if (std::isnan(float_value) || std::isinf(float_value)) {
             EXPECT_FALSE(status.ok());
             continue;
         }
         EXPECT_TRUE(status.ok()) << status.to_string();
-        double deser_float_value = restored_field.get<TYPE_DOUBLE>();
-        double diff_ratio = std::abs(deser_float_value - float_value) / abs(float_value);
-        EXPECT_TRUE((float_value == 0 && deser_float_value == 0) || diff_ratio < 1e-15)
-                << "expected double value: " << fmt::format("{:.17g}", float_value)
-                << ", expected double str: " << expected_str
-                << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
-                << ", diff_ratio: " << fmt::format("{:.17g}", diff_ratio);
+        // Shortest form round-trips exactly.
+        EXPECT_EQ(restored_field.get<TYPE_DOUBLE>(), float_value)
+                << "Double round-trip mismatch for '" << result_str << "'";
     }
 }
 
@@ -973,8 +735,7 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
         auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         float restored_val = restored_field.get<TYPE_FLOAT>();
-        float diff = std::abs(restored_val - val);
-        EXPECT_TRUE(val == 0 ? restored_val == 0 : diff / std::abs(val) < 1e-6)
+        EXPECT_EQ(restored_val, val)
                 << "Float round-trip: expected " << val << ", got " << restored_val;
     }
 
@@ -1007,12 +768,9 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
 }
 
 // ---------------------------------------------------------------------------
-// Double: same pattern as Float.
-//   The expected strings in this case follow current serializer behavior.
-//   Note: for DBL_MAX/lowest, current formatting rounds to a boundary string that
-//   is rejected by from_zonemap_string (parsed as Infinity), so these two values
-//   are validated for to_olap_string only.
-//   NaN/Inf same behavior: to_olap_string works, from_zonemap_string rejects.
+// Double: same pattern as Float. The shortest form round-trips every finite
+// value, including DBL_MAX/lowest. NaN/Inf are tracked via zone-map flags, so
+// to_olap_string emits them but from_zonemap_string rejects the string.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
@@ -1026,8 +784,8 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
             {0.001, "0.001"},
             {1234567890123456.0, "1234567890123456"},
             {1e-100, "1e-100"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
     };
 
     for (const auto& [val, expected_str] : normal_cases) {
@@ -1039,19 +797,9 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
         // Round-trip
         Field restored_field;
         auto status = serde->from_zonemap_string(result_str, restored_field);
-        if (val == std::numeric_limits<double>::lowest() ||
-            val == std::numeric_limits<double>::max()) {
-            EXPECT_FALSE(status.ok());
-            EXPECT_NE(status.to_string().find("NaN/Infinity not allowed in olap string"),
-                      std::string::npos)
-                    << status.to_string();
-            continue;
-        }
-
         EXPECT_TRUE(status.ok()) << status.to_string();
         double restored_val = restored_field.get<TYPE_DOUBLE>();
-        double diff = std::abs(restored_val - val);
-        EXPECT_TRUE(val == 0 ? restored_val == 0 : diff / std::abs(val) < 1e-15)
+        EXPECT_EQ(restored_val, val)
                 << "Double round-trip: expected " << val << ", got " << restored_val;
     }
 
@@ -1794,18 +1542,31 @@ TEST_F(OlapTypeTest, float_type) {
             {std::numeric_limits<float>::quiet_NaN(), "NaN", "NaN"},
             {std::numeric_limits<float>::infinity(), "Infinity", "Infinity"},
             {-std::numeric_limits<float>::infinity(), "-Infinity", "-Infinity"},
-            {std::numeric_limits<float>::max(), "3.402823e+38", "3.402823e+38"},
-            {std::numeric_limits<float>::lowest(), "-3.402823e+38", "-3.402823e+38"},
-            {std::numeric_limits<float>::min(), "1.175494e-38", "1.175494e-38"},
-            {std::numeric_limits<float>::denorm_min(), "1.401298e-45", "1.401298e-45"},
+            {std::numeric_limits<float>::max(), "3.4028235e+38", "3.4028235e+38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028235e+38", "-3.4028235e+38"},
+            {std::numeric_limits<float>::min(), "1.1754944e-38", "1.1754944e-38"},
+            {std::numeric_limits<float>::denorm_min(), "1e-45", "1e-45"},
     };
 
     for (auto& tc : test_cases) {
         auto field = Field::create_field<TYPE_FLOAT>(tc.value);
         std::string serde_str = serde->to_olap_string(field);
 
-        EXPECT_EQ(tc.expected_serde, serde_str)
-                << "serde mismatch for FLOAT expected='" << tc.expected << "'";
+        // to_olap_string uses the shortest round-trippable form.
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for FLOAT=" << tc.expected;
+
+        // It must also round-trip back to the same value via from_zonemap_string.
+        Field rf;
+        auto st = serde->from_zonemap_string(serde_str, rf);
+        if (std::isfinite(tc.value)) {
+            EXPECT_TRUE(st.ok()) << "FLOAT to_olap_string='" << serde_str
+                                 << "': " << st.to_string();
+            EXPECT_EQ(rf.get<TYPE_FLOAT>(), tc.value)
+                    << "FLOAT round-trip mismatch, serde='" << serde_str << "'";
+        } else {
+            // NaN/Inf are tracked via zone-map flags; from_zonemap_string rejects the string.
+            EXPECT_FALSE(st.ok()) << "FLOAT to_olap_string='" << serde_str << "'";
+        }
     }
 }
 
@@ -1832,20 +1593,33 @@ TEST_F(OlapTypeTest, double_type) {
             {std::numeric_limits<double>::quiet_NaN(), "NaN", "NaN"},
             {std::numeric_limits<double>::infinity(), "Infinity", "Infinity"},
             {-std::numeric_limits<double>::infinity(), "-Infinity", "-Infinity"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308",
-             "1.797693134862316e+308"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308",
-             "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::min(), "2.225073858507201e-308",
-             "2.225073858507201e-308"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308",
+             "1.7976931348623157e+308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308",
+             "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::min(), "2.2250738585072014e-308",
+             "2.2250738585072014e-308"},
     };
 
     for (auto& tc : test_cases) {
         auto field = Field::create_field<TYPE_DOUBLE>(tc.value);
         std::string serde_str = serde->to_olap_string(field);
 
-        EXPECT_EQ(tc.expected_serde, serde_str)
-                << "serde mismatch for DOUBLE expected='" << tc.expected << "'";
+        // to_olap_string uses the shortest round-trippable form.
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DOUBLE=" << tc.expected;
+
+        // It must also round-trip back to the same value via from_zonemap_string.
+        Field rf;
+        auto st = serde->from_zonemap_string(serde_str, rf);
+        if (std::isfinite(tc.value)) {
+            EXPECT_TRUE(st.ok()) << "DOUBLE to_olap_string='" << serde_str
+                                 << "': " << st.to_string();
+            EXPECT_EQ(rf.get<TYPE_DOUBLE>(), tc.value)
+                    << "DOUBLE round-trip mismatch, serde='" << serde_str << "'";
+        } else {
+            // NaN/Inf are tracked via zone-map flags; from_zonemap_string rejects the string.
+            EXPECT_FALSE(st.ok()) << "DOUBLE to_olap_string='" << serde_str << "'";
+        }
     }
 }
 

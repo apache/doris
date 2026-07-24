@@ -112,7 +112,7 @@ suite("test_remote_doris_variant_select", "p0,external") {
             select * from `${catalog_arrow_name}`.`${db_name}`.`test_remote_doris_variant_select_t` order by id
         """
         // check exception message contains
-        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type variant. cur path: /dummyPath"
+        exception "[NOT_IMPLEMENTED_ERROR]read_column_from_arrow with type variant"
     }
 
     qt_sql """

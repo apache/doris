@@ -137,7 +137,7 @@ public:
         *num_written = to_add;
         if constexpr (single) {
             if constexpr (SIZE_OF_TYPE == 1) {
-                *reinterpret_cast<uint8_t*>(&_data[orig_size]) = *vals;
+                _data[orig_size] = *vals;
                 return Status::OK();
             } else if constexpr (SIZE_OF_TYPE == 2) {
                 *reinterpret_cast<uint16_t*>(&_data[orig_size]) =
@@ -391,7 +391,7 @@ public:
             return Status::OK();
         }
 
-        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
+        size_t max_fetch = std::min(*n, _num_elements - _cur_index);
 
         dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
         *n = max_fetch;

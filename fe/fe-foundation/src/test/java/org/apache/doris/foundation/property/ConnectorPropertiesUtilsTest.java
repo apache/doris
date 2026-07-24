@@ -120,6 +120,37 @@ public class ConnectorPropertiesUtilsTest {
         Assertions.assertFalse(keys.contains("string.key"));
     }
 
+    @Test
+    void testToMaskedStringMasksSensitiveFields() {
+        Map<String, String> props = new HashMap<>();
+        props.put("string.key", "hello");
+        props.put("secret.key", "TOP_SECRET_VALUE");
+
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, props);
+
+        String masked = ConnectorPropertiesUtils.toMaskedString(config);
+
+        // Non-sensitive value is shown in clear text.
+        Assertions.assertTrue(masked.contains("stringValue=hello"), masked);
+        // Sensitive value is masked and the plaintext never leaks.
+        Assertions.assertTrue(masked.contains("secretValue=***"), masked);
+        Assertions.assertFalse(masked.contains("TOP_SECRET_VALUE"), masked);
+        // Class name is part of the rendered output for diagnostics.
+        Assertions.assertTrue(masked.contains("SampleConfig"), masked);
+    }
+
+    @Test
+    void testToMaskedStringShowsEmptyForBlankSensitiveField() {
+        SampleConfig config = new SampleConfig();
+        ConnectorPropertiesUtils.bindConnectorProperties(config, new HashMap<>());
+
+        String masked = ConnectorPropertiesUtils.toMaskedString(config);
+
+        Assertions.assertTrue(masked.contains("secretValue=<empty>"), masked);
+        Assertions.assertFalse(masked.contains("secretValue=***"), masked);
+    }
+
     static class BaseConfig {
         @ConnectorProperty(names = {"base.key"})
         private String baseValue;

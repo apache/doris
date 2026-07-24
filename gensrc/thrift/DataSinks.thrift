@@ -63,6 +63,11 @@ enum TParquetCompressionType {
     LZO = 5,
     BZ2 = 6,
     UNCOMPRESSED = 7,
+    // Hadoop-framed (deprecated Parquet "LZ4") codec. Distinct from LZ4 above, which maps to
+    // Arrow LZ4_RAW. Used by the Iceberg/Hive Parquet writers so the output stays readable by
+    // engines that support only the Hadoop-framed LZ4 codec (e.g. Trino), matching what
+    // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`.
+    LZ4_HADOOP = 8,
 }
 
 enum TParquetVersion {
@@ -305,6 +310,15 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 
     24: optional string storage_vault_id
+
+    // When true, FE should assign each sink a receiver bucket_be_id/load_tablet_idx pair for
+    // random distribution partitions. Sinks routed to the same receiver BE for the same
+    // partition share one ordered tablet sequence. BE then derives the bucket sequence owned by
+    // bucket_be_id from the location info and rotates within that sequence once per-tablet write
+    // volume exceeds the threshold (default 200 MB). This flag is set regardless of whether the
+    // initial partition list is empty, so auto-partition tables whose first partitions arrive at
+    // runtime still enter the correct mode from the start.
+    25: optional bool enable_adaptive_random_bucket
 }
 
 struct THiveLocationParams {
@@ -473,6 +487,8 @@ struct TIcebergTableSink {
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    18: optional bool collect_column_stats;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -519,6 +535,8 @@ struct TIcebergMergeSink {
     11: optional map<string, string> hadoop_config
     12: optional Types.TFileType file_type
     13: optional list<Types.TNetworkAddress> broker_addresses;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    14: optional bool collect_column_stats;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

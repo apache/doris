@@ -19,11 +19,15 @@ package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
 import org.apache.doris.nereids.processor.post.Validator;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -53,25 +57,15 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * post rule to do lazy materialize
+ * Post rule to insert MaterializeNode for TopN lazy materialization.
+ * Expression pull-up is handled by PullUpProjectExprUnderTopN in the logical phase.
  */
 public class LazyMaterializeTopN extends PlanPostProcessor {
-    /* BE do not support pattern:
-       union
-          -->materialize
-                   -->topn
-                        -->scan1
-          -->materialize
-                   -->topn
-                        -->scan2
-       when we create materializeNode for the first union child, set hasMaterialized=true
-       to avoid generating materializeNode for other union's children
-    */
     private static final Logger LOG = LogManager.getLogger(LazyMaterializeTopN.class);
     private boolean hasMaterialized = false;
 
     @Override
-    public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
+    public Plan visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         try {
             Plan result = computeTopN(topN, ctx);
             if (SessionVariable.isFeDebug()) {
@@ -85,28 +79,53 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
     }
 
-    private Plan computeTopN(PhysicalTopN topN, CascadesContext ctx) {
+    private Plan computeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx) {
         if (hasMaterialized) {
             return topN;
         }
         if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
             return topN;
         }
-        /*
-         topn(output=[x] orderkey=[b])
-             ->project(a as x)
-                ->T(a, b)
-         'x' can be lazy materialized.
-         materializeMap: x->(T, a)
-         */
+        try {
+            List<Slot> userVisibleOutput = ImmutableList.copyOf(topN.getOutput());
+            List<Slot> effectiveOutput = ImmutableList.copyOf(topN.getOutput());
+            Plan result = doComputeTopN(topN, ctx, effectiveOutput);
+            if (result == topN) {
+                return topN;
+            }
+            result = new PhysicalProject(ImmutableList.copyOf(userVisibleOutput), null, result);
+            return result;
+        } catch (RuntimeException e) {
+            LOG.warn("lazy materialize topn failed for plan: {}", topN.shapeInfo(), e);
+            return topN;
+        }
+    }
+
+    private Plan doComputeTopN(PhysicalTopN<? extends Plan> topN, CascadesContext ctx, List<Slot> effectiveOutput) {
         Map<Slot, MaterializeSource> materializeMap = new HashMap<>();
         List<Slot> materializedSlots = new ArrayList<>();
-        // find the slots which can be lazy materialized
-        for (Slot slot : topN.getOutput()) {
-            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot);
+        Set<Slot> requiredMaterializedSlots = new HashSet<>();
+        collectProjectExprInputSlots(topN.child(), requiredMaterializedSlots);
+
+        /*
+         * requiredMaterializedSlots only records slots consumed by Project/final-projection expressions inside the
+         * TopN subtree. Other mandatory slots, such as TopN order keys or Filter predicates, are rejected by
+         * MaterializeProbeVisitor while tracing each output slot from TopN down to the source relation:
+         *
+         *   Project(b) -> TopN(order by id) -> Filter(a > 0) -> Scan(id, a, b, c)
+         *
+         * For id, the probe stops at TopN because id is in TopN.getInputSlots(); for a, it stops at Filter because
+         * a is in Filter.getInputSlots(). Both return Optional.empty() and are appended to materializedSlots below.
+         * Therefore an empty requiredMaterializedSlots set does not mean every scan column can be delayed; it only
+         * means no extra Project/final-projection input must be forced materialized by this local safety check.
+         */
+        for (Slot slot : effectiveOutput) {
+            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
+                    requiredMaterializedSlots);
             if (source.isPresent()) {
                 SlotReference baseSlot = source.get().baseSlot;
-                if (source.get().baseSlot.hasSubColPath()) {
+                if (source.get().baseSlot.hasSubColPath()
+                        || source.get().baseSlot.getAllAccessPaths().isPresent()) {
                     slot = baseSlot.withExprId(slot.getExprId());
                 }
                 materializeMap.put(slot, source.get());
@@ -114,7 +133,19 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 materializedSlots.add(slot);
             }
         }
-        // find out the slots which are worth doing lazy materialization
+        List<Slot> requiredOutputSlots = new ArrayList<>();
+        for (Map.Entry<Slot, MaterializeSource> entry : materializeMap.entrySet()) {
+            if (requiredMaterializedSlots.contains(entry.getKey())
+                    || requiredMaterializedSlots.contains(entry.getValue().baseSlot)) {
+                requiredOutputSlots.add(entry.getKey());
+            }
+        }
+        for (Slot slot : requiredOutputSlots) {
+            if (materializeMap.remove(slot) != null) {
+                materializedSlots.add(slot);
+            }
+        }
+
         List<Slot> lazyMaterializeSlots = filterSlotsForLazyMaterialization(materializeMap);
         if (lazyMaterializeSlots.isEmpty()) {
             return topN;
@@ -127,14 +158,21 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
 
         Plan result = topN;
-        List<Slot> originOutput = topN.getOutput();
         BiMap<Relation, SlotReference> relationToRowId = HashBiMap.create(relationToLazySlotMap.size());
         HashSet<SlotReference> rowIdSet = new HashSet<>();
-        // we should use threadStatementContext, not ctx.getStatementContext(), because the StatisticsCleaner
-        // will generate two statementContext, and reuse the plan which generated by outer StatementContext,
-        // so we should generate exprId by the outer StatementContext, or else generate conflict expr id
         StatementContext threadStatementContext = StatementScopeIdGenerator.getStatementContext();
         for (Relation relation : relationToLazySlotMap.keySet()) {
+            // TopN lazy materialization relies on BE adding a GLOBAL_ROWID_COL to the
+            // tablet schema. When light_schema_change=false, the table columns have
+            // col_unique_id=-1, which causes BE to skip the schema rebuild from
+            // columns_desc, so the GLOBAL_ROWID_COL is never added and the scan fails.
+            if (relation instanceof CatalogRelation
+                    && ((CatalogRelation) relation).getTable() instanceof OlapTable
+                    && !((OlapTable) ((CatalogRelation) relation).getTable()).getEnableLightSchemaChange()) {
+                LOG.debug("Skip TopN lazy materialization for table {} with light_schema_change=false",
+                        ((CatalogRelation) relation).getTable().getName());
+                return topN;
+            }
             if (relation instanceof CatalogRelation) {
                 CatalogRelation catalogRelation = (CatalogRelation) relation;
                 Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + catalogRelation.getTable().getName(),
@@ -142,9 +180,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                         catalogRelation.getTable().getName() + ".global_row_id", false, Integer.MAX_VALUE);
                 SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
                         catalogRelation.getTable(), rowIdCol, catalogRelation.getQualifier());
-                result = result.accept(new LazySlotPruning(),
-                        new LazySlotPruning.Context((PhysicalCatalogRelation) relation,
-                                rowIdSlot, relationToLazySlotMap.get(relation)));
+                result = result.accept(new LazySlotPruning(), new LazySlotPruning.Context(
+                        (PhysicalCatalogRelation) relation,
+                        rowIdSlot, relationToLazySlotMap.get(relation)));
                 relationToRowId.put(catalogRelation, rowIdSlot);
                 rowIdSet.add(rowIdSlot);
             } else if (relation instanceof PhysicalTVFRelation) {
@@ -154,47 +192,33 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                         tvfRelation.getFunction().getName() + ".global_row_id", false, Integer.MAX_VALUE);
                 SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
                         tvfRelation.getFunction().getTable(), rowIdCol, ImmutableList.of());
-                result = result.accept(new LazySlotPruning(),
-                        new LazySlotPruning.Context((PhysicalTVFRelation) relation,
-                                rowIdSlot, relationToLazySlotMap.get(relation)));
+                result = result.accept(new LazySlotPruning(), new LazySlotPruning.Context(
+                        (PhysicalTVFRelation) relation,
+                        rowIdSlot, relationToLazySlotMap.get(relation)));
                 relationToRowId.put(tvfRelation, rowIdSlot);
                 rowIdSet.add(rowIdSlot);
             } else {
-                // should not reach here.
                 throw new RuntimeException("LazyMaterializeTopN not support this relation." + relation);
             }
         }
 
-        // materialize.child.output requires
-        // rowId only appears once.
-        // that is [a, rowId1, b rowId1] is not acceptable
         List<SlotReference> materializeInput = moveRowIdsToTail(result.getOutput(), rowIdSet);
 
         if (materializeInput == null) {
-            /*
-            topn
-              -->any
-            =>
-            project
-               -->materialize
-                   -->topn
-                     -->any
-             */
+            // Row IDs are already at the tail in the correct order.
+            // Keep materialized slots in the same order as the child tuple layout.
+            List<Slot> reOrderedMaterializedSlots = new ArrayList<>();
+            for (Slot slot : result.getOutput()) {
+                if (rowIdSet.contains(slot)) {
+                    break;
+                }
+                reOrderedMaterializedSlots.add(slot);
+            }
             result = new PhysicalLazyMaterialize(result, result.getOutput(),
-                    materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
+                    reOrderedMaterializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
             hasMaterialized = true;
         } else {
-            /*
-            topn
-              -->any
-            =>
-            project
-              -->materialize
-                -->project
-                  -->topn
-                     -->any
-             */
             List<Slot> reOrderedMaterializedSlots = new ArrayList<>();
             for (Slot slot : materializeInput) {
                 if (rowIdSet.contains(slot)) {
@@ -208,14 +232,54 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                     null, ((AbstractPlan) result).getStats());
             hasMaterialized = true;
         }
-        result = new PhysicalProject(originOutput, null, result);
         return result;
     }
 
-    /*
-        [a, r1, r2, b, r2] => [a, b, r1, r2]
-        move all rowIds to tail, and remove duplicated rowIds
-     */
+    private void collectProjectExprInputSlots(Plan plan, Set<Slot> requiredMaterializedSlots) {
+        if (plan instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) plan;
+            for (NamedExpression projectExpr : project.getProjects()) {
+                if (projectExpr instanceof SlotReference) {
+                    continue;
+                }
+                if (projectExpr instanceof Alias && ((Alias) projectExpr).child() instanceof SlotReference) {
+                    SlotReference childSlot = (SlotReference) ((Alias) projectExpr).child();
+                    if (!childSlot.getOriginalColumn().isPresent()) {
+                        requiredMaterializedSlots.addAll(project.getInputSlots());
+                    }
+                    continue;
+                }
+                requiredMaterializedSlots.addAll(projectExpr.getInputSlots());
+            }
+        } else if (plan instanceof PhysicalCatalogRelation) {
+            PhysicalCatalogRelation relation = (PhysicalCatalogRelation) plan;
+            if (relation.getTable() instanceof OlapTable) {
+                OlapTable table = (OlapTable) relation.getTable();
+                if (KeysType.UNIQUE_KEYS.equals(table.getKeysType())
+                        && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()
+                        || KeysType.AGG_KEYS.equals(table.getKeysType())
+                        || KeysType.PRIMARY_KEYS.equals(table.getKeysType())) {
+                    for (Slot slot : relation.getOutput()) {
+                        SlotReference slotReference = (SlotReference) slot;
+                        if (slotReference.getOriginalColumn().isPresent()
+                                && slotReference.getOriginalColumn().get().isKey()) {
+                            requiredMaterializedSlots.add(slotReference);
+                        }
+                    }
+                }
+            }
+            for (Slot slot : plan.getOutput()) {
+                if (slot instanceof SlotReference && !((SlotReference) slot).getOriginalColumn().isPresent()) {
+                    requiredMaterializedSlots.addAll(plan.getOutputSet());
+                    break;
+                }
+            }
+        }
+        for (Plan child : plan.children()) {
+            collectProjectExprInputSlots(child, requiredMaterializedSlots);
+        }
+    }
+
     private List<SlotReference> moveRowIdsToTail(List<Slot> slots, Set<SlotReference> rowIds) {
         List<SlotReference> reArrangedSlots = new ArrayList<>();
         List<SlotReference> reArrangedRowIds = new ArrayList<>();
@@ -245,10 +309,11 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         return new ArrayList<>(materializeMap.keySet());
     }
 
-    private Optional<MaterializeSource> computeMaterializeSource(PhysicalTopN topN, SlotReference slot) {
+    private Optional<MaterializeSource> computeMaterializeSource(PhysicalTopN<? extends Plan> topN, SlotReference slot,
+            Set<Slot> requiredMaterializedSlots) {
         MaterializeProbeVisitor probe = new MaterializeProbeVisitor();
-        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(slot);
+        MaterializeProbeVisitor.ProbeContext context = new MaterializeProbeVisitor.ProbeContext(slot,
+                requiredMaterializedSlots);
         return probe.visit(topN, context);
     }
-
 }

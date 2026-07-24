@@ -43,8 +43,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
                 "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "enable_tso" = "true"
+                "binlog.format" = "ROW"
             )
         """
 
@@ -87,8 +86,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 "light_schema_change" = "true",
                 "binlog.enable" = "true",
                 "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true",
-                "enable_tso" = "true"
+                "binlog.need_historical_value" = "true"
             )
         """
 
@@ -167,8 +165,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 "light_schema_change" = "true",
                 "binlog.enable" = "true",
                 "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true",
-                "enable_tso" = "true"
+                "binlog.need_historical_value" = "true"
             )
         """
 
@@ -228,8 +225,7 @@ suite("test_binlog_compaction", "nonConcurrent") {
                 "light_schema_change" = "true",
                 "binlog.enable" = "true",
                 "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true",
-                "enable_tso" = "true"
+                "binlog.need_historical_value" = "true"
             )
         """
 

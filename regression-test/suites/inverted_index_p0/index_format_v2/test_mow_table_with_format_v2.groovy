@@ -93,8 +93,8 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
         def process = cmd.execute()
         def output = new StringBuffer()
         def errorOutput = new StringBuffer()
-        process.consumeProcessOutput(output, errorOutput)
-        int exitCode = process.waitFor()
+        process.waitForProcessOutput(output, errorOutput)
+        int exitCode = process.exitValue()
         logger.info("Show config: code=" + exitCode + ", out=" + output + ", err=" + errorOutput)
         assertEquals(exitCode, 0)
         def configList = parseJson(output.toString().trim())
@@ -167,7 +167,7 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
             """
 
         sql """ sync """
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_select_default """ SELECT * FROM ${tableName} t WHERE city MATCH 'Beijing' ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 
