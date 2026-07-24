@@ -100,6 +100,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     protected long version = -1;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final Object alterLock = new Object();
 
     public void writeLock() {
         lock.writeLock().lock();
@@ -115,6 +116,10 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     public void readUnlock() {
         lock.readLock().unlock();
+    }
+
+    Object getAlterLock() {
+        return alterLock;
     }
 
     // https://programmerr47.medium.com/gson-unsafe-problem-d1ff29d4696f
@@ -243,9 +248,11 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     public abstract Map<String, String> getCopiedProperties();
 
     public void dropResource() throws DdlException {
-        if (!references.isEmpty()) {
-            String msg = String.join(", ", references.keySet());
-            throw new DdlException(String.format("Resource %s is used by: %s", name, msg));
+        synchronized (this) {
+            if (!references.isEmpty()) {
+                String msg = String.join(", ", references.keySet());
+                throw new DdlException(String.format("Resource %s is used by: %s", name, msg));
+            }
         }
     }
 
@@ -350,12 +357,46 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return copied;
     }
 
-    private void notifyUpdate(Map<String, String> properties) {
-        references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
-            if (type == ReferenceType.CATALOG) {
-                // No longer support resource in Catalog.
+    final Resource getCopiedResourceSnapshot() {
+        String json;
+        readLock();
+        try {
+            synchronized (this) {
+                json = GsonUtils.GSON.toJson(this);
             }
-        });
+        } finally {
+            readUnlock();
+        }
+        return GsonUtils.GSON.fromJson(json, Resource.class);
+    }
+
+    final Resource getAlterLogResourceSnapshot() {
+        Resource copied = getCopiedResourceSnapshot();
+        // Reference changes are persisted by their owners (for example, storage policy journals).
+        synchronized (copied) {
+            copied.references.clear();
+        }
+        return copied;
+    }
+
+    final void copyReferencesFrom(Resource resource) {
+        Map<String, ReferenceType> copiedReferences;
+        synchronized (resource) {
+            copiedReferences = Maps.newHashMap(resource.references);
+        }
+        synchronized (this) {
+            references = copiedReferences;
+        }
+    }
+
+    private void notifyUpdate(Map<String, String> properties) {
+        synchronized (this) {
+            references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
+                if (type == ReferenceType.CATALOG) {
+                    // No longer support resource in Catalog.
+                }
+            });
+        }
     }
 
     public void applyDefaultProperties() {}
