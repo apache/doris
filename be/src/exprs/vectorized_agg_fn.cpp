@@ -26,12 +26,14 @@
 #include <memory>
 #include <ostream>
 #include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/util.hpp"
@@ -72,7 +74,8 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key,
           _without_key(without_key),
           _is_window_function(is_window_function),
           _data_type(DataTypeFactory::instance().create_data_type(
-                  desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)) {
+                  desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)),
+          _always_const_argument_idx(desc.num_children, false) {
     if (desc.agg_expr.__isset.param_types) {
         const auto& param_types = desc.agg_expr.param_types;
         for (const auto& param_type : param_types) {
@@ -255,9 +258,14 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
     }
-
     if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
+    }
+    if (!_is_merge) {
+        for (auto index : _function->get_const_argument_indexes()) {
+            DORIS_CHECK_LT(index, _always_const_argument_idx.size());
+            _always_const_argument_idx[index] = true;
+        }
     }
 
     // Foreachv2, like foreachv1, does not check the return type,
@@ -274,7 +282,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status AggFnEvaluator::open(RuntimeState* state) {
-    return VExpr::open(_input_exprs_ctxs, state);
+    RETURN_IF_ERROR(VExpr::open(_input_exprs_ctxs, state));
+    return _init_always_const_arguments();
 }
 
 void AggFnEvaluator::create(AggregateDataPtr place) {
@@ -377,19 +386,40 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
+Status AggFnEvaluator::_init_always_const_arguments() {
+    _always_const_arguments.resize(_input_exprs_ctxs.size());
+    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
+        if (!_always_const_argument_idx[i]) {
+            continue;
+        }
+        ColumnWithTypeAndName const_argument;
+        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_argument));
+        auto column = const_argument.column;
+        DORIS_CHECK(column);
+        if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
+            column = const_column->get_data_column_ptr();
+        }
+        const_argument.column = ColumnConst::create(std::move(column), 1);
+        _always_const_arguments[i] = std::move(const_argument);
+    }
+    return Status::OK();
+}
+
 Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
-    std::vector<int> column_ids(_input_exprs_ctxs.size());
+
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        int column_id = -1;
+        if (_always_const_argument_idx[i]) {
+            DORIS_CHECK(_always_const_arguments.size() == _input_exprs_ctxs.size());
+            DORIS_CHECK(_always_const_arguments[i].column);
+            _agg_columns[i] = _always_const_arguments[i].column.get();
+            continue;
+        }
+        int column_id = block->columns();
         RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
-        column_ids[i] = column_id;
-    }
-    materialize_block_inplace(*block, column_ids.data(),
-                              column_ids.data() + _input_exprs_ctxs.size());
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        _agg_columns[i] = block->get_by_position(column_ids[i]).column.get();
+        block->replace_by_position_if_const(column_id);
+        _agg_columns[i] = block->get_by_position(column_id).column.get();
     }
     return Status::OK();
 }
@@ -411,7 +441,9 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _data_type(evaluator._data_type),
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
-          _agg_columns(evaluator._agg_columns) {
+          _agg_columns(evaluator._agg_columns),
+          _always_const_arguments(evaluator._always_const_arguments),
+          _always_const_argument_idx(evaluator._always_const_argument_idx) {
     if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         DataTypes tmp_argument_types;
         tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());

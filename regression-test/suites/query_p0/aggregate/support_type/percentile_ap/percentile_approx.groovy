@@ -77,4 +77,31 @@ suite("percentile_approx") {
     qt_percentile_approx_largeint """select percentile_approx(col_largeint, 0.5) from d_table;"""
     qt_percentile_approx_float """select percentile_approx(col_float, 0.5) from d_table;"""
     qt_percentile_approx_double """select percentile_approx(col_double, 0.5) from d_table;"""
+    qt_percentile_approx_distinct_const_arg """select percentile_approx(distinct col_double, cast('0.5' as double), cast('2048' as double)) from d_table;"""
+    sql """set debug_skip_fold_constant=true;"""
+    order_qt_percentile_approx_window_const_expr """select k1, percentile_approx(col_double, coalesce(cast(null as double), cast(0.5 as double))) over(order by k1 rows between unbounded preceding and current row) from d_table order by k1;"""
+    test {
+        sql """select percentile_approx_merge(percentile_approx_state(cast(number as double), 0.5, cast(cardinality(array_repeat(1, 2048)) as double))) from numbers("number"="3");"""
+    }
+    sql """set debug_skip_fold_constant=false;"""
+
+    test {
+        sql """select percentile_approx(col_double, -0.1) from d_table;"""
+        exception "percentile_approx quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile_approx(col_double, 1.1) from d_table;"""
+        exception "percentile_approx quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile_approx_state(col_double, 1.1) from d_table;"""
+        exception "percentile_approx quantile must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile_approx quantile must be in [0, 1]"))
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
+    qt_percentile_approx_compression_low """select percentile_approx(col_double, 0.5, 2047) from d_table;"""
+    qt_percentile_approx_compression_high """select percentile_approx(col_double, 0.5, 10001) from d_table;"""
 }

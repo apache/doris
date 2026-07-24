@@ -201,14 +201,14 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 }
             } else {
                 for (Expression arg : aggFunc.children()) {
-                    // should not push down literal under aggregate
+                    // should not push down constants under aggregate
                     // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                    if (arg instanceof Literal) {
+                    Expression realArg = arg instanceof OrderExpression ? arg.child(0) : arg;
+                    if (realArg.isConstant()) {
                         continue;
                     }
 
-                    Collection<? extends Expression> inputSlots = arg instanceof OrderExpression
-                            ? ImmutableList.of(((OrderExpression) arg).child()) : ImmutableList.of(arg);
+                    Collection<? extends Expression> inputSlots = ImmutableList.of(realArg);
                     for (Expression input : inputSlots) {
                         if (input instanceof SlotReference) {
                             needPushDownInputs.add(input);

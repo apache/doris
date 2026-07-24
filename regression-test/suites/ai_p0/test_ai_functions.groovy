@@ -80,6 +80,13 @@ suite("test_ai_functions") {
         exception "AI_AGG must accept literal for the task."
     }
 
+    test {
+        sql """SELECT AI_AGG(resource_name, text, 'this is a test') FROM ${test_table_for_ai_functions};"""
+        exception "AI_AGG must accept literal for the resource name."
+    }
+
+    sql """EXPLAIN SELECT AI_AGG(DISTINCT '${resourceName}', text, 'this is a test') FROM ${test_table_for_ai_functions};"""
+
     // Test for normal call
     // test the default resource
     try {

@@ -68,7 +68,7 @@ suite("test_aggregate_all_functions2") {
     qt_select_intersect_count_2 """ select intersect_count(bitmap_from_array(array(1,2,3,4,5)),k1,1,2) from baseall; """ 
     test {
         sql """ select percentile_approx(k2,10001) from baseall; """ 
-        exception "INVALID_ARGUMENT"
+        exception "percentile_approx quantile must be in [0, 1]"
     }
     qt_select_percentile_array """ select percentile_array(k2,[0.2,0.5,0.7]) from baseall; """ 
     qt_select_array_product """ select array_product(array(cast(k5 as decimalv3(30,10)))) from baseall order by k1; """ 
@@ -90,6 +90,7 @@ suite("test_aggregate_all_functions2") {
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k8,0.99) from baseall group by k6 order by 1; """ 
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
     qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
+    qt_select_percentile_reservoir_distinct_const_arg """ select count(*) from (select percentile_reservoir(distinct k8,cast('0.5' as double)) from baseall) t; """
     sql """
         select percentile_reservoir(cast(number as double), 0.5)
         from numbers("number" = "200000")
@@ -120,6 +121,23 @@ suite("test_aggregate_all_functions2") {
     test {
         sql """ select percentile_reservoir(k8,2) from baseall; """ 
         exception "percentile_reservoir level must be in [0, 1]"
+    }
+    test {
+        sql """ select percentile_reservoir(k8,-0.1) from baseall; """
+        exception "percentile_reservoir level must be in [0, 1]"
+    }
+    test {
+        sql """ select percentile_reservoir(k8,1.1) from baseall; """
+        exception "percentile_reservoir level must be in [0, 1]"
+    }
+    test {
+        sql """ select percentile_reservoir_state(k8,1.1) from baseall; """
+        exception "percentile_reservoir level must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile_reservoir level must be in [0, 1]"))
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
     }
 
     qt_bool_and """SELECT bool_and(k0) FROM baseall;"""

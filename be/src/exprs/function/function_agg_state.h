@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "core/arena.h"
 #include "core/block/block.h"
+#include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
@@ -38,7 +39,13 @@ public:
                      AggregateFunctionPtr agg_function)
             : _argument_types(argument_types),
               _return_type(return_type),
-              _agg_function(agg_function) {}
+              _agg_function(agg_function),
+              _always_const_argument_idx(argument_types.size(), false) {
+        for (auto index : _agg_function->get_const_argument_indexes()) {
+            DORIS_CHECK_LT(index, _always_const_argument_idx.size());
+            _always_const_argument_idx[index] = true;
+        }
+    }
 
     static FunctionBasePtr create(const DataTypes& argument_types, const DataTypePtr& return_type,
                                   AggregateFunctionPtr agg_function) {
@@ -60,6 +67,15 @@ public:
         return _return_type;
     }
 
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        return _agg_function->get_const_argument_indexes();
+    }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override {
+        const auto& indexes = _agg_function->get_const_argument_indexes();
+        return {indexes.begin(), indexes.end()};
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto col = _agg_function->create_serialize_column();
@@ -69,8 +85,10 @@ public:
         for (size_t i = 0; i < arguments.size(); i++) {
             DataTypePtr signature =
                     assert_cast<const DataTypeAggState*>(_return_type.get())->get_sub_types()[i];
-            ColumnPtr column =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            ColumnPtr column = block.get_by_position(arguments[i]).column;
+            if (!_always_const_argument_idx[i]) {
+                column = column->convert_to_full_column_if_const();
+            }
             save_columns.push_back(column);
 
             if (!signature->is_nullable() && column->is_nullable()) {
@@ -95,6 +113,9 @@ private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     AggregateFunctionPtr _agg_function;
+    // Bool map of argument positions that must be constant by aggregate semantics.
+    // FE checks these positions before execution.
+    std::vector<bool> _always_const_argument_idx;
 };
 
 } // namespace doris

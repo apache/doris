@@ -188,6 +188,14 @@ public:
         return Status::OK();
     }
 
+    // Return aggregate argument indexes that must be constant by function semantics.
+    // Other arguments may also be constant in a query, but they are not listed here
+    // unless FE checks that the position is always a constant argument.
+    virtual const std::vector<size_t>& get_const_argument_indexes() const {
+        static const std::vector<size_t> indexes;
+        return indexes;
+    }
+
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t input_rows_count) const {
         // Some function implementations may not handle the case where input_rows_count is 0
@@ -497,6 +505,10 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
+    }
+
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        return function->get_const_argument_indexes();
     }
 
     Status evaluate_inverted_index(

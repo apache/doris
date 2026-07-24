@@ -29,12 +29,16 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/block/columns_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_distinct.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -44,6 +48,10 @@ protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
     bool is_window_function = false;
+    // Argument positions that must be constant by nested aggregate semantics.
+    // Other positions may also receive constant columns at runtime, but FE only
+    // guarantees these positions are always constant arguments.
+    std::vector<bool> always_const_argument_idx;
 
     /** In addition to data for nested aggregate function, we keep a flag
       *  indicating - was there at least one non-NULL value accumulated.
@@ -111,8 +119,13 @@ public:
                                     const DataTypes& arguments, bool is_window_function_)
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)},
-              is_window_function(is_window_function_) {
+              is_window_function(is_window_function_),
+              always_const_argument_idx(arguments.size(), false) {
         DCHECK(nested_function_ != nullptr);
+        for (auto index : nested_function->get_const_argument_indexes()) {
+            DORIS_CHECK_LT(index, always_const_argument_idx.size());
+            always_const_argument_idx[index] = true;
+        }
         if constexpr (result_is_nullable) {
             if (this->is_window_function) {
                 // flag|---null_count----|-------padding-------|--nested_data----|
@@ -134,6 +147,20 @@ public:
     }
 
     bool is_blockable() const override { return nested_function->is_blockable(); }
+
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        return nested_function->get_const_argument_indexes();
+    }
+
+    bool check_always_const_col_has_null(const IColumn** columns) const {
+        for (size_t i = 0; i < always_const_argument_idx.size(); ++i) {
+            if (always_const_argument_idx[i] && this->argument_types[i]->is_nullable() &&
+                columns[i]->is_null_at(0)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
@@ -359,7 +386,7 @@ public:
 
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
-        const auto* column = check_and_get_column<ColumnNullable>(*columns[0]);
+        const auto* column = check_and_get_column_with_const<ColumnNullable>(*columns[0]);
         if (UNLIKELY(column == nullptr)) {
             throw doris::Exception(Status::InternalError(
                     "Aggregate function {} argument 0 type check failed: Column type {} is not "
@@ -606,11 +633,31 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
+        if (this->check_always_const_col_has_null(columns)) {
+            return;
+        }
         /// This container stores the columns we really pass to the nested function.
         std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::vector<ColumnPtr> nested_const_columns(number_of_arguments);
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
+                if (const auto* const_column = check_and_get_column<ColumnConst>(*columns[i])) {
+                    const auto& nullable_col =
+                            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                    const_column->get_data_column());
+                    if (nullable_col.is_null_at(0)) {
+                        return;
+                    }
+                    nested_const_columns[i] = ColumnConst::create(
+                            nullable_col.get_nested_column_ptr(), const_column->size());
+                    if (!this->always_const_argument_idx[i]) {
+                        nested_const_columns[i] =
+                                nested_const_columns[i]->convert_to_full_column_if_const();
+                    }
+                    nested_columns[i] = nested_const_columns[i].get();
+                    continue;
+                }
                 const auto& nullable_col =
                         assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                 *columns[i]);
@@ -633,16 +680,31 @@ public:
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
         std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::vector<ColumnPtr> nested_const_columns;
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
-                const auto* nullable_col = check_and_get_column<ColumnNullable>(*columns[i]);
-                if (UNLIKELY(nullable_col == nullptr)) {
-                    throw doris::Exception(Status::InternalError(
-                            "Aggregate function {} argument {} type check failed: Column type {} "
-                            "is not ColumnNullable",
-                            this->get_name(), i, columns[i]->get_name()));
+                if (const auto* const_column = check_and_get_column<ColumnConst>(*columns[i])) {
+                    const auto* nullable_col =
+                            check_and_get_column<ColumnNullable>(const_column->get_data_column());
+                    if (UNLIKELY(nullable_col == nullptr)) {
+                        throw doris::Exception(Status::InternalError(
+                                "Aggregate function {} argument {} type check failed: Column type "
+                                "{} is not ColumnConst(ColumnNullable)",
+                                this->get_name(), i, columns[i]->get_name()));
+                    }
+                    nested_const_columns.push_back(ColumnConst::create(
+                            nullable_col->get_nested_column_ptr(), const_column->size()));
+                    nested_columns[i] = nested_const_columns.back().get();
+                } else {
+                    const auto* nullable_col = check_and_get_column<ColumnNullable>(*columns[i]);
+                    if (UNLIKELY(nullable_col == nullptr)) {
+                        throw doris::Exception(Status::InternalError(
+                                "Aggregate function {} argument {} type check failed: Column type "
+                                "{} is not ColumnNullable",
+                                this->get_name(), i, columns[i]->get_name()));
+                    }
+                    nested_columns[i] = &nullable_col->get_nested_column();
                 }
-                nested_columns[i] = &nullable_col->get_nested_column();
             } else {
                 nested_columns[i] = columns[i];
             }

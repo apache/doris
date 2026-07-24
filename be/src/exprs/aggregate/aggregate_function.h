@@ -29,7 +29,9 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/block/columns_with_type_and_name.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_const.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
@@ -38,11 +40,13 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
+#include "exprs/vexpr_fwd.h"
 #include "util/defer_op.h"
 
 namespace doris {
 
 class Arena;
+struct ColumnWithTypeAndName;
 class IColumn;
 class IDataType;
 
@@ -247,6 +251,14 @@ public:
 
     const DataTypes& get_argument_types() const { return argument_types; }
 
+    // Return argument indexes that must be constant by function semantics.
+    // Other arguments may also be constant in a query, but they are not listed here
+    // unless FE checks that the position is always a constant argument.
+    virtual const std::vector<size_t>& get_const_argument_indexes() const {
+        static const std::vector<size_t> indexes;
+        return indexes;
+    }
+
     virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
@@ -336,6 +348,18 @@ protected:
             throw doris::Exception(Status::InternalError(
                     "Aggregate function {} argument type check failed: Column type {} ({}) does "
                     "not match expected physical column type {}",
+                    get_name(), column->get_name(), typeid(*column).name(),
+                    typeid(ColumnType).name()));
+        }
+    }
+
+    template <typename ColumnType>
+    void check_const_argument_column_type(const IColumn* column) const {
+        const auto& const_column = assert_cast<const ColumnConst&>(*column);
+        if (UNLIKELY(check_and_get_column<ColumnType>(const_column.get_data_column()) == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument type check failed: Column type {} ({}) does "
+                    "not match expected const physical column type ColumnConst({})",
                     get_name(), column->get_name(), typeid(*column).name(),
                     typeid(ColumnType).name()));
         }

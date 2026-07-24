@@ -62,6 +62,41 @@ suite("percentile") {
     qt_percentile_largeint """select percentile(col_largeint, 0.5) from d_table;"""
     qt_percentile_float """select percentile(col_float, 0.5) from d_table;"""
     qt_percentile_double """select percentile(col_double, 0.5) from d_table;"""
+    qt_percentile_distinct_const_arg """select percentile(distinct col_double, cast('0.5' as double)) from d_table;"""
+    sql """set debug_skip_fold_constant=true;"""
+    qt_percentile_const_expr_materialized """select percentile(col_double, coalesce(cast(null as double), cast(0.5 as double))) from d_table;"""
+    sql """set enable_aggregate_function_null_v2=false;"""
+    qt_percentile_const_nullable_null_v1 """select percentile(col_double, coalesce(cast(null as double), cast(null as double))) from d_table;"""
+    sql """set enable_aggregate_function_null_v2=true;"""
+    qt_percentile_const_nullable_null_v2 """select percentile(col_double, coalesce(cast(null as double), cast(null as double))) from d_table;"""
+    sql """set enable_aggregate_function_null_v2=false;"""
+    sql """set debug_skip_fold_constant=false;"""
+
+    sql """drop table if exists percentile_nullable_t;"""
+    sql """
+    create table percentile_nullable_t (
+        id int,
+        v double null
+    ) duplicate key(id)
+    distributed by hash(id) buckets 1
+    properties("replication_num" = "1");
+    """
+    sql """
+    insert into percentile_nullable_t values
+        (1, null),
+        (2, 1.0),
+        (3, 2.0);
+    """
+    sql """set enable_aggregate_function_null_v2=false;"""
+    qt_percentile_nullable_input_v1 """select percentile(v, 0.5) from percentile_nullable_t;"""
+    order_qt_percentile_window_nullable_v1 """select id, percentile(v, 0.5) over(order by id rows between 1 preceding and current row) from percentile_nullable_t order by id;"""
+    sql """set debug_skip_fold_constant=true;"""
+    order_qt_percentile_window_const_expr """select id, percentile(v, coalesce(cast(null as double), cast(0.5 as double))) over(order by id rows between 1 preceding and current row) from percentile_nullable_t order by id;"""
+    sql """set debug_skip_fold_constant=false;"""
+    sql """set enable_aggregate_function_null_v2=true;"""
+    qt_percentile_nullable_input_v2 """select percentile(v, 0.5) from percentile_nullable_t;"""
+    order_qt_percentile_window_nullable_v2 """select id, percentile(v, 0.5) over(order by id rows between 1 preceding and current row) from percentile_nullable_t order by id;"""
+    sql """set enable_aggregate_function_null_v2=false;"""
 
     sql """drop table if exists percentile_nan_t;"""
     sql """
@@ -103,4 +138,31 @@ suite("percentile") {
     qt_percentile_all_nan """select percentile(v_double, 0.5) from percentile_all_nan_t;"""
     qt_percentile_array_all_nan """select percentile_array(v_double, [0.25, 0.5, 0.75]) from percentile_all_nan_t;"""
     qt_percentile_approx_all_nan """select percentile_approx(v_double, 0.5) from percentile_all_nan_t;"""
+
+    test {
+        sql """select percentile(col_double, -0.1) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile(col_double, 1.1) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile_state(col_double, 1.1) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile quantile must be in [0, 1]"))
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
+    test {
+        sql """select percentile_state(col_double, 0.5 + 0.6) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile quantile must be in [0, 1]"))
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
 }
