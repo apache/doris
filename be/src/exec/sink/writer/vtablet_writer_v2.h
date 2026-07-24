@@ -148,8 +148,14 @@ private:
 
     std::unordered_set<std::shared_ptr<LoadStreamStub>> _all_streams();
 
+    enum class CloseWaitMode {
+        WAIT_ALL,
+        QUORUM,
+        QUORUM_WITH_BEST_EFFORT,
+    };
+
     Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams,
-                       bool need_wait_after_quorum_success);
+                       CloseWaitMode mode);
 
     bool _quorum_success(
             const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,

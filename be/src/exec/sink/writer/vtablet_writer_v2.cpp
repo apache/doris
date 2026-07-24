@@ -726,10 +726,14 @@ Status VTabletWriterV2::close(Status exec_status) {
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        // Do not need to wait after quorum success,
-        // for first-stage close_wait only ensure incremental streams load has been completed,
-        // unified waiting in the second-stage close_wait.
-        RETURN_IF_ERROR(_close_wait(_non_incremental_streams(), false));
+        // If incremental streams were created, this stage is a lifecycle fence: all source
+        // sinks must finish opening incremental streams before any source closes them. Replica
+        // quorum cannot replace this all-source barrier.
+        auto first_stage_close_wait_mode = CloseWaitMode::QUORUM;
+        if (_load_stream_map->has_incremental_streams()) {
+            first_stage_close_wait_mode = CloseWaitMode::WAIT_ALL;
+        }
+        RETURN_IF_ERROR(_close_wait(_non_incremental_streams(), first_stage_close_wait_mode));
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
         // this must happen after all non-incremental streams are closed,
@@ -739,7 +743,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         }
 
         // close_wait on all incremental streams, even if this is not the last sink.
-        RETURN_IF_ERROR(_close_wait(_all_streams(), true));
+        RETURN_IF_ERROR(_close_wait(_all_streams(), CloseWaitMode::QUORUM_WITH_BEST_EFFORT));
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -815,11 +819,11 @@ std::unordered_set<std::shared_ptr<LoadStreamStub>> VTabletWriterV2::_non_increm
 
 Status VTabletWriterV2::_close_wait(
         std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams,
-        bool need_wait_after_quorum_success) {
+        CloseWaitMode mode) {
     SCOPED_TIMER(_close_load_timer);
     Status status;
     auto streams_for_node = _load_stream_map->get_streams_for_node();
-    // 1. first wait for quorum success
+    // 1. wait for all streams or quorum according to the close mode
     std::unordered_set<int64_t> need_finish_tablets;
     auto partition_ids = _tablet_finder->partition_ids();
     for (const auto& part : _vpartition->get_partitions()) {
@@ -835,8 +839,8 @@ Status VTabletWriterV2::_close_wait(
         int64_t close_wait_version = _load_stream_map->close_wait_version();
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
-        if (quorum_success || unfinished_streams.empty()) {
+        const bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
+        if (unfinished_streams.empty() || (mode != CloseWaitMode::WAIT_ALL && quorum_success)) {
             LOG(INFO) << "quorum_success: " << quorum_success
                       << ", is all finished: " << unfinished_streams.empty()
                       << ", txn_id: " << _txn_id << ", load_id: " << print_id(_load_id);
@@ -846,7 +850,7 @@ Status VTabletWriterV2::_close_wait(
     }
 
     // 2. then wait for remaining streams as much as possible
-    if (!unfinished_streams.empty() && need_wait_after_quorum_success) {
+    if (!unfinished_streams.empty() && mode == CloseWaitMode::QUORUM_WITH_BEST_EFFORT) {
         int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
         while (true) {
