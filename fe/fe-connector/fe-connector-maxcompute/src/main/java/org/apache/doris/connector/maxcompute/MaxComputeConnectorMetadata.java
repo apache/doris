@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * ConnectorMetadata implementation for MaxCompute.
@@ -77,6 +78,15 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     private final String quota;
     private final Map<String, String> properties;
     private final MaxComputePartitionCache partitionCache;
+
+    // Per-statement table-handle memo. This metadata instance is created fresh per statement
+    // (MaxComputeDorisConnector.getMetadata), so a table resolved once -- one remote exists()
+    // probe plus one lazy ODPS Table -- is reused by every planning site in the same statement
+    // instead of each site re-probing and rebuilding it (killing the redundant exists() round
+    // trips and the per-Table schema reload). ConcurrentHashMap because a scan reuses the same
+    // per-statement session (hence this instance) across off-thread pool tasks. Key is the
+    // (dbName, tableName) pair via List's value equality -- no separator collision to reason about.
+    private final Map<List<String>, MaxComputeTableHandle> tableHandleMemo = new ConcurrentHashMap<>();
 
     public MaxComputeConnectorMetadata(Odps odps,
             McStructureHelper structureHelper,
@@ -118,15 +128,24 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
-        if (!structureHelper.tableExist(odps, dbName, tableName)) {
-            return Optional.empty();
-        }
-        Table odpsTable = structureHelper.getOdpsTable(
-                odps, dbName, tableName);
-        TableIdentifier tableId = structureHelper.getTableIdentifier(
-                dbName, tableName);
-        return Optional.of(new MaxComputeTableHandle(
-                dbName, tableName, odpsTable, tableId));
+        // Only present tables are memoized: returning null from the mapping function records no
+        // mapping, so an absent table re-probes on every call -- keeping the Optional.empty()
+        // ("table not found") behavior byte-identical to before. computeIfAbsent runs the
+        // mapping function at most once per key even under a concurrent first touch, so the
+        // exists() probe fires once per (db, table) per statement.
+        MaxComputeTableHandle handle = tableHandleMemo.computeIfAbsent(
+                List.of(dbName, tableName), k -> {
+                    if (!structureHelper.tableExist(odps, dbName, tableName)) {
+                        return null;
+                    }
+                    Table odpsTable = structureHelper.getOdpsTable(
+                            odps, dbName, tableName);
+                    TableIdentifier tableId = structureHelper.getTableIdentifier(
+                            dbName, tableName);
+                    return new MaxComputeTableHandle(
+                            dbName, tableName, odpsTable, tableId);
+                });
+        return Optional.ofNullable(handle);
     }
 
     @Override
