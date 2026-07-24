@@ -29,6 +29,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.TableFormatType;
@@ -55,9 +56,9 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
@@ -71,7 +72,6 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
-import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
@@ -87,7 +87,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -537,6 +540,30 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testLegacyBinaryInitialDefaultBuildsRawByteExpression() throws Exception {
+        byte[] defaultBytes = new byte[] {(byte) 0x80, 0, (byte) 0xFF};
+        Schema schema = new Schema(Types.NestedField.optional("binary_default")
+                .withId(7)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(defaultBytes))
+                .build());
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), false);
+        setIcebergTable(node, table);
+        Column column = IcebergUtils.parseSchema(schema, false, false).get(0);
+
+        org.apache.doris.nereids.trees.expressions.Expression expression =
+                node.defaultExpression(column);
+        Assert.assertTrue(expression
+                instanceof org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex);
+        Assert.assertEquals("8000FF",
+                ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
+                        expression.child(0)).getStringValue());
+    }
+
+    @Test
     public void testInitialDefaultComesFromQuerySchemaInsteadOfColumnDefault() throws Exception {
         Schema schema = new Schema(Types.NestedField.optional("added_int")
                 .withId(7)
@@ -641,7 +668,8 @@ public class IcebergScanNodeTest {
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         setIcebergTable(node, Mockito.mock(Table.class));
 
-        Assert.assertEquals(schema.columns(), node.getSchemaFieldsForScan(schema, false));
+        Assert.assertEquals(schema.columns(),
+                node.getSchemaFieldsForScan(schema, Collections.emptySet()));
     }
 
     @Test
@@ -682,7 +710,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
 
-        List<Types.NestedField> fields = node.getSchemaFieldsForScan(schemaAfterDrop, true);
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(schemaAfterDrop, Set.of(7));
 
         Assert.assertEquals(2, fields.size());
         Assert.assertEquals(7, fields.get(1).fieldId());
@@ -690,6 +718,72 @@ public class IcebergScanNodeTest {
         Assert.assertTrue(fields.get(1).isOptional());
         Assert.assertEquals("7",
                 IcebergUtils.getSerializedInitialDefaults(fields, false).get(7));
+    }
+
+    @Test
+    public void testSchemaCarrierSkipsUnreferencedUnsupportedHistoricalField() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Types.NestedField equalityKey = Types.NestedField.optional(
+                7, "equality_key", Types.IntegerType.get());
+        Types.NestedField unsupported = Types.NestedField.optional(
+                9, "dropped_nanos", Types.TimestampNanoType.withoutZone());
+        Schema historicalSchema = new Schema(1, List.of(id, equalityKey, unsupported));
+        Schema currentSchema = new Schema(2, List.of(id));
+        Snapshot historicalSnapshot = mockSnapshot(1000L, historicalSchema, null);
+        Snapshot currentSnapshot = mockSnapshot(1001L, currentSchema, 1000L);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(List.of(historicalSchema, currentSchema));
+        Mockito.when(metadata.schemasById()).thenReturn(Map.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(metadata.snapshot(1000L)).thenReturn(historicalSnapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(currentSnapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(
+                currentSchema, Set.of(7));
+
+        Assert.assertEquals(2, fields.size());
+        Assert.assertEquals(1, fields.get(0).fieldId());
+        Assert.assertEquals(7, fields.get(1).fieldId());
+        Assert.assertEquals(2, node.getScanColumns(new Schema(fields)).size());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testSchemaCarrierRejectsReferencedUnsupportedHistoricalField() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Types.NestedField unsupported = Types.NestedField.optional(
+                9, "equality_nanos", Types.TimestampNanoType.withoutZone());
+        Schema historicalSchema = new Schema(1, List.of(id, unsupported));
+        Schema currentSchema = new Schema(2, List.of(id));
+        Snapshot historicalSnapshot = mockSnapshot(1000L, historicalSchema, null);
+        Snapshot currentSnapshot = mockSnapshot(1001L, currentSchema, 1000L);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(List.of(historicalSchema, currentSchema));
+        Mockito.when(metadata.schemasById()).thenReturn(Map.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(metadata.snapshot(1000L)).thenReturn(historicalSnapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(currentSnapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(
+                currentSchema, Set.of(9));
+        node.getScanColumns(new Schema(fields));
     }
 
     @Test
@@ -722,7 +816,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
 
-        List<Types.NestedField> fields = node.getSchemaFieldsForScan(reusedSchema, true);
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(reusedSchema, Set.of(7));
 
         Assert.assertEquals(2, fields.size());
         Assert.assertEquals(7, fields.get(1).fieldId());
@@ -767,7 +861,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
 
-        List<Types.NestedField> fields = node.getSchemaFieldsForScan(timeTravelSchema, true);
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(timeTravelSchema, Set.of(7));
 
         Assert.assertEquals(2, fields.size());
         Assert.assertEquals(7, fields.get(1).fieldId());
@@ -809,7 +903,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
 
-        List<Types.NestedField> fields = node.getSchemaFieldsForScan(timeTravelSchema, true);
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(timeTravelSchema, Set.of(7));
 
         Assert.assertEquals(2, fields.size());
         Assert.assertEquals(7, fields.get(1).fieldId());
@@ -844,7 +938,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
 
-        List<Types.NestedField> fields = node.getSchemaFieldsForScan(reusedSchema, true);
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(reusedSchema, Set.of(7));
 
         Assert.assertEquals(2, fields.size());
         Assert.assertEquals(7, fields.get(1).fieldId());
@@ -972,6 +1066,87 @@ public class IcebergScanNodeTest {
                 "20", AccessPathInfo.ACCESS_NULL);
     }
 
+    @Test
+    public void testPotentiallyMissingRequiredFieldsFollowProjection() {
+        Types.NestedField existing = Types.NestedField.optional(
+                3, "existing", Types.IntegerType.get());
+        Types.NestedField requiredAdded = Types.NestedField.required(
+                4, "required_added", Types.IntegerType.get());
+        Types.NestedField requiredNested = Types.NestedField.required(
+                5, "required_nested", Types.IntegerType.get());
+        Schema historicalSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(existing)));
+        Schema scanSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                requiredAdded,
+                Types.NestedField.optional(
+                        2, "payload", Types.StructType.of(existing, requiredNested)));
+        List<Column> columns = IcebergUtils.parseSchema(scanSchema, false, false);
+        SlotDescriptor idSlot = new SlotDescriptor(new SlotId(1), new TupleId(0));
+        idSlot.setColumn(columns.get(0));
+        SlotDescriptor requiredSlot = new SlotDescriptor(new SlotId(4), new TupleId(0));
+        requiredSlot.setColumn(columns.get(1));
+        SlotDescriptor payloadSlot = new SlotDescriptor(new SlotId(2), new TupleId(0));
+        payloadSlot.setColumn(columns.get(2));
+
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(idSlot), List.of(historicalSchema)));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(requiredSlot), List.of(historicalSchema)));
+
+        payloadSlot.setAllAccessPaths(Collections.singletonList(
+                ColumnAccessPath.data(List.of("2", "3"))));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(payloadSlot), List.of(historicalSchema)));
+        payloadSlot.setAllAccessPaths(Collections.singletonList(
+                ColumnAccessPath.data(List.of("2", "5"))));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(payloadSlot), List.of(historicalSchema)));
+    }
+
+    @Test
+    public void testRequiredCollectionWrappersDoNotTriggerUpgradeGate() {
+        Types.NestedField existing = Types.NestedField.optional(
+                32, "existing", Types.IntegerType.get());
+        Types.NestedField requiredNested = Types.NestedField.required(
+                33, "required_nested", Types.IntegerType.get());
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(10, "items", Types.ListType.ofOptional(
+                        90, Types.IntegerType.get())),
+                Types.NestedField.optional(20, "entries", Types.MapType.ofOptional(
+                        91, 92, Types.StringType.get(), Types.IntegerType.get())),
+                Types.NestedField.optional(30, "struct_items", Types.ListType.ofOptional(
+                        31, Types.StructType.of(existing))));
+        Schema scanSchema = new Schema(
+                Types.NestedField.optional(10, "items", Types.ListType.ofRequired(
+                        11, Types.IntegerType.get())),
+                Types.NestedField.optional(20, "entries", Types.MapType.ofRequired(
+                        21, 22, Types.StringType.get(), Types.IntegerType.get())),
+                Types.NestedField.optional(30, "struct_items", Types.ListType.ofOptional(
+                        31, Types.StructType.of(existing, requiredNested))));
+        List<Column> columns = IcebergUtils.parseSchema(scanSchema, false, false);
+        SlotDescriptor itemsSlot = new SlotDescriptor(new SlotId(10), new TupleId(0));
+        itemsSlot.setColumn(columns.get(0));
+        SlotDescriptor entriesSlot = new SlotDescriptor(new SlotId(20), new TupleId(0));
+        entriesSlot.setColumn(columns.get(1));
+        SlotDescriptor structItemsSlot = new SlotDescriptor(new SlotId(30), new TupleId(0));
+        structItemsSlot.setColumn(columns.get(2));
+
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, List.of(itemsSlot, entriesSlot), List.of(historicalSchema)));
+        structItemsSlot.setAllAccessPaths(Collections.singletonList(
+                ColumnAccessPath.data(List.of("30", AccessPathInfo.ACCESS_ALL, "32"))));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(structItemsSlot),
+                List.of(historicalSchema)));
+        structItemsSlot.setAllAccessPaths(Collections.singletonList(
+                ColumnAccessPath.data(List.of("30", AccessPathInfo.ACCESS_ALL, "33"))));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                scanSchema, Collections.singletonList(structItemsSlot),
+                List.of(historicalSchema)));
+    }
+
     private static void assertRequiresRecursiveInitialDefault(
             Schema schema, SlotDescriptor slot, boolean expected, String... path) {
         slot.setAllAccessPaths(Collections.singletonList(
@@ -982,12 +1157,18 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testEqualityDeleteIdentitySemanticsRequireUpgradedBackends() throws Exception {
-        Assert.assertFalse(IcebergScanNode.mayRequireEqualityDeleteIdentitySemantics("0", false));
-        Assert.assertTrue(IcebergScanNode.mayRequireEqualityDeleteIdentitySemantics("0", true));
-        Assert.assertTrue(IcebergScanNode.mayRequireEqualityDeleteIdentitySemantics("1", false));
-        Assert.assertFalse(IcebergScanNode.mayRequireEqualityDeleteIdentitySemantics(null, false));
-        Assert.assertTrue(IcebergScanNode.mayRequireEqualityDeleteIdentitySemantics(null, true));
+    public void testEqualityDeleteFieldIdPreflightDistinguishesDeleteContent() throws Exception {
+        DeleteFile positionDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(positionDelete.content()).thenReturn(FileContent.POSITION_DELETES);
+        DeleteFile emptyEqualityDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(emptyEqualityDelete.content()).thenReturn(FileContent.EQUALITY_DELETES);
+        Mockito.when(emptyEqualityDelete.recordCount()).thenReturn(0L);
+        Mockito.when(emptyEqualityDelete.equalityFieldIds()).thenReturn(List.of(7));
+
+        Assert.assertEquals(Collections.emptySet(),
+                IcebergScanNode.collectEqualityDeleteFieldIds(List.of(positionDelete)));
+        Assert.assertEquals(Set.of(7),
+                IcebergScanNode.collectEqualityDeleteFieldIds(List.of(emptyEqualityDelete)));
 
         Backend smoothUpgradeSource = Mockito.mock(Backend.class);
         Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
@@ -1002,30 +1183,34 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testEqualityDeleteIdentitySemanticsHandlesMissingSnapshotSummary()
+    public void testEqualityDeleteFieldIdPreflightRunsInsideAuthenticator()
             throws Exception {
         Snapshot snapshot = Mockito.mock(Snapshot.class);
-        Mockito.when(snapshot.summary()).thenReturn(null);
         TableScan tableScan = Mockito.mock(TableScan.class);
         Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
-        Table table = Mockito.mock(Table.class);
-        FileIO fileIO = Mockito.mock(FileIO.class);
-        Mockito.when(table.io()).thenReturn(fileIO);
-
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        TestIcebergScanNode node = Mockito.spy(
+                new TestIcebergScanNode(new SessionVariable()));
         node.setTableScan(tableScan);
-        setIcebergTable(node, table);
+        AtomicBoolean authenticated = new AtomicBoolean(false);
+        AtomicBoolean loaderObservedAuthentication = new AtomicBoolean(false);
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                authenticated.set(true);
+                try {
+                    return task.call();
+                } finally {
+                    authenticated.set(false);
+                }
+            }
+        });
+        Mockito.doAnswer(invocation -> {
+            loaderObservedAuthentication.set(authenticated.get());
+            return Set.of(7);
+        }).when(node).loadEqualityDeleteFieldIds(snapshot);
 
-        Mockito.when(snapshot.deleteManifests(fileIO)).thenReturn(Collections.emptyList());
-        Assert.assertFalse(node.mayRequireEqualityDeleteIdentitySemantics());
-
-        Mockito.when(snapshot.deleteManifests(fileIO)).thenReturn(
-                Collections.singletonList(Mockito.mock(ManifestFile.class)));
-        Assert.assertTrue(node.mayRequireEqualityDeleteIdentitySemantics());
-
-        Mockito.when(snapshot.summary()).thenReturn(
-                Map.of(IcebergUtils.TOTAL_EQUALITY_DELETES, "0"));
-        Assert.assertTrue(node.mayRequireEqualityDeleteIdentitySemantics());
+        Assert.assertEquals(Set.of(7), node.getEqualityDeleteFieldIdsForScan());
+        Assert.assertTrue(loaderObservedAuthentication.get());
     }
 
     @Test
@@ -1078,6 +1263,14 @@ public class IcebergScanNodeTest {
         Field sourceField = IcebergScanNode.class.getDeclaredField("source");
         sourceField.setAccessible(true);
         sourceField.set(node, source);
+    }
+
+    private static void setPreExecutionAuthenticator(
+            IcebergScanNode node, ExecutionAuthenticator authenticator) throws Exception {
+        Field authenticatorField = IcebergScanNode.class.getDeclaredField(
+                "preExecutionAuthenticator");
+        authenticatorField.setAccessible(true);
+        authenticatorField.set(node, authenticator);
     }
 
     @Test

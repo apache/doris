@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
@@ -56,6 +57,7 @@ import java.util.TreeMap;
  */
 public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final DeleteCommandContext deleteContext;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
 
     /**
      * Constructor
@@ -69,7 +71,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
         this(database, targetTable, cols, outputExprs, deleteContext, groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+                PhysicalProperties.GATHER, null, Optional.empty(), child);
     }
 
     /**
@@ -85,14 +87,36 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
+        this(database, targetTable, cols, outputExprs, deleteContext, groupExpression, logicalProperties,
+                physicalProperties, statistics, Optional.empty(), child);
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public PhysicalIcebergMergeSink(IcebergExternalDatabase database,
+                                    IcebergExternalTable targetTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    DeleteCommandContext deleteContext,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    Optional<IcebergWriteSchemaContext> writeSchemaContext,
+                                    CHILD_TYPE child) {
         super(PlanType.PHYSICAL_ICEBERG_MERGE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.deleteContext = Objects.requireNonNull(
                 deleteContext, "deleteContext != null in PhysicalIcebergMergeSink");
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
     }
 
     public DeleteCommandContext getDeleteContext() {
         return deleteContext;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
     }
 
     @Override
@@ -100,7 +124,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 cols, outputExprs, deleteContext, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, writeSchemaContext, children.get(0));
     }
 
     @Override
@@ -112,7 +136,8 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                deleteContext, groupExpression, getLogicalProperties(), child());
+                deleteContext, groupExpression, getLogicalProperties(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, child());
     }
 
     @Override
@@ -120,14 +145,16 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                deleteContext, groupExpression, logicalProperties.get(), children.get(0));
+                deleteContext, groupExpression, logicalProperties.get(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                writeSchemaContext, child());
     }
 
     @Override
@@ -142,12 +169,13 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
             return false;
         }
         PhysicalIcebergMergeSink<?> that = (PhysicalIcebergMergeSink<?>) o;
-        return Objects.equals(deleteContext, that.deleteContext);
+        return Objects.equals(deleteContext, that.deleteContext)
+                && Objects.equals(writeSchemaContext, that.writeSchemaContext);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), deleteContext);
+        return Objects.hash(super.hashCode(), deleteContext, writeSchemaContext);
     }
 
     /**

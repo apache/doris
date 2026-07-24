@@ -22,12 +22,18 @@
 namespace doris {
 
 inline constexpr int32_t ICEBERG_SCAN_SEMANTICS_VERSION_1 = 1;
+inline constexpr int32_t ICEBERG_SCAN_SEMANTICS_VERSION_2 = 2;
 
 inline bool supports_iceberg_scan_semantics_v1(const TFileScanRangeParams* params) {
     // Old FE plans can carry IDs and encoded defaults too, so only this explicit version marker
     // may opt a new BE into result-changing semantics during a rolling upgrade.
     return params != nullptr && params->__isset.iceberg_scan_semantics_version &&
            params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_1;
+}
+
+inline bool supports_iceberg_scan_semantics_v2(const TFileScanRangeParams* params) {
+    return params != nullptr && params->__isset.iceberg_scan_semantics_version &&
+           params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_2;
 }
 
 } // namespace doris

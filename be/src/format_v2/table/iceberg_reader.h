@@ -52,7 +52,8 @@ public:
     Status init(format::TableReadOptions&& options) override {
         RETURN_IF_ERROR(format::TableReader::init(std::move(options)));
         _mapper_options.mode = format::TableColumnMappingMode::BY_FIELD_ID;
-        _mapper_options.reject_missing_required_field = true;
+        _mapper_options.reject_missing_required_field =
+                supports_iceberg_scan_semantics_v2(_scan_params);
         return Status::OK();
     }
 

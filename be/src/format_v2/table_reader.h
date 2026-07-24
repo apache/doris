@@ -1309,17 +1309,16 @@ protected:
         DORIS_CHECK(mapping.table_type != nullptr);
         const bool runtime_input_mismatch =
                 source.column->is_nullable() != slot->data_type()->is_nullable();
-        const bool nullable_to_nonnullable =
-                source.column->is_nullable() && !mapping.table_type->is_nullable();
-        if (!runtime_input_mismatch && !nullable_to_nonnullable) {
+        if (!runtime_input_mismatch) {
             return Status::OK();
         }
 
-        // File readers can return a nullable runtime column when the physical schema marks the leaf
-        // required. Iceberg can also map an optional file field to a required table field. A
-        // pre-built Cast binds to the schema endpoints and can pass ColumnNullable to a
-        // non-nullable CastToImpl in either case. Rebuild only these casts from the runtime shape;
-        // the normal prepared projection remains the fast path otherwise.
+        // File readers can return a nullable runtime column even when the physical schema marks the
+        // leaf required. A pre-built Cast binds to the declared file type and can therefore pass a
+        // ColumnNullable to a non-nullable CastToImpl. Rebuild only when that runtime shape differs
+        // from the declared input. A physically optional field mapped to a required table field
+        // must keep the normal validation path and fail even when this particular batch has no
+        // NULLs.
         ColumnPtr result_column = source.column;
         RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
                                              mapping.file_column_name));

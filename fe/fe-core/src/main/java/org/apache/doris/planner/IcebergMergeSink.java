@@ -23,8 +23,10 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -64,6 +66,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -75,12 +78,19 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext) {
+        this(targetTable, deleteContext, Optional.empty());
+    }
+
+    /** Constructor with the schema pinned by the Nereids merge plan. */
+    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("UPDATE on iceberg view is not supported");
         }
         this.targetTable = targetTable;
         this.deleteContext = deleteContext;
+        this.writeSchemaContext = writeSchemaContext;
 
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
@@ -121,16 +131,31 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
         Table icebergTable = targetTable.getIcebergTable();
 
+        Optional<IcebergWriteSchemaContext> executorWriteSchemaContext = insertCtx
+                .filter(IcebergInsertCommandContext.class::isInstance)
+                .map(IcebergInsertCommandContext.class::cast)
+                .flatMap(IcebergInsertCommandContext::getWriteSchemaContext);
+        if (!executorWriteSchemaContext.equals(writeSchemaContext)) {
+            throw new AnalysisException("Iceberg write schema context differs between plan and executor");
+        }
+
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());
 
-        Schema schema = icebergTable.schema();
-        int formatVersion = IcebergUtils.getFormatVersion(icebergTable);
+        Schema schema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElseGet(icebergTable::schema);
+        int formatVersion = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFormatVersion)
+                .orElseGet(() -> IcebergUtils.getFormatVersion(icebergTable));
         if (formatVersion >= 3) {
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
         }
         tSink.setFormatVersion(formatVersion);
-        tSink.setSchemaJson(SchemaParser.toJson(schema));
+        String writerSchemaJson = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getMergeSchemaJson)
+                .orElse(SchemaParser.toJson(schema));
+        tSink.setSchemaJson(writerSchemaJson);
         tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable, schema));
 
         // partition spec
@@ -142,7 +167,9 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         // sort order
         if (icebergTable.sortOrder().isSorted()) {
             SortOrder sortOrder = icebergTable.sortOrder();
-            Set<Integer> baseColumnFieldIds = icebergTable.schema().columns().stream()
+            Set<Integer> baseColumnFieldIds = writeSchemaContext
+                    .map(IcebergWriteSchemaContext::getSchema)
+                    .orElseGet(icebergTable::schema).columns().stream()
                     .map(Types.NestedField::fieldId)
                     .collect(ImmutableSet.toImmutableSet());
             ImmutableList.Builder<TSortField> sortFields = ImmutableList.builder();

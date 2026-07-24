@@ -2444,7 +2444,7 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
     binary_field.field_ptr->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
     binary_field.field_ptr->__set_initial_default_value_is_base64(true);
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(1);
     scan_params.__set_history_schema_info({external_schema(1, {binary_field})});
 
@@ -2748,9 +2748,10 @@ TEST(TableReaderTest, ScalarCastUsesRuntimeNullableDateTimeColumnShape) {
     EXPECT_EQ(result->size(), 1);
 }
 
-TEST(TableReaderTest, ScalarCastHandlesNullableFileColumnForRequiredDateTime) {
+TEST(TableReaderTest, ScalarCastHandlesNullableRuntimeColumnForRequiredDateTime) {
     const auto table_type = std::make_shared<DataTypeDateTimeV2>(6);
-    const auto file_type = make_nullable(table_type);
+    const auto file_type = table_type;
+    const auto runtime_type = make_nullable(file_type);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     TableReaderCastTestHelper reader;
     ASSERT_TRUE(reader.init({
@@ -2768,7 +2769,7 @@ TEST(TableReaderTest, ScalarCastHandlesNullableFileColumnForRequiredDateTime) {
     nested->insert_default();
     auto null_map = ColumnUInt8::create(1, 0);
     Block block;
-    block.insert({ColumnNullable::create(std::move(nested), std::move(null_map)), file_type,
+    block.insert({ColumnNullable::create(std::move(nested), std::move(null_map)), runtime_type,
                   "event_time"});
 
     auto cast_expr = Cast::create_shared(table_type);

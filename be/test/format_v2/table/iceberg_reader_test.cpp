@@ -1202,6 +1202,7 @@ void expect_idless_equality_key_uses_delete_file_name(FileFormat file_format,
         equality_field.field_ptr->__set_name_mapping_is_authoritative(true);
     }
     auto scan_params = make_local_scan_params(file_format);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info(
             {external_schema(100, {external_schema_field("id", 0), equality_field})});
@@ -1325,7 +1326,7 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsTypedNestedInitialDefault) {
             "added", 2, {}, "7", external_primitive_type(TPrimitiveType::INT), false, false);
     auto struct_field = external_struct_schema_field("s", 1, {std::move(added_field)}, true);
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {std::move(struct_field)})});
 
@@ -1401,7 +1402,7 @@ TEST(IcebergV2ReaderTest, AnnotateBuildsComplexInitialDefaults) {
     map_field.field_ptr->__isset.nestedField = true;
 
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(
             100, {std::move(struct_field), std::move(list_field), std::move(map_field)})});
@@ -1499,7 +1500,7 @@ TEST(IcebergV2ReaderTest, ComplexInitialDefaultPrefersExactChildNameOverAlias) {
     auto struct_field = external_struct_schema_field(
             "s", 1, {std::move(renamed_child), std::move(reused_name_child)}, true, "{}");
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {std::move(struct_field)})});
 
@@ -1528,7 +1529,7 @@ TEST(IcebergV2ReaderTest, AnnotateOwnsDecodedVarbinaryInitialDefault) {
 
     auto binary_field = external_schema_field("payload", 7, {}, encoded, std::nullopt, true, true);
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {std::move(binary_field)})});
 
@@ -1557,6 +1558,7 @@ TEST(IcebergV2ReaderTest, AnnotateClearsGenericNullDefaultForRequiredField) {
     auto field = external_schema_field("required_value", 9, {}, std::nullopt, std::nullopt, false,
                                        false);
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {std::move(field)})});
 
@@ -1574,11 +1576,39 @@ TEST(IcebergV2ReaderTest, AnnotateClearsGenericNullDefaultForRequiredField) {
     EXPECT_EQ(column.default_expr, nullptr);
 }
 
+TEST(IcebergV2ReaderTest, SemanticsV1PreservesGenericRequiredFieldFallback) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    EXPECT_TRUE(supports_iceberg_scan_semantics_v1(&scan_params));
+    EXPECT_FALSE(supports_iceberg_scan_semantics_v2(&scan_params));
+
+    auto field = external_schema_field("required_value", 9, {}, std::nullopt, std::nullopt, false,
+                                       false);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {std::move(field)})});
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    ColumnDefinition column;
+    column.name = "required_value";
+    column.type = int_type;
+    column.default_expr = VExprContext::create_shared(VLiteral::create_shared(int_type, Field()));
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    doris::format::iceberg::IcebergTableReader reader;
+
+    const auto status = reader.annotate_projected_column(TFileScanSlotInfo(), &context, &column);
+
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_NE(column.default_expr, nullptr);
+
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    EXPECT_TRUE(supports_iceberg_scan_semantics_v1(&scan_params));
+    EXPECT_TRUE(supports_iceberg_scan_semantics_v2(&scan_params));
+}
+
 TEST(IcebergV2ReaderTest, AnnotateRejectsMalformedInitialDefault) {
     auto field =
             external_schema_field("added_int", 10, {}, "not-an-int", std::nullopt, false, true);
     TFileScanRangeParams scan_params;
-    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {std::move(field)})});
 
@@ -2747,6 +2777,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesNullForMissingDataColumn) 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info(
             {external_schema(100, {external_schema_field("id", 0),
@@ -2790,6 +2821,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMissingKeyDoesNotReadUnsupportedU
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info(
             {external_schema(100, {external_schema_field("id", 0),
@@ -2834,6 +2866,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesInitialDefaultForMissingDa
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info(
             {external_schema(100, {external_schema_field("id", 0),
@@ -2876,6 +2909,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesDroppedFieldHistoricalInitial
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(200);
     scan_params.__set_history_schema_info(
             {external_schema(200, {external_schema_field("id", 0)}),
@@ -2919,6 +2953,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteRejectsDroppedFieldWithoutSchemaM
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     io::FileReaderStats file_reader_stats;
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
@@ -3338,6 +3373,7 @@ TEST(IcebergV2ReaderTest, ParquetUsesUnprojectedSiblingIdToRetainNullableWrapper
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {schema_s})});
     ProjectedColumnBuildContext context {.scan_params = &scan_params};
@@ -3400,6 +3436,7 @@ TEST(IcebergV2ReaderTest, ReusedRootNameReadsNewFieldInitialDefault) {
     current_b.field_ptr->__set_name_mapping_is_authoritative(true);
 
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {renamed_b, current_b})});
 
@@ -3505,6 +3542,7 @@ TEST(IcebergV2ReaderTest, ReusedNestedNameReadsNewFieldInitialDefault) {
     schema_s.field_ptr->__isset.nestedField = true;
 
     auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(100, {schema_s})});
 

@@ -507,6 +507,9 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     RETURN_IF_ERROR(format::TableReader::annotate_projected_column(slot_info, context, column));
     DORIS_CHECK(context != nullptr);
     DORIS_CHECK(column != nullptr);
+    if (!supports_iceberg_scan_semantics_v2(context->scan_params)) {
+        return Status::OK();
+    }
     if (!context->schema_column.has_value()) {
         return Status::OK();
     }
@@ -958,7 +961,7 @@ Status IcebergTableReader::_find_equality_delete_table_field(
             resolved = *projected_field;
         }
     }
-    if (!resolved.has_value() && !supports_iceberg_scan_semantics_v1(_scan_params)) {
+    if (!resolved.has_value() && !supports_iceberg_scan_semantics_v2(_scan_params)) {
         resolved = format::ColumnDefinition {
                 .identifier = {},
                 .name = filter.field_names[key_idx],
@@ -1030,7 +1033,7 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
                 VExprSPtr key_expr;
                 RETURN_IF_ERROR(build_missing_equality_delete_key_expr(
                         *table_field, filter.key_types[idx],
-                        supports_iceberg_scan_semantics_v1(_scan_params), &key_expr));
+                        supports_iceberg_scan_semantics_v2(_scan_params), &key_expr));
                 delete_predicate->add_child(key_expr);
                 has_missing_key = true;
                 continue;

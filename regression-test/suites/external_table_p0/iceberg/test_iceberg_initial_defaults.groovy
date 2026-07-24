@@ -27,11 +27,13 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String mappedCatalog = "test_iceberg_initial_defaults_mapped"
     String legacyCatalog = "test_iceberg_initial_defaults_legacy"
+    String legacyWriteCatalog = "test_iceberg_initial_defaults_legacy_write"
     String namespace = "format_v3"
     String parquetTable = "initial_defaults_parquet"
     String orcTable = "initial_defaults_orc"
 
-    def createCatalog = { String catalogName, boolean enableMapping ->
+    def createCatalog = { String catalogName, boolean enableVarbinaryMapping,
+            boolean enableTimestampTzMapping ->
         sql """drop catalog if exists ${catalogName}"""
         sql """
             CREATE CATALOG ${catalogName} PROPERTIES (
@@ -44,14 +46,17 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
                 's3.region' = 'us-east-1',
                 's3.path.style.access' = 'true',
                 's3.connection.ssl.enabled' = 'false',
-                'enable.mapping.varbinary' = '${enableMapping}',
-                'enable.mapping.timestamp_tz' = '${enableMapping}'
+                'enable.mapping.varbinary' = '${enableVarbinaryMapping}',
+                'enable.mapping.timestamp_tz' = '${enableTimestampTzMapping}'
             )
         """
     }
 
-    createCatalog(mappedCatalog, true)
-    createCatalog(legacyCatalog, false)
+    createCatalog(mappedCatalog, true, true)
+    createCatalog(legacyCatalog, false, false)
+    // Exercise the legacy UUID/FIXED/BINARY carrier without also writing TIMESTAMPTZ through its
+    // unrelated legacy DATETIME physical mapping into the shared ORC fixture.
+    createCatalog(legacyWriteCatalog, false, true)
 
     def executeCommandWithStatus = { String cmd, int timeoutSeconds = 300,
             Boolean logFailure = true, Boolean logCommand = true ->
@@ -308,8 +313,11 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
 
     sql """REFRESH CATALOG ${mappedCatalog}"""
     sql """REFRESH CATALOG ${legacyCatalog}"""
+    sql """REFRESH CATALOG ${legacyWriteCatalog}"""
     sql """set time_zone = 'UTC'"""
-    sql """set file_split_size = 1"""
+    // Keep each fixture file split into several scan ranges without creating one range per byte,
+    // which can exceed the fragment RPC deadline before any scanner starts.
+    sql """set file_split_size = 4096"""
 
     String topLevelProjection = """
         id,
@@ -367,6 +375,85 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
     String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
 
     def tableNames = [parquet: parquetTable, orc: orcTable]
+
+    // Doris must materialize the current Iceberg write-default into newly written files. The
+    // fixture deliberately keeps initial-default and write-default different, so these rows also
+    // prove that the write path does not reuse the read fallback.
+    sql """switch ${mappedCatalog}"""
+    sql """use ${namespace}"""
+    tableNames.each { String format, String currentTable ->
+        sql """INSERT INTO ${currentTable} (id) VALUES (7)"""
+        sql """INSERT INTO ${currentTable} (id, default_int) VALUES (8, DEFAULT)"""
+        sql """
+            INSERT INTO ${currentTable} (id, default_int, default_string) VALUES
+                (9, NULL, 'explicit-null-string'),
+                (10, 1006, 'explicit-value-string')
+        """
+    }
+
+    // Repeat the omitted-column write through the legacy UUID/FIXED/BINARY mapping. Spark reads
+    // the physical bytes below, catching UTF-8 or hexadecimal corruption in the string carrier.
+    sql """switch ${legacyWriteCatalog}"""
+    sql """use ${namespace}"""
+    tableNames.each { String format, String currentTable ->
+        sql """INSERT INTO ${currentTable} (id) VALUES (11)"""
+    }
+
+    String sparkWriteVerification = runSparkSql("""
+        USE demo.${namespace};
+        SELECT concat_ws('|',
+            'parquet', CAST(id AS STRING), CAST(default_boolean AS STRING),
+            CAST(default_int AS STRING), CAST(default_long AS STRING),
+            CAST(default_float AS STRING), CAST(default_double AS STRING),
+            CAST(default_decimal AS STRING), CAST(default_date AS STRING),
+            CAST(default_timestamp AS STRING), CAST(default_timestamptz AS STRING),
+            default_string, CAST(default_uuid AS STRING),
+            hex(default_fixed), hex(default_binary))
+        FROM ${parquetTable} WHERE id = 7
+        UNION ALL
+        SELECT concat_ws('|',
+            'orc', CAST(id AS STRING), CAST(default_boolean AS STRING),
+            CAST(default_int AS STRING), CAST(default_long AS STRING),
+            CAST(default_float AS STRING), CAST(default_double AS STRING),
+            CAST(default_decimal AS STRING), CAST(default_date AS STRING),
+            CAST(default_timestamp AS STRING), CAST(default_timestamptz AS STRING),
+            default_string, CAST(default_uuid AS STRING),
+            hex(default_fixed), hex(default_binary))
+        FROM ${orcTable} WHERE id = 7;
+        SELECT concat_ws('|', 'parquet-legacy', CAST(id AS STRING),
+            CAST(default_uuid AS STRING), hex(default_fixed), hex(default_binary))
+        FROM ${parquetTable} WHERE id = 11
+        UNION ALL
+        SELECT concat_ws('|', 'orc-legacy', CAST(id AS STRING),
+            CAST(default_uuid AS STRING), hex(default_fixed), hex(default_binary))
+        FROM ${orcTable} WHERE id = 11;
+        SELECT concat_ws('|', 'parquet', CAST(id AS STRING),
+            coalesce(CAST(default_int AS STRING), 'NULL'), default_string)
+        FROM ${parquetTable} WHERE id BETWEEN 8 AND 10
+        UNION ALL
+        SELECT concat_ws('|', 'orc', CAST(id AS STRING),
+            coalesce(CAST(default_int AS STRING), 'NULL'), default_string)
+        FROM ${orcTable} WHERE id BETWEEN 8 AND 10;
+    """)
+    String fullWriteDefault = "false|35|4900000001|13.5|456.75|98765.4321|" +
+            "2025-01-18|2025-01-18 01:02:03.654321|2025-01-18 01:02:03.654321|" +
+            "write-default|123e4567-e89b-12d3-a456-426614174001|1A1B1C1D|3A3B3C"
+    [
+        "parquet|7|${fullWriteDefault}",
+        "orc|7|${fullWriteDefault}",
+        "parquet-legacy|11|123e4567-e89b-12d3-a456-426614174001|1A1B1C1D|3A3B3C",
+        "orc-legacy|11|123e4567-e89b-12d3-a456-426614174001|1A1B1C1D|3A3B3C",
+        "parquet|8|35|write-default",
+        "parquet|9|NULL|explicit-null-string",
+        "parquet|10|1006|explicit-value-string",
+        "orc|8|35|write-default",
+        "orc|9|NULL|explicit-null-string",
+        "orc|10|1006|explicit-value-string"
+    ].each { String expectedRow ->
+        assertTrue(sparkWriteVerification.readLines().any { it.trim() == expectedRow },
+                "Spark did not read Doris-written Iceberg row: ${expectedRow}\n${sparkWriteVerification}")
+    }
+
     def runChecks = { String scannerName, boolean enableFileScannerV2 ->
         sql """set enable_file_scanner_v2 = ${enableFileScannerV2}"""
         tableNames.each { String format, String tableName ->

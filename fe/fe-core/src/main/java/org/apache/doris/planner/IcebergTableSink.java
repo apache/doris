@@ -25,6 +25,7 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -60,6 +61,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     private List<Expr> outputExprs;
     private final IcebergExternalTable targetTable;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
@@ -70,11 +72,18 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
+        this(targetTable, Optional.empty());
+    }
+
+    /** Constructor with the schema pinned by the Nereids write plan. */
+    public IcebergTableSink(IcebergExternalTable targetTable,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("Write data to iceberg view is not supported");
         }
         this.targetTable = targetTable;
+        this.writeSchemaContext = writeSchemaContext;
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
@@ -120,21 +129,32 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setTbName(targetTable.getName());
 
         boolean isRewriting = false;
+        Optional<IcebergWriteSchemaContext> executorWriteSchemaContext = Optional.empty();
         if (insertCtx.isPresent() && insertCtx.get() instanceof IcebergInsertCommandContext) {
             IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             isRewriting = context.isRewriting();
+            executorWriteSchemaContext = context.getWriteSchemaContext();
             if (isRewriting) {
                 tSink.setWriteType(TIcebergWriteType.REWRITE);
             }
         }
+        if (!executorWriteSchemaContext.equals(writeSchemaContext)) {
+            throw new AnalysisException("Iceberg write schema context differs between plan and executor");
+        }
 
-        Schema schema = icebergTable.schema();
+        Schema schema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElseGet(icebergTable::schema);
         if (isRewriting
                 && IcebergUtils.getFormatVersion(icebergTable) >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
             // iceberg v3 format requires additional row lineage fields when rewrite data files.
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
         }
-        tSink.setSchemaJson(SchemaParser.toJson(schema));
+        String writerSchemaJson = isRewriting
+                ? SchemaParser.toJson(schema)
+                : writeSchemaContext.map(IcebergWriteSchemaContext::getSchemaJson)
+                        .orElse(SchemaParser.toJson(schema));
+        tSink.setSchemaJson(writerSchemaJson);
         tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable, schema));
 
         // partition spec
@@ -153,8 +173,8 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
                 if (!sortField.transform().isIdentity()) {
                     continue;
                 }
-                for (int i = 0; i < icebergTable.schema().columns().size(); ++i) {
-                    NestedField column  = icebergTable.schema().columns().get(i);
+                for (int i = 0; i < schema.columns().size(); ++i) {
+                    NestedField column  = schema.columns().get(i);
                     if (column.fieldId() == sortField.sourceId()) {
                         orderingExprs.add(outputExprs.get(i));
                         isAscOrder.add(sortField.direction().equals(SortDirection.ASC));

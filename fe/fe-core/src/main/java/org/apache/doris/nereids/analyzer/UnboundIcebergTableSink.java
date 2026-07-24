@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -42,6 +44,7 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
     // Static partition key-value pairs for INSERT OVERWRITE ... PARTITION
     // (col='val', ...)
     private final Map<String, Expression> staticPartitionKeyValues;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
 
     public UnboundIcebergTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                    List<String> partitions, CHILD_TYPE child) {
@@ -97,12 +100,30 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
             CHILD_TYPE child,
             Map<String, Expression> staticPartitionKeyValues,
             boolean rewrite) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType, groupExpression,
+                logicalProperties, child, staticPartitionKeyValues, rewrite, Optional.empty());
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public UnboundIcebergTableSink(List<String> nameParts,
+            List<String> colNames,
+            List<String> hints,
+            List<String> partitions,
+            DMLCommandType dmlCommandType,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child,
+            Map<String, Expression> staticPartitionKeyValues,
+            boolean rewrite,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_ICEBERG_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
         this.staticPartitionKeyValues = staticPartitionKeyValues != null
                 ? ImmutableMap.copyOf(staticPartitionKeyValues)
                 : null;
         this.rewrite = rewrite;
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
     }
 
     public Map<String, Expression> getStaticPartitionKeyValues() {
@@ -118,7 +139,8 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundIcebergTableSink only accepts one child");
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues, rewrite);
+                dmlCommandType, groupExpression, Optional.empty(), children.get(0),
+                staticPartitionKeyValues, rewrite, writeSchemaContext);
     }
 
     @Override
@@ -130,17 +152,29 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(),
-                staticPartitionKeyValues, rewrite);
+                staticPartitionKeyValues, rewrite, writeSchemaContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues, rewrite);
+                dmlCommandType, groupExpression, logicalProperties, children.get(0),
+                staticPartitionKeyValues, rewrite, writeSchemaContext);
     }
 
     public boolean isRewrite() {
         return rewrite;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
+    }
+
+    /** Return a copy carrying the schema pinned for this write statement. */
+    public UnboundIcebergTableSink<CHILD_TYPE> withWriteSchemaContext(IcebergWriteSchemaContext context) {
+        return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, groupExpression, Optional.empty(), child(),
+                staticPartitionKeyValues, rewrite, Optional.of(context));
     }
 }

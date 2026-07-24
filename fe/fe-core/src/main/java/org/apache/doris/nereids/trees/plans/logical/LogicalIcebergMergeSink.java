@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -47,6 +48,7 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
     private final IcebergExternalDatabase database;
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
 
     /**
      * Constructor
@@ -59,10 +61,26 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
+        this(database, targetTable, cols, outputExprs, deleteContext, groupExpression,
+                logicalProperties, Optional.empty(), child);
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public LogicalIcebergMergeSink(IcebergExternalDatabase database,
+                                   IcebergExternalTable targetTable,
+                                   List<Column> cols,
+                                   List<NamedExpression> outputExprs,
+                                   DeleteCommandContext deleteContext,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   Optional<IcebergWriteSchemaContext> writeSchemaContext,
+                                   CHILD_TYPE child) {
         super(PlanType.LOGICAL_ICEBERG_MERGE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergMergeSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergMergeSink");
         this.deleteContext = Objects.requireNonNull(deleteContext, "deleteContext != null in LogicalIcebergMergeSink");
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
@@ -70,19 +88,19 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalIcebergMergeSink<>(database, targetTable, cols, output,
-                deleteContext, Optional.empty(), Optional.empty(), child);
+                deleteContext, Optional.empty(), Optional.empty(), writeSchemaContext, child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergMergeSink only accepts one child");
         return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, Optional.empty(), Optional.empty(), children.get(0));
+                deleteContext, Optional.empty(), Optional.empty(), writeSchemaContext, children.get(0));
     }
 
     public LogicalIcebergMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, Optional.empty(), Optional.empty(), child());
+                deleteContext, Optional.empty(), Optional.empty(), writeSchemaContext, child());
     }
 
     public IcebergExternalDatabase getDatabase() {
@@ -95,6 +113,10 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     public DeleteCommandContext getDeleteContext() {
         return deleteContext;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
     }
 
     @Override
@@ -112,12 +134,13 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(deleteContext, that.deleteContext)
-                && Objects.equals(cols, that.cols);
+                && Objects.equals(cols, that.cols)
+                && Objects.equals(writeSchemaContext, that.writeSchemaContext);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, deleteContext);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, deleteContext, writeSchemaContext);
     }
 
     @Override
@@ -138,13 +161,13 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, Optional.of(getLogicalProperties()), child());
+                deleteContext, groupExpression, Optional.of(getLogicalProperties()), writeSchemaContext, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalIcebergMergeSink<>(database, targetTable, cols, outputExprs,
-                deleteContext, groupExpression, logicalProperties, children.get(0));
+                deleteContext, groupExpression, logicalProperties, writeSchemaContext, children.get(0));
     }
 }
