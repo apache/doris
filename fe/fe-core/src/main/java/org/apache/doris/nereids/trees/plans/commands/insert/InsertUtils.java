@@ -30,8 +30,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -375,16 +373,9 @@ public class InsertUtils {
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
-        List<Column> fullColumns = table.getBaseSchema(true);
-        if (table instanceof IcebergExternalTable && unboundLogicalSink instanceof UnboundIcebergTableSink) {
-            fullColumns = IcebergUtils.getSchemaForBranch(
-                    (IcebergExternalTable) table,
-                    ((UnboundIcebergTableSink<?>) unboundLogicalSink).getBranchName(),
-                    true);
-        }
-        List<Column> columns = fullColumns.stream()
-                .filter(Column::isVisible)
-                .collect(ImmutableList.toImmutableList());
+        // Iceberg branch writes follow the shared table schema; historical schemas only apply
+        // when a branch is read, not when INSERT values are bound.
+        List<Column> columns = table.getBaseSchema(false);
         Map<String, Expression> staticPartitions = null;
         if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
             staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
@@ -432,7 +423,7 @@ public class InsertUtils {
                     }
                     for (int i = 0; i < values.size(); i++) {
                         Column sameNameColumn = null;
-                        for (Column column : fullColumns) {
+                        for (Column column : table.getBaseSchema(true)) {
                             if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
                                 sameNameColumn = column;
                                 break;
