@@ -192,33 +192,42 @@ suite("test_iceberg_schema_ref_actions_matrix",
         sql """insert into ${fastForwardTable} values (1, 'old-1', 10)"""
         sql """alter table ${fastForwardTable} create branch pre_rename_branch"""
         sql """alter table ${fastForwardTable} create tag pre_rename_tag"""
+        String preRenameSnapshot = sql("""
+            select snapshot_id from ${fastForwardTable}\$refs
+            where name = 'pre_rename_branch'
+        """)[0][0].toString()
         sql """alter table ${fastForwardTable} rename column old_name new_name"""
         sql """alter table ${fastForwardTable} modify column metric bigint"""
         sql """insert into ${fastForwardTable} values (2, 'new-2', 6000000000)"""
 
-        // Scenario T08 negative contract: before fast-forward, branch reads use the latest rename schema.
-        test {
-            sql """
+        // Scenario T08: before fast-forward, the branch keeps its pre-rename schema.
+        assertEquals([[1, "old-1", 10]], sql("""
                 select id, old_name, metric
                 from ${fastForwardTable}@branch(pre_rename_branch)
                 order by id
-            """
-            exception "Unknown column 'old_name'"
-        }
+        """))
         assertEquals([[1, "old-1", 10]], sql("""
             select id, old_name, metric
             from ${fastForwardTable}@tag(pre_rename_tag)
             order by id
         """))
 
-        // Scenario T09 negative contract: a pre-rename branch write uses main's latest schema.
-        test {
-            sql """
-                insert into ${fastForwardTable}@branch(pre_rename_branch)
-                (id, old_name, metric) values (3, 'branch-3', 30)
-            """
-            exception "Unknown column 'old_name'"
-        }
+        // Scenario T09: writes use the branch schema, not main's renamed schema.
+        sql """
+            insert into ${fastForwardTable}@branch(pre_rename_branch)
+            (id, old_name, metric) values (3, 'branch-3', 30)
+        """
+        assertEquals([[1, "old-1", 10], [3, "branch-3", 30]], sql("""
+            select id, old_name, metric
+            from ${fastForwardTable}@branch(pre_rename_branch)
+            order by id
+        """))
+        // Restore the original branch head so the following fast-forward remains non-divergent.
+        sql """alter table ${fastForwardTable} drop branch pre_rename_branch"""
+        sql """
+            alter table ${fastForwardTable}
+            create branch pre_rename_branch as of version ${preRenameSnapshot}
+        """
 
         sql """
             alter table ${fastForwardTable}
