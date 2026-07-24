@@ -37,7 +37,21 @@ enum class Encoding {
 enum class ValueType { INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY };
 enum class Pattern { CLUSTERED, ALTERNATING };
 enum class Projection { PREDICATE_ONLY, PREDICATE_PROJECTED };
-enum class ReaderOperation { OPEN_TO_FIRST_BLOCK, FULL_SCAN, PREDICATE_SCAN, LIMIT_1, LIMIT_1000 };
+enum class ReaderOperation {
+    OPEN_TO_FIRST_BLOCK,
+    FULL_SCAN,
+    PREDICATE_SCAN,
+    COMPLEX_RESIDUAL_SCAN,
+    LIMIT_1,
+    LIMIT_1000
+};
+enum class Kernel {
+    BYTE_STREAM_SPLIT,
+    DELTA_PREFIX_SUM,
+    DICTIONARY_GATHER,
+    NULLABLE_EXPAND,
+    RAW_PREDICATE
+};
 
 struct DecoderScenario {
     Encoding encoding;
@@ -53,6 +67,15 @@ struct ReaderScenario {
     Projection projection;
     int schema_width;
     int predicate_position;
+};
+
+struct KernelScenario {
+    Kernel kernel;
+    ValueType value_type;
+    int selectivity_percent;
+    int null_percent;
+    Pattern pattern;
+    size_t dictionary_entries;
 };
 
 struct SelectionRange {
@@ -90,6 +113,36 @@ inline std::vector<DecoderScenario> decoder_scenarios() {
     };
 }
 
+inline std::vector<KernelScenario> kernel_scenarios() {
+    std::vector<KernelScenario> scenarios;
+    for (const auto value_type : {ValueType::FLOAT, ValueType::DOUBLE}) {
+        scenarios.push_back(
+                {Kernel::BYTE_STREAM_SPLIT, value_type, 100, 0, Pattern::CLUSTERED, 256});
+    }
+    for (const auto value_type : {ValueType::INT32, ValueType::INT64}) {
+        scenarios.push_back(
+                {Kernel::DELTA_PREFIX_SUM, value_type, 100, 0, Pattern::CLUSTERED, 256});
+    }
+    for (const auto value_type :
+         {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}) {
+        for (const size_t dictionary_entries : {32, 4096, 262144}) {
+            scenarios.push_back({Kernel::DICTIONARY_GATHER, value_type, 100, 0, Pattern::CLUSTERED,
+                                 dictionary_entries});
+        }
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                scenarios.push_back(
+                        {Kernel::NULLABLE_EXPAND, value_type, 100, null_percent, pattern, 256});
+            }
+        }
+        for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+            scenarios.push_back(
+                    {Kernel::RAW_PREDICATE, value_type, selectivity, 0, Pattern::ALTERNATING, 256});
+        }
+    }
+    return scenarios;
+}
+
 inline std::vector<ReaderScenario> reader_scenarios() {
     std::vector<ReaderScenario> scenarios;
     std::set<std::tuple<ReaderOperation, Encoding, int, Pattern, int, Projection, int, int>> seen;
@@ -113,7 +166,8 @@ inline std::vector<ReaderScenario> reader_scenarios() {
                                    .predicate_position = 0};
     for (const auto operation :
          {ReaderOperation::OPEN_TO_FIRST_BLOCK, ReaderOperation::FULL_SCAN,
-          ReaderOperation::PREDICATE_SCAN, ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
+          ReaderOperation::PREDICATE_SCAN, ReaderOperation::COMPLEX_RESIDUAL_SCAN,
+          ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
         auto scenario = baseline;
         scenario.operation = operation;
         add(scenario);
@@ -200,6 +254,15 @@ inline SelectionPlan make_selection_plan(size_t total_rows, int selectivity_perc
     return plan;
 }
 
+template <typename Visitor>
+inline void visit_selected_rows(const SelectionPlan& plan, Visitor visitor) {
+    for (const auto& range : plan.ranges) {
+        for (size_t offset = 0; offset < range.count; ++offset) {
+            visitor(range.first + offset);
+        }
+    }
+}
+
 inline std::string to_string(Encoding value) {
     switch (value) {
     case Encoding::PLAIN:
@@ -252,10 +315,36 @@ inline std::string to_string(ReaderOperation value) {
         return "full_scan";
     case ReaderOperation::PREDICATE_SCAN:
         return "predicate_scan";
+    case ReaderOperation::COMPLEX_RESIDUAL_SCAN:
+        return "complex_residual_scan";
     case ReaderOperation::LIMIT_1:
         return "limit_1";
     case ReaderOperation::LIMIT_1000:
         return "limit_1000";
+    }
+    return "unknown";
+}
+
+inline std::string reader_scenario_name(const ReaderScenario& scenario) {
+    return to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/null_" +
+           std::to_string(scenario.null_percent) + "/" + to_string(scenario.null_pattern) +
+           "/sel_" + std::to_string(scenario.selectivity_percent) + "/" +
+           to_string(scenario.projection) + "/width_" + std::to_string(scenario.schema_width) +
+           "/predicate_" + std::to_string(scenario.predicate_position);
+}
+
+inline std::string to_string(Kernel value) {
+    switch (value) {
+    case Kernel::BYTE_STREAM_SPLIT:
+        return "byte_stream_split";
+    case Kernel::DELTA_PREFIX_SUM:
+        return "delta_prefix_sum";
+    case Kernel::DICTIONARY_GATHER:
+        return "dictionary_gather";
+    case Kernel::NULLABLE_EXPAND:
+        return "nullable_expand";
+    case Kernel::RAW_PREDICATE:
+        return "raw_predicate";
     }
     return "unknown";
 }

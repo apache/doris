@@ -197,5 +197,6 @@ github:
     - feiniaofeiafei
     - wyxxxcat
     - linrrzqqq
+    - Doris-Breakwater
 notifications:
   pullrequests_status:  commits@doris.apache.org

@@ -21,7 +21,9 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <set>
+#include <string>
 #include <tuple>
 
 namespace doris::parquet_benchmark {
@@ -29,6 +31,7 @@ namespace {
 
 TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFamilies) {
     const auto scenarios = decoder_scenarios();
+    EXPECT_EQ(scenarios.size() * 6 * 2, size_t {228});
     const std::set<std::pair<Encoding, ValueType>> actual = [&] {
         std::set<std::pair<Encoding, ValueType>> values;
         for (const auto& scenario : scenarios) {
@@ -61,8 +64,55 @@ TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFami
     EXPECT_EQ(actual, expected);
 }
 
+TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryShape) {
+    const auto scenarios = kernel_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {80});
+    const std::map<Kernel, std::vector<ValueType>> expected_types {
+            {Kernel::BYTE_STREAM_SPLIT, {ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::DELTA_PREFIX_SUM, {ValueType::INT32, ValueType::INT64}},
+            {Kernel::DICTIONARY_GATHER,
+             {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::NULLABLE_EXPAND,
+             {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+            {Kernel::RAW_PREDICATE,
+             {ValueType::INT32, ValueType::INT64, ValueType::FLOAT, ValueType::DOUBLE}},
+    };
+    for (const auto& [kernel, value_types] : expected_types) {
+        for (const auto value_type : value_types) {
+            EXPECT_TRUE(std::ranges::any_of(scenarios,
+                                            [&](const KernelScenario& scenario) {
+                                                return scenario.kernel == kernel &&
+                                                       scenario.value_type == value_type;
+                                            }))
+                    << "missing SIMD width for kernel " << to_string(kernel);
+        }
+    }
+    for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+        EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+            return scenario.kernel == Kernel::RAW_PREDICATE &&
+                   scenario.selectivity_percent == selectivity;
+        })) << "missing raw predicate selectivity";
+    }
+    for (const int null_percent : {0, 1, 10, 50, 90}) {
+        for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+            EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+                return scenario.kernel == Kernel::NULLABLE_EXPAND &&
+                       scenario.null_percent == null_percent && scenario.pattern == pattern;
+            })) << "missing nullable expansion shape";
+        }
+    }
+    for (const size_t dictionary_entries : {32, 4096, 262144}) {
+        EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+            return scenario.kernel == Kernel::DICTIONARY_GATHER &&
+                   scenario.dictionary_entries == dictionary_entries;
+        })) << "missing dictionary working-set size";
+    }
+}
+
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {
     const auto scenarios = reader_scenarios();
+    // Keep the exact count aligned with the upstream complex-residual scenario retained by rebase.
+    EXPECT_EQ(scenarios.size(), size_t {152});
     for (const int null_percent : {0, 1, 10, 50, 90}) {
         for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
             for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
@@ -86,7 +136,8 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
     const auto scenarios = reader_scenarios();
     for (const auto operation :
          {ReaderOperation::OPEN_TO_FIRST_BLOCK, ReaderOperation::FULL_SCAN,
-          ReaderOperation::PREDICATE_SCAN, ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
+          ReaderOperation::PREDICATE_SCAN, ReaderOperation::COMPLEX_RESIDUAL_SCAN,
+          ReaderOperation::LIMIT_1, ReaderOperation::LIMIT_1000}) {
         EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
             return scenario.operation == operation;
         }));
@@ -107,6 +158,26 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
             }));
         }
     }
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixHasExactUniqueRegistrationNames) {
+    const auto scenarios = reader_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {152});
+
+    std::set<std::string> names;
+    for (const auto& scenario : scenarios) {
+        names.insert(reader_scenario_name(scenario));
+    }
+    EXPECT_EQ(names.size(), scenarios.size());
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversComplexResidualLazyMaterialization) {
+    const auto scenarios = reader_scenarios();
+    EXPECT_TRUE(std::ranges::any_of(scenarios, [](const ReaderScenario& scenario) {
+        return scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN &&
+               scenario.encoding == Encoding::PLAIN && scenario.selectivity_percent == 10 &&
+               scenario.schema_width == 32;
+    }));
 }
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversFixedWidthRawFilterAxes) {
@@ -142,6 +213,19 @@ TEST(ParquetBenchmarkScenariosTest, SelectionPlanDistinguishesClusteredAndSparse
 
     EXPECT_EQ(make_selection_plan(1000, 0, Pattern::ALTERNATING).ranges.size(), 0);
     EXPECT_EQ(make_selection_plan(1000, 100, Pattern::ALTERNATING).ranges.size(), 1);
+}
+
+TEST(ParquetBenchmarkScenariosTest, SelectedRowVisitorPreservesRangeOrderAndBoundaries) {
+    const SelectionPlan plan {
+            .total_rows = 12,
+            .selected_rows = 5,
+            .ranges = {{.first = 0, .count = 2},
+                       {.first = 5, .count = 1},
+                       {.first = 9, .count = 2}},
+    };
+    std::vector<size_t> rows;
+    visit_selected_rows(plan, [&](size_t row) { rows.push_back(row); });
+    EXPECT_EQ(rows, (std::vector<size_t> {0, 1, 5, 9, 10}));
 }
 
 } // namespace

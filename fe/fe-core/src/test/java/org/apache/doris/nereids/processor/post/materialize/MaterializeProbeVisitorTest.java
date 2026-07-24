@@ -160,6 +160,8 @@ public class MaterializeProbeVisitorTest {
         OlapTable table = Mockito.mock(OlapTable.class);
         Mockito.when(table.getBaseIndexId()).thenReturn(1L);
         Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        // lazy materialization requires light_schema_change to be enabled
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
         PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
         Mockito.when(scan.getSelectedIndexId()).thenReturn(1L);
         Mockito.when(scan.getTable()).thenReturn(table);

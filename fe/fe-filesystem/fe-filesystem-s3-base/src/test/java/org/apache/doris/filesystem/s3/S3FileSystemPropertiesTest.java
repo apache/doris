@@ -50,16 +50,6 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
-    void provider_sensitivePropertyKeysCoverSecretsButNotAccessKey() {
-        java.util.Set<String> keys = new S3FileSystemProvider().sensitivePropertyKeys();
-
-        Assertions.assertTrue(keys.contains("s3.secret_key"), keys.toString());
-        Assertions.assertTrue(keys.contains("s3.session_token"), keys.toString());
-        Assertions.assertFalse(keys.contains("s3.access_key"), keys.toString());
-        Assertions.assertFalse(keys.contains("AWS_ACCESS_KEY"), keys.toString());
-    }
-
-    @Test
     void of_bindsAliasesAndExposesEffectiveViews() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");

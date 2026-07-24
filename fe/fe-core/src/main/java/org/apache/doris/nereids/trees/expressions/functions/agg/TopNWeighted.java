@@ -219,4 +219,9 @@ public class TopNWeighted extends NullableAggregateFunction
                             + this.toSql());
         }
     }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0), getArgument(1)) : ImmutableList.of();
+    }
 }
