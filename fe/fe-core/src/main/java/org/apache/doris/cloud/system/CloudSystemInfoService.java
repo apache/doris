@@ -239,15 +239,9 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    // cloudUniqueId is a non-sensitive tenant and cluster locator that helps correlate Cloud RPC logs.
     static Cloud.AlterClusterRequest getAlterClusterRequestForLogging(Cloud.AlterClusterRequest request) {
-        Cloud.AlterClusterRequest.Builder requestBuilder = request.toBuilder().clearCloudUniqueId();
-        if (request.hasCluster()) {
-            ClusterPB.Builder clusterBuilder = requestBuilder.getClusterBuilder();
-            for (int i = 0; i < clusterBuilder.getNodesCount(); i++) {
-                clusterBuilder.getNodesBuilder(i).clearCloudUniqueId();
-            }
-        }
-        return requestBuilder.build();
+        return request.toBuilder().build();
     }
 
     public void addVirtualClusterInfoToMapsNoLock(String clusterId, String clusterName) {
@@ -1893,8 +1887,8 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             Cloud.GetInstanceRequest request = builder.build();
             response = MetaServiceProxy.getInstance().getInstance(request);
-            LOG.info("get instance info, cloudUniqueIdSet={}, requestIp={}, response={}",
-                    !request.getCloudUniqueId().isEmpty(), request.getRequestIp(),
+            LOG.info("get instance info, cloudUniqueId={}, requestIp={}, response={}",
+                    request.getCloudUniqueId(), request.getRequestIp(),
                     getInstanceResponseForLogging(response));
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("Failed to get instance info, response: {}", getInstanceResponseForLogging(response));

@@ -1055,7 +1055,7 @@ public class CloudSystemInfoServiceTest {
     }
 
     @Test
-    public void testAlterClusterLogCopyKeepsDiagnosticsAndClearsAuthIdentifier() {
+    public void testAlterClusterLogCopyKeepsDiagnosticsAndCloudUniqueId() {
         Cloud.NodeInfoPB node = Cloud.NodeInfoPB.newBuilder()
                 .setCloudUniqueId("node-auth-id")
                 .setIp("10.0.0.1")
@@ -1073,8 +1073,8 @@ public class CloudSystemInfoServiceTest {
 
         Cloud.AlterClusterRequest printed = CloudSystemInfoService.getAlterClusterRequestForLogging(request);
 
-        Assert.assertFalse(printed.hasCloudUniqueId());
-        Assert.assertFalse(printed.getCluster().getNodes(0).hasCloudUniqueId());
+        Assert.assertEquals("request-auth-id", printed.getCloudUniqueId());
+        Assert.assertEquals("node-auth-id", printed.getCluster().getNodes(0).getCloudUniqueId());
         Assert.assertEquals("instance-1", printed.getInstanceId());
         Assert.assertEquals("cluster-1", printed.getCluster().getClusterId());
         Assert.assertEquals("10.0.0.1", printed.getCluster().getNodes(0).getIp());

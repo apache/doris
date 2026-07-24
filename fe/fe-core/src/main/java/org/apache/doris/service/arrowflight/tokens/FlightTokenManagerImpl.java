@@ -181,7 +181,13 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     @Override
     public void invalidateToken(final String token) {
         // Do not log the bearer token value when it is invalidated.
-        LOG.info("Invalidate bearer token");
+        // Keep the owning user in the log when the cached token metadata is still available.
+        FlightTokenDetails details = tokenCache.getIfPresent(token);
+        if (details != null) {
+            LOG.info("Invalidate bearer token for user: {}", details.getUsername());
+        } else {
+            LOG.info("Invalidate bearer token, tokenFound=false");
+        }
         tokenCache.invalidate(token);
     }
 
