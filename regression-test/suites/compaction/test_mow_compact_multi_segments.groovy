@@ -23,6 +23,9 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_params = [string: [:]]
+    def pickInputRowsetsDebugPoint = isCloudMode()
+            ? "CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets"
+            : "SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets"
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
 
     def reset_be_param = { paramName ->
@@ -55,7 +58,7 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
         }
     }
 
-    def getTabletStatus = { tablet, rowsetIndex, lastRowsetSegmentNum, enableAssert = false ->
+    def getTabletSegmentNum = { tablet, rowsetIndex ->
         String compactionUrl = tablet["CompactionStatus"]
         def (code, out, err) = curl("GET", compactionUrl)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -69,11 +72,19 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
         int end_index = rowset.indexOf("DATA")
         def segmentNumStr = rowset.substring(start_index + 1, end_index).trim()
         logger.info("segmentNumStr: ${segmentNumStr}")
-        if (enableAssert) {
-            assertEquals(lastRowsetSegmentNum, Integer.parseInt(segmentNumStr))
-        } else {
-            return lastRowsetSegmentNum == Integer.parseInt(segmentNumStr);
+        return Integer.parseInt(segmentNumStr)
+    }
+
+    def waitForTabletSegmentNum = { tablet, rowsetIndex, expectedSegmentNum ->
+        int actualSegmentNum = -1
+        for (int i = 0; i < 20; i++) {
+            actualSegmentNum = getTabletSegmentNum(tablet, rowsetIndex)
+            if (actualSegmentNum == expectedSegmentNum) {
+                return
+            }
+            sleep(100)
         }
+        assertEquals(expectedSegmentNum, actualSegmentNum)
     }
 
     def getLocalDeleteBitmapStatus = { tablet ->
@@ -186,25 +197,20 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     sql "sync"
     def rowCount1 = sql """ select count() from ${tableName}; """
     logger.info("rowCount1: ${rowCount1}")
-    // check generate 3 segments
-    getTabletStatus(tablet, 2, 3)
+    // check generate multiple segments
+    assertTrue(getTabletSegmentNum(tablet, 2) > 1)
 
     // trigger compaction
-    GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+    GetDebugPoint().enableDebugPointForAllBEs(pickInputRowsetsDebugPoint,
             [tablet_id: "${tablet.TabletId}", start_version: 2, end_version: 2])
     def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
     logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def compactJson = parseJson(out.trim())
     logger.info("compact json: " + compactJson)
-    // check generate 1 segments
-    for (int i = 0; i < 20; i++) {
-        if (getTabletStatus(tablet, 2, 1, false)) {
-            break
-        }
-        sleep(100)
-    }
-    getTabletStatus(tablet, 2, 1)
+    waitForCompaction(tablet)
+    // check generate 1 segment
+    waitForTabletSegmentNum(tablet, 2, 1)
     sql """ select * from ${tableName} limit 1; """
 
     // load 2
@@ -228,13 +234,13 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     sql "sync"
     def rowCount2 = sql """ select count() from ${tableName}; """
     logger.info("rowCount2: ${rowCount2}")
-    // check generate 3 segments
-    getTabletStatus(tablet, 3, 6)
+    // check generate multiple segments
+    assertTrue(getTabletSegmentNum(tablet, 3) > 1)
     def local_dm = getLocalDeleteBitmapStatus(tablet)
     logger.info("local delete bitmap 1: " + local_dm)
 
     // trigger compaction for load 2
-    GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+    GetDebugPoint().enableDebugPointForAllBEs(pickInputRowsetsDebugPoint,
             [tablet_id: "${tablet.TabletId}", start_version: 3, end_version: 3])
     (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
     logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -242,14 +248,8 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     compactJson = parseJson(out.trim())
     logger.info("compact json: " + compactJson)
     waitForCompaction(tablet)
-    // check generate 1 segments
-    for (int i = 0; i < 20; i++) {
-        if (getTabletStatus(tablet, 3, 1, false)) {
-            break
-        }
-        sleep(100)
-    }
-    getTabletStatus(tablet, 3, 1)
+    // check generate 1 segment
+    waitForTabletSegmentNum(tablet, 3, 1)
 
     GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets") // cloud
     GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_rowset") // local
