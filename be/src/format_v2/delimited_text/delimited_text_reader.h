@@ -59,6 +59,7 @@ public:
 
 protected:
     struct DelimitedTextProfile {
+        RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* open_file_time = nullptr;
         RuntimeProfile::Counter* create_line_reader_time = nullptr;
         RuntimeProfile::Counter* read_line_time = nullptr;

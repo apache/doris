@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -152,10 +153,11 @@ public class SplitMultiDistinctStrategy {
             List<List<Alias>> aliases, List<Alias> otherAggFuncs) {
         Map<Set<Expression>, List<Alias>> distinctArgToAliasList = new LinkedHashMap<>();
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
-            if (!(namedExpression instanceof Alias) || !(namedExpression.child(0) instanceof AggregateFunction)) {
+            if (!(namedExpression instanceof Alias) || !namedExpression.containsType(AggregateFunction.class)) {
                 continue;
             }
-            AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
+            Optional<Expression> op = namedExpression.collectFirst(e -> e instanceof AggregateFunction);
+            AggregateFunction aggFunc = (AggregateFunction) op.get();
             if (aggFunc.isDistinct()) {
                 distinctArgToAliasList.computeIfAbsent(ImmutableSet.copyOf(aggFunc.getDistinctArguments()),
                         k -> new ArrayList<>()).add((Alias) namedExpression);

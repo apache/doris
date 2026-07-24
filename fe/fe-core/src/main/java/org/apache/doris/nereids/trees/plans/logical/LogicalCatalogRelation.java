@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.StreamReadMode;
@@ -249,6 +250,47 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     public LogicalCatalogRelation withVirtualColumns(List<NamedExpression> virtualColumns) {
         return this;
+    }
+
+    /** Compare whether two catalog relations read the same data with the same output semantics. */
+    public final boolean hasSameScanSemantics(LogicalCatalogRelation other) {
+        if (other == null || getClass() != other.getClass()) {
+            return false;
+        }
+        if (!hasSameTableIdentity(other)) {
+            return false;
+        }
+        if (getOutput().size() != other.getOutput().size()) {
+            return false;
+        }
+        for (int i = 0; i < getOutput().size(); i++) {
+            if (!hasSameOutputSlotSemantics(getOutput().get(i), other.getOutput().get(i))) {
+                return false;
+            }
+        }
+        return hasSameScanState(other);
+    }
+
+    protected boolean hasSameTableIdentity(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        return new TableIdentifier(table).equals(new TableIdentifier(other.table));
+    }
+
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        return false;
+    }
+
+    private boolean hasSameOutputSlotSemantics(Slot left, Slot right) {
+        if (!(left instanceof SlotReference) || !(right instanceof SlotReference)) {
+            return false;
+        }
+        SlotReference leftSlot = (SlotReference) left;
+        SlotReference rightSlot = (SlotReference) right;
+        return Objects.equals(left.getClass(), right.getClass())
+                && Objects.equals(leftSlot.getName(), rightSlot.getName())
+                && Objects.equals(leftSlot.getSubPath(), rightSlot.getSubPath());
     }
 
     public abstract LogicalCatalogRelation withRelationId(RelationId relationId);

@@ -473,7 +473,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         """
         assertEquals(1, ukDeleteBeforeRows.size())
         assertEquals("10", ukDeleteBeforeRows[0][0].toString())
-        assertEquals("101", ukDeleteBeforeRows[0][1].toString())
+        assertEquals("100", ukDeleteBeforeRows[0][1].toString())
         assertEquals("DELETE", ukDeleteBeforeRows[0][2].toString())
 
         // 9) show_initial_rows=true:

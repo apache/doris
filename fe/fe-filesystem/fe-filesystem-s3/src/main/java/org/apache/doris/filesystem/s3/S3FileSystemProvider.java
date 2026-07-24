@@ -33,8 +33,12 @@ import java.util.Set;
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
  * <p>Identified by presence of AWS_ACCESS_KEY with either AWS_ENDPOINT or AWS_REGION.
- * S3 is intentionally the last-resort provider; cloud-specific providers (OSS, COS, OBS)
- * should match first via their endpoint domain patterns.
+ * S3 is intentionally the last-resort provider: it yields to the dedicated dialect modules
+ * (fe-filesystem-gcs, fe-filesystem-minio, fe-filesystem-ozone) whenever {@link S3CompatSignals}
+ * recognizes them, so that routing is decided by the property map alone rather than by SPI
+ * registration order — each dialect now ships its own JAR and its own META-INF/services entry.
+ * Cloud-specific providers living in other modules (OSS, COS, OBS) still match first via their
+ * endpoint patterns.
  */
 public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProperties> {
 
@@ -61,6 +65,15 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        // Yield to the dedicated dialect providers of this module (GCS/MinIO/Ozone) when the map
+        // either names one of them or is guessed to be one, unless the user explicitly asked for
+        // plain S3. Routing must not depend on META-INF/services order, because these dialects are
+        // being split into separate JARs where ServiceLoader order is not guaranteed.
+        if (!S3CompatSignals.hasExplicitS3Request(properties)
+                && (S3CompatSignals.hasDedicatedDialectRequest(properties)
+                        || S3CompatSignals.looksLikeDedicatedDialect(properties))) {
+            return false;
+        }
         boolean hasCredential = hasAny(properties, ACCESS_KEY_NAMES)
                 || hasAny(properties, ROLE_ARN_NAMES)
                 || hasAny(properties, CREDENTIALS_PROVIDER_TYPE_NAMES);

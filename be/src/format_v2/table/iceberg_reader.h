@@ -27,6 +27,7 @@
 #include "core/block/block.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/table/iceberg_schema_utils.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -57,12 +58,22 @@ public:
     Status prepare_split(const format::SplitReadOptions& options) override;
     std::string debug_string() const override;
     format::TableColumnMappingMode mapping_mode() const override {
-        return !_data_reader.file_schema.empty() && _has_field_id(_data_reader.file_schema)
-                       ? format::TableColumnMappingMode::BY_FIELD_ID
-                       : format::TableColumnMappingMode::BY_NAME;
+        const bool has_field_ids = supports_iceberg_scan_semantics_v1(_scan_params)
+                                           ? schema_has_any_field_id(_data_reader.file_schema)
+                                           : schema_has_all_field_ids(_data_reader.file_schema);
+        if (!_data_reader.file_schema.empty() && has_field_ids) {
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
+        return format::TableColumnMappingMode::BY_NAME;
     }
 
 protected:
+    void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
+        options->enable_row_lineage_virtual_columns = true;
+        options->allow_idless_complex_wrapper_projection =
+                supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
+    }
+
     Status materialize_virtual_columns(Block* table_block) override;
 
     Status customize_file_scan_request(format::FileScanRequest* file_request) override;
@@ -76,26 +87,6 @@ protected:
 
 private:
     struct EqualityDeleteFilter;
-
-    bool _has_field_id(const std::vector<format::ColumnDefinition>& schema) const {
-        for (const auto& field : schema) {
-            // TopN lazy materialization asks the file reader to synthesize GLOBAL_ROWID in the
-            // first-phase scan. That virtual column is not an Iceberg data field and therefore has
-            // no Iceberg field id. Do not let it downgrade schema-evolution reads to BY_NAME,
-            // otherwise old data files whose physical names predate a rename (for example,
-            // table column `new_new_id` stored as file column `id`) are materialized as defaults.
-            if (field.column_type != format::ColumnType::DATA_COLUMN) {
-                continue;
-            }
-            if (!field.has_identifier_field_id()) {
-                return false;
-            }
-            if (!_has_field_id(field.children)) {
-                return false;
-            }
-        }
-        return true;
-    }
     static constexpr int MIN_SUPPORT_DELETE_FILES_VERSION = 2;
     static constexpr int POSITION_DELETE = 1;
     static constexpr int EQUALITY_DELETE = 2;

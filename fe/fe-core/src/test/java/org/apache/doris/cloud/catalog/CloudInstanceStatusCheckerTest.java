@@ -102,7 +102,7 @@ public class CloudInstanceStatusCheckerTest {
 
         new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertEquals("vcg", virtualComputeGroup.getName());
@@ -129,17 +129,17 @@ public class CloudInstanceStatusCheckerTest {
         try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
                      Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
             mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList())).thenAnswer(invocation -> null);
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(true);
 
             new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
             mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
-                    Mockito.any(ComputeGroup.class), Mockito.anyList()));
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
         } finally {
             logger.removeAppender(appender);
             appender.stop();
         }
 
-        ComputeGroup virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
         Assertions.assertNotNull(virtualComputeGroup);
         Assertions.assertTrue(virtualComputeGroup.isVirtual());
         Assertions.assertFalse(virtualComputeGroup.isNeedRebuildFileCache());
@@ -172,12 +172,99 @@ public class CloudInstanceStatusCheckerTest {
         Assertions.assertTrue(logs.contains("dstCluster=standby_cg"), logs);
     }
 
+    @Test
+    public void testDropVirtualComputeGroupCancelsRebuiltWarmUpJobs() throws Exception {
+        addComputeGroup("active_cg_id", "active_cg");
+        addComputeGroup("standby_cg_id", "standby_cg");
+        long oldPeriodicJobId = cacheHotspotManager.createJob(
+                buildPeriodicStmt("active_cg", "standby_cg"));
+        long oldEventJobId = cacheHotspotManager.createJob(
+                buildEventDrivenStmt("active_cg", "standby_cg"));
+
+        CloudComputeGroupMeta virtualComputeGroup = new CloudComputeGroupMeta("vcg_id", "vcg",
+                CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
+        virtualComputeGroup.setSubComputeGroups(Arrays.asList("active_cg", "standby_cg"));
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
+        policy.setActiveComputeGroup("active_cg");
+        policy.setStandbyComputeGroup("standby_cg");
+        policy.setCacheWarmupJobIds(Arrays.asList(
+                Long.toString(oldPeriodicJobId), Long.toString(oldEventJobId)));
+        virtualComputeGroup.setPolicy(policy);
+        cloudSystemInfoService.addComputeGroup("vcg_id", virtualComputeGroup);
+
+        Mockito.when(cloudEnv.isMaster()).thenReturn(true);
+        Mockito.doReturn(instanceResponseWithVirtualComputeGroup("standby_cg", "active_cg"))
+                .doReturn(instanceResponseWithoutVirtualComputeGroup())
+                .when(cloudSystemInfoService).getCloudInstance();
+
+        try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
+                     Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(true);
+
+            CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
+            checker.runAfterCatalogReady();
+            List<Long> rebuiltJobIds = cacheHotspotManager.getCloudWarmUpJobs().values().stream()
+                    .filter(job -> job.getJobType() == CloudWarmUpJob.JobType.CLUSTER)
+                    .filter(job -> "standby_cg".equals(job.getSrcClusterName()))
+                    .filter(job -> "active_cg".equals(job.getDstClusterName()))
+                    .map(CloudWarmUpJob::getJobId)
+                    .collect(java.util.stream.Collectors.toList());
+            Assertions.assertEquals(2, rebuiltJobIds.size());
+
+            checker.runAfterCatalogReady();
+
+            for (long rebuiltJobId : rebuiltJobIds) {
+                CloudWarmUpJob job = cacheHotspotManager.getCloudWarmUpJob(rebuiltJobId);
+                Assertions.assertEquals(CloudWarmUpJob.JobState.CANCELLED, job.getJobState(),
+                        "rebuilt warm up job should be cancelled when VCG is dropped: " + rebuiltJobId);
+            }
+        }
+    }
+
+    @Test
+    public void testRebuildCancelsNewWarmUpJobsWhenUpdateJobIdsFails() {
+        addComputeGroup("active_cg_id", "active_cg");
+        addComputeGroup("standby_cg_id", "standby_cg");
+        Mockito.when(cloudEnv.isMaster()).thenReturn(true);
+        Mockito.doReturn(instanceResponseWithVirtualComputeGroup()).when(cloudSystemInfoService).getCloudInstance();
+
+        try (MockedStatic<CloudSystemInfoService> mockedCloudSystemInfoService =
+                     Mockito.mockStatic(CloudSystemInfoService.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedCloudSystemInfoService.when(() -> CloudSystemInfoService.updateFileCacheJobIds(
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList())).thenReturn(false);
+
+            new CloudInstanceStatusChecker(cloudSystemInfoService).runAfterCatalogReady();
+            mockedCloudSystemInfoService.verify(() -> CloudSystemInfoService.updateFileCacheJobIds(
+                    Mockito.any(CloudComputeGroupMeta.class), Mockito.anyList()));
+        }
+
+        CloudComputeGroupMeta virtualComputeGroup = cloudSystemInfoService.getComputeGroupById("vcg_id");
+        Assertions.assertNotNull(virtualComputeGroup);
+        Assertions.assertTrue(virtualComputeGroup.isNeedRebuildFileCache());
+        Assertions.assertTrue(virtualComputeGroup.getPolicy().getCacheWarmupJobIds().isEmpty());
+
+        List<CloudWarmUpJob> newWarmUpJobs = cacheHotspotManager.getCloudWarmUpJobs().values().stream()
+                .filter(job -> job.getJobType() == CloudWarmUpJob.JobType.CLUSTER)
+                .filter(job -> "active_cg".equals(job.getSrcClusterName()))
+                .filter(job -> "standby_cg".equals(job.getDstClusterName()))
+                .collect(java.util.stream.Collectors.toList());
+        Assertions.assertEquals(2, newWarmUpJobs.size());
+        for (CloudWarmUpJob job : newWarmUpJobs) {
+            Assertions.assertEquals(CloudWarmUpJob.JobState.CANCELLED, job.getJobState());
+        }
+    }
+
     private void addComputeGroup(String computeGroupId, String computeGroupName) {
         cloudSystemInfoService.addComputeGroup(computeGroupId,
-                new ComputeGroup(computeGroupId, computeGroupName, ComputeGroup.ComputeTypeEnum.COMPUTE));
+                new CloudComputeGroupMeta(computeGroupId, computeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE));
     }
 
     private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup() {
+        return instanceResponseWithVirtualComputeGroup("active_cg", "standby_cg");
+    }
+
+    private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup(String active, String standby) {
         Cloud.ClusterPB activeComputeGroup = computeGroup("active_cg_id", "active_cg");
         Cloud.ClusterPB standbyComputeGroup = computeGroup("standby_cg_id", "standby_cg");
         Cloud.ClusterPB virtualComputeGroup = Cloud.ClusterPB.newBuilder()
@@ -188,8 +275,8 @@ public class CloudInstanceStatusCheckerTest {
                 .addClusterNames("standby_cg")
                 .setClusterPolicy(Cloud.ClusterPolicy.newBuilder()
                         .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
-                        .setActiveClusterName("active_cg")
-                        .addStandbyClusterNames("standby_cg")
+                        .setActiveClusterName(active)
+                        .addStandbyClusterNames(standby)
                         .build())
                 .build();
         return Cloud.GetInstanceResponse.newBuilder()
@@ -202,6 +289,22 @@ public class CloudInstanceStatusCheckerTest {
                         .addClusters(activeComputeGroup)
                         .addClusters(standbyComputeGroup)
                         .addClusters(virtualComputeGroup)
+                        .build())
+                .build();
+    }
+
+    private Cloud.GetInstanceResponse instanceResponseWithoutVirtualComputeGroup() {
+        Cloud.ClusterPB activeComputeGroup = computeGroup("active_cg_id", "active_cg");
+        Cloud.ClusterPB standbyComputeGroup = computeGroup("standby_cg_id", "standby_cg");
+        return Cloud.GetInstanceResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(Cloud.MetaServiceCode.OK)
+                        .setMsg("OK")
+                        .build())
+                .setInstance(Cloud.InstanceInfoPB.newBuilder()
+                        .setStatus(Cloud.InstanceInfoPB.Status.NORMAL)
+                        .addClusters(activeComputeGroup)
+                        .addClusters(standbyComputeGroup)
                         .build())
                 .build();
     }
@@ -242,6 +345,13 @@ public class CloudInstanceStatusCheckerTest {
         properties.put("sync_event", "load");
         return new WarmUpClusterCommand(new ArrayList<>(), src, dst, false, false,
                 properties, Arrays.asList(rules));
+    }
+
+    private WarmUpClusterCommand buildPeriodicStmt(String src, String dst) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("sync_mode", "periodic");
+        properties.put("sync_interval_sec", "600");
+        return new WarmUpClusterCommand(new ArrayList<>(), src, dst, false, false, properties);
     }
 
     private static class RecordingAppender extends AbstractAppender {

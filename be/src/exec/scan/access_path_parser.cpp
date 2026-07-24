@@ -87,10 +87,18 @@ void inherit_schema_metadata(format::ColumnDefinition* column,
         return;
     }
     column->name_mapping = schema_column->name_mapping;
+    // The presence bit is part of the mapping contract: an explicit empty mapping must remain
+    // authoritative after access-path pruning instead of enabling current-name fallback.
+    column->has_name_mapping = schema_column->has_name_mapping;
+    // Initial defaults describe the logical value of fields absent from older files. Nested
+    // access-path pruning must retain them just like it retains rename metadata.
+    column->initial_default_value = schema_column->initial_default_value;
+    column->initial_default_value_is_base64 = schema_column->initial_default_value_is_base64;
 }
 
 const format::ColumnDefinition* find_schema_child_by_path(
-        const format::ColumnDefinition* schema_column, const std::string& child_path) {
+        const format::ColumnDefinition* schema_column, const std::string& child_path,
+        bool prefer_exact_name_match) {
     if (schema_column == nullptr) {
         return nullptr;
     }
@@ -103,15 +111,31 @@ const format::ColumnDefinition* find_schema_child_by_path(
                 });
         return child_it == schema_column->children.end() ? nullptr : &*child_it;
     }
-    const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
-        if (to_lower(child.name) == to_lower(child_path)) {
-            return true;
-        }
+    if (!prefer_exact_name_match) {
+        const auto child_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
+            if (to_lower(child.name) == to_lower(child_path)) {
+                return true;
+            }
+            return std::ranges::any_of(child.name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(child_path);
+            });
+        });
+        return child_it == schema_column->children.end() ? nullptr : &*child_it;
+    }
+    // Iceberg can reuse a historical name for a newly added sibling. Current names therefore
+    // have precedence across the entire struct; an earlier alias must not steal that access path.
+    const auto exact_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
+        return to_lower(child.name) == to_lower(child_path);
+    });
+    if (exact_it != schema_column->children.end()) {
+        return &*exact_it;
+    }
+    const auto alias_it = std::ranges::find_if(schema_column->children, [&](const auto& child) {
         return std::ranges::any_of(child.name_mapping, [&](const std::string& alias) {
             return to_lower(alias) == to_lower(child_path);
         });
     });
-    return child_it == schema_column->children.end() ? nullptr : &*child_it;
+    return alias_it == schema_column->children.end() ? nullptr : &*alias_it;
 }
 
 int32_t schema_field_id(const format::ColumnDefinition* schema_column) {
@@ -169,7 +193,8 @@ void insert_access_path(AccessPathNode* root, const std::vector<std::string>& pa
 Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                               const DataTypePtr& type, const AccessPathNode& node,
                                               const std::string& path,
-                                              const format::ColumnDefinition* schema_column);
+                                              const format::ColumnDefinition* schema_column,
+                                              bool prefer_exact_name_match);
 
 // Expand a full complex-column projection into table-schema children when the table format provides
 // an external/current schema. Without this, `SELECT complex_col` or `SELECT *` leaves
@@ -186,7 +211,8 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
 //     wrapper here: ColumnMapper and TableReader treat MAP children as [key, value].
 Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
                                              const DataTypePtr& type, const std::string& path,
-                                             const format::ColumnDefinition* schema_column) {
+                                             const format::ColumnDefinition* schema_column,
+                                             bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
 
     const auto nested_type = remove_nullable(type);
@@ -197,14 +223,16 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
         const auto& struct_type = assert_cast<const DataTypeStruct&>(*nested_type);
         for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
             const auto field_name = struct_type.get_element_name(field_idx);
-            const auto* schema_child = find_schema_child_by_path(schema_column, field_name);
+            const auto* schema_child =
+                    find_schema_child_by_path(schema_column, field_name, prefer_exact_name_match);
             auto* child = find_or_add_child(
                     column, schema_field_id_or(schema_child, cast_set<int32_t>(field_idx)),
                     schema_field_name_or(schema_child, field_name),
                     struct_type.get_element(field_idx));
             inherit_schema_metadata(child, schema_child);
             RETURN_IF_ERROR(build_nested_children_from_access_node(
-                    child, child->type, project_all, path + "." + child->name, schema_child));
+                    child, child->type, project_all, path + "." + child->name, schema_child,
+                    prefer_exact_name_match));
         }
         return Status::OK();
     }
@@ -217,7 +245,7 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
                                         array_type.get_nested_type());
         inherit_schema_metadata(child, element_schema);
         return build_nested_children_from_access_node(child, child->type, project_all, path + ".*",
-                                                      element_schema);
+                                                      element_schema, prefer_exact_name_match);
     }
     case TYPE_MAP: {
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
@@ -231,12 +259,14 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
                                             map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
-                key_child, key_child->type, project_all, path + ".KEYS", key_schema));
+                key_child, key_child->type, project_all, path + ".KEYS", key_schema,
+                prefer_exact_name_match));
         auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1), "value",
                                               map_type.get_value_type());
         inherit_schema_metadata(value_child, value_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
-                value_child, value_child->type, project_all, path + ".VALUES", value_schema));
+                value_child, value_child->type, project_all, path + ".VALUES", value_schema,
+                prefer_exact_name_match));
         return Status::OK();
     }
     default:
@@ -247,7 +277,8 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
 Status build_struct_children_from_access_node(format::ColumnDefinition* column,
                                               const DataTypeStruct& struct_type,
                                               const AccessPathNode& node, const std::string& path,
-                                              const format::ColumnDefinition* schema_column) {
+                                              const format::ColumnDefinition* schema_column,
+                                              bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     for (const auto& [child_path, child_node] : node.children) {
         // Struct children are resolved by name or schema field id. We do not treat a numeric
@@ -262,7 +293,8 @@ Status build_struct_children_from_access_node(format::ColumnDefinition* column,
 
         // Prefer the table/schema ColumnDefinition because it carries field ids and aliases.
         // Fallback to the struct type name only for formats without external schema metadata.
-        const auto* schema_child = find_schema_child_by_path(schema_column, child_path);
+        const auto* schema_child =
+                find_schema_child_by_path(schema_column, child_path, prefer_exact_name_match);
         int32_t field_id = schema_field_id(schema_child);
         std::string field_name = schema_child == nullptr ? child_path : schema_child->name;
         DataTypePtr field_type = schema_child == nullptr ? nullptr : schema_child->type;
@@ -288,7 +320,8 @@ Status build_struct_children_from_access_node(format::ColumnDefinition* column,
         auto* child = find_or_add_child(column, field_id, field_name, field_type);
         inherit_schema_metadata(child, schema_child);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
-                child, child->type, child_node, path + "." + child_path, schema_child));
+                child, child->type, child_node, path + "." + child_path, schema_child,
+                prefer_exact_name_match));
     }
     return Status::OK();
 }
@@ -296,7 +329,8 @@ Status build_struct_children_from_access_node(format::ColumnDefinition* column,
 Status build_map_children_from_access_node(format::ColumnDefinition* column,
                                            const DataTypeMap& map_type, const AccessPathNode& node,
                                            const std::string& path,
-                                           const format::ColumnDefinition* schema_column) {
+                                           const format::ColumnDefinition* schema_column,
+                                           bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     AccessPathNode key_node;
     AccessPathNode value_node;
@@ -368,14 +402,16 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
                                             map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type, key_node,
-                                                               path + ".KEYS", key_schema));
+                                                               path + ".KEYS", key_schema,
+                                                               prefer_exact_name_match));
     }
     if (need_value) {
         auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1), "value",
                                               map_type.get_value_type());
         inherit_schema_metadata(value_child, value_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
-                value_child, value_child->type, value_node, path + ".VALUES", value_schema));
+                value_child, value_child->type, value_node, path + ".VALUES", value_schema,
+                prefer_exact_name_match));
     }
     return Status::OK();
 }
@@ -383,18 +419,20 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
 Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                               const DataTypePtr& type, const AccessPathNode& node,
                                               const std::string& path,
-                                              const format::ColumnDefinition* schema_column) {
+                                              const format::ColumnDefinition* schema_column,
+                                              bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     if (node.project_all || node.children.empty()) {
-        return build_all_nested_children_from_schema(column, type, path, schema_column);
+        return build_all_nested_children_from_schema(column, type, path, schema_column,
+                                                     prefer_exact_name_match);
     }
 
     const auto nested_type = remove_nullable(type);
     switch (nested_type->get_primitive_type()) {
     case TYPE_STRUCT:
         return build_struct_children_from_access_node(
-                column, assert_cast<const DataTypeStruct&>(*nested_type), node, path,
-                schema_column);
+                column, assert_cast<const DataTypeStruct&>(*nested_type), node, path, schema_column,
+                prefer_exact_name_match);
     case TYPE_ARRAY: {
         if (node.children.size() != 1 || !node.children.contains("*")) {
             return Status::NotSupported(
@@ -409,11 +447,13 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                         array_type.get_nested_type());
         inherit_schema_metadata(child, element_schema);
         return build_nested_children_from_access_node(child, child->type, node.children.at("*"),
-                                                      path + ".*", element_schema);
+                                                      path + ".*", element_schema,
+                                                      prefer_exact_name_match);
     }
     case TYPE_MAP:
         return build_map_children_from_access_node(
-                column, assert_cast<const DataTypeMap&>(*nested_type), node, path, schema_column);
+                column, assert_cast<const DataTypeMap&>(*nested_type), node, path, schema_column,
+                prefer_exact_name_match);
     default:
         return Status::NotSupported("AccessPathParser does not support access path {} for slot {}",
                                     path, column->name);
@@ -424,7 +464,8 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
 
 Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
                                                const std::vector<TColumnAccessPath>& access_paths,
-                                               const format::ColumnDefinition* schema_column) {
+                                               const format::ColumnDefinition* schema_column,
+                                               bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     if (is_scanner_materialized_virtual_column(column->name)) {
         return Status::OK();
@@ -465,15 +506,17 @@ Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
     }
     // Recursively build nested children for the column based on the AccessPathNode tree.
     return build_nested_children_from_access_node(column, column->type, root, column->name,
-                                                  schema_column);
+                                                  schema_column, prefer_exact_name_match);
 }
 
 Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
                                                const SlotDescriptor* slot_desc,
-                                               const format::ColumnDefinition* schema_column) {
+                                               const format::ColumnDefinition* schema_column,
+                                               bool prefer_exact_name_match) {
     DORIS_CHECK(column != nullptr);
     DORIS_CHECK(slot_desc != nullptr);
-    return build_nested_children(column, slot_desc->all_access_paths(), schema_column);
+    return build_nested_children(column, slot_desc->all_access_paths(), schema_column,
+                                 prefer_exact_name_match);
 }
 
 } // namespace doris

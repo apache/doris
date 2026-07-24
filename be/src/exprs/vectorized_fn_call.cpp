@@ -24,6 +24,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <set>
 
@@ -65,6 +66,7 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
+#include "util/simd/parquet_kernels.h"
 
 namespace doris {
 class RowDescriptor;
@@ -81,6 +83,55 @@ const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name
                                                      InnerProductApproximate::name};
 const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
         TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
+
+namespace {
+
+using simd::RawComparisonOp;
+
+std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name, bool reverse) {
+    RawComparisonOp op;
+    if (function_name == "eq") {
+        op = RawComparisonOp::EQ;
+    } else if (function_name == "ne") {
+        op = RawComparisonOp::NE;
+    } else if (function_name == "lt") {
+        op = RawComparisonOp::LT;
+    } else if (function_name == "le") {
+        op = RawComparisonOp::LE;
+    } else if (function_name == "gt") {
+        op = RawComparisonOp::GT;
+    } else if (function_name == "ge") {
+        op = RawComparisonOp::GE;
+    } else {
+        return std::nullopt;
+    }
+    if (!reverse || op == RawComparisonOp::EQ || op == RawComparisonOp::NE) {
+        return op;
+    }
+    switch (op) {
+    case RawComparisonOp::LT:
+        return RawComparisonOp::GT;
+    case RawComparisonOp::LE:
+        return RawComparisonOp::GE;
+    case RawComparisonOp::GT:
+        return RawComparisonOp::LT;
+    case RawComparisonOp::GE:
+        return RawComparisonOp::LE;
+    case RawComparisonOp::EQ:
+    case RawComparisonOp::NE:
+        break;
+    }
+    __builtin_unreachable();
+}
+
+template <typename T, PrimitiveType PT>
+void execute_raw_comparison(const uint8_t* values, size_t num_values, const Field& literal,
+                            RawComparisonOp op, uint8_t* matches) {
+    const T rhs = literal.get<PT>();
+    simd::raw_compare(values, num_values, rhs, op, matches);
+}
+
+} // namespace
 
 VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
     _function_name = _fn.name.function_name;
@@ -339,6 +390,71 @@ Status VectorizedFnCall::execute_column_impl(VExprContext* context, const Block*
     return _do_execute(context, block, selector, count, result_column, nullptr);
 }
 
+bool VectorizedFnCall::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                       int column_id) const {
+    if (data_type == nullptr || !raw_comparison_op(_function_name, false).has_value()) {
+        return false;
+    }
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    if (!slot_literal.has_value() || slot_literal->slot_index != column_id ||
+        slot_literal->literal.is_null()) {
+        return false;
+    }
+    const auto raw_type = remove_nullable(data_type);
+    if (!remove_nullable(slot_literal->slot_type)->equals(*raw_type) ||
+        !remove_nullable(slot_literal->literal_type)->equals(*raw_type)) {
+        return false;
+    }
+    const auto primitive_type = raw_type->get_primitive_type();
+    return primitive_type == TYPE_INT || primitive_type == TYPE_BIGINT ||
+           primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
+}
+
+Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                                     size_t value_width,
+                                                     const DataTypePtr& data_type, int column_id,
+                                                     uint8_t* matches) const {
+    if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+        return Status::NotSupported("Expression {} cannot evaluate raw fixed-width values",
+                                    expr_name());
+    }
+    DORIS_CHECK(values != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
+    DORIS_CHECK(slot_literal.has_value());
+    const auto op = raw_comparison_op(_function_name, slot_literal->literal_on_left);
+    DORIS_CHECK(op.has_value());
+    const auto primitive_type = remove_nullable(data_type)->get_primitive_type();
+    const size_t expected_width = primitive_type == TYPE_INT || primitive_type == TYPE_FLOAT
+                                          ? sizeof(uint32_t)
+                                          : sizeof(uint64_t);
+    if (value_width != expected_width) {
+        return Status::Corruption("Raw expression width {} does not match expected {}", value_width,
+                                  expected_width);
+    }
+    switch (primitive_type) {
+    case TYPE_INT:
+        execute_raw_comparison<int32_t, TYPE_INT>(values, num_values, slot_literal->literal, *op,
+                                                  matches);
+        break;
+    case TYPE_BIGINT:
+        execute_raw_comparison<int64_t, TYPE_BIGINT>(values, num_values, slot_literal->literal, *op,
+                                                     matches);
+        break;
+    case TYPE_FLOAT:
+        execute_raw_comparison<float, TYPE_FLOAT>(values, num_values, slot_literal->literal, *op,
+                                                  matches);
+        break;
+    case TYPE_DOUBLE:
+        execute_raw_comparison<double, TYPE_DOUBLE>(values, num_values, slot_literal->literal, *op,
+                                                    matches);
+        break;
+    default:
+        __builtin_unreachable();
+    }
+    return Status::OK();
+}
+
 const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }
@@ -386,8 +502,12 @@ bool VectorizedFnCall::is_deterministic() const {
 }
 
 bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
-    static const std::set<std::string> ERROR_PRESERVING_FUNCTIONS = {"assert_true"};
-    return !ERROR_PRESERVING_FUNCTIONS.contains(_function_name) &&
+    static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {
+            "eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "is_null_pred", "is_not_null_pred"};
+    // Selected-row execution may hide data-dependent errors in rows rejected by an earlier
+    // predicate. Keep function calls unsafe by default and opt in only operations that are total
+    // for their input domain; child checks then reject expressions such as gt(mod(x, -1), 0).
+    return TOTAL_PREDICATE_FUNCTIONS.contains(_function_name) &&
            VExpr::is_safe_to_execute_on_selected_rows();
 }
 

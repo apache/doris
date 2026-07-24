@@ -31,28 +31,66 @@ struct ParquetPageSkipProfile {
 // ============================================================================
 // ============================================================================
 struct ParquetColumnReaderProfile {
-    RuntimeProfile::Counter* reader_read_rows = nullptr;        // rows read by read()
-    RuntimeProfile::Counter* reader_skip_rows = nullptr;        // rows skipped by skip()
-    RuntimeProfile::Counter* reader_select_rows = nullptr;      // rows selected by select()
-    RuntimeProfile::Counter* arrow_read_records_time = nullptr; // Arrow RecordReader time (ns)
-    RuntimeProfile::Counter* arrow_skip_records_time = nullptr; // Arrow SkipRecords time (ns)
-    RuntimeProfile::Counter* materialization_time = nullptr;    // value materialization time (ns)
+    RuntimeProfile::Counter* reader_read_rows = nullptr;   // rows read by read()
+    RuntimeProfile::Counter* reader_skip_rows = nullptr;   // rows skipped by skip()
+    RuntimeProfile::Counter* reader_select_rows = nullptr; // rows selected by select()
+    // COUNT(nullable_col) shape-only path; ordinary scans keep both counters zero.
+    RuntimeProfile::Counter* level_only_read_time = nullptr;
+    RuntimeProfile::Counter* level_only_skip_time = nullptr;
+    RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
+    RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
+    RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
+    RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
+    // Native page/encoding reader internals. These counters keep page IO, decompression, levels,
+    // value decode and conversion attributable to separate stages.
+    RuntimeProfile::Counter* decompress_time = nullptr;
+    RuntimeProfile::Counter* decompress_count = nullptr;
+    RuntimeProfile::Counter* decode_header_time = nullptr;
+    RuntimeProfile::Counter* decode_value_time = nullptr;
+    RuntimeProfile::Counter* decode_dictionary_time = nullptr;
+    RuntimeProfile::Counter* decode_level_time = nullptr;
+    RuntimeProfile::Counter* decode_null_map_time = nullptr;
+    RuntimeProfile::Counter* page_index_read_calls = nullptr;
+    RuntimeProfile::Counter* skip_page_header_count = nullptr;
+    RuntimeProfile::Counter* parse_page_header_count = nullptr;
+    RuntimeProfile::Counter* read_page_header_time = nullptr;
+    RuntimeProfile::Counter* page_read_count = nullptr;
+    RuntimeProfile::Counter* page_cache_write_count = nullptr;
+    RuntimeProfile::Counter* page_cache_compressed_write_count = nullptr;
+    RuntimeProfile::Counter* page_cache_decompressed_write_count = nullptr;
+    RuntimeProfile::Counter* page_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* page_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* page_cache_compressed_hit_count = nullptr;
+    RuntimeProfile::Counter* page_cache_decompressed_hit_count = nullptr;
+    RuntimeProfile::Counter* native_read_calls = nullptr;     // native column-reader calls
+    RuntimeProfile::Counter* native_page_fragments = nullptr; // page-bounded read fragments
+    RuntimeProfile::Counter* page_crossing_batches = nullptr; // batches spanning multiple pages
+    RuntimeProfile::Counter* nested_batches = nullptr;        // complex-column read batches
 };
 
 // ============================================================================
 // ============================================================================
 struct ParquetScanProfile {
-    RuntimeProfile::Counter* raw_rows_read = nullptr; // raw rows read from RecordReader
+    RuntimeProfile::Counter* raw_rows_read = nullptr; // logical rows consumed before filtering
     RuntimeProfile::Counter* selected_rows = nullptr; // rows selected after conjunct filtering
     RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr; // rows filtered by conjuncts
     RuntimeProfile::Counter* lazy_read_filtered_rows =
             nullptr;                                  // rows avoided by late materialization
     RuntimeProfile::Counter* total_batches = nullptr; // total batch count
+    RuntimeProfile::Counter* dense_batches = nullptr; // batches retaining every physical row
+    RuntimeProfile::Counter* selected_batches =
+            nullptr; // non-empty batches compacted by predicates
     RuntimeProfile::Counter* empty_selection_batches =
             nullptr;                                           // empty batches after full filtering
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr; // rows skipped by range gaps
     RuntimeProfile::Counter* column_read_time = nullptr;       // column read time (ns)
     RuntimeProfile::Counter* predicate_filter_time = nullptr;  // predicate filter time (ns)
+    RuntimeProfile::Counter* predicate_compaction_time = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_bytes = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_count = nullptr;
+    RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
+    RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
             nullptr; // expression/residual rewrite time (ns)
@@ -73,10 +111,14 @@ struct ParquetScanProfile {
 struct ParquetProfile {
     void init(RuntimeProfile* profile);
     void update_pruning_stats(const ParquetPruningStats& pruning_stats) const;
+    void update_deferred_pruning_stats(const ParquetPruningStats& pruning_stats,
+                                       bool selected) const;
 
     ParquetPageSkipProfile page_skip_profile() const;
     ParquetColumnReaderProfile column_reader_profile() const;
     ParquetScanProfile scan_profile() const;
+
+    RuntimeProfile::Counter* total_time = nullptr;
 
     RuntimeProfile::Counter* filtered_row_groups = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
@@ -96,6 +138,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_rows = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
     RuntimeProfile::Counter* total_batches = nullptr;
+    RuntimeProfile::Counter* dense_batches = nullptr;
+    RuntimeProfile::Counter* selected_batches = nullptr;
     RuntimeProfile::Counter* empty_selection_batches = nullptr;
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
 
@@ -103,9 +147,17 @@ struct ParquetProfile {
     RuntimeProfile::Counter* reader_read_rows = nullptr;
     RuntimeProfile::Counter* reader_skip_rows = nullptr;
     RuntimeProfile::Counter* reader_select_rows = nullptr;
-    RuntimeProfile::Counter* arrow_read_records_time = nullptr;
-    RuntimeProfile::Counter* arrow_skip_records_time = nullptr;
+    // COUNT(nullable_col) shape-only path; ordinary scans keep these zero.
+    RuntimeProfile::Counter* level_only_read_time = nullptr;
+    RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
+    RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
+    RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
+    RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
+    RuntimeProfile::Counter* native_read_calls = nullptr;
+    RuntimeProfile::Counter* native_page_fragments = nullptr;
+    RuntimeProfile::Counter* page_crossing_batches = nullptr;
+    RuntimeProfile::Counter* nested_batches = nullptr;
 
     RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
     RuntimeProfile::Counter* filtered_bytes = nullptr;
@@ -149,6 +201,12 @@ struct ParquetProfile {
     RuntimeProfile::Counter* parse_page_header_num = nullptr;
 
     RuntimeProfile::Counter* predicate_filter_time = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_time = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_bytes = nullptr;
+    RuntimeProfile::Counter* predicate_compaction_count = nullptr;
+    RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
+    RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;
@@ -158,7 +216,6 @@ struct ParquetProfile {
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;
-    RuntimeProfile::Counter* convert_time = nullptr;
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
 };
 

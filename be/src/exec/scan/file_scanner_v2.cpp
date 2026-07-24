@@ -48,6 +48,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
@@ -65,6 +66,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
@@ -324,26 +326,42 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
 
 Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
-    _get_block_timer =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerV2GetBlockTime", 1);
-    _empty_file_counter =
-            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
-    _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                     "NotFoundFileNum", TUnit::UNIT, 1);
-    _file_counter =
-            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
-    _file_read_bytes_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                      "FileReadBytes", TUnit::BYTES, 1);
-    _file_read_calls_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                      "FileReadCalls", TUnit::UNIT, 1);
+    auto* profile = _local_state->scanner_profile();
+    const auto hierarchy = file_scan_profile::ensure_hierarchy(profile);
+    _scanner_total_timer = hierarchy.scanner;
+    _io_timer = hierarchy.io;
+    _init_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2InitTime",
+                                             file_scan_profile::SCANNER, 1);
+    _open_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2OpenTime",
+                                             file_scan_profile::SCANNER, 1);
+    _get_block_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2GetBlockTime",
+                                                  file_scan_profile::SCANNER, 1);
+    _prepare_split_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2PrepareSplitTime",
+                                                      file_scan_profile::SCANNER, 1);
+    _get_next_range_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2GetNextRangeTime",
+                                                       file_scan_profile::SCANNER, 1);
+    _close_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileScannerV2CloseTime",
+                                              file_scan_profile::SCANNER, 1);
+    _empty_file_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "EmptyFileNum", TUnit::UNIT,
+                                                       file_scan_profile::SCANNER, 1);
+    _not_found_file_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NotFoundFileNum", TUnit::UNIT,
+                                                           file_scan_profile::SCANNER, 1);
+    _file_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileNumber", TUnit::UNIT,
+                                                 file_scan_profile::SCANNER, 1);
+    _file_read_bytes_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileReadBytes", TUnit::BYTES,
+                                                            file_scan_profile::IO, 1);
+    _file_read_calls_counter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FileReadCalls", TUnit::UNIT,
+                                                            file_scan_profile::IO, 1);
     _file_read_time_counter =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
-    _adaptive_batch_predicted_rows_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "AdaptiveBatchPredictedRows", TUnit::UNIT, 1);
-    _adaptive_batch_actual_bytes_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "AdaptiveBatchActualBytes", TUnit::BYTES, 1);
-    _adaptive_batch_probe_count_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "AdaptiveBatchProbeCount", TUnit::UNIT, 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileReadTime", file_scan_profile::IO, 1);
+    _adaptive_batch_predicted_rows_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AdaptiveBatchPredictedRows", TUnit::UNIT, file_scan_profile::SCANNER, 1);
+    _adaptive_batch_actual_bytes_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AdaptiveBatchActualBytes", TUnit::BYTES, file_scan_profile::SCANNER, 1);
+    _adaptive_batch_probe_count_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AdaptiveBatchProbeCount", TUnit::UNIT, file_scan_profile::SCANNER, 1);
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_init_timer);
     _file_cache_statistics = std::make_unique<io::FileCacheStatistics>();
     _file_reader_stats = std::make_unique<io::FileReaderStats>();
     RETURN_IF_ERROR(_init_io_ctx());
@@ -354,6 +372,8 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
 }
 
 Status FileScannerV2::_open_impl(RuntimeState* state) {
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
@@ -367,6 +387,7 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
 }
 
 Status FileScannerV2::_get_next_scan_range(bool* has_next) {
+    SCOPED_TIMER(_get_next_range_timer);
     DORIS_CHECK(has_next != nullptr);
     RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range));
     if (*has_next) {
@@ -376,6 +397,8 @@ Status FileScannerV2::_get_next_scan_range(bool* has_next) {
 }
 
 Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_get_block_timer);
     while (true) {
         RETURN_IF_CANCELLED(state);
         if (!_has_prepared_split) {
@@ -386,7 +409,6 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
-            SCOPED_TIMER(_get_block_timer);
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -427,7 +449,23 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
     }
 }
 
+Status FileScannerV2::_filter_output_block(Block* block) {
+    return _contextualize_output_filter_status(Scanner::_filter_output_block(block),
+                                               _get_current_format_type());
+}
+
+Status FileScannerV2::_contextualize_output_filter_status(Status status,
+                                                          TFileFormatType::type format_type) {
+    if (!status.ok() && format_type == TFileFormatType::FORMAT_ORC) {
+        // Error-preserving expressions cannot be reordered into the ORC reader and therefore run
+        // at the scanner boundary; keep their error context identical to ORC callback failures.
+        status.prepend("Orc row reader nextBatch failed. reason = ");
+    }
+    return status;
+}
+
 Status FileScannerV2::_prepare_next_split(bool* eos) {
+    SCOPED_TIMER(_prepare_split_timer);
     while (true) {
         bool has_next = _first_scan_range;
         if (!_first_scan_range) {
@@ -688,6 +726,9 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
             .range = &_current_range,
             .runtime_state = _state,
     };
+    // Field 34 is the rollout boundary for root and nested exact-name precedence.
+    const bool prefer_exact_name_match =
+            !_params->__isset.history_schema_info || supports_iceberg_scan_semantics_v1(_params);
 
     for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
         const auto& slot_info = _params->required_slots[slot_idx];
@@ -708,7 +749,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         // column's nested children.
         RETURN_IF_ERROR(AccessPathParser::build_nested_children(
                 &column, it->second,
-                build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr));
+                build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr,
+                prefer_exact_name_match));
         if (is_partition_slot(slot_info, column.name)) {
             column.is_partition_key = true;
             _partition_slot_descs.emplace(
@@ -906,6 +948,8 @@ void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
 }
 
 Status FileScannerV2::close(RuntimeState* state) {
+    SCOPED_TIMER(_scanner_total_timer);
+    SCOPED_TIMER(_close_timer);
     if (!_try_close()) {
         return Status::OK();
     }
@@ -1045,14 +1089,31 @@ void FileScannerV2::_collect_profile_before_close() {
     Scanner::_collect_profile_before_close();
     if (config::enable_file_cache && _state->query_options().enable_file_cache &&
         _profile != nullptr) {
-        _report_file_cache_profile(_profile, *_file_cache_statistics);
+        auto file_cache_delta = io::diff_file_cache_statistics(*_file_cache_statistics,
+                                                               _reported_file_cache_statistics);
+        // Profile collection can run more than once. Keep additive fields incremental while
+        // publishing high-water gauges and peer identities from the latest complete snapshot.
+        file_cache_delta.remote_only_on_miss_triggered =
+                _file_cache_statistics->remote_only_on_miss_triggered;
+        file_cache_delta.remote_only_on_miss_threshold_bytes =
+                _file_cache_statistics->remote_only_on_miss_threshold_bytes;
+        file_cache_delta.peer_hosts = _file_cache_statistics->peer_hosts;
+        _report_file_cache_profile(_profile, file_cache_delta);
         _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                _file_cache_statistics->bytes_write_into_cache);
+                file_cache_delta.bytes_write_into_cache);
+        _reported_file_cache_statistics = *_file_cache_statistics;
     }
     if (_file_reader_stats != nullptr) {
         COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
         COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
         COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+        const auto read_time = cast_set<int64_t>(_file_reader_stats->read_time_ns);
+        DORIS_CHECK(read_time >= _reported_io_read_time);
+        // Some transports (for example Arrow Flight) record directly into IO, while filesystem
+        // reads arrive through FileReaderStats. Add only the new traced delta so both paths remain
+        // visible without double counting repeated profile publication.
+        COUNTER_UPDATE(_io_timer, read_time - _reported_io_read_time);
+        _reported_io_read_time = read_time;
     }
     // Query profiles can be collected before Scanner::close() runs. Publish condition-cache
     // counters here as well, using deltas so this method and close() cannot double count.
@@ -1061,7 +1122,8 @@ void FileScannerV2::_collect_profile_before_close() {
 
 void FileScannerV2::_report_file_cache_profile(
         RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics) {
-    io::FileCacheProfileReporter cache_profile(profile);
+    file_scan_profile::ensure_hierarchy(profile);
+    io::FileCacheProfileReporter cache_profile(profile, file_scan_profile::IO);
     cache_profile.update(&file_cache_statistics);
 }
 

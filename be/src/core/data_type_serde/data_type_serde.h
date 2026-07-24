@@ -93,6 +93,9 @@ struct CastParameters;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+class ParquetDecodeSource;
+struct ParquetDecodeContext;
+struct ParquetMaterializationState;
 
 /// Info that represents a scalar or array field in a decomposed view.
 /// It allows to recreate field with different number
@@ -505,6 +508,18 @@ public:
     // the Doris-type-specific materialization into IColumn.
     virtual Status read_column_from_decoded_values(IColumn& column,
                                                    const DecodedColumnView& view) const;
+
+    // Read encoded Parquet values directly into the destination Doris column. ColumnReader owns
+    // levels/null/filter handling; the source owns only encoding-stream state; the target SerDe
+    // owns all physical/logical type interpretation and materialization.
+    virtual Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                            const ParquetDecodeContext& context, size_t num_values,
+                                            ParquetMaterializationState& state) const;
+    // Decode one dictionary page into the selected Doris type without consuming data-page
+    // indices. Dictionary filters use this to keep type interpretation in SerDe instead of
+    // exposing dictionary bytes or decoder-owned strings to ColumnReader.
+    virtual Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                           const ParquetDecodeContext& context) const;
     virtual Status read_field_from_decoded_value(const IDataType& data_type, Field* field,
                                                  const DecodedColumnView& view) const;
 

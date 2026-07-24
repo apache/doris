@@ -24,6 +24,7 @@
 #include "core/block/block.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 
@@ -31,17 +32,31 @@ namespace doris::format {
 
 Status JniTableReader::init(TableReadOptions&& options) {
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
-    _init_profile();
+    {
+        // Base and derived scopes must not overlap on the same counter: RuntimeProfile timers add
+        // deltas, so nested use would double-count instead of extending lifecycle coverage.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.init_timer);
+        _init_profile();
+    }
+    SCOPED_TIMER(_connector_total_time);
     return Status::OK();
 }
 
 Status JniTableReader::prepare_split(const SplitReadOptions& options) {
-    // EOF belongs to the previous split. Keep it set after closing that split so repeated reads
-    // are idempotent, and clear it only when a new split is explicitly prepared.
-    _eof = false;
-    _current_range = options.current_range;
-    RETURN_IF_ERROR(validate_scan_range(options.current_range));
+    SCOPED_TIMER(_connector_total_time);
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        // EOF belongs to the previous split. Keep it set after closing that split so repeated reads
+        // are idempotent, and clear it only when a new split is explicitly prepared.
+        _eof = false;
+        _current_range = options.current_range;
+        RETURN_IF_ERROR(validate_scan_range(options.current_range));
+    }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -63,6 +78,9 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
 }
 
 Status JniTableReader::get_block(Block* output_block, bool* eos) {
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.exec_timer);
+    SCOPED_TIMER(_connector_total_time);
     DORIS_CHECK(output_block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(output_block->columns() == _projected_columns.size());
@@ -109,7 +127,11 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
 }
 
 Status JniTableReader::abort_split() {
-    RETURN_IF_ERROR(_close_jni_scanner());
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
+        RETURN_IF_ERROR(_close_jni_scanner());
+    }
     return TableReader::abort_split();
 }
 
@@ -342,10 +364,16 @@ void JniTableReader::_publish_split_profile(JNIEnv* env) {
 }
 
 Status JniTableReader::close() {
+    SCOPED_TIMER(_connector_total_time);
     if (_closed) {
         return Status::OK();
     }
-    auto close_status = _close_jni_scanner();
+    Status close_status;
+    {
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.close_timer);
+        close_status = _close_jni_scanner();
+    }
     auto table_status = TableReader::close();
     if (close_status.ok() && !table_status.ok()) {
         close_status = std::move(table_status);
@@ -535,7 +563,9 @@ void JniTableReader::_init_profile() {
         return;
     }
     const auto connector_name = _connector_name();
-    ADD_TIMER(_scanner_profile, connector_name);
+    file_scan_profile::ensure_hierarchy(_scanner_profile);
+    _connector_total_time =
+            ADD_CHILD_TIMER(_scanner_profile, connector_name, file_scan_profile::TABLE_READER);
     _open_scanner_time = ADD_CHILD_TIMER(_scanner_profile, "OpenScannerTime", connector_name);
     _java_scan_time = ADD_CHILD_TIMER(_scanner_profile, "JavaScanTime", connector_name);
     _java_append_data_time =

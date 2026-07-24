@@ -33,12 +33,19 @@
 namespace doris::format::paimon {
 
 Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
-    _split_schema_id = -1;
-    const auto& paimon_params = options.current_range.table_format_params.paimon_params;
-    if (paimon_params.__isset.schema_id) {
-        _split_schema_id = paimon_params.schema_id;
+    {
+        // Derived schema selection is additive to, not nested around, the common base timers.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        _split_schema_id = -1;
+        const auto& paimon_params = options.current_range.table_format_params.paimon_params;
+        if (paimon_params.__isset.schema_id) {
+            _split_schema_id = paimon_params.schema_id;
+        }
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    SCOPED_TIMER(_profile.total_timer);
+    SCOPED_TIMER(_profile.prepare_split_timer);
     if (current_split_pruned()) {
         return Status::OK();
     }
@@ -93,6 +100,8 @@ Status PaimonHybridReader::init(format::TableReadOptions&& options) {
 }
 
 Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options) {
+    // Child initialization uses the scanner profile too; hybrid dispatch must not nest the same
+    // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->prepare_split(options);
@@ -143,11 +152,26 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     }
 }
 
+int64_t PaimonHybridReader::condition_cache_hit_count() const {
+    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // returning only the active child would make FileScannerV2's monotonic delta go backwards.
+    return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+}
+
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
         if (_jni_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_jni_reader_factory) {
+                _jni_reader = _test_jni_reader_factory();
+            } else {
+                _jni_reader = std::make_unique<format::paimon::PaimonJniReader>();
+            }
+#else
             _jni_reader = std::make_unique<format::paimon::PaimonJniReader>();
+#endif
             RETURN_IF_ERROR(_init_child_reader(_jni_reader.get(), format::FileFormat::JNI));
         }
         _current_split_reader = _jni_reader.get();
@@ -158,7 +182,15 @@ Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadO
         DCHECK(file_format == format::FileFormat::PARQUET ||
                file_format == format::FileFormat::ORC);
         if (_native_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_native_reader_factory) {
+                _native_reader = _test_native_reader_factory();
+            } else {
+                _native_reader = format::paimon::PaimonReader::create_unique();
+            }
+#else
             _native_reader = format::paimon::PaimonReader::create_unique();
+#endif
             RETURN_IF_ERROR(_init_child_reader(_native_reader.get(), file_format));
         }
         _current_split_reader = _native_reader.get();

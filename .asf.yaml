@@ -193,12 +193,10 @@ github:
     - Yukang-Lian
     - Hastyshell
     - yujun777
-    - shuke987
-    - wm1581066
-    - doris-robot
     - ixzc
     - feiniaofeiafei
     - wyxxxcat
     - linrrzqqq
+    - Doris-Breakwater
 notifications:
   pullrequests_status:  commits@doris.apache.org
