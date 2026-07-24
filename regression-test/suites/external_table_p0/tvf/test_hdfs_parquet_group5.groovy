@@ -123,7 +123,13 @@ suite("test_hdfs_parquet_group5","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'timestamp' is not supported"
+                check { result, exception, startTime, endTime ->
+                    def message = exception?.toString()
+                    assertTrue("Unexpected Parquet TIME error: ${message}",
+                            message != null
+                                    && (message.contains("The column type of 'timestamp' is not supported")
+                                        || message.contains("Unsupported parquet column 'timestamp': Parquet TIME with isAdjustedToUTC=true is not supported")))
+                }
             }
 
 
