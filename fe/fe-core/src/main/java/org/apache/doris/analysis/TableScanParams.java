@@ -29,12 +29,14 @@ public class TableScanParams {
     public static final String INCREMENTAL_READ = "incr";
     public static final String BRANCH = "branch";
     public static final String TAG = "tag";
+    public static final String OPTIONS = "options";
     public static final String SNAPSHOT = "snapshot";
     public static final String RESET = "reset";
     private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
             INCREMENTAL_READ,
             BRANCH,
-            TAG);
+            TAG,
+            OPTIONS);
     private static final ImmutableSet<String> VALID_OLAP_TABLE_PARAM_TYPES = ImmutableSet.of(INCREMENTAL_READ);
     private static final ImmutableSet<String> VALID_OLAP_TABLE_STREAM_PARAM_TYPES = ImmutableSet.of(
             SNAPSHOT,
@@ -98,6 +100,10 @@ public class TableScanParams {
 
     public boolean isTag() {
         return TAG.equals(paramType);
+    }
+
+    public boolean isOptions() {
+        return OPTIONS.equals(paramType);
     }
 
     public boolean isSnapshot() {

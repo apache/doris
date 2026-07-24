@@ -185,6 +185,21 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testParseTableOptionsHint() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from datahub_paimon.backflow.`bf_session_pk_process_v5$files` "
+                        + "/*+ OPTIONS('scan.snapshot-id'='12345', 'scan.mode'='from-snapshot') */"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals("options", relation.getScanParams().getParamType());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "12345", "scan.mode", "from-snapshot"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
     public void testErrorListener() {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
                 .assertThrowsExactly(SyntaxParseException.class)
