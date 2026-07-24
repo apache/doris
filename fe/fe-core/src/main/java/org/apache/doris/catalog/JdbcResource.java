@@ -323,7 +323,9 @@ public class JdbcResource extends Resource {
             return checkAndReturnDefaultDriverUrl(driverUrl);
         }
 
-        if ("*".equals(Config.jdbc_driver_secure_path)) {
+        // "*" or an empty/blank value means allow all (the documented, backward-compatible contract).
+        String securePath = Config.jdbc_driver_secure_path;
+        if (securePath == null || securePath.trim().isEmpty() || "*".equals(securePath.trim())) {
             return driverUrl;
         }
 

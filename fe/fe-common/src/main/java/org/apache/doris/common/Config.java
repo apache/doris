@@ -159,8 +159,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The safe path of the JDBC driver. When creating a JDBC Catalog, "
             + "you can configure multiple files or network paths that are allowed to be used, "
             + "separated by semicolons. "
-            + "The default is * to allow all. An empty value denies all scheme-qualified driver URLs "
-            + "(file://, http(s)://); bare jar file names resolved under jdbc_drivers_dir are always allowed."})
+            + "The default is * to allow all; if set to empty, it also means to allow all. "
+            + "When set to concrete paths, driver URLs are matched structurally (component-based), "
+            + "so path traversal and prefix confusion are rejected."})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"Functions that MySQL JDBC Catalog does not support pushing down"})

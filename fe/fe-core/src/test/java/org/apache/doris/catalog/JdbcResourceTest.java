@@ -361,12 +361,13 @@ public class JdbcResourceTest {
     }
 
     @Test
-    public void testEmptySecurePathDeniesSchemeUrls() {
+    public void testEmptySecurePathAllowsAll() {
         String saved = Config.jdbc_driver_secure_path;
         try {
+            // Empty means allow-all, same as "*" (backward-compatible contract).
             Config.jdbc_driver_secure_path = "";
-            Assert.assertThrows(IllegalArgumentException.class, () ->
-                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/x.jar"));
+            String url = "file:///opt/doris/jdbc_drivers/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assert.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
         } finally {
             Config.jdbc_driver_secure_path = saved;
         }
