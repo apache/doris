@@ -24,7 +24,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -79,7 +78,8 @@ public class IvmUtil {
     public static Literal getCommonHiddenSlotDefault(String columnName) {
         Literal defaultValue = COMMON_HIDDEN_SLOTS.get(columnName);
         if (defaultValue == null) {
-            throw new AnalysisException("not an IVM common hidden slot: " + columnName);
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "not an IVM common hidden slot: " + columnName);
         }
         return defaultValue;
     }
