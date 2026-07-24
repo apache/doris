@@ -256,6 +256,12 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cd "${DORIS_HOME}"
 fi
 
+# Arrow Flight SQL JDBC needs java.nio opened when the regression framework runs on JDK 17+.
+if [[ -n "${JAVA_MAJOR_VERSION}" ]] && [[ "${JAVA_MAJOR_VERSION}" -ge 17 ]] \
+    && [[ " ${JAVA_OPTS:-} " != *"--add-opens=java.base/java.nio="* ]]; then
+    JAVA_OPTS="${JAVA_OPTS:+${JAVA_OPTS} }--add-opens=java.base/java.nio=ALL-UNNAMED"
+fi
+
 REGRESSION_OPTIONS_PREFIX=''
 
 # contains framework options and not start with -
@@ -267,7 +273,6 @@ fi
 
 echo "===== Run Regression Test ====="
 
-# if use jdk17, add java option "--add-opens=java.base/java.nio=ALL-UNNAMED"
 if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
 fi
