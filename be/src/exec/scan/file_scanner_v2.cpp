@@ -62,6 +62,7 @@
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
 #include "format_v2/table_reader.h"
+#include "format_v2/wal/wal_table_reader.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
@@ -109,10 +110,29 @@ bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
     if (table_format == "paimon") {
-        return range.__isset.table_format_params &&
-               range.table_format_params.__isset.paimon_params &&
-               range.table_format_params.paimon_params.__isset.reader_type &&
-               range.table_format_params.paimon_params.reader_type == TPaimonReaderType::PAIMON_JNI;
+        if (!range.__isset.table_format_params ||
+            !range.table_format_params.__isset.paimon_params) {
+            return false;
+        }
+        const auto& params = range.table_format_params.paimon_params;
+        if (params.__isset.reader_type) {
+            if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
+                return params.__isset.paimon_split;
+            }
+            // Paimon's C++ path is a native Parquet/ORC child of the V2 hybrid reader. Requiring
+            // its physical format here prevents an ambiguous FORMAT_JNI split from being routed
+            // to a reader whose file semantics cannot be determined.
+            return params.reader_type == TPaimonReaderType::PAIMON_CPP &&
+                   params.__isset.file_format &&
+                   (params.file_format == "parquet" || params.file_format == "orc");
+        }
+        if (params.__isset.paimon_split) {
+            // Before reader_type was added, an encoded split unambiguously selected the Java
+            // reader; native scans carried only their physical Parquet or ORC range.
+            return true;
+        }
+        return params.__isset.file_format &&
+               (params.file_format == "parquet" || params.file_format == "orc");
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
@@ -154,6 +174,10 @@ bool is_json_format(TFileFormatType::type format_type) {
 
 bool is_native_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_NATIVE;
+}
+
+bool is_wal_format(TFileFormatType::type format_type) {
+    return format_type == TFileFormatType::FORMAT_WAL;
 }
 
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
@@ -292,6 +316,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
         return is_supported_arrow_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
+    } else if (is_wal_format(format_type)) {
+        return table_format_name(range) == "NotSet";
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
                is_json_format(format_type) || is_native_format(format_type)) {
         return is_supported_table_format(range);
@@ -593,6 +619,11 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 Status FileScannerV2::_create_table_reader_for_format(
         const TFileRangeDesc& range, std::unique_ptr<format::TableReader>* reader) const {
     DORIS_CHECK(reader != nullptr);
+    const auto file_format = get_range_format_type(*_params, range);
+    if (file_format == TFileFormatType::FORMAT_WAL) {
+        *reader = std::make_unique<format::wal::WalTableReader>();
+        return Status::OK();
+    }
     const auto table_format = table_format_name(range);
     if (table_format == "NotSet" || table_format == "tvf") {
         *reader = std::make_unique<format::TableReader>();
@@ -765,6 +796,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;
         }
@@ -944,6 +976,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;
+        return Status::OK();
+    case TFileFormatType::FORMAT_WAL:
+        *file_format = format::FileFormat::WAL;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",

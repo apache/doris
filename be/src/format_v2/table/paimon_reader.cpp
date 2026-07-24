@@ -199,7 +199,10 @@ Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadO
     } else {
         format::FileFormat file_format;
         RETURN_IF_ERROR(_to_file_format(options.current_range, &file_format));
-        DCHECK(options.current_split_format == file_format);
+        // Old FE plans encoded a native file as FORMAT_JNI without paimon_split and carried the
+        // physical format only in paimon_params.file_format.
+        DCHECK(options.current_split_format == file_format ||
+               options.current_split_format == format::FileFormat::JNI);
         DCHECK(file_format == format::FileFormat::PARQUET ||
                file_format == format::FileFormat::ORC);
         if (_native_reader == nullptr) {
@@ -258,16 +261,28 @@ Status PaimonHybridReader::_clone_conjuncts(VExprContextSPtrs* conjuncts) const 
 }
 
 bool PaimonHybridReader::_is_jni_split(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
-           range.table_format_params.paimon_params.__isset.reader_type &&
-           range.table_format_params.paimon_params.reader_type == TPaimonReaderType::PAIMON_JNI;
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    return params.__isset.paimon_split &&
+           (!params.__isset.reader_type || params.reader_type == TPaimonReaderType::PAIMON_JNI);
 }
 
 Status PaimonHybridReader::_to_file_format(const TFileRangeDesc& range,
                                            format::FileFormat* file_format) {
     DORIS_CHECK(file_format != nullptr);
-    const auto format_type =
+    auto format_type =
             range.__isset.format_type ? range.format_type : TFileFormatType::FORMAT_PARQUET;
+    if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
+        range.table_format_params.__isset.paimon_params) {
+        const auto& params = range.table_format_params.paimon_params;
+        if (params.__isset.file_format && params.file_format == "orc") {
+            format_type = TFileFormatType::FORMAT_ORC;
+        } else if (params.__isset.file_format && params.file_format == "parquet") {
+            format_type = TFileFormatType::FORMAT_PARQUET;
+        }
+    }
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         *file_format = format::FileFormat::PARQUET;
