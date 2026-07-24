@@ -316,9 +316,19 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 long jobIdEvent = cacheHotspotManager.createJob(eventStmtPeriodic);
                 // send jobIds to ms
                 List<String> newJobIds = Arrays.asList(Long.toString(jobIdPeriodic), Long.toString(jobIdEvent));
-                CloudSystemInfoService.updateFileCacheJobIds(virtualGroupInFe, newJobIds);
-                LOG.info("virtual compute group {}, generate new jobIds periodic={}, event={}, and old jobIds {}",
-                        virtualGroupInFe, jobIdPeriodic, jobIdEvent, jobIdsInMs);
+                boolean updated = CloudSystemInfoService.updateFileCacheJobIds(virtualGroupInFe, newJobIds);
+                if (!updated) {
+                    LOG.warn("warmup-vcg rebuild-failed vcgName={} srcCluster={} dstCluster={} "
+                                    + "createdPeriodicJobId={} createdEventJobId={} oldJobIds={} "
+                                    + "failureReason=failed to update new job ids to ms",
+                            virtualGroupInFe.getName(), srcCg, dstCg, jobIdPeriodic, jobIdEvent, jobIdsInMs);
+                    cancelCacheJobs(virtualGroupInFe, newJobIds);
+                    return;
+                }
+                virtualGroupInFe.getPolicy().setCacheWarmupJobIds(newJobIds);
+                LOG.info("warmup-vcg rebuild-finish vcgName={} srcCluster={} dstCluster={} "
+                                + "createdPeriodicJobId={} createdEventJobId={} oldJobIds={}",
+                        virtualGroupInFe.getName(), srcCg, dstCg, jobIdPeriodic, jobIdEvent, jobIdsInMs);
             } catch (AnalysisException e) {
                 LOG.warn("virtual compute err, name: {}, failed to generate file cache warm up jobs: {}",
                         virtualGroupInFe.getName(), e.getMessage(), e);
