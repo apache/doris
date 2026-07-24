@@ -851,13 +851,13 @@ public class ExpressionUtils {
     }
 
     /** flatExpressions */
-    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
+    public static <E extends Expression> Set<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
         for (List<E> expressionList : expressionLists) {
             num += expressionList.size();
         }
 
-        ImmutableList.Builder<E> flatten = ImmutableList.builderWithExpectedSize(num);
+        ImmutableSet.Builder<E> flatten = ImmutableSet.builderWithExpectedSize(num);
         for (List<E> expressionList : expressionLists) {
             flatten.addAll(expressionList);
         }
