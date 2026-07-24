@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
 #include <iostream>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
@@ -32,7 +37,14 @@ namespace doris {
 // fe/fe-core/src/main/java/org/apache/doris/common/DNSCache.java
 class DNSCache {
 public:
+    using Resolver = std::function<Status(const std::string&, std::string&, bool)>;
+
     DNSCache();
+
+    // Test-only constructor: uses a custom resolver and does NOT start the
+    // background refresh thread.  Call refresh_for_test() to drive one cycle.
+    explicit DNSCache(Resolver resolver);
+
     ~DNSCache();
 
     // get ip by hostname
@@ -44,19 +56,53 @@ private:
     // Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
     std::string _resolve_hostname(const std::string& hostname);
 
-    // update the ip of hostname in cache
-    Status _update(const std::string& hostname);
+    // update the ip of hostname in cache; out_failures (if non-null) is set to
+    // the current consecutive failure count read under the same lock; out_ip (if
+    // non-null) receives the resolved IP so callers can use it without a second
+    // cache lookup (avoids operator[] mutation under shared_lock).
+    Status _update(const std::string& hostname, uint32_t* out_failures = nullptr,
+                   std::string* out_ip = nullptr);
+
+    // erase a hostname from cache (with unique_lock)
+    void _erase(const std::string& hostname);
+
+    // one refresh cycle: update every cached hostname and evict if needed
+    void _refresh_once();
 
     // a function for refresh daemon thread
     // update cache at fix internal
     void _refresh_cache();
 
+    // ── test helpers (accessible via friend class DNSCacheTest) ──────────────
+    size_t size_for_test() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return cache.size();
+    }
+
+    uint32_t failure_count_for_test(const std::string& hostname) const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        auto it = failure_count.find(hostname);
+        return it != failure_count.end() ? it->second : 0;
+    }
+
+    // Run one refresh cycle synchronously (no sleep).  Only meaningful when
+    // the object was constructed with the test constructor (no background thread).
+    void refresh_for_test() { _refresh_once(); }
+
+    friend class DNSCacheTest;
+
 private:
+    Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
+    // hostname -> consecutive resolution failure count
+    std::unordered_map<std::string, uint32_t> failure_count;
     mutable std::shared_mutex mutex;
     std::thread refresh_thread;
-    bool stop_refresh = false;
+    // Protects stop_refresh and signals _refresh_cache to wake early on destroy.
+    std::mutex _cv_mutex;
+    std::condition_variable _cv;
+    std::atomic<bool> stop_refresh {false};
 };
 
 } // end of namespace doris

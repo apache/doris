@@ -285,6 +285,11 @@ DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 // the interval time(seconds) for agent report index policy to FE
 DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
+// DNS cache: throttle "use cached ip" warning to once per N failures per host.
+DEFINE_mInt32(dns_cache_log_every_n_failures, "60");
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+DEFINE_mInt32(dns_cache_max_consecutive_failures, "30");
+
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL

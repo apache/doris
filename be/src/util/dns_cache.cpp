@@ -17,6 +17,11 @@
 
 #include "util/dns_cache.h"
 
+#include <algorithm>
+#include <atomic>
+#include <unordered_set>
+
+#include "common/config.h"
 #include "service/backend_options.h"
 #include "util/network_util.h"
 
@@ -26,8 +31,11 @@ DNSCache::DNSCache() {
     refresh_thread = std::thread(&DNSCache::_refresh_cache, this);
 }
 
+DNSCache::DNSCache(Resolver resolver) : _resolver(std::move(resolver)) {}
+
 DNSCache::~DNSCache() {
     stop_refresh = true;
+    _cv.notify_all();
     if (refresh_thread.joinable()) {
         refresh_thread.join();
     }
@@ -42,13 +50,11 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
             return Status::OK();
         }
     }
-    // Update if not found
-    RETURN_IF_ERROR(_update(hostname));
-    {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        *ip = cache[hostname];
-        return Status::OK();
-    }
+    // First access: resolve and populate the cache.  Consume the IP returned by
+    // _update() directly to avoid a second cache lookup — operator[] under a
+    // shared_lock would mutate the map and could reinsert an empty entry if a
+    // concurrent refresh cycle evicted the hostname between _update() and here.
+    return _update(hostname, nullptr, ip);
 }
 
 // Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
@@ -67,26 +73,74 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
 
     // Try to resolve hostname
     std::string resolved_ip;
-    Status status = hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
+    Status status = _resolver
+                            ? _resolver(hostname, resolved_ip, BackendOptions::is_bind_ipv6())
+                            : hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
 
     if (!status.ok() || resolved_ip.empty()) {
-        // Resolution failed
         if (!cached_ip.empty()) {
-            LOG(WARNING) << "Failed to resolve hostname " << hostname
-                         << ", use cached ip: " << cached_ip;
+            // Only track failure counts for hosts that are currently in the cache.
+            // Hosts that were never cached or have already been evicted are not
+            // tracked, which prevents unbounded growth of failure_count.
+            uint32_t failures = 0;
+            {
+                std::unique_lock<std::shared_mutex> lock(mutex);
+                // Re-check that the host is still cached under the unique_lock:
+                // it may have been evicted by the refresh thread between our
+                // earlier shared_lock read of cached_ip and now (hostname_to_ip
+                // can block for seconds on DNS timeout, widening the window).
+                // Skipping the bump here preserves keys(failure_count) ⊆ keys(cache).
+                if (cache.find(hostname) != cache.end()) {
+                    failures = ++failure_count[hostname];
+                }
+            }
+            // Throttle the log: only every N failures or the first failure.
+            if (failures > 0) {
+                int32_t every_n = std::max(1, config::dns_cache_log_every_n_failures);
+                if (failures == 1 || failures % static_cast<uint32_t>(every_n) == 0) {
+                    LOG(WARNING) << "Failed to resolve hostname " << hostname
+                                 << " (consecutive failures: " << failures
+                                 << "), use cached ip: " << cached_ip;
+                }
+            }
             return cached_ip;
         } else {
-            LOG(WARNING) << "Failed to resolve hostname " << hostname << ", no cached ip available";
+            // Throttle to avoid flooding be.WARNING when callers repeatedly
+            // query an evicted or never-resolvable hostname.  This branch
+            // deliberately does not maintain a per-hostname counter (that
+            // would break the keys(failure_count) ⊆ keys(cache) invariant),
+            // so the throttle is a coarse global rate limit shared across
+            // all hostnames hitting this code path.
+            static std::atomic<uint64_t> no_cache_warn_counter {0};
+            uint64_t n = no_cache_warn_counter.fetch_add(1, std::memory_order_relaxed) + 1;
+            int32_t every_n = std::max(1, config::dns_cache_log_every_n_failures);
+            if (n == 1 || n % static_cast<uint64_t>(every_n) == 0) {
+                LOG(WARNING) << "Failed to resolve hostname " << hostname
+                             << ", no cached ip available";
+            }
             return "";
         }
     }
 
+    // Resolution succeeded - clear failure counter for this hostname.
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        failure_count.erase(hostname);
+    }
     return resolved_ip;
 }
 
-Status DNSCache::_update(const std::string& hostname) {
+void DNSCache::_erase(const std::string& hostname) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    cache.erase(hostname);
+    failure_count.erase(hostname);
+}
+
+Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, std::string* out_ip) {
     std::string real_ip = _resolve_hostname(hostname);
     if (real_ip.empty()) {
+        if (out_failures) *out_failures = 0;
+        if (out_ip) out_ip->clear();
         return Status::InternalError("Failed to resolve hostname {} and no cached ip available",
                                      hostname);
     }
@@ -97,25 +151,62 @@ Status DNSCache::_update(const std::string& hostname) {
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
     }
+    if (out_ip) *out_ip = real_ip;
+    // Read failure_count under the same lock we already hold, so _refresh_once
+    // does not need a second lock acquisition to decide on eviction.
+    if (out_failures) {
+        auto fc_it = failure_count.find(hostname);
+        *out_failures = fc_it != failure_count.end() ? fc_it->second : 0;
+    }
     return Status::OK();
+}
+
+void DNSCache::_refresh_once() {
+    std::unordered_set<std::string> keys;
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        std::transform(cache.begin(), cache.end(), std::inserter(keys, keys.end()),
+                       [](const auto& pair) { return pair.first; });
+    }
+    for (auto& key : keys) {
+        uint32_t failures = 0;
+        Status st = _update(key, &failures);
+        if (!st.ok()) {
+            // _update only returns an error when _resolve_hostname returns an
+            // empty string, which happens only if the hostname has never been
+            // successfully resolved (no cached IP to fall back to).  Keys in
+            // the refresh loop come from `cache`, so they all have a prior IP;
+            // during DNS failure _resolve_hostname returns that cached IP and
+            // _update returns OK.  This branch is therefore effectively dead
+            // under normal refresh semantics — the eviction logic below handles
+            // the long-running failure case instead.
+            LOG(WARNING) << "Failed to update DNS cache for hostname " << key << ": "
+                         << st.to_string();
+        }
+        // Evict hostnames that have failed to resolve for too long.
+        // This avoids two pathological symptoms after a backend is dropped
+        // from the cluster and its DNS record is removed:
+        //   1) be.WARNING gets flooded with `failed to get ip from host`.
+        //   2) brpc keeps re-using the stale IP from cache, producing
+        //      `Fail to wait EPOLLOUT ... Connection timed out`.
+        int32_t threshold = config::dns_cache_max_consecutive_failures;
+        if (threshold > 0 && failures >= static_cast<uint32_t>(threshold)) {
+            LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after " << failures
+                         << " consecutive resolution failures";
+            _erase(key);
+        }
+    }
 }
 
 void DNSCache::_refresh_cache() {
     while (!stop_refresh) {
-        // refresh every 1 min
-        std::this_thread::sleep_for(std::chrono::minutes(1));
-        std::unordered_set<std::string> keys;
         {
-            std::shared_lock<std::shared_mutex> lock(mutex);
-            std::transform(cache.begin(), cache.end(), std::inserter(keys, keys.end()),
-                           [](const auto& pair) { return pair.first; });
+            std::unique_lock<std::mutex> lk(_cv_mutex);
+            // Wake up either after 1 minute or when the destructor signals stop.
+            _cv.wait_for(lk, std::chrono::minutes(1), [this] { return stop_refresh.load(); });
         }
-        for (auto& key : keys) {
-            Status st = _update(key);
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed to update DNS cache for hostname " << key << ": "
-                             << st.to_string();
-            }
+        if (!stop_refresh) {
+            _refresh_once();
         }
     }
 }
