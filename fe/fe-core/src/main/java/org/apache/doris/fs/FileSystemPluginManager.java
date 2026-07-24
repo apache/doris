@@ -23,6 +23,7 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
@@ -36,6 +37,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -70,6 +72,9 @@ public class FileSystemPluginManager {
     private static final List<String> FS_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.filesystem.", "software.amazon.awssdk.", "org.apache.hadoop.");
 
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "FILESYSTEM";
+
     private final List<FileSystemProvider> providers = new CopyOnWriteArrayList<>();
     private final DirectoryPluginRuntimeManager<FileSystemProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
@@ -80,9 +85,20 @@ public class FileSystemPluginManager {
     public void loadBuiltins() {
         ServiceLoader.load(FileSystemProvider.class)
                 .forEach(p -> {
-                    providers.add(p);
-                    DatasourcePrintableMap.registerSensitiveKeys(p.sensitivePropertyKeys());
-                    LOG.info("Registered built-in filesystem provider: {}", p.name());
+                    try {
+                        // Snapshot all self-reported metadata (sensitive keys included)
+                        // before mutating any store, so one throwing implementation is
+                        // rejected cleanly instead of aborting startup or leaving an
+                        // inventory row for a provider that never became active.
+                        Set<String> sensitiveKeys = p.sensitivePropertyKeys();
+                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
+                        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
+                        providers.add(p);
+                        LOG.info("Registered built-in filesystem provider: {}", p.name());
+                    } catch (RuntimeException e) {
+                        LOG.warn("Skip built-in filesystem provider {}: self-reported metadata failed",
+                                p.getClass().getName(), e);
+                    }
                 });
     }
 
@@ -111,13 +127,43 @@ public class FileSystemPluginManager {
         }
 
         for (PluginHandle<FileSystemProvider> handle : report.getSuccesses()) {
+            // Built-ins (and earlier-loaded plugins) must never be displaced by a
+            // same-name directory jar.
+            if (hasProviderNamed(handle.getPluginName())) {
+                LOG.warn("Skip filesystem plugin '{}' from {}: name conflicts with an already "
+                        + "registered provider", handle.getPluginName(), handle.getPluginDir());
+                runtimeManager.discard(handle.getPluginName());
+                continue;
+            }
             FileSystemProvider provider = handle.getFactory();
+            // Snapshot the self-reported sensitive keys before publishing anything:
+            // this is plugin code and may throw, and a provider must never be active
+            // without its inventory row (or vice versa).
+            Set<String> sensitiveKeys;
+            try {
+                sensitiveKeys = provider.sensitivePropertyKeys();
+            } catch (RuntimeException | LinkageError e) {
+                runtimeManager.discard(handle.getPluginName());
+                LOG.warn("Skip filesystem plugin '{}' from {}: sensitivePropertyKeys() failed",
+                        handle.getPluginName(), handle.getPluginDir(), e);
+                continue;
+            }
             providers.add(provider);
-            DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
+            DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
+            PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
             LOG.info("Loaded filesystem plugin: name={}, pluginDir={}, jarCount={}",
                     handle.getPluginName(), handle.getPluginDir(),
                     handle.getResolvedJars().size());
         }
+    }
+
+    private boolean hasProviderNamed(String name) {
+        for (FileSystemProvider p : providers) {
+            if (name.equals(p.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

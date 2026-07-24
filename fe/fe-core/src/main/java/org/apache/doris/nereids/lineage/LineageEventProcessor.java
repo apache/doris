@@ -23,6 +23,7 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.extension.spi.PluginContext;
 
 import org.apache.logging.log4j.LogManager;
@@ -64,6 +65,9 @@ public class LineageEventProcessor {
 
     private static final Logger LOG = LogManager.getLogger(LineageEventProcessor.class);
     private static final long EVENT_POLL_TIMEOUT_SECONDS = 5L;
+
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "LINEAGE";
 
     /** Parent-first prefixes for child-first classloading isolation. */
     private static final List<String> LINEAGE_PARENT_FIRST_PREFIXES =
@@ -129,6 +133,16 @@ public class LineageEventProcessor {
                             factory == null ? "null" : factory.getClass().getName());
                     continue;
                 }
+                try {
+                    // Snapshot self-reported metadata before publishing the factory so one
+                    // throwing implementation is rejected cleanly instead of aborting the
+                    // whole built-in discovery or being active without an inventory row.
+                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                } catch (RuntimeException e) {
+                    LOG.warn("Skip built-in lineage plugin factory {}: self-reported metadata failed",
+                            factory.getClass().getName(), e);
+                    continue;
+                }
                 LineagePluginFactory existing = factories.putIfAbsent(pluginName, factory);
                 if (existing != null) {
                     LOG.warn("Skip duplicated built-in lineage plugin name: {}", pluginName);
@@ -158,9 +172,13 @@ public class LineageEventProcessor {
                 String pluginName = handle.getPluginName();
                 LineagePluginFactory existing = factories.putIfAbsent(pluginName, handle.getFactory());
                 if (existing != null) {
+                    // Remove the rejected handle from the runtime manager too, so its
+                    // classloader is not retained for the FE lifetime.
+                    runtimeManager.discard(pluginName);
                     LOG.warn("Skip duplicated lineage plugin name: {} from directory {}", pluginName,
                             handle.getPluginDir());
                 } else {
+                    PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
                     LOG.info("Loaded external lineage plugin factory: name={}, pluginDir={}, jarCount={}",
                             pluginName, handle.getPluginDir(), handle.getResolvedJars().size());
                 }

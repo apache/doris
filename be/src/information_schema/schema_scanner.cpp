@@ -60,6 +60,7 @@
 #include "information_schema/schema_database_properties_scanner.h"
 #include "information_schema/schema_dummy_scanner.h"
 #include "information_schema/schema_encryption_keys_scanner.h"
+#include "information_schema/schema_extensions_scanner.h"
 #include "information_schema/schema_file_cache_info_scanner.h"
 #include "information_schema/schema_file_cache_statistics.h"
 #include "information_schema/schema_files_scanner.h"
@@ -286,6 +287,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheInfoScanner::create_unique();
     case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
         return SchemaAuthenticationIntegrationsScanner::create_unique();
+    case TSchemaTableType::SCH_EXTENSIONS:
+        return SchemaExtensionsScanner::create_unique();
     case TSchemaTableType::SCH_ROLE_MAPPINGS:
         return SchemaRoleMappingsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_STREAMS:

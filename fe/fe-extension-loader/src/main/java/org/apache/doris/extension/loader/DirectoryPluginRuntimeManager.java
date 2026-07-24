@@ -36,6 +36,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -151,6 +152,21 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         return Optional.ofNullable(handlesByName.get(pluginName));
     }
 
+    /**
+     * Removes a loaded handle and closes its classloader. For callers that reject
+     * a successfully loaded plugin after the fact (e.g. a family-level name
+     * conflict with an already registered provider); without this the factory and
+     * its classloader would stay strongly retained for the FE lifetime.
+     */
+    public void discard(String pluginName) {
+        synchronized (lifecycleLock) {
+            PluginHandle<F> handle = handlesByName.remove(pluginName);
+            if (handle != null) {
+                closeClassLoader(handle.getClassLoader());
+            }
+        }
+    }
+
     public List<PluginHandle<F>> list() {
         Collection<PluginHandle<F>> handles = handlesByName.values();
         List<PluginHandle<F>> results = new ArrayList<>(handles);
@@ -254,10 +270,12 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             throw e;
         }
 
+        // Snapshot self-reported metadata once at load time. A throwing or invalid
+        // self-report is a load failure; query paths never re-invoke plugin code.
         String pluginName;
         try {
             pluginName = factory.name();
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
@@ -265,14 +283,32 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     "Failed to get plugin name from discovered factory in " + normalizedDir,
                     e);
         }
-        if (pluginName == null || pluginName.trim().isEmpty()) {
+        String nameValidationError = PluginNames.validate(pluginName);
+        if (nameValidationError != null) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
                     LoadFailure.STAGE_INSTANTIATE,
-                    "Plugin name is empty for directory: " + normalizedDir,
+                    "Invalid plugin name for directory " + normalizedDir + ": " + nameValidationError,
                     null);
         }
+
+        // LinkageError included: a factory jar with a broken classpath (or one
+        // compiled against a conflicting interface) must fail this plugin only,
+        // never escape per-plugin isolation.
+        String description;
+        try {
+            description = factory.description();
+        } catch (RuntimeException | LinkageError e) {
+            closeClassLoader(classLoader);
+            throw new PluginLoadException(
+                    normalizedDir,
+                    LoadFailure.STAGE_INSTANTIATE,
+                    "Failed to get plugin description from discovered factory in " + normalizedDir,
+                    e);
+        }
+
+        String version = readImplementationVersion(factory.getClass(), allJars);
 
         return new PluginHandle<>(
                 pluginName.trim(),
@@ -280,7 +316,41 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 allJars,
                 classLoader,
                 factory,
-                Instant.now());
+                Instant.now(),
+                description,
+                version);
+    }
+
+    /**
+     * Reads Implementation-Version from the MANIFEST of the jar that defined the
+     * factory class: the class's code source when available (covers layouts where
+     * the service descriptor sits in a root jar but the implementation lives in
+     * lib/), otherwise the first candidate jar containing the class entry.
+     * Version is display-only metadata: failures degrade to null instead of
+     * failing the load.
+     */
+    private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
+        String packagePath = ManifestVersions.packagePathOf(factoryClass);
+        Path definingJar = ManifestVersions.jarOf(factoryClass);
+        if (definingJar != null) {
+            try (JarFile jarFile = new JarFile(definingJar.toFile())) {
+                return ManifestVersions.fromManifest(jarFile, packagePath);
+            } catch (IOException ignored) {
+                // Fall through to scanning the candidate jars.
+            }
+        }
+        String classEntry = factoryClass.getName().replace('.', '/') + ".class";
+        for (Path jar : candidateJars) {
+            try (JarFile jarFile = new JarFile(jar.toFile())) {
+                if (jarFile.getEntry(classEntry) == null) {
+                    continue;
+                }
+                return ManifestVersions.fromManifest(jarFile, packagePath);
+            } catch (IOException ignored) {
+                // Display-only metadata; fall through to the next candidate jar.
+            }
+        }
+        return null;
     }
 
     /**

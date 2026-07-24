@@ -70,6 +70,7 @@ import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -166,6 +167,8 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> EXTENSIONS_COLUMN_TO_INDEX;
+
     private static final ImmutableMap<String, Integer> ROLE_MAPPINGS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_STREAMS_COLUMN_TO_INDEX;
@@ -258,6 +261,13 @@ public class MetadataGenerator {
                     authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
         }
         AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> extensionsBuilder = new ImmutableMap.Builder();
+        List<Column> extensionsColList = SchemaTable.TABLE_MAP.get("extensions").getFullSchema();
+        for (int i = 0; i < extensionsColList.size(); i++) {
+            extensionsBuilder.put(extensionsColList.get(i).getName().toLowerCase(), i);
+        }
+        EXTENSIONS_COLUMN_TO_INDEX = extensionsBuilder.build();
 
         ImmutableMap.Builder<String, Integer> roleMappingsBuilder = new ImmutableMap.Builder();
         List<Column> roleMappingsColList = SchemaTable.TABLE_MAP.get("role_mappings").getFullSchema();
@@ -398,6 +408,10 @@ public class MetadataGenerator {
             case AUTHENTICATION_INTEGRATIONS:
                 result = authenticationIntegrationsMetadataResult(schemaTableParams);
                 columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
+                break;
+            case EXTENSIONS:
+                result = extensionsMetadataResult(schemaTableParams);
+                columnIndex = EXTENSIONS_COLUMN_TO_INDEX;
                 break;
             case ROLE_MAPPINGS:
                 result = roleMappingsMetadataResult(schemaTableParams);
@@ -790,6 +804,31 @@ public class MetadataGenerator {
             row.addToColumnValue(new TCell().setStringVal(meta.getCreateTimeString()));
             row.addToColumnValue(new TCell().setStringVal(meta.getAlterUser()));
             row.addToColumnValue(new TCell().setStringVal(meta.getModifyTimeString()));
+            dataBatch.add(row);
+        }
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult extensionsMetadataResult(TSchemaTableRequestParams params) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+
+        // Readable by any authenticated user: a registry record only carries load-time
+        // component identity, never extension configuration or credentials.
+        // Registry rows are load-time snapshots of the current FE; no extension code runs here.
+        for (PluginRegistry.PluginRecord record : PluginRegistry.getInstance().list()) {
+            TRow row = new TRow();
+            row.addToColumnValue(new TCell().setStringVal(record.getName()));
+            row.addToColumnValue(new TCell().setStringVal(record.getType()));
+            if (record.getVersion() == null) {
+                row.addToColumnValue(new TCell());
+            } else {
+                row.addToColumnValue(new TCell().setStringVal(record.getVersion()));
+            }
+            row.addToColumnValue(new TCell().setStringVal(record.getSource().name()));
+            row.addToColumnValue(new TCell().setStringVal(record.getDescription()));
             dataBatch.add(row);
         }
         return result;
