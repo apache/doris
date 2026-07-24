@@ -46,6 +46,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -304,28 +306,94 @@ public class JdbcResource extends Resource {
                     + "file://xxx.jar, http://xxx.jar, https://xxx.jar, or xxx.jar (without prefix).");
         }
 
+        URI uri;
         try {
-            URI uri = new URI(driverUrl);
-            String schema = uri.getScheme();
-            checkCloudWhiteList(driverUrl);
-            if (schema == null && !driverUrl.startsWith("/")) {
-                return checkAndReturnDefaultDriverUrl(driverUrl);
-            }
-
-            if ("*".equals(Config.jdbc_driver_secure_path)) {
-                return driverUrl;
-            }
-
-            boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
-                    .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
-            if (!isAllowed) {
-                throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
-            }
-            return driverUrl;
+            uri = new URI(driverUrl);
         } catch (URISyntaxException e) {
-            LOG.warn("invalid jdbc driver url: " + driverUrl);
+            // Fail closed: an unparsable URL must never be silently accepted, otherwise the
+            // allowed-path check below could be bypassed by a malformed URL.
+            LOG.warn("invalid jdbc driver url: {}", driverUrl, e);
+            throw new IllegalArgumentException("Invalid driver URL: " + driverUrl);
+        }
+
+        String schema = uri.getScheme();
+        checkCloudWhiteList(driverUrl);
+        if (schema == null && !driverUrl.startsWith("/")) {
+            return checkAndReturnDefaultDriverUrl(driverUrl);
+        }
+
+        if ("*".equals(Config.jdbc_driver_secure_path)) {
             return driverUrl;
         }
+
+        if (!isDriverUrlAllowed(driverUrl, uri)) {
+            throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
+        }
+        return driverUrl;
+    }
+
+    /**
+     * Check whether {@code driverUrl} falls under one of the semicolon-separated prefixes configured in
+     * {@link Config#jdbc_driver_secure_path}. Matching is structural (component-based) rather than a raw string
+     * prefix, so that neither prefix confusion ({@code /opt/drivers} vs {@code /opt/drivers-evil}) nor path
+     * traversal ({@code /opt/drivers/../etc}) can slip a driver outside the allowed location.
+     */
+    private static boolean isDriverUrlAllowed(String driverUrl, URI uri) {
+        String scheme = uri.getScheme();
+        List<String> allowedPaths = new ArrayList<>();
+        for (String p : Config.jdbc_driver_secure_path.split(";")) {
+            String trimmed = p.trim();
+            if (!trimmed.isEmpty()) {
+                allowedPaths.add(trimmed);
+            }
+        }
+        if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+            URI candidate = uri.normalize();
+            return allowedPaths.stream().anyMatch(allowed -> remoteUrlMatches(candidate, allowed));
+        }
+        // Only file:// reaches here; bare absolute paths and bare "*.jar" are handled earlier.
+        Path candidate = toLocalPath(driverUrl).normalize();
+        return allowedPaths.stream()
+                .map(allowed -> toLocalPath(allowed).normalize())
+                .anyMatch(candidate::startsWith);
+    }
+
+    /**
+     * Turn a {@code file://} URL or a plain filesystem path into a {@link Path} for structural comparison.
+     */
+    private static Path toLocalPath(String pathOrUrl) {
+        String path = pathOrUrl;
+        if (path.startsWith("file://")) {
+            path = path.substring("file://".length());
+        }
+        return Paths.get(path);
+    }
+
+    /**
+     * Structural match for remote (http/https) driver URLs: scheme, host and port must be equal, and the
+     * candidate path must sit under the allowed path (component-based). A bare path prefix (no scheme) can
+     * never authorize a remote URL.
+     */
+    private static boolean remoteUrlMatches(URI candidate, String allowedPath) {
+        URI base;
+        try {
+            base = new URI(allowedPath).normalize();
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        if (base.getScheme() == null) {
+            return false;
+        }
+        return base.getScheme().equalsIgnoreCase(candidate.getScheme())
+                && base.getHost() != null && base.getHost().equalsIgnoreCase(candidate.getHost())
+                && base.getPort() == candidate.getPort()
+                && pathIsUnder(candidate.getPath(), base.getPath());
+    }
+
+    private static boolean pathIsUnder(String candidatePath, String basePath) {
+        Path candidate = Paths.get(candidatePath == null || candidatePath.isEmpty() ? "/" : candidatePath).normalize();
+        Path base = Paths.get(basePath == null || basePath.isEmpty() ? "/" : basePath).normalize();
+        return candidate.startsWith(base);
     }
 
     private static String checkAndReturnDefaultDriverUrl(String driverUrl) {

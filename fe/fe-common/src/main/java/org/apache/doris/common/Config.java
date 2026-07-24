@@ -3290,9 +3290,11 @@ public class Config extends ConfigBase {
             ".dfs.core.cloudapi.de"
     };
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "The allowlist for JDBC driver URLs. If it is empty, no allowlist will be set. "
-                    + "For example: jdbc_driver_url_white_list=a,b,c"})
+                    + "For example: jdbc_driver_url_white_list=a,b,c. "
+                    + "This can only be set in fe.conf and takes effect after a restart; "
+                    + "it is intentionally not modifiable at runtime via ADMIN SET FRONTEND CONFIG."})
     public static String[] jdbc_driver_url_white_list = {};
 
     @ConfField(description = {"The maximum length of label in Stream Load is limited."})

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -246,5 +247,78 @@ public class JdbcResourceTest {
         Assert.assertThrows(IllegalArgumentException.class, () -> {
             JdbcResource.getFullDriverUrl(invalidUrl4);
         });
+    }
+
+    @Test
+    public void testSecurePathRejectsPrefixConfusion() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            // A directory that merely shares a string prefix must NOT be allowed.
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers-evil/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsPathTraversal() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/../../etc/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathAllowsPathUnderAllowedDir() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            String url = "file:///opt/doris/jdbc_drivers/sub/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assert.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsHostConfusion() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/";
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("http://good.com.evil.com/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathAllowsRemoteUnderAllowedHost() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/drivers";
+            String url = "http://good.com/drivers/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assert.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathWildcardAllowsAll() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "*";
+            String url = "file:///any/where/x.jar";
+            Assertions.assertDoesNotThrow(() -> Assert.assertEquals(url, JdbcResource.getFullDriverUrl(url)));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
     }
 }
