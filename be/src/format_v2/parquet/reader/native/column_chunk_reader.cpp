@@ -919,6 +919,15 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_ensure_dictionary_page_l
         RETURN_IF_ERROR(_page_reader->get_page_header(&header));
         if (header->type == tparquet::PageType::DATA_PAGE ||
             header->type == tparquet::PageType::DATA_PAGE_V2) {
+            if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+                if (header->type == tparquet::PageType::DATA_PAGE &&
+                    _page_reader->has_active_offset_index()) {
+                    // V1 nested pages expose row boundaries only in repetition levels, so an
+                    // indexed seek must not skip the first page before those levels are decoded.
+                    _page_reader->discard_offset_index();
+                    _offset_index = nullptr;
+                }
+            }
             _dict_checked = true;
             return Status::OK();
         }
@@ -1723,6 +1732,9 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    }
     if constexpr (OFFSET_INDEX) {
         if (_page_reader->has_active_offset_index()) {
             while (true) {
