@@ -163,6 +163,7 @@ TEST(MetaServiceOperationLogTest, CommitPartitionLog) {
 
         meta_service->resource_mgr()->refresh_instance(instance_id);
         ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+        ASSERT_FALSE(meta_service->resource_mgr()->is_version_read_enabled(instance_id));
     }
 
     {
@@ -192,6 +193,32 @@ TEST(MetaServiceOperationLogTest, CommitPartitionLog) {
     }
 
     auto txn_kv = meta_service->txn_kv();
+
+    {
+        // Replayed commit and a later prepare must not recreate a recycle marker while the
+        // instance is in MULTI_VERSION_WRITE_ONLY.
+        brpc::Controller ctrl;
+        PartitionRequest req;
+        PartitionResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.add_partition_ids(partition_id);
+        meta_service->commit_partition(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+
+        res.Clear();
+        meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED)
+                << res.status().DebugString();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(recycle_partition_key({instance_id, partition_id}), &value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
     Versionstamp version1;
     {
         // Verify partition meta/index/inverted indexes are exists
@@ -441,6 +468,7 @@ TEST(MetaServiceOperationLogTest, CommitIndexLog) {
 
         meta_service->resource_mgr()->refresh_instance(instance_id);
         ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+        ASSERT_FALSE(meta_service->resource_mgr()->is_version_read_enabled(instance_id));
     }
 
     {
@@ -472,6 +500,32 @@ TEST(MetaServiceOperationLogTest, CommitIndexLog) {
     }
 
     auto txn_kv = meta_service->txn_kv();
+
+    {
+        // Replayed commit and a later prepare must not recreate a recycle marker while the
+        // instance is in MULTI_VERSION_WRITE_ONLY.
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.set_is_new_table(true);
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+
+        res.Clear();
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED)
+                << res.status().DebugString();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(recycle_index_key({instance_id, index_id}), &value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
     Versionstamp version1;
     Versionstamp version2;
 

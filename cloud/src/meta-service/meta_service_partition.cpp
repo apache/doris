@@ -78,6 +78,24 @@ static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_i
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
+static TxnErrorCode index_exists_with_versioned_fallback(
+        Transaction* txn, const std::string& instance_id, const IndexRequest* req, int64_t index_id,
+        CloneChainReader* reader, bool is_versioned_read, bool is_versioned_write) {
+    if (is_versioned_read) {
+        return reader->is_index_exists(txn, index_id);
+    }
+
+    TxnErrorCode err = index_exists(txn, instance_id, req);
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND || !is_versioned_write) {
+        return err;
+    }
+
+    // In MULTI_VERSION_WRITE_ONLY, newly committed indexes only have versioned index keys
+    // before their tablets are created. A delayed prepare_index replay must still recognize
+    // the committed index, otherwise it recreates a PREPARED recycle marker.
+    return reader->is_index_exists(txn, index_id);
+}
+
 static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string& key) {
     std::string val;
     return txn->get(key, &val);
@@ -110,12 +128,11 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         return;
     }
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
     CloneChainReader reader(instance_id, resource_mgr_.get());
-    if (!is_versioned_read) {
-        err = index_exists(txn.get(), instance_id, request);
-    } else {
-        err = reader.is_index_exists(txn.get(), request->index_ids(0));
-    }
+    err = index_exists_with_versioned_fallback(txn.get(), instance_id, request,
+                                               request->index_ids(0), &reader, is_versioned_read,
+                                               is_versioned_write);
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -221,11 +238,9 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            if (!is_versioned_read) {
-                err = index_exists(txn.get(), instance_id, request);
-            } else {
-                err = reader.is_index_exists(txn.get(), index_id);
-            }
+            err = index_exists_with_versioned_fallback(txn.get(), instance_id, request, index_id,
+                                                       &reader, is_versioned_read,
+                                                       is_versioned_write);
             // If index has existed, this might be a duplicate request
             if (err == TxnErrorCode::TXN_OK) {
                 return; // Index committed, OK
@@ -552,6 +567,23 @@ static TxnErrorCode partition_exists(Transaction* txn, const std::string& instan
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
+static TxnErrorCode partition_exists_with_versioned_fallback(
+        Transaction* txn, const std::string& instance_id, const PartitionRequest* req,
+        int64_t partition_id, CloneChainReader* reader, bool is_versioned_read,
+        bool is_versioned_write) {
+    if (is_versioned_read) {
+        return reader->is_partition_exists(txn, partition_id);
+    }
+
+    TxnErrorCode err = partition_exists(txn, instance_id, req);
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND || !is_versioned_write) {
+        return err;
+    }
+
+    // Keep delayed prepare/commit replays idempotent during the write-only migration phase.
+    return reader->is_partition_exists(txn, partition_id);
+}
+
 void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* controller,
                                         const PartitionRequest* request,
                                         PartitionResponse* response,
@@ -590,12 +622,11 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         return;
     }
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    if (!is_versioned_read) {
-        err = partition_exists(txn.get(), instance_id, request);
-    } else {
-        CloneChainReader reader(instance_id, resource_mgr_.get());
-        err = reader.is_partition_exists(txn.get(), request->partition_ids(0));
-    }
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
+    err = partition_exists_with_versioned_fallback(txn.get(), instance_id, request,
+                                                   request->partition_ids(0), &reader,
+                                                   is_versioned_read, is_versioned_write);
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -765,11 +796,9 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             // Compatible with requests without `index_ids`
             if (!request->index_ids().empty()) {
-                if (!is_versioned_read) {
-                    err = partition_exists(txn.get(), instance_id, request);
-                } else {
-                    err = reader.is_partition_exists(txn.get(), part_id);
-                }
+                err = partition_exists_with_versioned_fallback(txn.get(), instance_id, request,
+                                                               part_id, &reader, is_versioned_read,
+                                                               is_versioned_write);
                 // If partition has existed, this might be a duplicate request
                 if (err == TxnErrorCode::TXN_OK) {
                     // Partition committed, OK
