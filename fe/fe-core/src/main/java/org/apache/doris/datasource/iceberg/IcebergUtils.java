@@ -132,8 +132,10 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -638,26 +640,36 @@ public class IcebergUtils {
     }
 
     /**
-     * Get partition info map for identity partitions only, considering partition
-     * evolution.
-     * For non-identity partitions (e.g., day, bucket, truncate), returns null to
-     * skip
-     * dynamic partition pruning.
-     *
-     * @param partitionData The partition data from the file
-     * @param partitionSpec The partition spec corresponding to the file's specId
-     *                      (required)
-     * @param timeZone      The time zone for timestamp serialization
-     * @return Map of partition field name to partition value string, or null if
-     *         there are non-identity partitions
+     * Get identity partition columns that exist in all partition specs.
+     * The file scanner uses partition columns in the first scan range for all ranges,
+     * so only common identity partition columns can be used for partition pruning.
      */
-    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, PartitionSpec partitionSpec,
-            String timeZone) {
-        Map<String, String> partitionInfoMap = new HashMap<>();
-        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+    public static List<String> getCommonIdentityPartitionColumns(Table table) {
+        LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
+        for (PartitionField field : table.spec().fields()) {
+            NestedField sourceField = table.schema().findField(field.sourceId());
+            if (field.transform().isIdentity() && sourceField != null
+                    && isSupportedPartitionValueType(sourceField.type().typeId())) {
+                commonSourceIds.add(field.sourceId());
+            }
+        }
+        for (PartitionSpec spec : table.specs().values()) {
+            Set<Integer> specIdentitySourceIds = spec.fields().stream()
+                    .filter(field -> field.transform().isIdentity())
+                    .map(PartitionField::sourceId)
+                    .collect(Collectors.toSet());
+            commonSourceIds.retainAll(specIdentitySourceIds);
+        }
+        return commonSourceIds.stream()
+                .map(table.schema()::findColumnName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
 
-        // Check if all partition fields are identity transform
-        // If any field is not identity, return null to skip dynamic partition pruning
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Table table, String timeZone) {
+        Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
         Preconditions.checkArgument(fields.size() == partitionFields.size(),
                 "PartitionData fields size does not match PartitionSpec fields size");
@@ -665,30 +677,31 @@ public class IcebergUtils {
         for (int i = 0; i < fields.size(); i++) {
             NestedField field = fields.get(i);
             PartitionField partitionField = partitionFields.get(i);
-
-            // Only process identity transform partitions
-            // For other transforms (day, bucket, truncate, etc.), skip dynamic partition
-            // pruning
             if (!partitionField.transform().isIdentity()) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(
-                            "Skip dynamic partition pruning for non-identity partition field: {} with transform: {}",
-                            field.name(), partitionField.transform().toString());
-                }
-                return null;
+                continue;
+            }
+            if (!isSupportedPartitionValueType(field.type().typeId())) {
+                continue;
+            }
+            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            if (columnName == null) {
+                continue;
             }
 
             Object value = partitionData.get(i);
             try {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);
-                partitionInfoMap.put(field.name(), partitionString);
+                partitionInfoMap.put(columnName, partitionString);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
                         e.getMessage());
-                return null;
             }
         }
         return partitionInfoMap;
+    }
+
+    private static boolean isSupportedPartitionValueType(TypeID typeId) {
+        return typeId != TypeID.BINARY && typeId != TypeID.FIXED;
     }
 
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
@@ -703,6 +716,16 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary, fixed should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:

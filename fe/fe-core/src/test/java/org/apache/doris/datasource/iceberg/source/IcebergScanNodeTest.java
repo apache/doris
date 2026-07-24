@@ -30,14 +30,23 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -94,5 +103,37 @@ public class IcebergScanNodeTest {
         method.invoke(node, rangeDesc, split);
 
         Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+    }
+
+    @Test
+    public void testSetPartitionValuesBuildsStableAlignedMetadata() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(spec.specId(), spec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.specs()).thenReturn(specs);
+
+        Field icebergTable = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTable.setAccessible(true);
+        icebergTable.set(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Dt", null);
+        partitionValues.put("Region", "cn");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Arrays.asList("Region", "Dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("cn", ""), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(false, true), rangeDesc.getColumnsFromPathIsNull());
     }
 }

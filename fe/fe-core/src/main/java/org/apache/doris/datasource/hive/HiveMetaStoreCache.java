@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -393,10 +392,10 @@ public class HiveMetaStoreCache {
             try {
                 FileCacheValue result = getFileCache(finalLocation, key.inputFormat,
                         key.getPartitionValues(), directoryLister, table);
-                // Replace default hive partition with a null_string.
+                // Replace default hive partition with null to distinguish it from a literal "\N".
                 for (int i = 0; i < result.getValuesSize(); i++) {
                     if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
-                        result.getPartitionValues().set(i, FeConstants.null_string);
+                        result.getPartitionValues().set(i, null);
                     }
                 }
 
