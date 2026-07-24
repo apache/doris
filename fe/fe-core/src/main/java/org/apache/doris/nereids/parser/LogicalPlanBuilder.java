@@ -3510,11 +3510,144 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = Lists.newArrayList();
             params.addAll(visit(ctx.funcExpression(), Expression.class));
+            Optional<Expression> rewritten = rewriteCompatibilityFunction(
+                    ctx, dbName, functionName, isDistinct, params, ctx.windowSpec(), ctx.identifier());
+            if (rewritten.isPresent()) {
+                return rewritten.get();
+            }
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
             return processUnboundFunction(ctx, dbName, functionName, isDistinct, params,
                     ctx.windowSpec(), ctx.identifier());
         });
+    }
+
+    private Optional<Expression> rewriteCompatibilityFunction(ParserRuleContext ctx, String dbName,
+            String functionName, boolean isDistinct, List<Expression> params,
+            WindowSpecContext windowContext, IdentifierContext hintContext) {
+        if (dbName != null || isDistinct || windowContext != null || hintContext != null) {
+            return Optional.empty();
+        }
+
+        String normalizedName = functionName.toLowerCase(Locale.ROOT);
+        switch (normalizedName) {
+            case "date_part":
+                return Optional.of(rewriteDatePart(params));
+            case "dateadd":
+                return Optional.of(rewriteDateAdd(params));
+            case "to_timestamp":
+                return Optional.of(rewriteSimpleAlias(normalizedName, "str_to_date", 2, params));
+            case "to_char":
+                return Optional.of(rewriteSimpleAlias(normalizedName, "date_format", 2, params));
+            case "strpos":
+                return Optional.of(rewriteStrpos(params));
+            case "regexp_substr":
+                return Optional.of(rewriteRegexpSubstr(params));
+            case "char_length":
+                return Optional.of(rewriteSimpleAlias(normalizedName, "character_length", 1, params));
+            case "split":
+                return Optional.of(rewriteSplit(params));
+            default:
+                return Optional.empty();
+        }
+    }
+
+    private Expression rewriteDatePart(List<Expression> params) {
+        if (params.size() != 2) {
+            throw new AnalysisException("date_part requires exactly 2 arguments");
+        }
+
+        String field = getRequiredStringLiteral(params.get(0), "date_part field");
+        Expression source = params.get(1);
+        String normalizedField = field.trim().toLowerCase(Locale.ROOT);
+
+        switch (normalizedField) {
+            case "year":
+            case "month":
+            case "day":
+            case "hour":
+            case "minute":
+            case "second":
+            case "week":
+            case "quarter":
+                return new UnboundFunction(normalizedField, false, ImmutableList.of(source));
+            default:
+                throw new AnalysisException("Unsupported date_part field: '" + field + "'");
+        }
+    }
+
+    private Expression rewriteDateAdd(List<Expression> params) {
+        if (params.size() != 3) {
+            throw new AnalysisException("dateadd requires exactly 3 arguments");
+        }
+
+        String unit = getRequiredStringLiteral(params.get(0), "dateadd unit");
+        Expression delta = params.get(1);
+        Expression source = params.get(2);
+        String normalizedUnit = unit.trim().toLowerCase(Locale.ROOT);
+
+        switch (normalizedUnit) {
+            case "year":
+            case "years":
+                return new UnboundFunction("years_add", false, ImmutableList.of(source, delta));
+            case "month":
+            case "months":
+                return new UnboundFunction("months_add", false, ImmutableList.of(source, delta));
+            case "week":
+            case "weeks":
+                return new UnboundFunction("weeks_add", false, ImmutableList.of(source, delta));
+            case "day":
+            case "days":
+                return new UnboundFunction("days_add", false, ImmutableList.of(source, delta));
+            case "hour":
+            case "hours":
+                return new UnboundFunction("hours_add", false, ImmutableList.of(source, delta));
+            case "minute":
+            case "minutes":
+                return new UnboundFunction("minutes_add", false, ImmutableList.of(source, delta));
+            case "second":
+            case "seconds":
+                return new UnboundFunction("seconds_add", false, ImmutableList.of(source, delta));
+            default:
+                throw new AnalysisException("Unsupported dateadd unit: '" + unit + "'");
+        }
+    }
+
+    private Expression rewriteSimpleAlias(String aliasName, String targetName, int expectedArgs,
+            List<Expression> params) {
+        if (params.size() != expectedArgs) {
+            throw new AnalysisException(aliasName + " requires exactly " + expectedArgs + " arguments");
+        }
+        return new UnboundFunction(targetName, false, ImmutableList.copyOf(params));
+    }
+
+    private Expression rewriteStrpos(List<Expression> params) {
+        if (params.size() != 2) {
+            throw new AnalysisException("strpos requires exactly 2 arguments");
+        }
+        return new UnboundFunction("locate", false, ImmutableList.of(params.get(1), params.get(0)));
+    }
+
+    private Expression rewriteRegexpSubstr(List<Expression> params) {
+        if (params.size() != 2) {
+            throw new AnalysisException("regexp_substr requires exactly 2 arguments");
+        }
+        return new UnboundFunction("regexp_extract", false,
+                ImmutableList.of(params.get(0), params.get(1), new BigIntLiteral(0L)));
+    }
+
+    private Expression rewriteSplit(List<Expression> params) {
+        if (params.size() != 2) {
+            throw new AnalysisException("split requires exactly 2 arguments");
+        }
+        return new UnboundFunction("split_by_string", false, ImmutableList.copyOf(params));
+    }
+
+    private String getRequiredStringLiteral(Expression expression, String argumentName) {
+        if (!(expression instanceof StringLikeLiteral)) {
+            throw new AnalysisException(argumentName + " must be a string literal");
+        }
+        return ((StringLikeLiteral) expression).getStringValue();
     }
 
     private Expression processUnboundFunction(ParserRuleContext ctx, String dbName, String functionName,

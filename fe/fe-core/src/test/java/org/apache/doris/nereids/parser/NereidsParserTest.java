@@ -1317,6 +1317,77 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testDateCompatibilityFunctionAliases() {
+        NereidsParser parser = new NereidsParser();
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        e = parser.parseExpression("date_part('YEAR', now())");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("year", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+
+        e = parser.parseExpression("dateadd('days', 7, now())");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("days_add", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals(7, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        e = parser.parseExpression("to_timestamp('2026-04-16 10:11:12', '%Y-%m-%d %H:%i:%s')");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("str_to_date", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+
+        e = parser.parseExpression("to_char(now(), '%Y-%m-%d')");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("date_format", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+
+        Assertions.assertThrowsExactly(AnalysisException.class,
+                () -> parser.parseExpression("date_part(x, now())"));
+        Assertions.assertThrowsExactly(AnalysisException.class,
+                () -> parser.parseExpression("dateadd(unit, 1, now())"));
+    }
+
+    @Test
+    public void testStringCompatibilityFunctionAliases() {
+        NereidsParser parser = new NereidsParser();
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        e = parser.parseExpression("strpos('foobar', 'ob')");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("locate", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("ob", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("foobar", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        e = parser.parseExpression("regexp_substr('abc123def', '[0-9]+')");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("regexp_extract", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals(0, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        e = parser.parseExpression("char_length('abc')");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("character_length", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+
+        e = parser.parseExpression("split('a,b,c', ',')");
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("split_by_string", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+    }
+
+    @Test
     public void testNoBackSlashEscapes() {
         testNoBackSlashEscapes("''", "", "");
         testNoBackSlashEscapes("\"\"", "", "");
