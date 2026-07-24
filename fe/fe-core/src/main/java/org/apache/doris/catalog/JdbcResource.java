@@ -54,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * External JDBC Catalog resource for external table query.
@@ -360,13 +361,25 @@ public class JdbcResource extends Resource {
 
     /**
      * Turn a {@code file://} URL or a plain filesystem path into a {@link Path} for structural comparison.
+     * A {@code file://} URL is decoded exactly once via {@link URI#getPath()} so that percent-encoded
+     * segments (e.g. {@code %2e%2e}) are resolved into the same representation the driver-loading
+     * consumers ({@code URL.openStream} / {@code URLClassLoader}) will use; otherwise an encoded parent
+     * segment would survive normalization and escape the allowed directory.
      */
     private static Path toLocalPath(String pathOrUrl) {
-        String path = pathOrUrl;
-        if (path.startsWith("file://")) {
-            path = path.substring("file://".length());
+        if (pathOrUrl.startsWith("file:")) {
+            try {
+                String decoded = new URI(pathOrUrl).getPath();
+                if (decoded != null && !decoded.isEmpty()) {
+                    return Paths.get(decoded);
+                }
+            } catch (URISyntaxException ignored) {
+                // fall through to literal stripping below
+            }
+            int sep = pathOrUrl.indexOf("//");
+            return Paths.get(sep >= 0 ? pathOrUrl.substring(sep + 2) : pathOrUrl.substring("file:".length()));
         }
-        return Paths.get(path);
+        return Paths.get(pathOrUrl);
     }
 
     /**
@@ -384,9 +397,14 @@ public class JdbcResource extends Resource {
         if (base.getScheme() == null) {
             return false;
         }
+        // Scheme/host/port and the path prefix must match, and the resource-selecting components
+        // (user-info and query) that the checksum/classloader consumers act on must match exactly too,
+        // otherwise e.g. ".../download?id=approved" would authorize ".../download?id=evil".
         return base.getScheme().equalsIgnoreCase(candidate.getScheme())
                 && base.getHost() != null && base.getHost().equalsIgnoreCase(candidate.getHost())
                 && base.getPort() == candidate.getPort()
+                && Objects.equals(base.getUserInfo(), candidate.getUserInfo())
+                && Objects.equals(base.getRawQuery(), candidate.getRawQuery())
                 && pathIsUnder(candidate.getPath(), base.getPath());
     }
 

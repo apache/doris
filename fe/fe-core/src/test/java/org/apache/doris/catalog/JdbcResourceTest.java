@@ -321,4 +321,54 @@ public class JdbcResourceTest {
             Config.jdbc_driver_secure_path = saved;
         }
     }
+
+    @Test
+    public void testSecurePathRejectsEncodedTraversal() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            // %2e%2e decodes to "..", which must be resolved the same way the classloader resolves it.
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/%2e%2e/%2e%2e/etc/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsRemoteQueryMismatch() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/drivers";
+            // A query-bearing URL must not be authorized by a query-less allowed prefix.
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("http://good.com/drivers/x.jar?id=evil"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsRemoteUserInfoMismatch() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "http://good.com/drivers";
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("http://user@good.com/drivers/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testEmptySecurePathDeniesSchemeUrls() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "";
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/x.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
 }

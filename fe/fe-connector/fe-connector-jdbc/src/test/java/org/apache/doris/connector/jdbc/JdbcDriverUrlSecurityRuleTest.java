@@ -60,6 +60,14 @@ public class JdbcDriverUrlSecurityRuleTest {
                 () -> JdbcDorisConnector.checkDriverUrlSecurityRule("http://host/a/../b.jar"));
     }
 
+    @Test
+    public void testEncodedTraversalRejected() {
+        // %2e%2e decodes to "..", which must be caught on the decoded path.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> JdbcDorisConnector.checkDriverUrlSecurityRule(
+                        "file:///opt/doris/plugins/jdbc_drivers/%2e%2e/%2e%2e/etc/evil.jar"));
+    }
+
     // ---- allowed ----
 
     @Test

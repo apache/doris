@@ -38,6 +38,8 @@ import org.apache.thrift.TSerializer;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -155,7 +157,20 @@ public class JdbcDorisConnector implements Connector {
         if (driverUrl == null || driverUrl.isEmpty()) {
             return;
         }
-        String probe = driverUrl.replace('\\', '/');
+        // Check traversal on the decoded path so percent-encoded segments (e.g. %2e%2e) — which the
+        // driver-loading consumers decode — cannot slip a ".." past this rule.
+        String pathToCheck = driverUrl;
+        if (driverUrl.contains("://")) {
+            try {
+                String decoded = new URI(driverUrl).getPath();
+                if (decoded != null) {
+                    pathToCheck = decoded;
+                }
+            } catch (URISyntaxException e) {
+                throw new IllegalArgumentException("Invalid driver_url: " + driverUrl);
+            }
+        }
+        String probe = pathToCheck.replace('\\', '/');
         for (String segment : probe.split("/")) {
             if ("..".equals(segment)) {
                 throw new IllegalArgumentException(

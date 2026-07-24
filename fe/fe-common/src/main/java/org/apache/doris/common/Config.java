@@ -159,7 +159,8 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The safe path of the JDBC driver. When creating a JDBC Catalog, "
             + "you can configure multiple files or network paths that are allowed to be used, "
             + "separated by semicolons. "
-            + "The default is * to allow all; if set to empty, it also means to allow all"})
+            + "The default is * to allow all. An empty value denies all scheme-qualified driver URLs "
+            + "(file://, http(s)://); bare jar file names resolved under jdbc_drivers_dir are always allowed."})
     public static String jdbc_driver_secure_path = "*";
 
     @ConfField(description = {"Functions that MySQL JDBC Catalog does not support pushing down"})
@@ -2847,10 +2848,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = {
             "The maximum number of worker threads for the HTTP SQL submitter."})
     public static int http_sql_submitter_max_worker_threads = 2;
-
-    @ConfField(mutable = false, masterOnly = false, description = {
-            "The maximum number of worker threads for the HTTP upload submitter."})
-    public static int http_load_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "The threshold of load labels' number. After this number is exceeded, "
