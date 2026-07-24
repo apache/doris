@@ -38,6 +38,7 @@ class EsScanPlanProviderTest {
 
         final AtomicInteger getMappingCount = new AtomicInteger();
         final AtomicInteger searchShardsCount = new AtomicInteger();
+        final AtomicInteger getHttpNodesCount = new AtomicInteger();
 
         CountingRestClient() {
             super(new String[]{"localhost:9200"}, null, null, false, null);
@@ -58,6 +59,7 @@ class EsScanPlanProviderTest {
 
         @Override
         public Map<String, EsNodeInfo> getHttpNodes() {
+            getHttpNodesCount.incrementAndGet();
             Map<String, EsNodeInfo> nodes = new HashMap<>();
             nodes.put("node1", new EsNodeInfo("node1", "localhost:9200"));
             return nodes;
@@ -119,7 +121,7 @@ class EsScanPlanProviderTest {
     }
 
     @Test
-    void testPlanScanAndScanNodePropertiesFetchIndependently() {
+    void testPlanScanAndScanNodePropertiesShareOneFetch() {
         CountingRestClient client = new CountingRestClient();
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("test_index");
@@ -127,10 +129,16 @@ class EsScanPlanProviderTest {
         provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
         provider.getScanNodeProperties(EMPTY_SESSION, handle, Collections.emptyList(),
                 java.util.Optional.empty());
-        Assertions.assertEquals(2, client.getMappingCount.get(),
-                "Each provider call should fetch mapping for the current request");
-        Assertions.assertEquals(2, client.searchShardsCount.get(),
-                "Each provider call should fetch shard routing for the current request");
+        // ES-F1: planScan and getScanNodeProperties of one scan node run on the SAME per-scan-node
+        // provider instance, so the metadata state (mapping + shard routing + node topology) is
+        // fetched once and shared -- not twice. MUTATION: removing the memoizedState guard makes
+        // each call refetch -> these go back to 2 -> red.
+        Assertions.assertEquals(1, client.getMappingCount.get(),
+                "the two provider calls of one scan node must share a single mapping fetch");
+        Assertions.assertEquals(1, client.searchShardsCount.get(),
+                "the two provider calls of one scan node must share a single shard-routing fetch");
+        Assertions.assertEquals(1, client.getHttpNodesCount.get(),
+                "the two provider calls of one scan node must share a single node-topology fetch");
     }
 
     @Test
@@ -141,8 +149,55 @@ class EsScanPlanProviderTest {
                 Collections.emptyList(), java.util.Optional.empty());
         provider.planScan(EMPTY_SESSION, new EsTableHandle("index_b"),
                 Collections.emptyList(), java.util.Optional.empty());
+        // The per-scan memo is guarded on the index, so a provider reused for a different index
+        // still refetches -- distinct indexes never share a memo entry.
         Assertions.assertEquals(2, client.getMappingCount.get(),
                 "Different indexes should each fetch their own metadata");
+    }
+
+    @Test
+    void testSeparateProviderInstancesEachFetchForFreshness() {
+        // Each scan node gets its OWN provider instance. Shard routing must stay fresh per scan
+        // (ES rebalances), so the memo must live on the provider and never be reused across scans.
+        // Two providers for the same index each fetch once -> 2 total, proving the memo is per-scan,
+        // never cross-query.
+        CountingRestClient client = new CountingRestClient();
+        EsTableHandle handle = new EsTableHandle("test_index");
+
+        new EsScanPlanProvider(client, minimalProps())
+                .planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+        new EsScanPlanProvider(client, minimalProps())
+                .planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+
+        Assertions.assertEquals(2, client.searchShardsCount.get(),
+                "a separate scan node (provider) must refetch shard routing -- memo is per-scan, not cross-query");
+    }
+
+    @Test
+    void testMetadataSchemaMemoizedPerStatement() {
+        // ES-F3: EsConnectorMetadata is per-statement; an index's mapping is resolved into columns
+        // once and reused, so getTableSchema + the getColumnHandles that re-invokes it share one
+        // remote mapping fetch. MUTATION: dropping the schemaMemo makes each call refetch -> 2 -> red.
+        CountingRestClient client = new CountingRestClient();
+        EsConnectorMetadata metadata = new EsConnectorMetadata(client, minimalProps());
+        EsTableHandle handle = new EsTableHandle("test_index");
+
+        metadata.getTableSchema(EMPTY_SESSION, handle);
+        metadata.getColumnHandles(EMPTY_SESSION, handle);
+        Assertions.assertEquals(1, client.getMappingCount.get(),
+                "an index's schema must be resolved once per statement and reused");
+    }
+
+    @Test
+    void testMetadataSchemaFreshPerStatement() {
+        // A fresh EsConnectorMetadata (a new statement) must re-resolve -- the schema memo is
+        // per-statement, never cross-query (mappings can change between statements).
+        CountingRestClient client = new CountingRestClient();
+        EsTableHandle handle = new EsTableHandle("test_index");
+        new EsConnectorMetadata(client, minimalProps()).getTableSchema(EMPTY_SESSION, handle);
+        new EsConnectorMetadata(client, minimalProps()).getTableSchema(EMPTY_SESSION, handle);
+        Assertions.assertEquals(2, client.getMappingCount.get(),
+                "a new statement's metadata must re-resolve the schema -- memo is per-statement");
     }
 
     @Test

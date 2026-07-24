@@ -76,6 +76,15 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     private final EsConnectorRestClient restClient;
     private final Map<String, String> properties;
 
+    // ES-F1 per-scan hoist. planScan and buildScanNodeProperties of one scan node run on the same
+    // per-scan-node provider instance on the synchronous FE planning thread, and each used to fetch
+    // the full metadata state (mapping + shard routing + node topology) independently. Memoizing the
+    // last resolved state lets the second call reuse the first. Guarded on (index, columns) so a
+    // provider reused for a different request refetches; shard routing stays per-scan (fresh) because
+    // the provider is discarded at scan end. Plain field: safe ONLY because ES never enters batch mode
+    // (no off-thread scan pool) -- make it volatile if this provider ever declares batch scan.
+    private EsMetadataState memoizedState;
+
     public EsScanPlanProvider(EsConnectorRestClient restClient,
             Map<String, String> properties) {
         this.restClient = restClient;
@@ -279,6 +288,12 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 columnNames.add(((NamedColumnHandle) col).getName());
             }
         }
+        EsMetadataState cached = memoizedState;
+        if (cached != null && cached.getSourceIndex().equals(indexName)
+                && cached.getColumnNames().equals(columnNames)) {
+            return cached;
+        }
+
         String mappingType = properties.getOrDefault(
                 EsConnectorProperties.MAPPING_TYPE, null);
         boolean nodesDiscovery = Boolean.parseBoolean(properties.getOrDefault(
@@ -290,7 +305,9 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         EsMetadataState state = new EsMetadataState(
                 indexName, mappingType, columnNames, nodesDiscovery, seeds);
         EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state);
-        return fetcher.fetch();
+        state = fetcher.fetch();
+        memoizedState = state;
+        return state;
     }
 
     /**

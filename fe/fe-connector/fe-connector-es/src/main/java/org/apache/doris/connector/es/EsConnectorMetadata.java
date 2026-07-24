@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Metadata operations for Elasticsearch connector.
@@ -43,6 +44,14 @@ public class EsConnectorMetadata implements ConnectorMetadata {
 
     private final EsConnectorRestClient restClient;
     private final Map<String, String> properties;
+
+    // ES-F3 per-statement schema memo. This metadata instance is created fresh per statement
+    // (funnel-memoized one-per-statement), so an index's mapping is resolved into columns once and
+    // reused, collapsing the repeated getColumnHandles->getTableSchema remote mapping fetches to one
+    // per index per statement. Read-only metadata -> no in-statement invalidation. ConcurrentHashMap
+    // to match the maxcompute handle-memo precedent (cheap defensiveness against any concurrent
+    // metadata access within a statement).
+    private final Map<String, ConnectorTableSchema> schemaMemo = new ConcurrentHashMap<>();
 
     public EsConnectorMetadata(EsConnectorRestClient restClient,
             Map<String, String> properties) {
@@ -82,15 +91,17 @@ public class EsConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         EsTableHandle esHandle = (EsTableHandle) handle;
         String indexName = esHandle.getIndexName();
-        String mapping = restClient.getMapping(indexName);
-        boolean mappingEsId = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.MAPPING_ES_ID,
-                EsConnectorProperties.MAPPING_ES_ID_DEFAULT));
+        return schemaMemo.computeIfAbsent(indexName, idx -> {
+            String mapping = restClient.getMapping(idx);
+            boolean mappingEsId = Boolean.parseBoolean(properties.getOrDefault(
+                    EsConnectorProperties.MAPPING_ES_ID,
+                    EsConnectorProperties.MAPPING_ES_ID_DEFAULT));
 
-        List<ConnectorColumn> columns = EsTypeMapping.parseMapping(
-                indexName, mapping, mappingEsId);
-        return new ConnectorTableSchema(indexName, columns, "ELASTICSEARCH",
-                Collections.emptyMap());
+            List<ConnectorColumn> columns = EsTypeMapping.parseMapping(
+                    idx, mapping, mappingEsId);
+            return new ConnectorTableSchema(idx, columns, "ELASTICSEARCH",
+                    Collections.emptyMap());
+        });
     }
 
     @Override
