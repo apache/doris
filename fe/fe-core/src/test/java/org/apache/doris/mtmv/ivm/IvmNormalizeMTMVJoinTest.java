@@ -79,10 +79,15 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
     }
 
     private Plan normalizeJoinPlan(Plan joinPlan) {
+        return normalizeJoinPlan(joinPlan, false);
+    }
+
+    private Plan normalizeJoinPlan(Plan joinPlan, boolean enableComplexOuterJoinDelta) {
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(joinPlan.getOutput());
         LogicalProject<?> project = new LogicalProject<>(exprs, joinPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
+        ctx.getSessionVariable().enableIvmComplexOuterJoinDelta = enableComplexOuterJoinDelta;
         JobContext jobContext = newJobContextForRoot(sink, ctx);
         return new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
     }
@@ -628,6 +633,24 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
         Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, ex.getFailureReason());
         Assertions.assertTrue(ex.getMessage().contains("null side"),
                 "unexpected message: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("enable_ivm_complex_outer_join_delta=true"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    void testNormalizeLeftOuterJoinOnNullSideWhenComplexDeltaEnabled() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> nullSideOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
+        LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, nullSideOuterJoin, JoinReorderContext.EMPTY);
+
+        Plan normalized = normalizeJoinPlan(rootOuterJoin, true);
+
+        Assertions.assertNotNull(normalized,
+                "Nested outer join on the null side should be allowed when complex delta is enabled");
     }
 
     @Test

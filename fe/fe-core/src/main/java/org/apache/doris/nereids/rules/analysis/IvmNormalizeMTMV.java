@@ -29,6 +29,7 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
@@ -137,8 +138,9 @@ import java.util.stream.Collectors;
  * without confusing them with real rows.
  *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain whose
- * null side does not contain another outer join, result sink, logical olap table sink.
+ * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain, result sink,
+ * logical olap table sink. During IVM creation, nested outer joins on a null side require the
+ * {@code enable_ivm_complex_outer_join_delta} session variable.
  */
 public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.NormalizeContext>
         implements CustomRewriter {
@@ -180,6 +182,12 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     private IvmRewriteResult rewriteResult;
     private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
     private StatementContext statementContext;
+
+    private boolean shouldRejectNestedOuterJoin() {
+        return statementContext.getIvmRewriteContext().map(IvmRewriteContext::isCreate).orElse(false)
+                && !statementContext.getConnectContext().getSessionVariable()
+                        .isEnableIvmComplexOuterJoinDelta();
+    }
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -263,7 +271,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      *
      * <ol>
      *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, LEFT/RIGHT/FULL_OUTER_JOIN</li>
-     *   <li>Rejects an outer join below another outer join null side</li>
+     *   <li>During IVM creation, rejects an outer join below another outer join null side unless complex
+     *       outer-join delta support is enabled</li>
      *   <li>Normalizes both children (first non-sink = false)</li>
      *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
      *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
@@ -289,9 +298,12 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     "IVM does not support mark join (subquery with disjunction).");
         }
         if (joinType.isOuterJoin()) {
-            if (context.isOuterJoinNullSide) {
+            if (context.isOuterJoinNullSide && shouldRejectNestedOuterJoin()) {
                 throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                        "IVM OUTER JOIN null side must not contain another outer join");
+                        "IVM OUTER JOIN null side must not contain another outer join by default. "
+                                + "Set enable_ivm_complex_outer_join_delta=true to enable it, but the complex "
+                                + "outer join delta calculation may significantly reduce incremental refresh "
+                                + "performance.");
             }
         }
 

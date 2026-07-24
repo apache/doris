@@ -393,8 +393,8 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
         MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
                 distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
-                Optional.of(IvmRewriteContext.normalize()));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
+                Optional.of(IvmRewriteContext.create()));
+        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE,
                 statementContext.getIvmRewriteContext().orElseThrow().getMode());
     }
 
@@ -434,7 +434,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
         MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
                 mtmvPartitionDefinition, distributionDescriptor, null, Maps.newHashMap(),
-                Lists.newArrayList(), logicalPlan, Optional.of(IvmRewriteContext.normalize()));
+                Lists.newArrayList(), logicalPlan, Optional.of(IvmRewriteContext.create()));
         List<String> columnNames = queryInfo.getColumnDefinitions().stream()
                 .map(ColumnDefinition::getName)
                 .collect(java.util.stream.Collectors.toList());
