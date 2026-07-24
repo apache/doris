@@ -18,15 +18,21 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -36,6 +42,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -144,6 +151,84 @@ class RewriteCteChildrenSlotSyncTest {
         // The consumer instance should be the SAME (no new instance created since no change)
         Assertions.assertSame(consumer, resultConsumer,
                 "Consumer should be unchanged when producer output ExprIds don't change");
+    }
+
+    @Test
+    void testConsumerSlotMapSyncedWhenProducerOutputPrunedAndExprIdChanged() {
+        // Producer originally outputs [id, name, x]. Consumers only need [name, x], so
+        // visitLogicalCTEProducer prunes id (arity 3 -> 2), while EliminateGroupByKey wraps
+        // name with any_value() and assigns it a fresh ExprId. The slot-map sync must
+        // propagate name's new ExprId even though the producer output arity changed.
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        Alias xAlias = new Alias(new ExprId(100), idSlot, "x");
+        LogicalProject<LogicalOlapScan> oldProducerChild = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(idSlot, nameSlot, xAlias), scan);
+        CTEId cteId = new CTEId(3);
+        LogicalCTEProducer<LogicalProject<LogicalOlapScan>> originalProducer =
+                new LogicalCTEProducer<>(cteId, oldProducerChild);
+
+        // Two retained consumers referencing the original 3-slot producer output
+        LogicalCTEConsumer consumer1 = new LogicalCTEConsumer(
+                PlanConstructor.getNextRelationId(), cteId, "cte3", originalProducer);
+        LogicalCTEConsumer consumer2 = new LogicalCTEConsumer(
+                PlanConstructor.getNextRelationId(), cteId, "cte3", originalProducer);
+        LogicalPlan consumerSide = new LogicalJoin<>(JoinType.CROSS_JOIN,
+                consumer1, consumer2, new JoinReorderContext());
+
+        LogicalCTEAnchor<LogicalCTEProducer<LogicalProject<LogicalOlapScan>>, LogicalPlan> cteAnchor =
+                new LogicalCTEAnchor<>(cteId, originalProducer, consumerSide);
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                new ConnectContext(), cteAnchor);
+
+        // Simulate the rewritten producer: id pruned, name wrapped by any_value (fresh ExprId)
+        Slot newNameSlot = (Slot) nameSlot.withExprId(new ExprId(200));
+        LogicalProject<LogicalOlapScan> newProducerChild = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(newNameSlot, xAlias.toSlot()), scan);
+        cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteId, newProducerChild);
+        cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteId, consumerSide);
+        cascadesContext.getCteIdToConsumers().put(cteId, ImmutableSet.of(consumer1, consumer2));
+        // Consumers only need [name, x]: id is pruned from the producer output
+        cascadesContext.getStatementContext().getCteIdToOutputIds().put(cteId,
+                ImmutableSet.of(nameSlot, xAlias.toSlot()));
+
+        // ---- Execute ----
+        RewriteCteChildren rewriter = new RewriteCteChildren(ImmutableList.of(), false);
+        Plan result = rewriter.visitLogicalCTEAnchor(cteAnchor, cascadesContext);
+
+        // ---- Verify ----
+        Assertions.assertInstanceOf(LogicalCTEAnchor.class, result);
+        LogicalCTEAnchor<?, ?> resultAnchor = (LogicalCTEAnchor<?, ?>) result;
+
+        // Producer side has the pruned output [name(new ExprId), x]
+        List<Slot> producerOutput = resultAnchor.child(0).getOutput();
+        Assertions.assertEquals(2, producerOutput.size());
+        Assertions.assertEquals(new ExprId(200), producerOutput.get(0).getExprId());
+        Assertions.assertEquals(new ExprId(100), producerOutput.get(1).getExprId());
+
+        // Both consumers must reference the new producer ExprId for name
+        List<LogicalCTEConsumer> resultConsumers = new ArrayList<>();
+        resultAnchor.child(1).foreach(p -> {
+            if (p instanceof LogicalCTEConsumer) {
+                resultConsumers.add((LogicalCTEConsumer) p);
+            }
+            return false;
+        });
+        Assertions.assertEquals(2, resultConsumers.size());
+        for (LogicalCTEConsumer resultConsumer : resultConsumers) {
+            Map<Slot, Slot> consumerToProducer = resultConsumer.getConsumerToProducerOutputMap();
+            Assertions.assertTrue(consumerToProducer.values().stream()
+                            .anyMatch(s -> s.getExprId().equals(new ExprId(200))),
+                    "Consumer should reference the new producer ExprId for name");
+            Assertions.assertFalse(consumerToProducer.values().stream()
+                            .anyMatch(s -> s.getExprId().equals(nameSlot.getExprId())),
+                    "Consumer should no longer reference the old producer ExprId for name");
+            Assertions.assertTrue(consumerToProducer.values().stream()
+                            .anyMatch(s -> s.getExprId().equals(new ExprId(100))),
+                    "Consumer should still reference the unchanged producer ExprId for x");
+        }
     }
 
 }
