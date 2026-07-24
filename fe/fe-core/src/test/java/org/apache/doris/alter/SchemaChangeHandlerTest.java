@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
@@ -167,6 +168,43 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             System.out.println(e.getMessage());
             Assertions.assertTrue(e.getMessage().contains(expectedErrorMsg),
                     "Actual error: " + e.getMessage() + "\nExpected: " + expectedErrorMsg);
+        }
+    }
+
+    @Test
+    public void testChangeBinlogFormatReportsBinlogError() throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            String tableName = "binlog_format_change";
+            createTable("CREATE TABLE test." + tableName + " (k1 INT NOT NULL) "
+                    + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW')");
+
+            expectException("ALTER TABLE test." + tableName
+                            + " SET ('binlog.format'='STATEMENT_AND_SNAPSHOT')",
+                    "not support change binlog format from ROW to STATEMENT_AND_SNAPSHOT");
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @Test
+    public void testChangeBinlogNeedHistoricalValueReportsBinlogError() throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            String tableName = "binlog_historical_value_change";
+            createTable("CREATE TABLE test." + tableName + " (k1 INT NOT NULL) "
+                    + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW',"
+                    + "'binlog.need_historical_value'='false')");
+
+            expectException("ALTER TABLE test." + tableName
+                            + " SET ('binlog.need_historical_value'='true')",
+                    "not support change binlog.need_historical_value from false to true");
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
