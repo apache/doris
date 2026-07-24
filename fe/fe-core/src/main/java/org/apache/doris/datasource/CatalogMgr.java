@@ -827,8 +827,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
             return;
         }
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId());
+        ExternalMetaCacheMgr metaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        HiveExternalMetaCache cache = metaCacheMgr.hive(catalog.getId());
         cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
+        metaCacheMgr.invalidateTableRowCountCache(hmsTable);
         hmsTable.setUpdateTime(updateTime);
     }
 
@@ -859,8 +861,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
-        Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
-                .dropPartitionsCache(hmsTable, partitionNames, true);
+        ExternalMetaCacheMgr metaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        metaCacheMgr.hive(catalog.getId()).dropPartitionsCache(hmsTable, partitionNames, true);
+        metaCacheMgr.invalidateTableRowCountCache(hmsTable);
         hmsTable.setUpdateTime(updateTime);
     }
 

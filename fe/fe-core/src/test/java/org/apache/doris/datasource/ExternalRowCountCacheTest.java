@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -31,6 +32,7 @@ import org.mockito.Mockito;
 import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalRowCountCacheTest {
@@ -78,6 +80,130 @@ public class ExternalRowCountCacheTest {
 
         Mockito.verify(table).fetchRowCountWithMetaCache(true);
         Mockito.verify(table).fetchRowCountWithMetaCache(false);
+    }
+
+    @Test
+    public void testInvalidateTableReloadsRowCount() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        AtomicLong rowCount = new AtomicLong(100L);
+        Mockito.when(table.fetchRowCountWithMetaCache(false)).thenAnswer(inv -> rowCount.get());
+
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+            mockedStatisticsUtil.when(() -> StatisticsUtil.findTable(1, 2, 3)).thenReturn(table);
+
+            ExternalRowCountCache cache = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 2, 3, false));
+
+            rowCount.set(200L);
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 2, 3, false));
+
+            cache.invalidateTable(1, 2, 3);
+            Assertions.assertEquals(200L, cache.getCachedRowCount(1, 2, 3, false));
+        }
+
+        Mockito.verify(table, Mockito.times(2)).fetchRowCountWithMetaCache(false);
+    }
+
+    @Test
+    public void testInvalidateTableInvalidatesRowCountCache() throws Exception {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("catalog1");
+        long dbId = 11L;
+        long tableId = 22L;
+
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getDbId()).thenReturn(dbId);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDbName()).thenReturn("db1");
+        Mockito.when(table.getName()).thenReturn("tbl1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("remote_db1");
+        Mockito.when(table.getRemoteName()).thenReturn("remote_tbl1");
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.spy(
+                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+        metaCacheMgr.setRowCountCache(rowCountCache);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            metaCacheMgr.invalidateTable(table);
+        }
+
+        Mockito.verify(rowCountCache).invalidateTable(1L, dbId, tableId);
+    }
+
+    @Test
+    public void testInvalidateDbRowCountCacheUsesDbId() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getId()).thenReturn(11L);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.spy(
+                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+        metaCacheMgr.setRowCountCache(rowCountCache);
+
+        metaCacheMgr.invalidateDbRowCountCache(db);
+
+        Mockito.verify(rowCountCache).invalidateDb(1L, 11L);
+    }
+
+    @Test
+    public void testInvalidateDbByNameDoesNotAccessDbForRowCount() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.spy(
+                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+        metaCacheMgr.setRowCountCache(rowCountCache);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            metaCacheMgr.invalidateDb(1L, "db1");
+        }
+
+        Mockito.verify(catalog, Mockito.never()).getDbNullable("db1");
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateDb(Mockito.anyLong(), Mockito.anyLong());
+    }
+
+    @Test
+    public void testInvalidateTableByNameDoesNotAccessDbForRowCount() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.spy(
+                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+        metaCacheMgr.setRowCountCache(rowCountCache);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            metaCacheMgr.invalidateTable(1L, "db1", "tbl1");
+        }
+
+        Mockito.verify(catalog, Mockito.never()).getDbNullable("db1");
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateTable(
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
     }
 
     @Test

@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -196,9 +197,10 @@ public class RefreshManager {
                     && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
                     || (newPartNames != null && !newPartNames.isEmpty()))) {
                 // Partition-level cache invalidation, only for hive catalog
-                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hive(catalog.getId());
+                ExternalMetaCacheMgr metaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+                HiveExternalMetaCache cache = metaCacheMgr.hive(catalog.getId());
                 cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+                metaCacheMgr.invalidateTableRowCountCache((ExternalTable) table.get());
                 if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
                     ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
                 }
@@ -245,7 +247,7 @@ public class RefreshManager {
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(table);
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
@@ -281,10 +283,12 @@ public class RefreshManager {
         }
 
         ExternalTable externalTable = (ExternalTable) table;
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
+        ExternalMetaCacheMgr metaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        HiveExternalMetaCache cache = metaCacheMgr.hive(externalTable.getCatalog().getId());
         for (String partitionName : partitionNames) {
             cache.invalidatePartitionCache(externalTable, partitionName);
         }
+        metaCacheMgr.invalidateTableRowCountCache(externalTable);
         ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
 

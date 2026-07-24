@@ -37,6 +37,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalMetaCache;
 import org.apache.doris.fs.FileSystemCache;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -219,6 +220,7 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
                 () -> cache.invalidateCatalogEntries(catalogId)));
+        rowCountCache.invalidateCatalog(catalogId);
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -231,6 +233,7 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "removeCatalog",
                 () -> cache.invalidateCatalog(catalogId)));
+        rowCountCache.invalidateCatalog(catalogId);
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -248,6 +251,27 @@ public class ExternalMetaCacheMgr {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
+    }
+
+    public void invalidateDbRowCountCache(ExternalDatabase<?> dorisDb) {
+        rowCountCache.invalidateDb(dorisDb.getCatalog().getId(), dorisDb.getId());
+    }
+
+    public void invalidateTable(ExternalTable dorisTable) {
+        long catalogId = dorisTable.getCatalog().getId();
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "invalidateTable",
+                () -> cache.invalidateTable(catalogId, dorisTable.getDbName(), dorisTable.getName())));
+        rowCountCache.invalidateTable(catalogId, dorisTable.getDbId(), dorisTable.getId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalid table cache for {}.{} in catalog {}, remote table is {}.{}",
+                    dorisTable.getDbName(), dorisTable.getName(), dorisTable.getCatalog().getName(),
+                    dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        }
+    }
+
+    public void invalidateTableRowCountCache(ExternalTable dorisTable) {
+        rowCountCache.invalidateTable(dorisTable.getCatalog().getId(), dorisTable.getDbId(), dorisTable.getId());
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
@@ -386,16 +410,6 @@ public class ExternalMetaCacheMgr {
         return rowCountCache;
     }
 
-    public void invalidateTableCache(ExternalTable dorisTable) {
-        invalidateTable(dorisTable.getCatalog().getId(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
-                    dorisTable.getRemoteName(), dorisTable.getCatalog().getName());
-        }
-    }
-
     public LegacyMetaCacheFactory legacyMetaCacheFactory() {
         return legacyMetaCacheFactory;
     }
@@ -411,8 +425,15 @@ public class ExternalMetaCacheMgr {
         return stats;
     }
 
+    @VisibleForTesting
     void replaceEngineCachesForTest(List<? extends ExternalMetaCache> caches) {
         cacheRegistry.resetForTest(caches);
+    }
+
+    // Only used by tests to replace the row count cache with a mock or spy.
+    @VisibleForTesting
+    void setRowCountCache(ExternalRowCountCache rowCountCache) {
+        this.rowCountCache = rowCountCache;
     }
 
     /**

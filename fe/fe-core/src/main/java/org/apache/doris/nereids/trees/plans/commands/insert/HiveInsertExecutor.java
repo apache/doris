@@ -91,9 +91,10 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
             HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .hive(hmsTable.getCatalog().getId());
             cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRowCountCache(hmsTable);
         } else {
             // Non-partitioned table or no partition updates, do full table refresh
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(hmsTable);
         }
 
         // Write edit log to notify other FEs
