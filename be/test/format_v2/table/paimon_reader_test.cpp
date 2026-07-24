@@ -981,17 +981,17 @@ TEST(PaimonHybridReaderTest, FirstNativeAndJniChildInitAreCountedOnce) {
 TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {
     auto scan_params = make_paimon_jni_scan_params();
     scan_params.__set_paimon_options({
-            {"doris.enable_jni_io_manager", "true"},
-            {"doris.jni_io_manager.tmp_dir", "/tmp/explicit-paimon-spill"},
-            {"doris.jni_io_manager.impl_class", "org.example.CustomIOManager"},
+            {"jni.enable_jni_io_manager", "true"},
+            {"jni.io_manager.tmp_dir", "/tmp/explicit-paimon-spill"},
+            {"jni.io_manager.impl_class", "org.example.CustomIOManager"},
     });
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_exec_env(ExecEnv::GetInstance());
 
     auto params = build_paimon_jni_scanner_params(&scan_params, &state);
-    EXPECT_EQ(params["paimon.doris.enable_jni_io_manager"], "true");
-    EXPECT_EQ(params["paimon.doris.jni_io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
-    EXPECT_EQ(params["paimon.doris.jni_io_manager.impl_class"], "org.example.CustomIOManager");
+    EXPECT_EQ(params["paimon.jni.enable_jni_io_manager"], "true");
+    EXPECT_EQ(params["paimon.jni.io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
+    EXPECT_EQ(params["paimon.jni.io_manager.impl_class"], "org.example.CustomIOManager");
 }
 
 TEST(PaimonJniReaderTest, BuildScannerParamsInjectsStorageRootTmpDirForEnabledIOManager) {
@@ -1001,14 +1001,14 @@ TEST(PaimonJniReaderTest, BuildScannerParamsInjectsStorageRootTmpDirForEnabledIO
     });
     auto scan_params = make_paimon_jni_scan_params();
     scan_params.__set_paimon_options({
-            {"doris.enable_jni_io_manager", "true"},
+            {"jni.enable_jni_io_manager", "true"},
     });
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_exec_env(ExecEnv::GetInstance());
 
     auto params = build_paimon_jni_scanner_params(&scan_params, &state);
-    EXPECT_EQ(params["paimon.doris.enable_jni_io_manager"], "true");
-    EXPECT_EQ(params["paimon.doris.jni_io_manager.tmp_dir"],
+    EXPECT_EQ(params["paimon.jni.enable_jni_io_manager"], "true");
+    EXPECT_EQ(params["paimon.jni.io_manager.tmp_dir"],
               "/data1/doris/paimon_jni_scanner_io_tmp:/data2/doris/"
               "paimon_jni_scanner_io_tmp");
 }
