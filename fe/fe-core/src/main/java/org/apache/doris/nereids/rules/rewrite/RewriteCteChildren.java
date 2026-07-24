@@ -123,6 +123,16 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         // caused by rules like EliminateGroupByKey that wrap slots with any_value().
         List<Slot> oldProducerOutput = cteAnchor.child(0).getOutput();
         Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
+        // visitLogicalCTEProducer may insert a pruning Project that drops producer outputs
+        // not needed by any consumer, changing output arity. Align the old output with the
+        // same prune set so that ExprId changes of surviving slots are still propagated.
+        Set<Slot> neededProducerOutputs = cascadesContext.getStatementContext()
+                .getCteIdToOutputIds().get(cteAnchor.getCteId());
+        if (neededProducerOutputs != null && neededProducerOutputs.size() < oldProducerOutput.size()) {
+            oldProducerOutput = oldProducerOutput.stream()
+                    .filter(neededProducerOutputs::contains)
+                    .collect(Collectors.toList());
+        }
         outer = syncCteConsumerSlotMaps(oldProducerOutput, producer.getOutput(),
                 cteAnchor.getCteId(), outer, cascadesContext);
         return cteAnchor.withChildren(producer, outer);
