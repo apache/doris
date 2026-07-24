@@ -34,7 +34,7 @@
 | ID | 优先级 | 覆盖发现 | 主题（一句话） | 目标兄弟空间 | 依赖 | 状态 |
 |---|---|---|---|---|---|---|
 | **WS-HUDI** | **P1 旗舰** | HD-P01/02/03/04/05 | 缓存最薄连接器：metaClient 每 pass 重建 ~5x、schema 3x、裸 `ThriftHmsClient` → 每语句投影 memo + HMS 缓存（fresh 拆分+REFRESH）| `plan-doc/perf-hotpath-hudi/` | D1 | ✅ round-1 完成：文档 + HMS缓存(183绿) + 旗舰memo(两块独立 per-statement memo，commit `26690775c81`)；round-2 延后(跨查询缓存 H04 等) |
-| **WS-MC** | P1（小） | MC-1（+MC-2） | 每次 handle 解析冗余 ODPS `tables().exists()` 远程探测 → metadata 内 `Map<(db,table),Handle>` + 去冗余探测 | `plan-doc/perf-hotpath-maxcompute/` | D1 | ⏳ |
+| **WS-MC** | P1（小） | MC-1（+MC-2） | 每次 handle 解析冗余 ODPS `tables().exists()` 远程探测 → metadata 内 `Map<(db,table),Handle>` + 去冗余探测 | `plan-doc/perf-hotpath-maxcompute/` | D1 | ✅ round-1 完成 commit `58daadd10e0`（per-statement CHM handle memo，present-only；120 测试绿 + 两处变异验证 + 净室复审；e2e 待集群） |
 | **WS-ES** | P1（小） | ES-F1/F2（+ES-F3） | `fetchMetadataState` 2x/查询 + mapping 重取 2x → per-scan hoist + mapping/field-context 承载决策 | `plan-doc/perf-hotpath-es/` | D1 | ⏳ |
 | **WS-DOC** | 低（doc-only） | 陈旧注释一批 | 修 `ConnectorPartitionViewCache` "no consumers yet" + hive/hudi/mc 的 "dormant / 未在 SPI_READY_TYPES / never called" 陈旧注释 | `plan-doc/cleanup-stale-connector-docs/`（或随手做） | — | ⏳ |
 | **WS-P2** | P2（可延后） | PA-1 · HP-1/HP-2 · TRINO-H1/H2/H3 · hive 写后读一致性 | 各连接器常数倍/CPU/一致性收尾，按热点 profile 触发 | `plan-doc/perf-hotpath-backlog-p2/` | 热点触发 | ⏳ |
@@ -59,7 +59,7 @@
 - **⚠ 复核先行**：`HD-P03` 对**过滤查询已去重到 ~1 次**（真放大在 fe-core 多次独立调 `listPartitions*` / 无过滤扫 / 一次 MTMV refresh 4–6 次）；`HD-P01` 无条件下界 ~3–4x（含条件站点达 5–6x）—— 动码前按 HEAD 重侦察确认乘数。
 - **依赖**：D1（是否本轮）。旗舰、先做、收益最大。
 
-### [ ] WS-MC — P1 小（MC-1，+MC-2）
+### [x] WS-MC — P1 小（MC-1，+MC-2）✅ round-1 完成 commit `58daadd10e0`（详见 `plan-doc/perf-hotpath-maxcompute/`）
 - **权威**：报告 §5.1 + §9；[`connectors/maxcompute.md`](./connectors/maxcompute.md)；JSON maxcompute 节。
 - **交付概要**：在**已经是每语句一个**的 `MaxComputeConnectorMetadata` 实例内加 `Map<(db,table),Handle>`，并对已解析读路径去掉多余 ODPS `tables().exists()` 远程探测 → `MC-1` k×/语句 → 1×/语句；顺带收 `MC-2`（lazy `Table` reload）。低风险高杠杆。
 - **约束**：连接器侧改动；无 authz（静态 AK/SK 单身份）、无写事务共享需求（`MaxComputeConnectorTransaction` 非-MVCC）。

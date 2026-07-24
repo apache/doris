@@ -30,7 +30,9 @@
 - **底座 PR-0/1/2 已落地（下方「进行中」为准）；连接器消费 PR-3~7 + e2e 未跑。** 设计里 `file:line` 是 2026-07-23 HEAD 侦察快照，动码前须按 HEAD 重侦察。
 - **核心结论**：走"先建底座"，但**底座几乎现成** → 整套 A/B/C + hudi/mc/es 消费 **全程 0 行 fe-core 改动**（D4 原"提炼进 fe-core"被侦察推翻：per-statement memo 底座已在 `fe-connector-api`，owner 二次确认不动 fe-core；iceberg 本轮就改挂）。
 
-## ⚠️ 进行中：底座 PR-0/1/2 + ttl 去重已完成（2026-07-23/24）→ iceberg 5 缓存**全量收敛延后**，下一步转 hudi/mc/es；动每个文件前先按 HEAD 重侦察
+## ⚠️ 进行中：底座 PR-0/1/2 + ttl 去重 + hudi round-1 + **maxcompute round-1 已完成**（2026-07-23/24）→ 下一步 = **es**（WS-ES）；动每个文件前先按 HEAD 重侦察
+
+**maxcompute（WS-MC）round-1 已完成**（commit `58daadd10e0`，见兄弟空间 `plan-doc/perf-hotpath-maxcompute/`）：`MaxComputeConnectorMetadata` 加 per-statement `Map<(db,table),handle>`（CHM）`computeIfAbsent`，收冗余 ODPS `exists()` 探测 k×→1× + Table reload 每表 1×；**present-only memo（缺表逐字节等价、保留 exists() 只去重）、0 fe-core**；120 测试绿 + checkstyle 0 + 两处变异验证（去 memo / db-blind key 均令守门测试变红）+ 4-lens 净室复审（parity/staleness HOLD、concurrency 经 verify REFUTED=off-thread 用 ctor 一次解析的 currentHandle 非 memo、test-quality 补跨-db 用例）。e2e 待集群。**下一步 = WS-ES**（es per-scan hoist `fetchMetadataState` 2×→1× + raw mapping 承载决策；**shard routing 绝不 cross-query 缓存**）。
 
 设计已 owner 确认，已开工。**PR-0 完成**（预编译执行连接器作用域 reset 回归守门 + 外表可达性查实 + FINAL 设计机制描述更正；见 [`progress.md`](./progress.md) "2026-07-23 (3)"）。**PR-1 完成**（通用缓存封装升格为 `ConnectorMetadataCache`，纯重命名 + 构造器加 `entryName`，66 分区视图缓存测试证零变化；commit `a804145faaa`，见 "2026-07-23 (4)"）。**PR-2 完成**（语句作用域通用 helper `ConnectorStatementScopes.resolveInStatement` 放 `fe-connector-api`=**0 行 fe-core**，iceberg `sharedTable` 改委派 byte-identical；8+7 单测 + iceberg 全模块 1133 测试 0 失败 + 4 路对抗净室复审 PARITY_HOLDS + Rule-9 变异验证；commit `ae8c925074d`，见 "2026-07-24"）。
 

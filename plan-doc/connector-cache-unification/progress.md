@@ -91,3 +91,16 @@
 - **验证**：`mvn install -pl :fe-connector-cache,:fe-connector-iceberg,:fe-connector-paimon -am -Dmaven.build.cache.enabled=false`（install 非 test，见 build 坑）：**BUILD SUCCESS**。`CacheSpecTest` 15（+1 新）、`ConnectorMetadataCacheTest` 11、6 个受影响缓存的既有测试**原样全绿**（Iceberg Table 7 / Comment 8 / Partition 8 / Format 8 / LatestSnapshot 6 + Paimon LatestSnapshot 6）、iceberg 全模块 1134、paimon 379，**0 失败 / 0 错误**。checkstyle 过。fe-core `git diff` 空。
 - **未做（明确延后）**：5 个 iceberg 缓存类**未收敛**、其类型/键/`*ForTest` 访问器/5 个测试文件**原样保留**；通用缓存的 pre-resolved-名/loadCount 访问器、`invalidateDb` Namespace→String parity 等收敛相关改动**一并延后**（框架已被证明可用、消费者不依赖；出现真实需要再上收）。
 - **下一步**：转入有性能收益的连接器工作——旗舰 **hudi**（新开 `plan-doc/perf-hotpath-hudi/`，镜像 iceberg 布局；前置改 pom 引 `fe-connector-cache` 工具箱）或先做 **mc / es** 两个小 PR。动码前按 HEAD 重侦察。
+
+---
+
+## 2026-07-24 (3) — WS-MC maxcompute round-1：每语句表句柄记忆化（commit `58daadd10e0`）
+
+> 承 hudi round-1 完成（见 `plan-doc/perf-hotpath-hudi/`，commit `26690775c81`）后，转入 mc/es 两个小 PR 中的 **maxcompute**。详见兄弟空间 `plan-doc/perf-hotpath-maxcompute/`。
+
+- **病灶**：`MaxComputeConnectorMetadata.getTableHandle` 每次解析都发一次冗余 ODPS `tables().exists()` 远程探测 + 新建惰性 `Table`；funnel 只 memo metadata 不 memo handle → 一条语句 ~17 个解析点（fe-core `resolveConnectorTableHandle` 13 + translator 2 + BindSink 2）各付一次探测（冷统计逐列放大 O(列数)），各自 Table 首访各触发一次 reload。= 审计 MC-1（P1）+ MC-2（P2）。
+- **做了什么**（1 连接器文件、+28/-9、**0 fe-core**）：per-statement `MaxComputeConnectorMetadata` 实例加 `Map<List<String>, MaxComputeTableHandle> tableHandleMemo`（`ConcurrentHashMap`），`getTableHandle` 经 `computeIfAbsent` 解析。**present-only**（mapping 返回 null → 不记录 → 缺表每次重探、`Optional.empty()` 逐字节不变）；**保留 exists() 只去重不删**（删会把干净 not-found 退化成后续 `OdpsException`）；handle 无 equals/hashCode → 按 `(db,table)` 值 key（`List.of`）；CHM 因 off-thread scan 池复用同 per-statement session/instance。`createTable`/`tableExists` 直调 helper 不经 memo；跨查询 `MaxComputePartitionCache` 正交。
+- **验证**：全 `MaxCompute*` **120 测试绿**、checkstyle **0 违规**。守门单测 `MaxComputeConnectorMetadataHandleMemoTest`（仿 `DropDbTest` 手写记录 fake、无 Mockito、null odps 离线）4 例：同表 2 解析→探测/build 各 1 + handle `assertSame`；不同表独立；**同名跨 db 不撞**；缺表每次重探不 memo。**Rule 9 变异两处**：去 memo（`memo.clear()`）→ 同表用例红（探测 1→2）；db-blind key（`List.of(tableName)`）→ 跨-db 用例红（`assertNotSame` 失败）。
+- **净室对抗复审**（4 lens + 2 verify workflow）：parity **PARITY_HOLDS**、staleness **PARITY_HOLDS**；concurrency CONCERN（共享 Table 并发首次 reload）经 verify **REFUTED**——off-thread scan 任务用 scan-node ctor 一次解析的 `currentHandle`、**不调** getTableHandle，共享 Table 是 baseline 既有属性，memo 反而让单线程分析先暖 schema、**降** reload 争用；test-quality CONCERN（无跨-db 用例，db-blind key 变异能漏网）经 verify **CONFIRMED_REAL** → **已补**跨-db 守门用例并变异验证。
+- **未做/延后**：PERF-MC02 陈旧注释（doc-only，随手/并 WS-DOC）、PERF-MC03 可选跨查询 `Table` 缓存（热点触发）。**e2e 需集群本地未跑**（异构 + 独立 max_compute catalog 的 SELECT/分区裁剪/写路径解析计数），留标注。
+- **下一步**：WS-ES（es 连接器 `fetchMetadataState` per-scan hoist 2×→1× + raw mapping 承载决策；**shard routing 绝不 cross-query 缓存**）。
