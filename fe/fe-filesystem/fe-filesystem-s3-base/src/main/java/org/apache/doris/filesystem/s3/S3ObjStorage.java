@@ -178,7 +178,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         // endpointOverride is only set for non-AWS endpoints (MinIO, COS, OSS, etc.).
         // Standard AWS S3 access uses region-only routing without an explicit endpoint.
         if (StringUtils.isNotBlank(endpointStr)) {
-            if (!endpointStr.contains("://")) {
+            if (!endpointStr.startsWith("http://") && !endpointStr.startsWith("https://")) {
                 endpointStr = s3Properties.getClientHttpScheme() + "://" + endpointStr;
             }
             builder.endpointOverride(URI.create(endpointStr));

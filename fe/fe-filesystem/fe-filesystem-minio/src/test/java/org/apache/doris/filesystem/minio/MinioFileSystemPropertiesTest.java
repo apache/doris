@@ -93,13 +93,15 @@ class MinioFileSystemPropertiesTest {
                 "minio.endpoint", "http://127.0.0.1:9000",
                 "minio.access_key", "ak",
                 "minio.secret_key", "sk",
-                "minio.session_token", "token")).toS3CompatibleKv();
+                "minio.session_token", "token",
+                "s3_client_http_scheme", "http")).toS3CompatibleKv();
 
         Assertions.assertEquals("http://127.0.0.1:9000", kv.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-east-1", kv.get("AWS_REGION"));
         Assertions.assertEquals("ak", kv.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("token", kv.get("AWS_TOKEN"));
         Assertions.assertEquals("false", kv.get("use_path_style"));
+        Assertions.assertEquals("http", kv.get("s3_client_http_scheme"));
         Assertions.assertFalse(kv.containsKey("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 

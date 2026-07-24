@@ -431,7 +431,7 @@ public class S3Util {
     }
 
     public static String buildEndpointUrl(String endpoint) {
-        if (endpoint.contains("://")) {
+        if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
             return endpoint;
         }
         return Config.s3_client_http_scheme + "://" + endpoint;

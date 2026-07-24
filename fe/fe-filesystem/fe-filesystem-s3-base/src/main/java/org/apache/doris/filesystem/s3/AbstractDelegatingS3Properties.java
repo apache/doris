@@ -62,6 +62,11 @@ public abstract class AbstractDelegatingS3Properties
             description = "The root path prefix inside the bucket.")
     protected String rootPath = "";
 
+    @ConnectorProperty(names = {S3FileSystemProperties.CLIENT_HTTP_SCHEME},
+            required = false,
+            description = "The default scheme for endpoints without an explicit scheme.")
+    private String clientHttpScheme = "https";
+
     private final Map<String, String> rawProperties;
     private Map<String, String> matchedProperties = Collections.emptyMap();
 
@@ -164,6 +169,7 @@ public abstract class AbstractDelegatingS3Properties
         putIfNotBlank(kv, "AWS_TOKEN", getSessionToken());
         putIfNotBlank(kv, "AWS_BUCKET", bucket);
         putIfNotBlank(kv, "AWS_ROOT_PATH", rootPath);
+        kv.put(S3FileSystemProperties.CLIENT_HTTP_SCHEME, clientHttpScheme);
         kv.put("AWS_MAX_CONNECTIONS", getMaxConnections());
         kv.put("AWS_REQUEST_TIMEOUT_MS", getRequestTimeoutMs());
         kv.put("AWS_CONNECTION_TIMEOUT_MS", getConnectionTimeoutMs());

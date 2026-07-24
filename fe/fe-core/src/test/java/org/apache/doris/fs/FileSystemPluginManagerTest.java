@@ -59,7 +59,7 @@ public class FileSystemPluginManagerTest {
     }
 
     @Test
-    public void createFileSystem_injectsConfiguredHttpSchemeForS3Provider() throws Exception {
+    public void createFileSystem_injectsConfiguredHttpSchemeForAwsS3ClientProviders() throws Exception {
         String originalScheme = Config.s3_client_http_scheme;
         AtomicReference<Map<String, String>> createdProperties = new AtomicReference<>();
         FileSystemPluginManager manager = new FileSystemPluginManager();
@@ -77,7 +77,7 @@ public class FileSystemPluginManagerTest {
 
             @Override
             public String name() {
-                return "S3";
+                return "MINIO";
             }
         });
 

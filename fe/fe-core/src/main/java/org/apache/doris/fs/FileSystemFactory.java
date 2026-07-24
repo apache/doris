@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Factory for filesystem instances.
@@ -51,6 +52,8 @@ public final class FileSystemFactory {
 
     private static final Logger LOG = LogManager.getLogger(FileSystemFactory.class);
     private static final String S3_CLIENT_HTTP_SCHEME = "s3_client_http_scheme";
+    private static final Set<String> AWS_SDK_S3_CLIENT_PROVIDERS =
+            Set.of("S3", "GCS", "MINIO", "OZONE");
 
     // Plugin manager singleton, set at FE startup
     private static volatile FileSystemPluginManager pluginManager;
@@ -96,9 +99,7 @@ public final class FileSystemFactory {
             if (provider.supports(properties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                Map<String, String> effectiveProperties =
-                        "S3".equalsIgnoreCase(provider.name()) ? withS3ClientHttpScheme(properties) : properties;
-                return provider.create(effectiveProperties);
+                return provider.create(withS3ClientHttpScheme(provider, properties));
             }
             tried.add(provider.name());
         }
@@ -108,7 +109,13 @@ public final class FileSystemFactory {
                 properties.keySet(), tried));
     }
 
-    static Map<String, String> withS3ClientHttpScheme(Map<String, String> properties) {
+    static Map<String, String> withS3ClientHttpScheme(
+            FileSystemProvider provider, Map<String, String> properties) {
+        boolean usesAwsS3Client = AWS_SDK_S3_CLIENT_PROVIDERS.stream()
+                .anyMatch(name -> name.equalsIgnoreCase(provider.name()));
+        if (!usesAwsS3Client) {
+            return properties;
+        }
         Map<String, String> effectiveProperties = new HashMap<>(properties);
         effectiveProperties.put(S3_CLIENT_HTTP_SCHEME, Config.s3_client_http_scheme);
         return effectiveProperties;
