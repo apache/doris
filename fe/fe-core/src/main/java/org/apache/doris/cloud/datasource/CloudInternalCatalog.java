@@ -110,7 +110,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified)
+                                                   boolean isStorageMediumSpecified,
+                                                   TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -190,7 +191,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        invertedIndexFileStorageFormat,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),

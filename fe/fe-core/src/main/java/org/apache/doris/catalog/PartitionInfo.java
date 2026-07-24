@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -79,6 +80,9 @@ public class PartitionInfo {
     @SerializedName("IdToInMemory")
     protected Map<Long, Boolean> idToInMemory;
 
+    @SerializedName("IdToInvertedIndexFileStorageFormat")
+    protected Map<Long, TInvertedIndexFileStorageFormat> idToInvertedIndexFileStorageFormat;
+
     // partition id -> tablet type
     // Note: currently it's only used for testing, it may change/add more meta field later,
     // so we defer adding meta serialization until memory engine feature is more complete.
@@ -96,6 +100,7 @@ public class PartitionInfo {
         this.idToDataProperty = new HashMap<>();
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
+        this.idToInvertedIndexFileStorageFormat = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
@@ -106,6 +111,7 @@ public class PartitionInfo {
         this.idToDataProperty = new HashMap<>();
         this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
+        this.idToInvertedIndexFileStorageFormat = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
         this.partitionExprs = new ArrayList<>();
@@ -297,6 +303,15 @@ public class PartitionInfo {
         idToDataProperty.put(partitionId, newDataProperty);
     }
 
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat(long partitionId) {
+        return idToInvertedIndexFileStorageFormat.get(partitionId);
+    }
+
+    public void setInvertedIndexFileStorageFormat(long partitionId,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+        idToInvertedIndexFileStorageFormat.put(partitionId, invertedIndexFileStorageFormat);
+    }
+
     public void refreshTableStoragePolicy(String storagePolicy) {
         idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
         idToDataProperty.entrySet().forEach(entry -> {
@@ -363,6 +378,7 @@ public class PartitionInfo {
         idToInMemory.remove(partitionId);
         idToItem.remove(partitionId);
         idToTempItem.remove(partitionId);
+        idToInvertedIndexFileStorageFormat.remove(partitionId);
     }
 
     public void addPartition(long partitionId, boolean isTemp, PartitionItem item, DataProperty dataProperty,
@@ -421,11 +437,14 @@ public class PartitionInfo {
         Map<Long, PartitionItem> origIdToItem = idToItem;
         Map<Long, Boolean> origIdToInMemory = idToInMemory;
         Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
+        Map<Long, TInvertedIndexFileStorageFormat> origIdToInvertedIndexFileStorageFormat =
+                idToInvertedIndexFileStorageFormat;
         idToDataProperty = Maps.newHashMap();
         idToReplicaAllocation = Maps.newHashMap();
         idToItem = Maps.newHashMap();
         idToInMemory = Maps.newHashMap();
         idToStoragePolicy = Maps.newHashMap();
+        idToInvertedIndexFileStorageFormat = Maps.newHashMap();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
             long newPartId = entry.getKey();
@@ -454,6 +473,10 @@ public class PartitionInfo {
                             : restoreReplicaAlloc);
             if (!isSinglePartitioned) {
                 idToItem.put(newPartId, origIdToItem.get(origPartId));
+            }
+            TInvertedIndexFileStorageFormat format = origIdToInvertedIndexFileStorageFormat.get(origPartId);
+            if (format != null) {
+                idToInvertedIndexFileStorageFormat.put(newPartId, format);
             }
         }
     }
@@ -494,13 +517,15 @@ public class PartitionInfo {
                 && Objects.equals(idToTempItem, that.idToTempItem) && Objects.equals(idToDataProperty,
                 that.idToDataProperty) && Objects.equals(idToStoragePolicy, that.idToStoragePolicy)
                 && Objects.equals(idToReplicaAllocation, that.idToReplicaAllocation) && Objects.equals(
-                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType)
+                idToInMemory, that.idToInMemory) && Objects.equals(idToInvertedIndexFileStorageFormat,
+                that.idToInvertedIndexFileStorageFormat) && Objects.equals(idToTabletType, that.idToTabletType)
                 && Objects.equals(partitionExprs, that.partitionExprs);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(type, partitionColumns, idToItem, idToTempItem, idToDataProperty, idToStoragePolicy,
-                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType, partitionExprs);
+                idToReplicaAllocation, isMultiColumnPartition, idToInMemory,
+                idToInvertedIndexFileStorageFormat, idToTabletType, partitionExprs);
     }
 }

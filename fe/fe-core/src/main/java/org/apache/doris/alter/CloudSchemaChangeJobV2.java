@@ -263,7 +263,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getTimeSeriesCompactionLevelThreshold(),
                                             tbl.disableAutoCompaction(),
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                            tbl.getInvertedIndexFileStorageFormat(),
+                                            tbl.getInvertedIndexFileStorageFormatForPartition(partitionId),
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),

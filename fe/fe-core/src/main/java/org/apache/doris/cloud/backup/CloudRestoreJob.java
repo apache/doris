@@ -435,7 +435,7 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
                                     localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    localTbl.getInvertedIndexFileStorageFormat(),
+                                    localTbl.getInvertedIndexFileStorageFormatForPartition(restorePart.getId()),
                                     localTbl.rowStorePageSize(),
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),

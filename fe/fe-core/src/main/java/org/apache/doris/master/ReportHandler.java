@@ -1097,7 +1097,8 @@ public class ReportHandler extends Daemon {
                                             rowBinlogIndexMeta);
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
-                                                                .getInvertedIndexFileStorageFormat());
+                                                                .getInvertedIndexFileStorageFormatForPartition(
+                                                                        partitionId));
                                     if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
                                         List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
                                                 indexMeta.getSchema());

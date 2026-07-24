@@ -350,7 +350,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
                             createReplicaTask.setInvertedIndexFileStorageFormat(tbl
-                                                    .getInvertedIndexFileStorageFormat());
+                                                    .getInvertedIndexFileStorageFormatForPartition(partitionId));
                             if (!CollectionUtils.isEmpty(clusterKeyUids)) {
                                 createReplicaTask.setClusterKeyUids(clusterKeyUids);
                                 LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",

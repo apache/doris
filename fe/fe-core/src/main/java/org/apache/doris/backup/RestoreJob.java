@@ -1177,6 +1177,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             remoteDataProperty, restoreReplicaAlloc,
                             isInMemory,
                             remotePartitionInfo.getIsMutable(remotePartId));
+                    if (remotePartitionInfo.getInvertedIndexFileStorageFormat(remotePartId) != null) {
+                        localPartitionInfo.setInvertedIndexFileStorageFormat(restoredPart.getId(),
+                                remotePartitionInfo.getInvertedIndexFileStorageFormat(remotePartId));
+                    }
                 }
                 localTbl.addPartition(restoredPart);
             } finally {
@@ -1494,7 +1498,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getColumnSeqMapping(),
                             localTbl.getVerticalCompactionNumColumnsPerGroup(),
                             rowBinlogIndexMeta);
-                    task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(
+                            localTbl.getInvertedIndexFileStorageFormatForPartition(restorePart.getId()));
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
                         // ensure this replica is bound to the same backend disk as the origin table's replica.
@@ -1732,6 +1737,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     remoteDataProperty, restoreReplicaAlloc,
                     isInMemory,
                     remotePartitionInfo.getIsMutable(remotePartId));
+            if (remotePartitionInfo.getInvertedIndexFileStorageFormat(remotePartId) != null) {
+                localPartitionInfo.setInvertedIndexFileStorageFormat(restorePart.getId(),
+                        remotePartitionInfo.getInvertedIndexFileStorageFormat(remotePartId));
+            }
             localTbl.addPartition(restorePart);
 
             // modify tablet inverted index
