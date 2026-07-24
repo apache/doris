@@ -29,6 +29,7 @@
 #include "bvar/bvar.h"
 #include "common/config.h"
 #include "core/column/column.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "load/delta_writer/delta_writer_context.h"
@@ -125,6 +126,7 @@ void MemTable::_init_agg_functions(const Block* block) {
             }
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(
+                    DataTypeFactory::instance().create_data_type(_tablet_schema->column(cid)),
                     AGG_LOAD_SUFFIX, _tablet_schema->column(cid).get_be_exec_version());
             if (function == nullptr) {
                 LOG(WARNING) << "column get aggregate function failed, column="

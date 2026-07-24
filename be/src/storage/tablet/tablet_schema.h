@@ -153,7 +153,9 @@ public:
     FieldAggregationMethod aggregation() const { return _aggregation; }
     AggregateFunctionPtr get_aggregate_function_union(DataTypePtr type,
                                                       int current_be_exec_version) const;
-    AggregateFunctionPtr get_aggregate_function(std::string suffix,
+    // `type` is the data type of the column as actually read (the FE-pruned type
+    // when the query prunes nested sub-columns, otherwise the full column type).
+    AggregateFunctionPtr get_aggregate_function(DataTypePtr type, std::string suffix,
                                                 int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
@@ -763,6 +765,10 @@ public:
     void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
 
     bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
+    const std::map<int32_t, DataTypePtr>& pruned_columns_data_type() const {
+        return _pruned_columns_data_type;
+    }
 
     TabletStorageFormatPB storage_format() const { return _storage_format; }
     void set_storage_format(TabletStorageFormatPB v) { _storage_format = v; }
