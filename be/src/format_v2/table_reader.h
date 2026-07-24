@@ -94,6 +94,7 @@ struct ProjectedColumnBuildContext {
     const TFileScanRangeParams* scan_params = nullptr;
     const TFileRangeDesc* range = nullptr;
     RuntimeState* runtime_state = nullptr;
+    const SlotDescriptor* slot_desc = nullptr;
     std::optional<ColumnDefinition> schema_column = std::nullopt;
     size_t next_file_column_idx = 0;
 };
