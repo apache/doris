@@ -45,14 +45,21 @@ public class AutoBucketCalculator {
         private final String nowPartitionName;
         private final boolean executeFirstTime;
         private final int defaultBuckets;
+        private final String currentUtcBorder;
 
         public AutoBucketContext(OlapTable table, String partitionName, String nowPartitionName,
                                 boolean executeFirstTime, int defaultBuckets) {
+            this(table, partitionName, nowPartitionName, executeFirstTime, defaultBuckets, null);
+        }
+
+        public AutoBucketContext(OlapTable table, String partitionName, String nowPartitionName,
+                                boolean executeFirstTime, int defaultBuckets, String currentUtcBorder) {
             this.table = table;
             this.partitionName = partitionName;
             this.nowPartitionName = nowPartitionName;
             this.executeFirstTime = executeFirstTime;
             this.defaultBuckets = defaultBuckets;
+            this.currentUtcBorder = currentUtcBorder;
         }
 
         public OlapTable getTable() {
@@ -73,6 +80,10 @@ public class AutoBucketCalculator {
 
         public int getDefaultBuckets() {
             return defaultBuckets;
+        }
+
+        public String getCurrentUtcBorder() {
+            return currentUtcBorder;
         }
     }
 
@@ -138,8 +149,9 @@ public class AutoBucketCalculator {
                 executeFirstTime ? "executeFirstTime" : "not auto bucket table");
         }
 
-        // Get historical partitions
-        List<Partition> partitions = DynamicPartitionScheduler.getHistoricalPartitions(table, nowPartitionName);
+        // Get historical partitions (current partition excluded by range comparison)
+        List<Partition> partitions = DynamicPartitionScheduler.getHistoricalPartitions(
+                table, nowPartitionName, context.getCurrentUtcBorder());
 
         // Get visible versions with error handling
         List<Long> visibleVersions;

@@ -39,7 +39,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -56,14 +55,13 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
-import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -74,6 +72,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -104,6 +104,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private static final String DEFAULT_RUNTIME_VALUE = FeConstants.null_string;
 
     private static final long SLEEP_PIECE = 5000L;
+
+    /** Test-only: when non-null overrides the clock in both add and drop
+     *  paths so tests can reproduce time-sensitive scenarios deterministically. */
+    @VisibleForTesting
+    public static volatile ZonedDateTime testNow;
 
     private Map<Long, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
     private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();
@@ -167,6 +172,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return defaultRuntimeInfo;
     }
 
+    /** Return the current instant for the given zone. Tests may override
+     *  this to control time-sensitive partition scheduling behavior, or
+     *  set {@link #testNow} directly for static clock control. */
+    @VisibleForTesting
+    public ZonedDateTime getNow(ZoneId zoneId) {
+        return testNow != null ? testNow : ZonedDateTime.now(zoneId);
+    }
+
     // exponential moving average
     private static long ema(List<Long> history, int period) {
         double alpha = 2.0 / (period + 1);
@@ -201,15 +214,41 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private static Pair<Integer, Integer> getBucketsNum(DynamicPartitionProperty property, OlapTable table,
-            String partitionName, String nowPartitionName, boolean executeFirstTime) {
+            String partitionName, String nowPartitionName, boolean executeFirstTime, String nowPartitionPrevBorder) {
         AutoBucketCalculator.AutoBucketContext context = new AutoBucketCalculator.AutoBucketContext(
-                table, partitionName, nowPartitionName, executeFirstTime, property.getBuckets());
+                table, partitionName, nowPartitionName, executeFirstTime, property.getBuckets(),
+                nowPartitionPrevBorder);
 
         AutoBucketCalculator.AutoBucketResult result = AutoBucketCalculator.calculateAutoBuckets(context);
         return Pair.of(result.getBuckets(), result.getPreviousBuckets());
     }
 
-    public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName) {
+    /**
+     * Get all partitions except the current one. When currentKey is non-null,
+     * the current partition is identified by checking if its range
+     * <em>contains</em> currentKey (i.e. lower <= currentKey < upper).
+     * When currentKey is null, fall back to name-based exclusion against
+     * nowPartitionName.
+     *
+     * <p>Using range containment instead of exact lower-bound equality
+     * handles non‑canonical current partitions whose lower endpoint does
+     * not coincide with the captured UTC‑midnight instant — for example a
+     * pre‑fix Asia/Shanghai partition p20260720 = [2026-07-19 16:00Z,
+     * 2026-07-20 16:00Z) where currentKey = 2026-07-22 00:00Z falls inside
+     * the range but does not equal the lower endpoint.  Without containment
+     * such a populated, still‑growing partition would be treated as history
+     * and distort auto‑bucket calculations.
+     *
+     * <p>The two filters are mutually exclusive — when a range key is available
+     * it alone identifies the current partition.  Applying both filters on top
+     * of each other would double‑exclude: after the range match removes the
+     * current partition (whose name may use an old prefix after a prefix change),
+     * the name filter could then catch a <em>different</em> partition whose name
+     * happens to match the new prefix, losing two partitions and corrupting
+     * auto‑bucket calculations.
+     */
+    public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName,
+            String nowPartitionPrevBorder) {
         table.readLock();
         try {
             RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
@@ -278,11 +317,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private ArrayList<AddPartitionOp> getAddPartitionOp(Database db, OlapTable olapTable,
                                                             Column partitionColumn, String partitionFormat,
-                                                            boolean executeFirstTime) throws DdlException {
+                                                            boolean executeFirstTime)
+            throws DdlException {
         ArrayList<AddPartitionOp> addPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
-        ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
+        // For TIMESTAMPTZ, both partition boundaries and names are UTC-based
+        // (00:00—24:00 in UTC). This keeps partition names and values consistent.
+        boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
+        ZonedDateTime nowTz = getNow(dynamicPartitionProperty.getTimeZone().toZoneId());
+        ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
+        TimeZone borderTimeZone = isTimestampTz
+                ? TimeUtils.getUTCTimeZone()
+                : dynamicPartitionProperty.getTimeZone();
 
         boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
         int idx;
@@ -296,23 +343,23 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
         String storagePolicyName = dynamicPartitionProperty.getStoragePolicy();
 
+        // Partition naming uses the same `now` clock as border computation,
+        // so names and values are based on the same timezone (UTC for TIMESTAMPTZ).
+        // getPartitionRangeString appends +00:00 when now is UTC-based,
+        // which getFormattedPartitionName naturally strips away.
         String nowPartitionPrevBorder = DynamicPartitionUtil.getPartitionRangeString(
                 dynamicPartitionProperty, now, 0, partitionFormat);
         String nowPartitionName = dynamicPartitionProperty.getPrefix()
-                + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
+                + DynamicPartitionUtil.getFormattedPartitionName(borderTimeZone,
                 nowPartitionPrevBorder, dynamicPartitionProperty.getTimeUnit());
-
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
+            // Borders for both partition values and names: use now.
+            // +00:00 suffix is already embedded by getPartitionRangeString
+            // when now is UTC, so TimestampTzLiteral parses them correctly.
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
                     dynamicPartitionProperty, now, idx, partitionFormat);
             String nextBorder = DynamicPartitionUtil.getPartitionRangeString(
                     dynamicPartitionProperty, now, idx + 1, partitionFormat);
-            // Save original border for partition name (must not contain UTC suffix)
-            String prevBorderForName = prevBorder;
-            prevBorder = convertToUtcTimestamp(partitionColumn, prevBorder,
-                    dynamicPartitionProperty.getTimeZone());
-            nextBorder = convertToUtcTimestamp(partitionColumn, nextBorder,
-                    dynamicPartitionProperty.getTimeZone());
             PartitionValue lowerValue = new PartitionValue(prevBorder);
             PartitionValue upperValue = new PartitionValue(nextBorder);
 
@@ -372,7 +419,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         dynamicPartitionProperty.getReplicaAllocation().toCreateStmt());
             }
 
-            // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
+            // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num.
+            // Use `now` (UTC-based for TIMESTAMPTZ) so the cooldown boundary
+            // aligns with the partition's UTC range, not the configured timezone.
+            // columns; for TIMESTAMPTZ it appends a +00:00 suffix so PropertyAnalyzer
+            // can detect this as an unambiguous UTC instant.
             setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
 
             if (StringUtils.isNotEmpty(storagePolicyName)) {
@@ -380,15 +431,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             String partitionName = dynamicPartitionProperty.getPrefix()
-                    + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
-                    prevBorderForName, dynamicPartitionProperty.getTimeUnit());
+                    + DynamicPartitionUtil.getFormattedPartitionName(borderTimeZone,
+                    prevBorder, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
             DistributionDesc distributionDesc = null;
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             Pair<Integer, Integer> ret = getBucketsNum(dynamicPartitionProperty, olapTable, partitionName,
-                    nowPartitionName, executeFirstTime);
+                    nowPartitionName, executeFirstTime, nowPartitionPrevBorder);
             int bucketsNum = ret.first;
             int previousPartitionBucketsNum = ret.second;
             if (olapTable.isAutoBucket()) {
@@ -471,12 +522,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             if (!Strings.isNullOrEmpty(property.getStorageMedium())) {
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, property.getStorageMedium());
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
-                        TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
+                        TimeUtils.longToTimeStringWithTimeZoneAndOffset(
+                                DataProperty.MAX_COOLDOWN_TIME_MS, now.getZone().getId()));
             }
         } else if (offset + hotPartitionNum <= 0) {
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.HDD.name());
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
-                    TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
+                    TimeUtils.longToTimeStringWithTimeZoneAndOffset(
+                            DataProperty.MAX_COOLDOWN_TIME_MS, now.getZone().getId()));
         } else {
             String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
                     property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
@@ -494,29 +547,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_DATA_BASE_TIME, baseTime);
     }
 
-    /**
-     * For TIMESTAMPTZ partition columns, convert the border string from the partition's
-     * timezone to a UTC timestamp string (with +00:00 suffix). This ensures partition
-     * boundaries are stored as UTC timestamps, so the partition range aligns to
-     * 00:00:00—24:00:00 in UTC regardless of the configured partition timezone.
-     */
-    private static String convertToUtcTimestamp(Column column, String border, TimeZone timeZone) {
-        if (column.getDataType() == PrimitiveType.TIMESTAMPTZ) {
-            TimestampTzLiteral utcLiteral = TimestampTzLiteral.fromTimeZone(
-                    TimeStampTzType.of(((ScalarType) column.getType()).getScalarScale()),
-                    border, timeZone.toZoneId().toString());
-            return utcLiteral.getStringValue();
-        }
-        return border;
-    }
-
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
-            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
+            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory,
+            TimeZone borderTimeZone) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
-        lowerBorderOfReservedHistory = convertToUtcTimestamp(partitionColumn, lowerBorderOfReservedHistory,
-                olapTable.getTableProperty().getDynamicPartitionProperty().getTimeZone());
-        upperBorderOfReservedHistory = convertToUtcTimestamp(partitionColumn, upperBorderOfReservedHistory,
-                olapTable.getTableProperty().getDynamicPartitionProperty().getTimeZone());
         PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
         PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
         try {
@@ -552,15 +586,20 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // int realStart = DynamicPartitionUtil.getRealStart(dynamicPartitionProperty.getStart(),
         //         dynamicPartitionProperty.getHistoryPartitionNum());
         int realStart = dynamicPartitionProperty.getStart();
-        ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
+        // For TIMESTAMPTZ, use UTC clock so the drop cutoff aligns with the
+        // UTC-midnight partition boundaries created by getAddPartitionOp().
+        boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
+        ZonedDateTime nowTz = getNow(dynamicPartitionProperty.getTimeZone().toZoneId());
+        ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
+        TimeZone borderTimeZone = isTimestampTz
+                ? TimeUtils.getUTCTimeZone()
+                : dynamicPartitionProperty.getTimeZone();
+
+        // getPartitionRangeString appends +00:00 when now is UTC-based.
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, realStart, partitionFormat);
         String limitBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, 0, partitionFormat);
-        lowerBorder = convertToUtcTimestamp(partitionColumn, lowerBorder,
-                dynamicPartitionProperty.getTimeZone());
-        limitBorder = convertToUtcTimestamp(partitionColumn, limitBorder,
-                dynamicPartitionProperty.getTimeZone());
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         PartitionValue limitPartitionValue = new PartitionValue(limitBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
@@ -596,12 +635,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             for (Range range : ranges) {
                 try {
                     String lowerBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(
-                            dynamicPartitionProperty, range.lowerEndpoint().toString(), partitionFormat);
+                            dynamicPartitionProperty, range.lowerEndpoint().toString(), partitionFormat, isTimestampTz);
                     String upperBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(
-                            dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
+                            dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat, isTimestampTz);
                     Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable,
                             partitionColumn, partitionFormat,
-                            lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
+                            lowerBorderOfReservedHistory, upperBorderOfReservedHistory,
+                            borderTimeZone);
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
                     return dropPartitionOps;
@@ -655,19 +695,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
 
         // Get current time as PartitionKey for comparison
-        ZonedDateTime now = ZonedDateTime.now(DateUtils.getTimeZone());
         Column partitionColumn = info.getPartitionColumns().get(0);
+        boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
+        ZonedDateTime nowTz = ZonedDateTime.now(DateUtils.getTimeZone());
+        ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
+
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
         String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
-
-        // For TIMESTAMPTZ columns, normalize the cutoff time to UTC so it
-        // matches the stored partition bounds, which are also stored as UTC.
-        // Without this, a suffix-free currentTimeStr formatted in the JVM
-        // timezone would be parsed as UTC via TimestampTzLiteral.fromSessionTimeZone(),
-        // shifting the cutoff and potentially dropping the current UTC-day partition.
-        currentTimeStr = convertToUtcTimestamp(partitionColumn, currentTimeStr,
-                TimeZone.getTimeZone(DateUtils.getTimeZone()));
-
+        if (isTimestampTz) {
+            currentTimeStr += "+00:00";
+        }
         PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
         PartitionKey currentTimeKey;
         try {

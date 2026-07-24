@@ -25,6 +25,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.foundation.format.FormatOptions;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -313,6 +314,106 @@ public class ExprToStringValueVisitorTest {
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
     }
 
+    // ======================== TimeStampTz ========================
+
+    @Test
+    public void testDateLiteralTimeStampTzPositiveOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("+08:00");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2020-02-02 12:00:03.123456+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            // UTC wall clock = 12:00:03.123456, with session +08:00 → wall clock 20:00:03.123456, offset +08:00
+            Assertions.assertEquals("2020-02-02 20:00:03.123456+08:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzNegativeOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("-08:00");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2020-02-02 12:00:03.123456+00:00",
+                    ScalarType.createTimeStampTzType(6));
+            // UTC wall clock = 12:00:03.123456, with session -08:00 → wall clock 04:00:03.123456, offset -08:00
+            Assertions.assertEquals("2020-02-02 04:00:03.123456-08:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzDstWinterTarget() throws Exception {
+        // Regression: visitor must NOT use Instant.now() for DST offset computation.
+        // A winter TIMESTAMPTZ value rendered in America/Chicago session must show
+        // winter offset (-06:00), not summer offset (-05:00) even if the JVM clock
+        // is in summer.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/Chicago");
+            // Winter target: 2027-01-01 00:00:00 UTC
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2027-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // America/Chicago winter offset = -06:00
+            // UTC wall clock = 2027-01-01 00:00:00 → CST wall clock = 2026-12-31 18:00:00
+            Assertions.assertEquals("2026-12-31 18:00:00-06:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzDstSummerTarget() throws Exception {
+        // Summer baseline: a July value in America/Chicago should use -05:00.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/Chicago");
+            DateLiteral d = DateLiteralUtils.createDateLiteral("2027-07-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // America/Chicago summer offset = -05:00
+            // UTC wall clock = 2027-07-01 00:00:00 → CDT wall clock = 2027-06-30 19:00:00
+            Assertions.assertEquals("2027-06-30 19:00:00-05:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testDateLiteralTimeStampTzHistoricalOffsetStreamLoad() throws Exception {
+        // BE's TIMESTAMPTZ parser consumes only HH:MM offsets (minutes 00/30/45).
+        // Historical zone offsets can include seconds (e.g. Asia/Shanghai before
+        // 1901 had LMT +08:05:43), which BE would reject on group-commit or
+        // transactional-insert PDataRow paths.  Stream-load rendering must
+        // serialise in UTC format so BE can round-trip.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            // Pre-standard-offset instant: 1900-01-01 00:00:00 UTC.
+            DateLiteral d = DateLiteralUtils.createDateLiteral("1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            // Stream-load path must emit UTC format.
+            Assertions.assertEquals("1900-01-01 00:00:00+00:00",
+                    V.visitDateLiteral(d, StringValueContext.forStreamLoad(FormatOptions.getDefault())));
+            // Query path shows the historical wall clock with full offset.
+            String queryResult = V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()));
+            Assertions.assertTrue(queryResult.contains("+08:05:43"),
+                    "Query path should render historical offset with seconds: " + queryResult);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     // ======================== CastExpr ========================
 
     @Test
@@ -437,6 +538,31 @@ public class ExprToStringValueVisitorTest {
         Assertions.assertEquals("{\"Bob\", 25}", result);
     }
 
+    @Test
+    public void testStructTimeStampTzStreamLoadHistoricalOffset() throws Exception {
+        // Regression: STRUCT children in stream-load must preserve the
+        // forStreamLoad flag so that TIMESTAMPTZ renders in UTC format;
+        // otherwise the query branch emits historical offsets with seconds
+        // (e.g. Asia/Shanghai +08:05:43) which BE's parser rejects.
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Shanghai");
+            DateLiteral tsTz = DateLiteralUtils.createDateLiteral(
+                    "1900-01-01 00:00:00+00:00",
+                    ScalarType.createTimeStampTzType(0));
+            StructType structType = new StructType(
+                    new StructField("ts", ScalarType.createTimeStampTzType(0)));
+            StructLiteral s = new StructLiteral(structType, tsTz);
+            FormatOptions opts = FormatOptions.getDefault();
+            String result = V.visitStructLiteral(s, StringValueContext.forStreamLoad(opts));
+            // Nested TIMESTAMPTZ must be UTC, not with +08:05:43.
+            Assertions.assertEquals("{\"1900-01-01 00:00:00+00:00\"}", result);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     // ======================== Default visitor (unoverridden Expr) ========================
 
     @Test
@@ -476,8 +602,10 @@ public class ExprToStringValueVisitorTest {
     public void testAsQueryComplexType() {
         StringValueContext streamCtx = StringValueContext.forStreamLoad(FormatOptions.getDefault());
         StringValueContext queryComplex = streamCtx.asQueryComplexType();
-        // asQueryComplexType: forces query mode + complex type
-        Assertions.assertFalse(queryComplex.isForStreamLoad());
+        // asQueryComplexType: forces complex type but preserves forStreamLoad
+        // so nested TIMESTAMPTZ renders in UTC format (BE parser rejects
+        // historical offsets with seconds like +08:05:43).
+        Assertions.assertTrue(queryComplex.isForStreamLoad());
         Assertions.assertTrue(queryComplex.isInComplexType());
     }
 

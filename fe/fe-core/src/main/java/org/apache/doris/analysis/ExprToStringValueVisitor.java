@@ -56,11 +56,29 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
         String value;
         if (expr.getType().isTimeStampTz()) {
             try {
-                ZoneId dorisZone = DateUtils.getTimeZone();
-                String offset = dorisZone.getRules().getOffset(java.time.Instant.now()).toString();
-                DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
-                        ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
-                value = dateLiteral.getStringValue() + offset;
+                if (ctx.isForStreamLoad()) {
+                    // BE's TIMESTAMPTZ parser consumes only hour/minute offsets
+                    // (minutes restricted to 00/30/45).  Historical zone offsets
+                    // can include seconds (e.g. Asia/Shanghai before 1901 had
+                    // +08:05:43), which BE would reject.  Since TIMESTAMPTZ
+                    // stores UTC internally, render in UTC format that BE can
+                    // round-trip.
+                    value = expr.getStringValue();
+                } else {
+                    ZoneId dorisZone = DateUtils.getTimeZone();
+                    // Compute offset from the target instant (the literal's UTC
+                    // value), not Instant.now() which may be in a different DST
+                    // period.
+                    java.time.Instant targetInstant = java.time.LocalDateTime.of(
+                            (int) expr.getYear(), (int) expr.getMonth(), (int) expr.getDay(),
+                            (int) expr.getHour(), (int) expr.getMinute(), (int) expr.getSecond(),
+                            (int) expr.getMicrosecond() * 1000)
+                            .atZone(java.time.ZoneOffset.UTC).toInstant();
+                    String offset = dorisZone.getRules().getOffset(targetInstant).toString();
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
+                            ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
+                    value = dateLiteral.getStringValue() + offset;
+                }
             } catch (Exception e) {
                 LOG.warn("generate timestamptz({})'s string value for query failed. ",
                         expr.getStringValue(), e);

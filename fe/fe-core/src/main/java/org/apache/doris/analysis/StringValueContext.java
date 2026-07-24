@@ -51,9 +51,12 @@ public class StringValueContext {
     /**
      * Returns a context in query + complex-type mode, regardless of the current mode.
      * Used by StructLiteral's stream-load path where children are rendered in query-complex mode.
+     * Preserves the {@code forStreamLoad} flag so that nested types (e.g. TIMESTAMPTZ inside
+     * STRUCT) correctly use stream-load rendering; clearing it would cause BE-incompatible
+     * output (e.g. historical offset with seconds like {@code +08:05:43}).
      */
     public StringValueContext asQueryComplexType() {
-        return new StringValueContext(formatOptions, false, true);
+        return new StringValueContext(formatOptions, forStreamLoad, true);
     }
 
     public FormatOptions getFormatOptions() {
