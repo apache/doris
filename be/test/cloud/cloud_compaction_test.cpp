@@ -22,13 +22,17 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
+#include "common/logging.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
@@ -242,6 +246,137 @@ public:
 
     std::string_view compaction_name() const override { return "test_compaction"; }
 };
+
+class TestableCloudCumulativeCompaction : public CloudCumulativeCompaction {
+public:
+    TestableCloudCumulativeCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
+            : CloudCumulativeCompaction(engine, tablet) {}
+
+    void set_input_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
+        _input_rowsets = rowsets;
+    }
+
+    const std::vector<RowsetSharedPtr>& input_rowsets() const { return _input_rowsets; }
+
+    int64_t refresh_max_conflict_version() { return _refresh_conflict_versions(); }
+};
+
+static TabletMetaSharedPtr create_cloud_compaction_test_tablet_meta(int64_t tablet_id) {
+    return std::make_shared<TabletMeta>(1, 2, tablet_id, 15674, 4, 5, TTabletSchema(), 6,
+                                        std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                        UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                        TCompressionType::LZ4F);
+}
+
+static CloudTabletSPtr create_cloud_tablet_with_rowsets(CloudStorageEngine& engine,
+                                                        const TabletMetaSharedPtr& tablet_meta,
+                                                        int64_t cumulative_point,
+                                                        const std::vector<int64_t>& versions) {
+    auto tablet = std::make_shared<CloudTablet>(engine, tablet_meta);
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.reserve(versions.size());
+    for (int64_t version : versions) {
+        auto rowset = create_rowset(Version(version, version), 1, false, 1024 * 1024);
+        DORIS_CHECK(rowset != nullptr);
+        rowsets.push_back(rowset);
+    }
+    {
+        std::unique_lock wlock(tablet->get_header_lock());
+        tablet->add_rowsets(std::move(rowsets), false, wlock, false);
+    }
+    tablet->set_cumulative_layer_point(cumulative_point);
+    tablet->fetch_add_approximate_num_rowsets(static_cast<int64_t>(versions.size()) -
+                                              tablet->fetch_add_approximate_num_rowsets(0));
+    tablet->last_sync_time_s = 1;
+    return tablet;
+}
+
+static std::shared_ptr<TestableCloudCumulativeCompaction> create_inflight_cumu_compaction(
+        CloudStorageEngine& engine, const CloudTabletSPtr& tablet, int64_t start, int64_t end) {
+    std::vector<RowsetSharedPtr> input_rowsets;
+    input_rowsets.reserve(end - start + 1);
+    for (int64_t version = start; version <= end; ++version) {
+        auto rowset = create_rowset(Version(version, version), 1, false, 1024 * 1024);
+        DORIS_CHECK(rowset != nullptr);
+        input_rowsets.push_back(rowset);
+    }
+    auto compaction = std::make_shared<TestableCloudCumulativeCompaction>(engine, tablet);
+    compaction->set_input_rowsets(input_rowsets);
+    return compaction;
+}
+
+TEST_F(CloudCompactionTest, cumulative_pick_uses_local_conflict_window) {
+    auto old_min_deltas = config::cumulative_compaction_min_deltas;
+    Defer restore_config([&] { config::cumulative_compaction_min_deltas = old_min_deltas; });
+    config::cumulative_compaction_min_deltas = 2;
+
+    {
+        auto tablet_meta = create_cloud_compaction_test_tablet_meta(10001);
+        auto tablet =
+                create_cloud_tablet_with_rowsets(_engine, tablet_meta, 114,
+                                                 {114, 115, 116, 117, 118, 119, 120, 121, 122, 123,
+                                                  124, 125, 126, 127, 128, 129, 130, 131, 132});
+        _engine._submitted_cumu_compactions[tablet->tablet_id()] = {
+                create_inflight_cumu_compaction(_engine, tablet, 117, 119),
+                create_inflight_cumu_compaction(_engine, tablet, 126, 130)};
+
+        TestableCloudCumulativeCompaction compaction(_engine, tablet);
+        auto st = compaction.prepare_compact();
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(3, compaction.input_rowsets().size());
+        EXPECT_EQ(114, compaction.input_rowsets().front()->start_version());
+        EXPECT_EQ(116, compaction.input_rowsets().back()->end_version());
+        _engine._submitted_cumu_compactions.clear();
+    }
+
+    {
+        auto tablet_meta = create_cloud_compaction_test_tablet_meta(10002);
+        auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 1, {1, 2, 3, 4});
+        _engine._submitted_cumu_compactions[tablet->tablet_id()] = {
+                create_inflight_cumu_compaction(_engine, tablet, 1, 2)};
+
+        TestableCloudCumulativeCompaction compaction(_engine, tablet);
+        auto st = compaction.prepare_compact();
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(2, compaction.input_rowsets().size());
+        EXPECT_EQ(3, compaction.input_rowsets().front()->start_version());
+        EXPECT_EQ(4, compaction.input_rowsets().back()->end_version());
+        _engine._submitted_cumu_compactions.clear();
+    }
+
+    {
+        auto tablet_meta = create_cloud_compaction_test_tablet_meta(10003);
+        auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 114,
+                                                       {114, 115, 116, 117, 118, 119});
+        _engine._submitted_cumu_compactions[tablet->tablet_id()] = {
+                create_inflight_cumu_compaction(_engine, tablet, 115, 116)};
+
+        TestableCloudCumulativeCompaction compaction(_engine, tablet);
+        auto st = compaction.prepare_compact();
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(3, compaction.input_rowsets().size());
+        EXPECT_EQ(117, compaction.input_rowsets().front()->start_version());
+        EXPECT_EQ(119, compaction.input_rowsets().back()->end_version());
+        _engine._submitted_cumu_compactions.clear();
+    }
+}
+
+TEST_F(CloudCompactionTest, cumulative_refreshes_local_conflict_window) {
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10004);
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 10, {10, 11, 12});
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+
+    _engine._submitted_cumu_compactions[tablet->tablet_id()] = {
+            create_inflight_cumu_compaction(_engine, tablet, 10, 20)};
+    EXPECT_EQ(20, compaction.refresh_max_conflict_version());
+
+    _engine._submitted_cumu_compactions[tablet->tablet_id()].push_back(
+            create_inflight_cumu_compaction(_engine, tablet, 21, 30));
+    EXPECT_EQ(30, compaction.refresh_max_conflict_version());
+
+    _engine._submitted_cumu_compactions.clear();
+    EXPECT_EQ(30, compaction.refresh_max_conflict_version());
+}
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
     S3Conf s3_conf {.bucket = "bucket",
