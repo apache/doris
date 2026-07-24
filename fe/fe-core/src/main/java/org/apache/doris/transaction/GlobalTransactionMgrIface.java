@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -114,6 +115,14 @@ public interface GlobalTransactionMgrIface extends Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
+
+    default boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment);
+    }
 
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException;

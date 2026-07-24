@@ -306,6 +306,8 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
     uint64_t table_id = 2;
     uint64_t index_id = 3;
     uint64_t partition_id = 4;
+    uint64_t stream_db_id = 5;
+    uint64_t stream_id = 6;
     int64_t expiration = ::time(nullptr) + 3600; // 1 hour from now
 
     {
@@ -334,6 +336,11 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         drop_partition->add_index_ids(index_id);
         drop_partition->add_partition_ids(partition_id);
         drop_partition->set_expired_at_s(expiration);
+        TableStreamIdentityPB* stream = drop_partition->add_table_streams();
+        stream->set_base_db_id(db_id);
+        stream->set_base_table_id(table_id);
+        stream->set_stream_db_id(stream_db_id);
+        stream->set_stream_id(stream_id);
         drop_partition->set_update_table_version(
                 true); // Update table version to ensure the table version is removed
 
@@ -364,6 +371,11 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         ASSERT_EQ(recycle_partition_pb.index_id(0), index_id);
         ASSERT_EQ(recycle_partition_pb.state(), RecyclePartitionPB::DROPPED);
         ASSERT_EQ(recycle_partition_pb.expiration(), expiration);
+        ASSERT_EQ(recycle_partition_pb.table_streams_size(), 1);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).base_db_id(), db_id);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).base_table_id(), table_id);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).stream_db_id(), stream_db_id);
+        ASSERT_EQ(recycle_partition_pb.table_streams(0).stream_id(), stream_id);
     }
 
     // The table version key should be removed because update_table_version is true
@@ -567,6 +579,7 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
     uint64_t db_id = 1;
     uint64_t table_id = 2;
     uint64_t index_id = 3;
+    uint64_t stream_db_id = 4;
     int64_t expiration = ::time(nullptr) + 3600; // 1 hour from now
 
     {
@@ -580,6 +593,8 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
         drop_index->set_table_id(table_id);
         drop_index->add_index_ids(index_id);
         drop_index->set_expiration(expiration);
+        drop_index->set_object_type(IndexObjectTypePB::TABLE_STREAM);
+        drop_index->set_stream_db_id(stream_db_id);
 
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -606,6 +621,8 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
         ASSERT_EQ(recycle_index_pb.table_id(), table_id);
         ASSERT_EQ(recycle_index_pb.state(), RecycleIndexPB::DROPPED);
         ASSERT_EQ(recycle_index_pb.expiration(), expiration);
+        ASSERT_EQ(recycle_index_pb.object_type(), IndexObjectTypePB::TABLE_STREAM);
+        ASSERT_EQ(recycle_index_pb.stream_db_id(), stream_db_id);
     }
 
     // Scan the operation logs to verify that the drop index logs are removed.
@@ -627,10 +644,12 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
         ASSERT_EQ(recycle_index_pb.table_id(), table_id);
         ASSERT_EQ(recycle_index_pb.state(), RecycleIndexPB::DROPPED);
         ASSERT_EQ(recycle_index_pb.expiration(), expiration);
+        ASSERT_EQ(recycle_index_pb.object_type(), IndexObjectTypePB::TABLE_STREAM);
+        ASSERT_EQ(recycle_index_pb.stream_db_id(), stream_db_id);
     }
 
     // Verify that operation logs are removed (only recycle index records should remain)
-    ASSERT_EQ(count_range(txn_kv.get()), 1) << "Should only have 2 recycle index records";
+    ASSERT_EQ(count_range(txn_kv.get()), 1) << "Should only have one recycle index record";
 }
 
 TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
@@ -652,6 +671,8 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
     uint64_t partition_id = 4;
     uint64_t tablet_id = 5;
     uint64_t txn_id = 12345;
+    uint64_t stream_db_id = 6;
+    uint64_t stream_id = 7;
 
     // Create TxnInfo with VISIBLE status
     {
@@ -704,6 +725,24 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
+    TableStreamIdentityPB stream_identity;
+    stream_identity.set_base_db_id(db_id);
+    stream_identity.set_base_table_id(table_id);
+    stream_identity.set_stream_db_id(stream_db_id);
+    stream_identity.set_stream_id(stream_id);
+    std::string stream_offset_key = versioned::table_stream_offset_key(
+            {instance_id, db_id, table_id, stream_db_id, stream_id, partition_id});
+    {
+        TableStreamOffsetPB offset;
+        offset.set_partition_id(partition_id);
+        offset.set_state(TableStreamOffsetStatePB::TABLE_STREAM_OFFSET_CONSUMED);
+        offset.set_offset_tso(100);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), stream_offset_key, offset.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
     // Create versioned rowset meta (should NOT be recycled)
     {
         std::string versioned_rowset_key =
@@ -748,9 +787,18 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
         auto* recycle_txn = commit_txn->mutable_recycle_txn();
         recycle_txn->set_label("test_label");
 
+        TableStreamPartitionSetPB* stream_offset_gc = commit_txn->add_table_stream_offset_gc();
+        stream_offset_gc->mutable_identity()->CopyFrom(stream_identity);
+        stream_offset_gc->add_partition_ids(partition_id);
+
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        TableStreamOffsetPB offset;
+        offset.set_partition_id(partition_id);
+        offset.set_state(TableStreamOffsetStatePB::TABLE_STREAM_OFFSET_CONSUMED);
+        offset.set_offset_tso(110);
+        versioned_put(txn.get(), stream_offset_key, offset.SerializeAsString());
         versioned::blob_put(txn.get(), log_key, operation_log);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
@@ -776,6 +824,8 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
     // Verify that previous versions are recycled (should not be found with current snapshot)
     {
         MetaReader meta_reader(instance_id, txn_kv.get());
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
 
         // Previous partition version should be marked for removal
         Versionstamp partition_version;
@@ -789,14 +839,26 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
         // Previous table version should be marked for removal
         Versionstamp table_version;
         (void)meta_reader.get_table_version(table_id, &table_version);
+
+        std::string offset_value;
+        Versionstamp offset_version;
+        ASSERT_EQ(versioned_get(txn.get(), stream_offset_key, &offset_version, &offset_value),
+                  TxnErrorCode::TXN_OK);
+        TableStreamOffsetPB offset;
+        ASSERT_TRUE(offset.ParseFromString(offset_value));
+        EXPECT_EQ(offset.offset_tso(), 110);
+        EXPECT_EQ(count_range(txn_kv.get(),
+                              encode_versioned_key(stream_offset_key, Versionstamp::min()),
+                              encode_versioned_key(stream_offset_key, Versionstamp::max())),
+                  1);
     }
 
     // Scan the operation logs to verify that the commit txn log is removed
     remove_instance_info(txn_kv.get());
 
-    // Should have TxnInfoPB + RecycleTxnPB + RowsetMetaCloudPB = 3 records
-    ASSERT_EQ(count_range(txn_kv.get()), 3)
-            << "Should have TxnInfoPB, RecycleTxnPB and RowsetMetaCloudPB records";
+    // Should have TxnInfoPB + RecycleTxnPB + RowsetMetaCloudPB + latest offset version = 4 records
+    ASSERT_EQ(count_range(txn_kv.get()), 4)
+            << "Should retain transaction, recycle, rowset and latest offset records";
 }
 
 TEST(RecycleOperationLogTest, RecycleCommitTxnLogWhenTxnIsNotVisible) {

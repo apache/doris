@@ -428,6 +428,7 @@ public enum RuleType {
     DISTINCT_AGGREGATE_SPLIT(RuleTypeClass.REWRITE),
     PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
     // table stream scan rewrite
+    RESOLVE_CLOUD_TABLE_STREAM_READ_STATE(RuleTypeClass.REWRITE),
     NORMALIZE_OlAP_TABLE_STREAM_SCAN(RuleTypeClass.REWRITE),
 
     // exploration rules

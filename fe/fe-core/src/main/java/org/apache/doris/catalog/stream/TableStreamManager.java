@@ -21,10 +21,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
@@ -44,8 +48,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -126,6 +132,35 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             rwLock.readLock().unlock();
         }
         return result;
+    }
+
+    public List<Cloud.TableStreamIdentityPB> getCloudTableStreamsForBaseTable(
+            long baseDbId, long baseTableId) {
+        List<Cloud.TableStreamIdentityPB> identities = new ArrayList<>();
+        for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
+            Optional<Database> streamDb = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (!streamDb.isPresent()) {
+                continue;
+            }
+            for (Long streamId : entry.getValue()) {
+                Optional<Table> table = streamDb.get().getTable(streamId);
+                if (!table.isPresent() || !(table.get() instanceof OlapTableStream)) {
+                    continue;
+                }
+                OlapTableStream stream = (OlapTableStream) table.get();
+                if (stream.getBaseTableInfo().getDbId() == baseDbId
+                        && stream.getBaseTableInfo().getTableId() == baseTableId) {
+                    identities.add(Cloud.TableStreamIdentityPB.newBuilder()
+                            .setBaseDbId(baseDbId)
+                            .setBaseTableId(baseTableId)
+                            .setStreamDbId(entry.getKey())
+                            .setStreamId(streamId)
+                            .build());
+                }
+            }
+        }
+        identities.sort((left, right) -> Long.compare(left.getStreamId(), right.getStreamId()));
+        return identities;
     }
 
     public void cleanupStalePartitionOffsets() {
@@ -351,7 +386,11 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) {
+    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) throws UserException {
+        if (Config.isCloudMode()) {
+            fillCloudStreamConsumptionValuesMetadataResult(dataBatch);
+            return;
+        }
         for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
             Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
             if (db.isPresent()) {
@@ -373,6 +412,114 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private void fillCloudStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) throws UserException {
+        Map<Cloud.TableStreamIdentityPB, CloudStreamConsumptionSnapshot> snapshots = new LinkedHashMap<>();
+        for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
+            Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (!db.isPresent()) {
+                continue;
+            }
+            for (Long tableId : entry.getValue()) {
+                Optional<Table> table = db.get().getTable(tableId);
+                if (!table.isPresent()) {
+                    continue;
+                }
+                Preconditions.checkArgument(table.get() instanceof OlapTableStream);
+                OlapTableStream stream = (OlapTableStream) table.get();
+                if (!stream.readLockIfExist()) {
+                    continue;
+                }
+                try {
+                    OlapTable baseTable = stream.getBaseTableNullable();
+                    if (baseTable == null || !baseTable.readLockIfExist()) {
+                        continue;
+                    }
+                    try {
+                        Map<Long, String> partitionNames = new LinkedHashMap<>();
+                        baseTable.getPartitions().forEach(partition ->
+                                partitionNames.put(partition.getId(), partition.getName()));
+                        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                                .setBaseDbId(stream.getBaseTableInfo().getDbId())
+                                .setBaseTableId(stream.getBaseTableInfo().getTableId())
+                                .setStreamDbId(entry.getKey())
+                                .setStreamId(stream.getId())
+                                .build();
+                        CloudStreamConsumptionSnapshot previous = snapshots.put(identity,
+                                new CloudStreamConsumptionSnapshot(db.get().getFullName(), stream.getName(),
+                                        stream.getId(), partitionNames));
+                        Preconditions.checkState(previous == null,
+                                "Duplicate Cloud Table Stream identity %s", identity);
+                    } finally {
+                        baseTable.readUnlock();
+                    }
+                } finally {
+                    stream.readUnlock();
+                }
+            }
+        }
+        if (snapshots.isEmpty()) {
+            return;
+        }
+
+        Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new LinkedHashMap<>();
+        snapshots.forEach((identity, snapshot) ->
+                requestedPartitions.put(identity, snapshot.partitionNames.keySet()));
+        Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates =
+                CloudTableStreamReadStateHelper.getReadStates(requestedPartitions);
+        for (Map.Entry<Cloud.TableStreamIdentityPB, CloudStreamConsumptionSnapshot> entry
+                : snapshots.entrySet()) {
+            entry.getValue().fillRows(readStates.get(entry.getKey()), dataBatch);
+        }
+    }
+
+    private static class CloudStreamConsumptionSnapshot {
+        private final String dbName;
+        private final String streamName;
+        private final long streamId;
+        private final Map<Long, String> partitionNames;
+
+        private CloudStreamConsumptionSnapshot(String dbName, String streamName, long streamId,
+                Map<Long, String> partitionNames) {
+            this.dbName = dbName;
+            this.streamName = streamName;
+            this.streamId = streamId;
+            this.partitionNames = Collections.unmodifiableMap(partitionNames);
+        }
+
+        private void fillRows(Map<Long, Cloud.TableStreamPartitionReadStatePB> partitionStates,
+                List<TRow> dataBatch) throws UserException {
+            for (Map.Entry<Long, String> entry : partitionNames.entrySet()) {
+                Cloud.TableStreamPartitionReadStatePB state = partitionStates.get(entry.getKey());
+                if (!state.hasOffsetState() || !state.hasEndTso() || !state.hasVisibleVersion()) {
+                    throw new UserException("MetaService returned incomplete Cloud Table Stream partition state");
+                }
+                TRow row = new TRow();
+                row.addToColumnValue(new TCell().setStringVal(dbName));
+                row.addToColumnValue(new TCell().setStringVal(streamName));
+                row.addToColumnValue(new TCell().setLongVal(streamId));
+                row.addToColumnValue(new TCell().setStringVal(entry.getValue()));
+                if (state.getOffsetState()
+                        == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN) {
+                    row.addToColumnValue(new TCell().setStringVal("N/A"));
+                    row.addToColumnValue(new TCell().setStringVal(
+                            state.getVisibleVersion() > Partition.PARTITION_INIT_VERSION
+                                    ? "N/A" : "0"));
+                    row.addToColumnValue(new TCell().setLongVal(-1));
+                } else {
+                    if (!state.hasOffsetTso()) {
+                        throw new UserException("MetaService returned a Cloud Table Stream state without Offset TSO");
+                    }
+                    row.addToColumnValue(new TCell().setStringVal(String.valueOf(state.getOffsetTso())));
+                    row.addToColumnValue(new TCell().setStringVal(
+                            String.valueOf(state.getEndTso() - state.getOffsetTso())));
+                    row.addToColumnValue(new TCell().setLongVal(
+                            state.hasLastConsumptionTimeMs() ? state.getLastConsumptionTimeMs() : -1));
+                }
+                dataBatch.add(row);
             }
         }
     }

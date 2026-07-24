@@ -436,6 +436,19 @@ private:
     // returns 0 for success otherwise error
     int init_storage_vault_accessors();
 
+    int recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                       std::string_view recycle_key);
+
+    int recycle_table_stream_offset_prefix(std::string prefix,
+                                           RecyclerMetricsContext* metrics_context);
+
+    int finalize_recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                                std::string_view recycle_key);
+
+    int recycle_partition_table_stream_offsets(
+            int64_t db_id, int64_t table_id, int64_t partition_id,
+            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams);
+
     /**
      * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
      * and perform `recycle_func` on each key-value pair.

@@ -49,6 +49,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.profile.RuntimeProfile;
@@ -2189,7 +2190,11 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult streamConsumptionMetadataResult(TSchemaTableRequestParams params) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        try {
+            Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        } catch (UserException e) {
+            return errorResult(e.getMessage());
+        }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;

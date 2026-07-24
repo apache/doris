@@ -38,12 +38,17 @@
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
+#include "meta-store/versioned_value.h"
+#include "recycler/checker.h"
+#include "resource-manager/resource_manager.h"
 #include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
 MetaChecker::MetaChecker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_kv) {
-    snapshot_manager_ = create_snapshot_manager(std::move(txn_kv));
+    snapshot_manager_ = create_snapshot_manager(txn_kv);
+    resource_mgr_ = std::make_shared<ResourceManager>(std::move(txn_kv));
+    resource_mgr_->init();
 }
 
 bool MetaChecker::scan_and_handle_kv(
@@ -854,6 +859,224 @@ void MetaChecker::init_mysql_connection(const std::string& host, const std::stri
     LOG(INFO) << "mysql conn succ ";
 }
 
+// FE-to-MS and MS-to-FE validation intentionally share one catalog snapshot and one set of
+// resolved table identities.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+bool MetaChecker::do_table_stream_meta_check() {
+    std::unordered_map<std::string, int64_t> db_ids;
+    for (const auto& [db_id, db_name] : db_meta_) {
+        db_ids.emplace(db_name, db_id);
+    }
+
+    auto table_key = [](int64_t db_id, std::string_view table_name) {
+        return fmt::format("{}\x1f{}", db_id, table_name);
+    };
+    std::unordered_map<std::string, int64_t> table_ids;
+    for (const auto& [db_id, db_name] : db_meta_) {
+        std::string sql_stmt = fmt::format("SHOW PROC '/dbs/{}/'", db_id);
+        if (mysql_query(&conn, sql_stmt.c_str()) != 0) {
+            LOG_WARNING("failed to list FE tables while checking Table Stream metadata")
+                    .tag("instance_id", instance_id_)
+                    .tag("db_id", db_id)
+                    .tag("db_name", db_name)
+                    .tag("error", mysql_error(&conn));
+            return false;
+        }
+        MYSQL_RES* result = mysql_store_result(&conn);
+        if (result == nullptr) {
+            LOG_WARNING("failed to read FE table list while checking Table Stream metadata")
+                    .tag("instance_id", instance_id_)
+                    .tag("db_id", db_id)
+                    .tag("error", mysql_error(&conn));
+            return false;
+        }
+        while (MYSQL_ROW row = mysql_fetch_row(result)) {
+            table_ids.emplace(table_key(db_id, row[1]), std::atoll(row[0]));
+        }
+        mysql_free_result(result);
+    }
+
+    constexpr std::string_view TABLE_STREAM_SQL =
+            "SELECT DB_NAME, STREAM_NAME, STREAM_ID, BASE_TABLE_DB, BASE_TABLE_NAME, IS_STALE "
+            "FROM information_schema.table_streams";
+    if (mysql_query(&conn, TABLE_STREAM_SQL.data()) != 0) {
+        LOG_WARNING("failed to query FE Table Stream metadata")
+                .tag("instance_id", instance_id_)
+                .tag("error", mysql_error(&conn));
+        return false;
+    }
+    MYSQL_RES* result = mysql_store_result(&conn);
+    if (result == nullptr) {
+        LOG_WARNING("failed to read FE Table Stream metadata")
+                .tag("instance_id", instance_id_)
+                .tag("error", mysql_error(&conn));
+        return false;
+    }
+
+    bool check_result = true;
+    std::unordered_map<int64_t, TableStreamInfo> fe_streams;
+    while (MYSQL_ROW row = mysql_fetch_row(result)) {
+        const std::string stream_db_name = row[0];
+        const std::string stream_name = row[1];
+        const int64_t stream_id = std::atoll(row[2]);
+        const std::string base_db_name = row[3];
+        const std::string base_table_name = row[4];
+        const bool stale = std::strcmp(row[5], "1") == 0;
+
+        auto stream_db_it = db_ids.find(stream_db_name);
+        if (stream_db_it == db_ids.end()) {
+            LOG_WARNING("FE Table Stream references an unknown stream database")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("stream_db_name", stream_db_name);
+            check_result = false;
+            continue;
+        }
+        const int64_t stream_db_id = stream_db_it->second;
+        auto stream_table_it = table_ids.find(table_key(stream_db_id, stream_name));
+        if (stream_table_it == table_ids.end() || stream_table_it->second != stream_id) {
+            LOG_WARNING("FE Table Stream table id does not match its Catalog entry")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("stream_db_id", stream_db_id)
+                    .tag("stream_name", stream_name);
+            check_result = false;
+            continue;
+        }
+
+        int64_t base_db_id = -1;
+        int64_t base_table_id = -1;
+        auto base_db_it = db_ids.find(base_db_name);
+        if (base_db_it != db_ids.end()) {
+            base_db_id = base_db_it->second;
+            auto base_table_it = table_ids.find(table_key(base_db_id, base_table_name));
+            if (base_table_it != table_ids.end()) {
+                base_table_id = base_table_it->second;
+            }
+        }
+        if (!stale && (base_db_id < 0 || base_table_id < 0)) {
+            LOG_WARNING("FE Table Stream references an unknown base table")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("base_db_name", base_db_name)
+                    .tag("base_table_name", base_table_name);
+            check_result = false;
+            continue;
+        }
+
+        if (!fe_streams
+                     .emplace(stream_id, TableStreamInfo {.stream_db_id = stream_db_id,
+                                                          .stream_id = stream_id,
+                                                          .base_db_id = base_db_id,
+                                                          .base_table_id = base_table_id,
+                                                          .stale = stale})
+                     .second) {
+            LOG_WARNING("duplicate FE Table Stream id")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id);
+            check_result = false;
+        }
+    }
+    mysql_free_result(result);
+
+    auto matches = [](const TableStreamInfo& stream, int64_t base_db_id, int64_t base_table_id,
+                      int64_t stream_db_id) {
+        if (stream.stream_db_id != stream_db_id) {
+            return false;
+        }
+        if (stream.base_db_id >= 0 && stream.base_table_id >= 0) {
+            return stream.base_db_id == base_db_id && stream.base_table_id == base_table_id;
+        }
+        return stream.stale;
+    };
+
+    std::unordered_map<int64_t, PendingTableStreamDrop> pending_drops;
+    TxnErrorCode err = collect_pending_table_stream_drops(txn_kv_, instance_id_, &pending_drops);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to collect pending Table Stream drops")
+                .tag("instance_id", instance_id_)
+                .tag("error_code", err);
+        return false;
+    }
+
+    auto decode_components =
+            [](std::string_view key,
+               std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* components) {
+                if (key.empty()) {
+                    return false;
+                }
+                key.remove_prefix(1);
+                return decode_key(&key, components) == 0 && components->size() == 8;
+            };
+
+    std::string begin = table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
+    const std::string end = table_stream_offset_key({instance_id_, INT64_MAX, 0, 0, 0, 0});
+    bool scan_result = scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view) {
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
+        if (!decode_components(key, &components)) {
+            LOG_WARNING("failed to decode Latest Stream Offset key")
+                    .tag("instance_id", instance_id_)
+                    .tag("key", hex(key));
+            check_result = false;
+            return -1;
+        }
+        const int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
+        const int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
+        const int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
+        const int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
+
+        std::string recycle_value;
+        std::unique_ptr<Transaction> recycle_txn;
+        TxnErrorCode recycle_err = txn_kv_->create_txn(&recycle_txn);
+        if (recycle_err != TxnErrorCode::TXN_OK) {
+            check_result = false;
+            return -1;
+        }
+        recycle_err = recycle_txn->get(recycle_index_key({instance_id_, stream_id}), &recycle_value,
+                                       true);
+        if (recycle_err == TxnErrorCode::TXN_OK) {
+            RecycleIndexPB recycle_index;
+            if (!recycle_index.ParseFromString(recycle_value) ||
+                recycle_index.object_type() != TABLE_STREAM ||
+                recycle_index.db_id() != base_db_id || recycle_index.table_id() != base_table_id ||
+                recycle_index.stream_db_id() != stream_db_id) {
+                LOG_WARNING("Latest Stream Offset does not match RecycleIndexPB")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id);
+                check_result = false;
+            }
+            return 0;
+        }
+        if (recycle_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            check_result = false;
+            return -1;
+        }
+
+        auto stream_it = fe_streams.find(stream_id);
+        if (stream_it != fe_streams.end()) {
+            if (matches(stream_it->second, base_db_id, base_table_id, stream_db_id)) {
+                return 0;
+            }
+        }
+
+        auto pending_drop = pending_drops.find(stream_id);
+        if (pending_drop != pending_drops.end() &&
+            pending_drop->second.matches(base_db_id, base_table_id, stream_db_id)) {
+            return 0;
+        }
+
+        LOG_WARNING("Latest Stream Offset has no matching FE Table Stream")
+                .tag("instance_id", instance_id_)
+                .tag("stream_id", stream_id)
+                .tag("base_db_id", base_db_id)
+                .tag("base_table_id", base_table_id)
+                .tag("stream_db_id", stream_db_id);
+        check_result = false;
+        return 0;
+    });
+    return scan_result && check_result;
+}
+
 void MetaChecker::do_check(std::string& msg) {
     LOG(INFO) << "meta check begin";
 
@@ -916,6 +1139,25 @@ void MetaChecker::do_check(std::string& msg) {
         } while (now - start <= 180 && !ret);
 
         LOG(INFO) << "do_mvcc_check finish, cost(second): " << now - start;
+    }
+
+    if (config::enable_meta_key_check) {
+        start = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        LOG(INFO) << "do_table_stream_meta_check begin";
+        do {
+            init_db_meta();
+            ret = do_table_stream_meta_check();
+            if (!ret) {
+                std::this_thread::sleep_for(seconds(10));
+            }
+            now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+        } while (now - start <= 180 && !ret);
+        if (!ret) {
+            LOG(WARNING) << "do_table_stream_meta_check failed";
+            msg = "table stream meta mismatch";
+            return;
+        }
+        LOG(INFO) << "do_table_stream_meta_check finish, cost(second): " << now - start;
     }
 
     LOG(INFO) << "meta check finish";

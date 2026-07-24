@@ -1122,6 +1122,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         AgentTaskExecutor.submit(batchTask);
     }
 
+    /** Creates durable external cleanup work before a recycle-bin table entry is erased. */
+    public void beforeEraseTable(long dbId, Table table, boolean isReplay) throws DdlException {
+        // Local tables do not need an external cleanup task before their recycle entry is erased.
+    }
+
     public void erasePartitionDropBackendReplicas(List<Partition> partitions) {
         // no need send be delete task, when be report its tablets, fe will send delete task then.
     }
@@ -3994,7 +3999,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // check base table type is supported for stream
                 baseTable.checkAsTableStreamBaseTable(newStream.getStreamScanType());
                 try {
-                    newStream.setProperties(properties);
+                    setTableStreamProperties(newStream, properties);
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage(), e);
                 }
@@ -4003,6 +4008,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     throw new DdlException("Unknown properties: " + properties);
                 }
                 newStream.setId((Env.getCurrentEnv().getNextId()));
+                beforeCreateTableStream(db, newStream, baseTable);
             } finally {
                 baseTable.readUnlock();
             }
@@ -4011,5 +4017,15 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             LOG.info("successfully create stream[{}]", streamName);
         }
+    }
+
+    protected void setTableStreamProperties(BaseTableStream stream, Map<String, String> properties)
+            throws AnalysisException {
+        stream.setProperties(properties);
+    }
+
+    protected void beforeCreateTableStream(Database db, BaseTableStream stream, TableIf baseTable)
+            throws DdlException {
+        // No external metadata is created for a local Table Stream.
     }
 }

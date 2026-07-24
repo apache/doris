@@ -24,16 +24,26 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.rewrite.ResolveCloudTableStreamReadState;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -41,10 +51,15 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
@@ -314,5 +329,340 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         // (see StreamConsumptionInfoExtractor).
         Assertions.assertEquals(Long.valueOf(-historyTso), producedPrev.get(historyPid),
                 "prev of history partition must equal negated historicalPartitionTSO");
+    }
+
+    @Test
+    public void testEmptyCloudReadStateClearsLocalOffsetProjection() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s1");
+        long partitionId = baseTable.getPartition("p1").getId();
+        OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(
+                stream, baseTable, List.of(partitionId));
+
+        Assertions.assertFalse(wrapper.getOutputUpdateMap().isEmpty());
+        wrapper.installCloudReadStates(Map.of());
+        Assertions.assertTrue(wrapper.hasCloudReadStates());
+        Assertions.assertTrue(wrapper.getOutputUpdateMap().isEmpty());
+    }
+
+    @Test
+    public void testCloudPartitionLimitRejectsBeforeExecution() {
+        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(1)
+                .setBaseTableId(2)
+                .setStreamDbId(3)
+                .setStreamId(4)
+                .build();
+        Map<Long, Cloud.TableStreamPartitionUpdatePB> partitionUpdates = new HashMap<>();
+        partitionUpdates.put(10L, Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                .setPartitionId(10)
+                .setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN)
+                .setNextOffsetTso(100)
+                .build());
+        partitionUpdates.put(11L, Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                .setPartitionId(11)
+                .setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN)
+                .setNextOffsetTso(101)
+                .build());
+        List<TableStreamUpdateInfo> infos = List.of(new TableStreamUpdateInfo(
+                3L, 4L, new CloudOlapTableStreamUpdate(identity, partitionUpdates)));
+
+        int previousLimit = Config.cloud_table_stream_max_partitions_per_insert;
+        try {
+            Config.cloud_table_stream_max_partitions_per_insert = 1;
+            org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> InsertIntoTableCommand.checkCloudTableStreamPartitionLimit(infos));
+            Assertions.assertTrue(exception.getMessage().contains("Use stream PARTITION"));
+        } finally {
+            Config.cloud_table_stream_max_partitions_per_insert = previousLimit;
+        }
+    }
+
+    @Test
+    public void testCloudTableStreamRejectsUnsupportedInsertTargets() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable targetTable = (OlapTable) db.getTableOrMetaException("tbl_target");
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        OlapInsertExecutor normalExecutor = Mockito.mock(OlapInsertExecutor.class);
+
+        InsertIntoTableCommand.checkCloudTableStreamTarget(ctx, normalExecutor, targetTable);
+
+        Mockito.when(ctx.isTxnModel()).thenReturn(true);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> InsertIntoTableCommand.checkCloudTableStreamTarget(ctx, normalExecutor, targetTable));
+
+        Mockito.when(ctx.isTxnModel()).thenReturn(false);
+        Mockito.when(ctx.isGroupCommit()).thenReturn(true);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> InsertIntoTableCommand.checkCloudTableStreamTarget(ctx, normalExecutor, targetTable));
+
+        Mockito.when(ctx.isGroupCommit()).thenReturn(false);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> InsertIntoTableCommand.checkCloudTableStreamTarget(ctx,
+                        Mockito.mock(AbstractInsertExecutor.class), targetTable));
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> InsertIntoTableCommand.checkCloudTableStreamTarget(ctx, normalExecutor,
+                        Mockito.mock(TableIf.class)));
+    }
+
+    @Test
+    public void testCloudPartitionSelectionAndOffsetUpdateUseSameSnapshot() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s1");
+        long partitionId = baseTable.getPartition("p1").getId();
+        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(db.getId())
+                .setBaseTableId(baseTable.getId())
+                .setStreamDbId(db.getId())
+                .setStreamId(stream.getId())
+                .build();
+        Cloud.GetTableStreamReadStateResponse response = Cloud.GetTableStreamReadStateResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                .addBindings(Cloud.TableStreamReadBindingResultPB.newBuilder()
+                        .setIdentity(identity)
+                        .addPartitionStates(Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                                .setPartitionId(partitionId)
+                                .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                                .setOffsetTso(100)
+                                .setEndTso(130)
+                                .setVisibleVersion(8)))
+                .build();
+
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.s1 partition (p1)";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        connectContext.setStartTime();
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        command.initPlan(connectContext, new StmtExecutor(connectContext, sql), false);
+        Plan analyzedPlan = command.getLineagePlan().orElseThrow();
+
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try {
+            Config.cloud_unique_id = "cloud_table_stream_ut";
+            Config.meta_service_endpoint = "127.0.0.1:20121";
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.getTableStreamReadState(Mockito.any())).thenReturn(response);
+
+                new ResolveCloudTableStreamReadState().rewriteRoot(analyzedPlan, null);
+                List<TableStreamUpdateInfo> streamUpdateInfos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
+
+                Assertions.assertEquals(1, streamUpdateInfos.size());
+                Assertions.assertTrue(streamUpdateInfos.get(0).getUpdate() instanceof CloudOlapTableStreamUpdate);
+                CloudOlapTableStreamUpdate update = (CloudOlapTableStreamUpdate) streamUpdateInfos.get(0).getUpdate();
+                Assertions.assertEquals(identity, update.getIdentity());
+                Assertions.assertEquals(1, update.getPartitionUpdates().size());
+                Cloud.TableStreamPartitionUpdatePB partitionUpdate = update.getPartitionUpdates().get(partitionId);
+                Assertions.assertNotNull(partitionUpdate);
+                Assertions.assertEquals(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED,
+                        partitionUpdate.getExpectedState());
+                Assertions.assertEquals(100, partitionUpdate.getExpectedOffsetTso());
+                Assertions.assertEquals(130, partitionUpdate.getNextOffsetTso());
+
+                ArgumentCaptor<Cloud.GetTableStreamReadStateRequest> requestCaptor =
+                        ArgumentCaptor.forClass(Cloud.GetTableStreamReadStateRequest.class);
+                Mockito.verify(proxy).getTableStreamReadState(requestCaptor.capture());
+                Assertions.assertEquals(1, requestCaptor.getValue().getBindingsCount());
+                Assertions.assertEquals(List.of(partitionId),
+                        requestCaptor.getValue().getBindings(0).getPartitionIdsList());
+            }
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+        }
+    }
+
+    @Test
+    public void testCloudCteAndOuterStreamScansUseSingleReadStateRpc() throws Exception {
+        createTable("create table if not exists test_stream.tbl_cloud_mv_empty (\n"
+                + "  k1 int,\n"
+                + "  k2 int\n"
+                + ")\n"
+                + "unique key(k1)\n"
+                + "partition by range(k1)\n"
+                + "(partition p1 values less than (\"100\"),\n"
+                + " partition p2 values less than (\"200\"))\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\","
+                + "\"enable_unique_key_merge_on_write\"=\"true\","
+                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
+                + "\"binlog.need_historical_value\"=\"true\")");
+        createTable("create stream if not exists test_stream.s_cloud_mv_empty "
+                + "on table test_stream.tbl_cloud_mv_empty\n"
+                + "properties('show_initial_rows' = 'false')");
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_cloud_mv_empty");
+        long p1 = baseTable.getPartition("p1").getId();
+        long p2 = baseTable.getPartition("p2").getId();
+        String sql = "with cte as (select k1, k2 from test_stream.s_cloud_mv_empty) "
+                + "select k1, k2 from cte where k1 < 100 union all "
+                + "select k1, k2 from cte where k1 >= 100 and k1 < 200";
+
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        boolean previousEnableCteMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        try {
+            Config.cloud_unique_id = "cloud_table_stream_ut";
+            Config.meta_service_endpoint = "127.0.0.1:20121";
+            connectContext.getSessionVariable().enableCTEMaterialize = false;
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.getTableStreamReadState(Mockito.any())).thenAnswer(invocation -> {
+                    Cloud.GetTableStreamReadStateRequest request = invocation.getArgument(0);
+                    Cloud.GetTableStreamReadStateResponse.Builder response =
+                            Cloud.GetTableStreamReadStateResponse.newBuilder()
+                                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                            .setCode(Cloud.MetaServiceCode.OK));
+                    for (Cloud.TableStreamPartitionSetPB binding : request.getBindingsList()) {
+                        Cloud.TableStreamReadBindingResultPB.Builder result =
+                                Cloud.TableStreamReadBindingResultPB.newBuilder()
+                                        .setIdentity(binding.getIdentity());
+                        for (long partitionId : binding.getPartitionIdsList()) {
+                            result.addPartitionStates(Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                                    .setPartitionId(partitionId)
+                                    .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                                    .setOffsetTso(100)
+                                    .setEndTso(130)
+                                    .setVisibleVersion(8));
+                        }
+                        response.addBindings(result);
+                    }
+                    return response.build();
+                });
+
+                connectContext.setStartTime();
+                UUID uuid = UUID.randomUUID();
+                connectContext.setQueryId(
+                        new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+                checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
+                checker.rewrite();
+
+                List<Plan> tmpPlans = checker.getCascadesContext().getStatementContext()
+                        .getTmpPlanForMvRewrite();
+                Assertions.assertFalse(tmpPlans.isEmpty());
+                Assertions.assertTrue(tmpPlans.stream().anyMatch(tmpPlan -> !tmpPlan
+                        .collectToList(LogicalOlapTableStreamScan.class::isInstance).isEmpty()));
+                Assertions.assertTrue(checker.getCascadesContext().getRewritePlan()
+                        .collectToList(LogicalOlapTableStreamScan.class::isInstance).isEmpty());
+
+                checker.getCascadesContext().getStatementContext().setNeedPreMvRewrite(true);
+                checker.preMvRewrite();
+                Assertions.assertTrue(checker.getCascadesContext().getStatementContext().isPreMvRewritten());
+
+                ArgumentCaptor<Cloud.GetTableStreamReadStateRequest> requestCaptor =
+                        ArgumentCaptor.forClass(Cloud.GetTableStreamReadStateRequest.class);
+                Mockito.verify(proxy, Mockito.times(1)).getTableStreamReadState(requestCaptor.capture());
+                Assertions.assertEquals(1, requestCaptor.getValue().getBindingsCount());
+                Assertions.assertEquals(Set.of(p1, p2),
+                        new HashSet<>(requestCaptor.getValue().getBindings(0).getPartitionIdsList()));
+            }
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+            connectContext.getSessionVariable().enableCTEMaterialize = previousEnableCteMaterialize;
+        }
+    }
+
+    @Test
+    public void testCloudSnapshotPartitionsAreNotAdvancedByIncrementalScan() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        long p1 = baseTable.getPartition("p1").getId();
+        long p2 = baseTable.getPartition("p2").getId();
+        String sql = "select k1, k2 from test_stream.s1 where k1 < 100 union all "
+                + "select k1, k2 from test_stream.s1@snapshot() where k1 >= 100 and k1 < 200";
+
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try {
+            Config.cloud_unique_id = "cloud_table_stream_ut";
+            Config.meta_service_endpoint = "127.0.0.1:20121";
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                Mockito.when(proxy.getTableStreamReadState(Mockito.any())).thenAnswer(invocation -> {
+                    Cloud.GetTableStreamReadStateRequest request = invocation.getArgument(0);
+                    Cloud.GetTableStreamReadStateResponse.Builder response =
+                            Cloud.GetTableStreamReadStateResponse.newBuilder()
+                                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                            .setCode(Cloud.MetaServiceCode.OK));
+                    for (Cloud.TableStreamPartitionSetPB binding : request.getBindingsList()) {
+                        Cloud.TableStreamReadBindingResultPB.Builder result =
+                                Cloud.TableStreamReadBindingResultPB.newBuilder()
+                                        .setIdentity(binding.getIdentity());
+                        for (long partitionId : binding.getPartitionIdsList()) {
+                            result.addPartitionStates(Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                                    .setPartitionId(partitionId)
+                                    .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                                    .setOffsetTso(100)
+                                    .setEndTso(130)
+                                    .setVisibleVersion(8));
+                        }
+                        response.addBindings(result);
+                    }
+                    return response.build();
+                });
+
+                connectContext.setStartTime();
+                UUID uuid = UUID.randomUUID();
+                connectContext.setQueryId(
+                        new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+                Plan analyzedPlan = checker.getPlan();
+                checker.rewrite();
+
+                List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
+                Assertions.assertEquals(1, updates.size());
+                CloudOlapTableStreamUpdate update = (CloudOlapTableStreamUpdate) updates.get(0).getUpdate();
+                Assertions.assertEquals(Set.of(p1), update.getPartitionUpdates().keySet());
+
+                ArgumentCaptor<Cloud.GetTableStreamReadStateRequest> requestCaptor =
+                        ArgumentCaptor.forClass(Cloud.GetTableStreamReadStateRequest.class);
+                Mockito.verify(proxy).getTableStreamReadState(requestCaptor.capture());
+                Assertions.assertEquals(1, requestCaptor.getValue().getBindingsCount());
+                Assertions.assertEquals(Set.of(p1, p2),
+                        new HashSet<>(requestCaptor.getValue().getBindings(0).getPartitionIdsList()));
+            }
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+        }
+    }
+
+    @Test
+    public void testCloudEliminatedStreamScanDoesNotAdvanceOffset() throws Exception {
+        String sql = "select k1, k2 from test_stream.s1 where false";
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        String previousMetaServiceEndpoint = Config.meta_service_endpoint;
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try {
+            Config.cloud_unique_id = "cloud_table_stream_ut";
+            Config.meta_service_endpoint = "127.0.0.1:20121";
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+
+                connectContext.setStartTime();
+                UUID uuid = UUID.randomUUID();
+                connectContext.setQueryId(
+                        new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+                PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
+                Plan analyzedPlan = checker.getPlan();
+                checker.rewrite();
+
+                Assertions.assertTrue(StreamConsumptionInfoExtractor.extract(analyzedPlan).isEmpty());
+                Mockito.verify(proxy, Mockito.never()).getTableStreamReadState(Mockito.any());
+            }
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+            Config.meta_service_endpoint = previousMetaServiceEndpoint;
+        }
     }
 }

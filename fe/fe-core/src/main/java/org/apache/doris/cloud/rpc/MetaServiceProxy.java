@@ -400,6 +400,13 @@ public class MetaServiceProxy {
         }
     }
 
+    public Cloud.GetTableStreamReadStateResponse getTableStreamReadState(
+            Cloud.GetTableStreamReadStateRequest request) throws RpcException {
+        return executeWithMetrics("getTableStreamReadState",
+                client -> client.getTableStreamReadState(request),
+                Cloud.GetTableStreamReadStateResponse::getStatus);
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
         return executeWithMetrics("createTablets", (client) -> client.createTablets(request),
                 Cloud.CreateTabletsResponse::getStatus);

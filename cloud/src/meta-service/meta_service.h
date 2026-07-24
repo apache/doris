@@ -161,6 +161,11 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override;
 
+    void get_table_stream_read_state(::google::protobuf::RpcController* controller,
+                                     const GetTableStreamReadStateRequest* request,
+                                     GetTableStreamReadStateResponse* response,
+                                     ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -631,6 +636,14 @@ public:
                      const GetVersionRequest* request, GetVersionResponse* response,
                      ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_version, controller, request, response, done);
+    }
+
+    void get_table_stream_read_state(::google::protobuf::RpcController* controller,
+                                     const GetTableStreamReadStateRequest* request,
+                                     GetTableStreamReadStateResponse* response,
+                                     ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_table_stream_read_state, controller, request, response,
+                  done);
     }
 
     void create_tablets(::google::protobuf::RpcController* controller,
