@@ -92,7 +92,11 @@ public class EsConnectorMetadata implements ConnectorMetadata {
         EsTableHandle esHandle = (EsTableHandle) handle;
         String indexName = esHandle.getIndexName();
         return schemaMemo.computeIfAbsent(indexName, idx -> {
-            String mapping = restClient.getMapping(idx);
+            // Share the raw mapping with the scan path via the per-statement scope (ES-F2): one
+            // getMapping per index per statement across both paths. The schema memo above still
+            // collapses repeat getTableSchema calls within this metadata instance.
+            String mapping = EsStatementScope.sharedIndexMapping(
+                    session, idx, () -> restClient.getMapping(idx));
             boolean mappingEsId = Boolean.parseBoolean(properties.getOrDefault(
                     EsConnectorProperties.MAPPING_ES_ID,
                     EsConnectorProperties.MAPPING_ES_ID_DEFAULT));
@@ -149,7 +153,8 @@ public class EsConnectorMetadata implements ConnectorMetadata {
      * @param columnNames column names to resolve field contexts for
      * @return fully populated EsMetadataState
      */
-    public EsMetadataState fetchMetadataState(String indexName, List<String> columnNames) {
+    public EsMetadataState fetchMetadataState(ConnectorSession session, String indexName,
+            List<String> columnNames) {
         String mappingType = properties.getOrDefault(
                 EsConnectorProperties.MAPPING_TYPE, null);
         boolean nodesDiscovery = Boolean.parseBoolean(properties.getOrDefault(
@@ -160,7 +165,7 @@ public class EsConnectorMetadata implements ConnectorMetadata {
 
         EsMetadataState state = new EsMetadataState(
                 indexName, mappingType, columnNames, nodesDiscovery, seeds);
-        EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state);
+        EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state, session);
         return fetcher.fetch();
     }
 
@@ -175,6 +180,6 @@ public class EsConnectorMetadata implements ConnectorMetadata {
             columnNames.add(col.getName());
         }
         EsTableHandle esHandle = (EsTableHandle) handle;
-        return fetchMetadataState(esHandle.getIndexName(), columnNames);
+        return fetchMetadataState(session, esHandle.getIndexName(), columnNames);
     }
 }

@@ -35,8 +35,8 @@ import java.util.function.Supplier;
  * connectors cannot collide on {@code (db, table)} and hand one connector another's value (a
  * {@link ClassCastException}). Every consumer MUST use a distinct namespace declared here as a reviewed
  * uniqueness invariant. Declared today: {@link #ICEBERG_TABLE}, {@link #HUDI_LATEST_SCHEMA},
- * {@link #HUDI_LATEST_INSTANT}. Reserved for later consumers (each declared by its own change when wired):
- * {@code "maxcompute.handle"}, {@code "es.metadata_state"}.
+ * {@link #HUDI_LATEST_INSTANT}, {@link #ES_INDEX_MAPPING}. (maxcompute memoizes its handle on the
+ * per-statement metadata instance itself, so it needs no namespace here.)
  */
 public final class ConnectorStatementScopes {
 
@@ -48,6 +48,13 @@ public final class ConnectorStatementScopes {
 
     /** Namespace for hudi's per-statement latest-completed-instant memo (see {@code HudiStatementScope}). */
     public static final String HUDI_LATEST_INSTANT = "hudi.latest_instant";
+
+    /**
+     * Namespace for es's per-statement raw index-mapping memo, shared by the schema path
+     * ({@code EsConnectorMetadata}) and the scan path ({@code EsMetadataFetcher}) so one index's
+     * {@code getMapping} fires once per statement (see {@code EsStatementScope}).
+     */
+    public static final String ES_INDEX_MAPPING = "es.index_mapping";
 
     private ConnectorStatementScopes() {
     }

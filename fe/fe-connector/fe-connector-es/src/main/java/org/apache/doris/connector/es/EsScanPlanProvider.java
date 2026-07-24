@@ -105,7 +105,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         EsTableHandle esHandle = (EsTableHandle) handle;
         String indexName = esHandle.getIndexName();
 
-        EsMetadataState state = fetchMetadataState(esHandle, columns);
+        EsMetadataState state = fetchMetadataState(session, esHandle, columns);
         EsShardPartitions shardPartitions = state.getShardPartitions();
         if (shardPartitions == null) {
             LOG.warn("No shard partitions found for index {}", indexName);
@@ -158,7 +158,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        return buildScanNodeProperties(handle, columns, filter).getProperties();
+        return buildScanNodeProperties(session, handle, columns, filter).getProperties();
     }
 
     @Override
@@ -167,15 +167,16 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        return buildScanNodeProperties(handle, columns, filter);
+        return buildScanNodeProperties(session, handle, columns, filter);
     }
 
     private ScanNodePropertiesResult buildScanNodeProperties(
+            ConnectorSession session,
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
         EsTableHandle esHandle = (EsTableHandle) handle;
-        EsMetadataState state = fetchMetadataState(esHandle, columns);
+        EsMetadataState state = fetchMetadataState(session, esHandle, columns);
 
         Map<String, String> nodeProps = new HashMap<>();
 
@@ -279,7 +280,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 likePushDown, needCompatDateFields);
     }
 
-    private EsMetadataState fetchMetadataState(EsTableHandle handle,
+    private EsMetadataState fetchMetadataState(ConnectorSession session, EsTableHandle handle,
             List<ConnectorColumnHandle> columns) {
         String indexName = handle.getIndexName();
         List<String> columnNames = new ArrayList<>();
@@ -304,7 +305,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
 
         EsMetadataState state = new EsMetadataState(
                 indexName, mappingType, columnNames, nodesDiscovery, seeds);
-        EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state);
+        EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state, session);
         state = fetcher.fetch();
         memoizedState = state;
         return state;
