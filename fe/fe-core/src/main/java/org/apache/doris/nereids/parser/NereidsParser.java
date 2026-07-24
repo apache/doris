@@ -354,6 +354,7 @@ public class NereidsParser {
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
+    /** Parse a statement while retaining hints used to reconstruct a CREATE VIEW definition. */
     public LogicalPlan parseForCreateView(String sql) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
@@ -365,6 +366,7 @@ public class NereidsParser {
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
+    /** Parse a statement while retaining the source positions needed for encryption. */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);

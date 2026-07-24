@@ -30,6 +30,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.planner.PlanNodeId;
@@ -47,6 +48,7 @@ import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -58,6 +60,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -550,6 +553,39 @@ public class PaimonScanNodeTest {
                     + e.getTargetException().getMessage());
         }
         Mockito.verify(baseTable).copy(options);
+    }
+
+    @Test
+    public void testBackendSerializationUsesDynamicOptionsTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table baseTable = Mockito.mock(Table.class);
+        Table copiedTable = Mockito.mock(Table.class, Mockito.withSettings().serializable());
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        // The invocation happens on the deserialized mock copy, so Mockito cannot record it
+        // against this test instance when checking strict stubbings.
+        Mockito.lenient().when(copiedTable.name()).thenReturn("files-at-snapshot");
+        node.setSource(source);
+
+        Map<String, String> options = ImmutableMap.of("scan.snapshot-id", "1");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS, options, Collections.emptyList()));
+        Mockito.when(baseTable.copy(options)).thenReturn(copiedTable);
+
+        try {
+            invokePrivateMethod(node, "serializeProcessedTable");
+        } catch (NoSuchMethodException e) {
+            Assert.fail("PaimonScanNode must serialize the processed table for backend JNI reads");
+        }
+
+        java.lang.reflect.Field field = PaimonScanNode.class.getDeclaredField("serializedTable");
+        field.setAccessible(true);
+        String encoded = (String) field.get(node);
+        Table decoded = InstantiationUtil.deserializeObject(
+                Base64.getUrlDecoder().decode(encoded), PaimonUtil.class.getClassLoader());
+        Assert.assertEquals("files-at-snapshot", decoded.name());
     }
 
     @Test

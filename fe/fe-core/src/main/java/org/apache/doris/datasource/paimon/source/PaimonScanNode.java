@@ -174,7 +174,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         long startTime = System.currentTimeMillis();
-        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
+        serializeProcessedTable();
         // Todo: Get the current schema id of the table, instead of using -1.
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
@@ -188,6 +188,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
         }
+    }
+
+    private void serializeProcessedTable() throws UserException {
+        // System-table splits are materialized by the BE JNI reader, so it must receive the same
+        // option-bearing table copy that FE uses to plan the split.
+        serializedTable = PaimonUtil.encodeObjectToString(getProcessedTable());
     }
 
     @VisibleForTesting
