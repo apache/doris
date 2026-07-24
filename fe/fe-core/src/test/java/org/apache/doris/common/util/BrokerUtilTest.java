@@ -159,13 +159,37 @@ public class BrokerUtilTest {
     }
 
     @Test
+    public void parseColumnsFromPathPreservesNullMetadataAndInputKeys() throws Exception {
+        List<String> partitionKeys = Lists.newArrayList("region", "dt");
+        BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/Region=cn/Dt=" + HiveExternalMetaCache.HIVE_DEFAULT_PARTITION
+                        + "/data.parquet",
+                partitionKeys, false, false);
+
+        Assert.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
+        Assert.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
+        Assert.assertEquals(Lists.newArrayList("region", "dt"), partitionKeys);
+
+        parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+        Assert.assertEquals(Collections.singletonList("\\N"), parsed.getValues());
+        Assert.assertEquals(Collections.singletonList(false), parsed.getIsNull());
+
+        parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=value/delta_1_1/bucket_00000",
+                Collections.singletonList("p"), true, true);
+        Assert.assertEquals(Collections.singletonList("value"), parsed.getValues());
+        Assert.assertEquals(Collections.singletonList(false), parsed.getIsNull());
+    }
+
+    @Test
     public void normalizeColumnsFromPathPreservesNullInfo() {
         BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.normalizeColumnsFromPath(
                 Lists.newArrayList("p1", FeConstants.null_string,
                         HiveExternalMetaCache.HIVE_DEFAULT_PARTITION, null));
 
-        Assert.assertEquals(Lists.newArrayList("p1", "", "", ""), parsed.getValues());
-        Assert.assertEquals(Lists.newArrayList(false, true, true, true), parsed.getIsNull());
+        Assert.assertEquals(Lists.newArrayList("p1", "\\N", "", ""), parsed.getValues());
+        Assert.assertEquals(Lists.newArrayList(false, false, true, true), parsed.getIsNull());
     }
 
     @Test

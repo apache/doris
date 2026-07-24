@@ -90,7 +90,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -228,6 +231,35 @@ public class IcebergScanNodeTest {
                 .getFields().get(0).getFieldPtr().getName());
         Assert.assertEquals("payload", scanParams.getHistorySchemaInfo().get(0).getRootField()
                 .getFields().get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void testSetPartitionValuesBuildsStableAlignedMetadata() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(spec.specId(), spec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.specs()).thenReturn(specs);
+        setIcebergTable(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Dt", null);
+        partitionValues.put("Region", "cn");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Arrays.asList("Region", "Dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("cn", ""), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(false, true), rangeDesc.getColumnsFromPathIsNull());
     }
 
     @Test
