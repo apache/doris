@@ -1208,7 +1208,6 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     writer_options.write_type = _context.write_type;
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
-    writer_options.mow_ctx = _context.mow_context;
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,

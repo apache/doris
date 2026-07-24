@@ -31,7 +31,9 @@
 
 #include "common/status.h" // Status
 #include "storage/index/index_file_writer.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_define.h"
+#include "storage/partial_update_info.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
@@ -73,7 +75,6 @@ struct SegmentWriterOptions {
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
-    std::shared_ptr<MowContext> mow_ctx;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -91,29 +92,12 @@ public:
     virtual Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
     virtual Status append_block(const Block* block, size_t row_pos, size_t num_rows);
-    Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                             bool have_delete_sign,
-                             const std::vector<RowsetSharedPtr>& specified_rowsets,
-                             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                             bool& has_default_or_nullable,
-                             std::vector<bool>& use_default_or_null_flag,
-                             const std::function<void(const RowLocation& loc)>& found_cb,
-                             const std::function<Status()>& not_found_cb,
-                             PartialUpdateStats& stats);
-    Status partial_update_preconditions_check(size_t row_pos);
-    Status append_block_with_partial_content(const Block* block, size_t row_pos, size_t num_rows);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
 
     uint32_t num_rows_written() const { return _num_rows_written; }
-
-    // for partial update
-    int64_t num_rows_updated() const { return _num_rows_updated; }
-    int64_t num_rows_deleted() const { return _num_rows_deleted; }
-    int64_t num_rows_new_added() const { return _num_rows_new_added; }
-    int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
     uint32_t row_count() const { return _row_count; }
 
@@ -135,8 +119,6 @@ public:
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
     void clear();
-
-    void set_mow_context(std::shared_ptr<MowContext> mow_context);
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
@@ -168,26 +150,10 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
-    void _maybe_invalid_row_cache(const std::string& key);
-    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
-    // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos, bool null_first = true);
-
-    static std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
-                                         const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                         size_t pos, bool null_first = true);
-
-    // used for unique-key with merge on write
-    void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
-                            std::string* encoded_keys);
-    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(Block& block);
     Status _generate_primary_key_index(
-            const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
@@ -199,11 +165,10 @@ private:
         return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
     }
 
-protected:
-    // Build key index for derived writers that override append_block.
     Status build_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                            IOlapColumnDataAccessor* seq_column, size_t num_rows);
 
+protected:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
@@ -217,9 +182,6 @@ protected:
 
     SegmentFooterPB _footer;
     SegmentIndexFileCacheInfo _index_file_cache_info;
-    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
-    // for other tables, the sort key is the keys
-    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
 
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
@@ -229,13 +191,9 @@ protected:
 
     std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
-    // for mow table with cluster keys, this is cluster keys
-    std::vector<const KeyCoder*> _key_coders;
-    // for mow table with cluster keys, this is primary keys
-    std::vector<const KeyCoder*> _primary_key_coders;
-    const KeyCoder* _seq_coder = nullptr;
-    const KeyCoder* _rowid_coder = nullptr;
-    std::vector<uint16_t> _key_index_size;
+    // NOTE: must stay declared after _tablet_schema and _opts, the constructor
+    // init list reads both through _is_mow().
+    RowKeyEncoder _key_encoder;
     size_t _short_key_row_pos = 0;
 
     std::vector<uint32_t> _column_ids;
@@ -243,12 +201,6 @@ protected:
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
 
-    /** for partial update stats **/
-    int64_t _num_rows_updated = 0;
-    int64_t _num_rows_new_added = 0;
-    int64_t _num_rows_deleted = 0;
-    // number of rows filtered in strict mode partial update
-    int64_t _num_rows_filtered = 0;
     // _row_count means total row count of this segment
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group
@@ -258,9 +210,7 @@ protected:
     faststring _min_key;
     faststring _max_key;
 
-    std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection
