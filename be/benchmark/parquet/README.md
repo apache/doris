@@ -28,9 +28,28 @@ timed region. It covers PLAIN, dictionary, byte-stream-split, and DELTA encoding
 supported fixed-width and binary physical types. Sparse selections are provided as both one
 clustered range and many alternating ranges.
 
+The decoder selection axis includes 0%, 1%, 10%, 50%, 90%, and 100% so boundary and
+high-selectivity behavior are visible.
+
 ```shell
 be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetDecoder/plain/int64/sel_10/alternating$' \
+  --benchmark_min_time=0.1s
+```
+
+## SIMD kernel cases
+
+`ParquetKernel` isolates the five SIMD-sensitive stages from reader setup and virtual consumer
+overhead: byte-stream-split transpose, delta prefix sum, numeric dictionary gather, nullable
+expansion, and raw predicate evaluation. It covers the applicable 4-byte and 8-byte integer and
+floating-point physical types, raw-predicate selectivities from 0% through 100%, and nullable
+rates from 0% through 90% with clustered and alternating placement. Dictionary gather uses 32-,
+4,096-, and 262,144-entry working sets to separate cache-resident and cache-miss-dominated
+behavior.
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetKernel/(dictionary_gather|nullable_expand)/' \
   --benchmark_min_time=0.1s
 ```
 
