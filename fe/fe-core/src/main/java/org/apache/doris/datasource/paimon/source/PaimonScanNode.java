@@ -266,20 +266,30 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
-            // use jni reader or paimon-cpp reader
+            // use jni reader / paimon-cpp reader / paimon-rust reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // Use Paimon native serialization for paimon-cpp reader
-            if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
+            // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
+            // which only supports DataSplit. Any other split type falls back to JNI.
+            boolean nativeSplit = split instanceof DataSplit;
+            if (sessionVariable.isEnablePaimonRustReader() && nativeSplit) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
+            } else if (sessionVariable.isEnablePaimonCppReader() && nativeSplit) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_CPP);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
             } else {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             }
-            // Set table location for paimon-cpp reader
+            // Set table location for paimon-cpp / paimon-rust reader
             String tableLocation = source.getTableLocation();
             if (tableLocation != null) {
                 fileDesc.setPaimonTable(tableLocation);
+            }
+            // paimon-rust reader needs db/table to open the table through the catalog.
+            if (sessionVariable.isEnablePaimonRustReader()) {
+                fileDesc.setDbName(source.getExternalTable().getDbName());
+                fileDesc.setTableName(source.getExternalTable().getName());
             }
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {

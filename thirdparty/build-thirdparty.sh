@@ -2188,6 +2188,86 @@ build_lance_c() {
     fi
 }
 
+# paimon-rust
+build_paimon_rust() {
+    check_if_source_exist "${PAIMON_RUST_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build paimon-rust. Install Rust 1.91.0 or set PAIMON_RUST_CARGO."
+        exit 1
+    fi
+
+    local required_rust_version="1.91.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # Auto-install cbindgen if it's not already on PATH.
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-cbindgen}"
+    if ! command -v "${cbindgen_bin}" >/dev/null 2>&1; then
+        echo "cbindgen not found; installing via cargo install ..."
+        env "${cargo_env[@]}" "${cargo_bin}" install cbindgen --locked
+        cbindgen_bin="cbindgen"
+    fi
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
+        --output "${BUILD_DIR}/release/paimon.h"
+
+    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
+    mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
+    cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
+    cp -v "${BUILD_DIR}/release/libpaimon_c.a" "${TP_INSTALL_DIR}/lib64/"
+
+    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
+    fi
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
@@ -2229,6 +2309,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         grpc # after cares, protobuf
         arrow
         lance_c
+        paimon_rust
         s2
         bitshuffle
         croaringbitmap
@@ -2364,6 +2445,7 @@ cleanup_package_source() {
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
+        paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;
