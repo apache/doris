@@ -529,6 +529,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _segment->_tablet_schema->cluster_key_uids().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
+    _update_score_query_limit();
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
@@ -1633,7 +1634,7 @@ Status SegmentIterator::_init_index_iterators() {
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
         _index_query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
-        _index_query_context->query_limit = _score_runtime->get_limit();
+        _index_query_context->query_limit = 0;
         _index_query_context->is_asc = _score_runtime->is_asc();
     }
 
@@ -3629,8 +3630,7 @@ void SegmentIterator::_prepare_score_column_materialization() {
 
     IColumn::MutablePtr result_column;
     auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
-    if (_score_runtime->get_limit() > 0 && _col_predicates.empty() &&
-        _common_expr_ctxs_push_down.empty()) {
+    if (_can_apply_score_materialization_topn()) {
         OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
         _index_query_context->collection_similarity->get_topn_bm25_scores(
                 &_row_bitmap, result_column, result_row_ids, order_type,
@@ -3645,6 +3645,48 @@ void SegmentIterator::_prepare_score_column_materialization() {
     virtual_column_iter->prepare_materialization(
             std::move(result_column),
             std::shared_ptr<std::vector<uint64_t>>(std::move(result_row_ids)));
+}
+
+void SegmentIterator::_update_score_query_limit() {
+    if (_score_runtime == nullptr) {
+        return;
+    }
+
+    DCHECK(_index_query_context != nullptr);
+    _index_query_context->query_limit =
+            _can_apply_score_query_limit() ? _score_runtime->get_limit() : 0;
+}
+
+bool SegmentIterator::_can_apply_score_query_limit() {
+    DCHECK(_score_runtime != nullptr);
+    if (_score_runtime->get_limit() == 0) {
+        return false;
+    }
+    if (_row_bitmap.cardinality() != num_rows()) {
+        return false;
+    }
+    if (!_opts.row_ranges.is_empty() || _has_delete_bitmap() ||
+        _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
+        !_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
+        !_col_predicates.empty()) {
+        return false;
+    }
+    if (_common_expr_ctxs_push_down.size() != 1) {
+        return false;
+    }
+    DCHECK(_common_expr_ctxs_push_down.front()->root() != nullptr);
+    return _common_expr_ctxs_push_down.front()->root()->node_type() == TExprNodeType::SEARCH_EXPR;
+}
+
+bool SegmentIterator::_can_apply_score_materialization_topn() {
+    DCHECK(_score_runtime != nullptr);
+    return _score_runtime->get_limit() > 0 && !_is_need_vec_eval && !_is_need_short_eval &&
+           !_is_need_expr_eval && _opts.delete_condition_predicates->num_of_column_predicate() == 0;
+}
+
+bool SegmentIterator::_has_delete_bitmap() const {
+    auto it = _opts.delete_bitmap.find(segment_id());
+    return it != _opts.delete_bitmap.end() && it->second != nullptr;
 }
 
 } // namespace segment_v2

@@ -319,6 +319,10 @@ private:
     bool _can_skip_reading_extra_column(ColumnId cid);
 
     bool _can_opt_limit_reads();
+    void _update_score_query_limit();
+    bool _can_apply_score_query_limit();
+    bool _can_apply_score_materialization_topn();
+    bool _has_delete_bitmap() const;
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
