@@ -128,6 +128,8 @@ struct TStreamLoadRecord {
     18: required i64 finish_time
     19: optional string comment
     20: optional string first_error_msg
+    21: optional i64 begin_txn_time_ms
+    22: optional i64 stream_load_put_time_ms
 }
 
 struct TStreamLoadRecordResult {
@@ -437,6 +439,11 @@ service BackendService {
     DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
+
+    // Return the newest `count` stream load records (newest-first). Used by the
+    // information_schema.loads on-demand read: one RPC per BE yields the most recent records
+    // instead of paginating forward from the oldest.
+    TStreamLoadRecordResult get_stream_load_record_desc(1: i64 count);
 
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();

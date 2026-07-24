@@ -5744,38 +5744,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(
                             dbId, null, false, null);
                     for (List<Comparable> jobInfo : loadJobInfosByDb) {
-                        TLoadJob tJob = new TLoadJob();
-                        // Based on LOAD_TITLE_NAMES order:
-                        // JobId, Label, State, Progress, Type, EtlInfo, TaskInfo, ErrorMsg, CreateTime,
-                        // EtlStartTime, EtlFinishTime, LoadStartTime, LoadFinishTime, URL, JobDetails,
-                        // TransactionId, ErrorTablets, User, Comment, FirstErrorMsg
-                        if (jobInfo.size() >= 20) {
-                            tJob.setJobId(String.valueOf(jobInfo.get(0)));
-                            tJob.setLabel(String.valueOf(jobInfo.get(1)));
-                            tJob.setState(String.valueOf(jobInfo.get(2)));
-                            tJob.setProgress(String.valueOf(jobInfo.get(3)));
-                            tJob.setType(String.valueOf(jobInfo.get(4)));
-                            tJob.setEtlInfo(String.valueOf(jobInfo.get(5)));
-                            tJob.setTaskInfo(String.valueOf(jobInfo.get(6)));
-                            tJob.setErrorMsg(String.valueOf(jobInfo.get(7)));
-                            tJob.setCreateTime(String.valueOf(jobInfo.get(8)));
-                            tJob.setEtlStartTime(String.valueOf(jobInfo.get(9)));
-                            tJob.setEtlFinishTime(String.valueOf(jobInfo.get(10)));
-                            tJob.setLoadStartTime(String.valueOf(jobInfo.get(11)));
-                            tJob.setLoadFinishTime(String.valueOf(jobInfo.get(12)));
-                            tJob.setUrl(String.valueOf(jobInfo.get(13)));
-                            tJob.setJobDetails(String.valueOf(jobInfo.get(14)));
-                            tJob.setTransactionId(String.valueOf(jobInfo.get(15)));
-                            tJob.setErrorTablets(String.valueOf(jobInfo.get(16)));
-                            tJob.setUser(String.valueOf(jobInfo.get(17)));
-                            tJob.setComment(String.valueOf(jobInfo.get(18)));
-                            tJob.setFirstErrorMsg(String.valueOf(jobInfo.get(19)));
+                        // Shared show-info mapping (LOAD_TITLE_NAMES order), also used by the
+                        // loads_history sync so both interpret load job rows identically.
+                        TLoadJob tJob = LoadManager.toTLoadJob(jobInfo);
+                        if (tJob != null) {
                             jobInfos.add(tJob);
                         }
                     }
                 } catch (Exception e) {
                     LOG.warn("Failed to get load jobs for database: {}", dbName, e);
                 }
+            }
+
+            // Append Stream Load records for information_schema.loads by reading BE RocksDB
+            // stream-load-record stores on demand. This deliberately does NOT use the FE periodic
+            // cache (fetch_stream_load_record_interval_second) that SHOW STREAM LOAD relies on, so
+            // a SELECT sees freshly completed Stream Load records without waiting for a pull cycle.
+            // Records already carry their own db/table, so this is done once across all databases
+            // rather than per-database.
+            try {
+                jobInfos.addAll(Env.getCurrentEnv().getStreamLoadRecordMgr()
+                        .getStreamLoadJobsFromBackends());
+            } catch (Exception e) {
+                LOG.warn("Failed to read stream load records for information_schema.loads", e);
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("load job infos: {}", jobInfos);

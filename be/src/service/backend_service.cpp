@@ -895,6 +895,11 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
                                                _engine.get_stream_load_recorder());
 }
 
+void BackendService::get_stream_load_record_desc(TStreamLoadRecordResult& result, int64_t count) {
+    BaseBackendService::get_stream_load_record_desc(result, count,
+                                                    _engine.get_stream_load_recorder());
+}
+
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     _engine.tablet_manager()->get_all_tablets_storage_format(&result);
 }
@@ -1159,15 +1164,42 @@ void BaseBackendService::get_stream_load_record(
         auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
                                                   config::stream_load_record_batch_size, &records);
         if (st.ok()) {
-            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: "
-                      << records.size()
-                      << ", last_stream_load_timestamp: " << last_stream_record_time;
+            VLOG(3) << "get_batch stream_load_record rocksdb successfully. records size: "
+                    << records.size()
+                    << ", last_stream_load_timestamp: " << last_stream_record_time;
             std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
             auto it = records.begin();
             for (; it != records.end(); ++it) {
                 TStreamLoadRecord stream_load_item;
                 StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
                 stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
+            }
+            result.__set_stream_load_record(stream_load_record_batch);
+        }
+    } else {
+        LOG(WARNING) << "stream_load_recorder is null.";
+    }
+}
+
+void BaseBackendService::get_stream_load_record_desc(TStreamLoadRecordResult& result,
+                                                     int64_t count) {
+    LOG(ERROR) << "get_stream_load_record_desc is not implemented";
+}
+
+void BaseBackendService::get_stream_load_record_desc(
+        TStreamLoadRecordResult& result, int64_t count,
+        std::shared_ptr<StreamLoadRecorder> stream_load_recorder) {
+    if (stream_load_recorder != nullptr) {
+        std::map<std::string, std::string> records;
+        auto st = stream_load_recorder->get_batch_desc(static_cast<int>(count), &records);
+        if (st.ok()) {
+            VLOG(3) << "get_batch_desc stream_load_record rocksdb successfully. records size: "
+                    << records.size() << ", requested count: " << count;
+            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
+            for (auto& kv : records) {
+                TStreamLoadRecord stream_load_item;
+                StreamLoadContext::parse_stream_load_record(kv.second, stream_load_item);
+                stream_load_record_batch.emplace(kv.first, stream_load_item);
             }
             result.__set_stream_load_record(stream_load_record_batch);
         }

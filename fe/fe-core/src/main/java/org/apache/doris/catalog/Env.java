@@ -139,6 +139,7 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
+import org.apache.doris.load.LoadsHistorySyncer;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -392,6 +393,7 @@ public class Env {
     protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
+    private LoadsHistorySyncer loadsHistorySyncer;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
     private RoutineLoadManager routineLoadManager;
     private GroupCommitManager groupCommitManager;
@@ -832,6 +834,7 @@ public class Env {
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
+        this.loadsHistorySyncer = new LoadsHistorySyncer();
         this.tabletLoadIndexRecorderMgr = new TabletLoadIndexRecorderMgr();
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
@@ -2054,6 +2057,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
+        loadsHistorySyncer.start();
         tableStreamManager.start();
         tabletLoadIndexRecorderMgr.start();
         new InternalSchemaInitializer().start();
@@ -5377,6 +5381,10 @@ public class Env {
 
     public StreamLoadRecordMgr getStreamLoadRecordMgr() {
         return streamLoadRecordMgr;
+    }
+
+    public LoadsHistorySyncer getLoadsHistorySyncer() {
+        return loadsHistorySyncer;
     }
 
     public TabletLoadIndexRecorderMgr getTabletLoadIndexRecorderMgr() {
