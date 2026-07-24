@@ -229,6 +229,9 @@ public:
                                         Arena& arena, UInt8* use_null_result,
                                         UInt8* could_use_previous_result) const = 0;
 
+    // Window functions whose frame boundary can overflow need the current row explicitly.
+    virtual void set_window_current_position(AggregateDataPtr, int64_t) const {}
+
     virtual void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                                    const size_t num_rows, Arena&) const = 0;
 
