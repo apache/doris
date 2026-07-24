@@ -59,9 +59,7 @@ public class MetaServiceProxyTest {
     @Test
     public void testExecuteRequestNoShutdownOnSuccess() throws RpcException {
         MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
-        Mockito.when(client.isNormalState()).thenReturn(true);
-        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        MetaServiceClient client = mockNormalClient();
 
         Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
         serviceMap.put(Config.meta_service_endpoint, client);
@@ -85,9 +83,7 @@ public class MetaServiceProxyTest {
     @Test
     public void testExecuteRequestShutdownOnFailure() {
         MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
-        Mockito.when(client.isNormalState()).thenReturn(true);
-        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        MetaServiceClient client = mockNormalClient();
 
         Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
         serviceMap.put(Config.meta_service_endpoint, client);
@@ -113,9 +109,7 @@ public class MetaServiceProxyTest {
     @Test
     public void testGetVisibleVersionAsyncShutdownOnFailure() throws RpcException {
         MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
-        Mockito.when(client.isNormalState()).thenReturn(true);
-        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        MetaServiceClient client = mockNormalClient();
 
         SettableFuture<Cloud.GetVersionResponse> future = SettableFuture.create();
         Mockito.when(client.getVisibleVersionAsync(Mockito.any())).thenReturn(future);
@@ -226,6 +220,7 @@ public class MetaServiceProxyTest {
         MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
         Mockito.when(client.isNormalState()).thenReturn(true);
         Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        Mockito.when(client.isUsingLatestChannelConfig()).thenReturn(true);
         return client;
     }
 }

@@ -655,6 +655,26 @@ DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
+// TLS module enable flag
+DECLARE_Bool(enable_tls);
+// Path of TLS certificate
+DECLARE_String(tls_certificate_path);
+// Path of TLS private key
+DECLARE_String(tls_private_key_path);
+// Password for encrypted TLS private key
+DECLARE_String(tls_private_key_password);
+// TLS peer verification mode
+DECLARE_String(tls_verify_mode);
+// Path of TLS CA certificate
+DECLARE_String(tls_ca_certificate_path);
+// TLS certificate reload interval, in seconds
+DECLARE_Int32(tls_cert_refresh_interval_seconds);
+// Comma-separated excluded server protocols: brpc,thrift,http,arrowflight
+DECLARE_String(tls_excluded_protocols);
+// Required peer certificate DNS SAN allowlist for private protocols, syntax: brpc=a.com;thrift=b.com.
+// Empty means allow all peers. Once configured, the list acts as an allowlist and only peers whose
+// DNS SAN matches at least one configured entry for that protocol are allowed.
+DECLARE_String(tls_peer_cert_required_san_dns);
 // Https enable flag
 DECLARE_Bool(enable_https);
 // Path of certificate

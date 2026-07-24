@@ -43,8 +43,10 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
-import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tls.server.FeServerStarterFactory;
+import org.apache.doris.tls.server.ServerStarter;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
@@ -94,6 +96,8 @@ public class DorisFE {
 
     // HTTP server instance, used for graceful shutdown
     private static HttpServer httpServer;
+    private static ServerStarter thriftServerStarter;
+    private static QeService qeService;
 
     public static void main(String[] args) {
         // Every doris version should have a final meta version, it should not change
@@ -165,6 +169,18 @@ public class DorisFE {
                 serverReady.set(false);
                 gracefulShutdown();
 
+                if (qeService != null) {
+                    qeService.stop();
+                }
+
+                if (thriftServerStarter != null) {
+                    try {
+                        thriftServerStarter.stop();
+                    } catch (Exception e) {
+                        LOG.warn("stop FE thrift starter failed", e);
+                    }
+                }
+
                 // Shutdown HTTP server after main process graceful shutdown is complete
                 if (httpServer != null) {
                     httpServer.shutdown();
@@ -233,10 +249,10 @@ public class DorisFE {
 
             // init and start:
             // 1. HttpServer for HTTP Server
-            // 2. FeServer for Thrift Server
+            // 2. FE thrift server starter
             // 3. QeService for MySQL Server
-            FeServer feServer = new FeServer(Config.rpc_port);
-            feServer.start();
+            thriftServerStarter = FeServerStarterFactory.createThriftServerStarter(Config.rpc_port);
+            thriftServerStarter.start();
 
             if (options.enableHttpServer) {
                 httpServer = new HttpServer();
@@ -250,7 +266,8 @@ public class DorisFE {
                 httpServer.setKeyStorePassword(Config.key_store_password);
                 httpServer.setKeyStoreType(Config.key_store_type);
                 httpServer.setKeyStoreAlias(Config.key_store_alias);
-                httpServer.setEnableHttps(Config.enable_https);
+                httpServer.setEnableHttps(Config.enable_https
+                        && !(Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.HTTP)));
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
@@ -261,8 +278,8 @@ public class DorisFE {
             SimpleScheduler.init();
 
             if (options.enableQeService) {
-                QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
-                                                    ExecuteEnv.getInstance().getScheduler());
+                qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
+                        ExecuteEnv.getInstance().getScheduler());
                 qeService.start();
             }
 
