@@ -1265,7 +1265,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it1, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it1.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<ConstantColumnIterator*>(it1.get()) != nullptr);
 
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
@@ -1502,7 +1502,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it7, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it7.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<ConstantColumnIterator*>(it7.get()) != nullptr);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
