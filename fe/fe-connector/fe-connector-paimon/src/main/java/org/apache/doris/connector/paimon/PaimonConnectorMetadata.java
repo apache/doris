@@ -290,14 +290,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long schemaId = snapshot.getSchemaId();
-        Table table = resolveTable(paimonHandle);
+        // Resolve the table AT the snapshot's identity: applySnapshot routes a @branch read's
+        // CoreOptions.BRANCH sentinel to withBranch, so schemaAt reads the branch's OWN schema dir
+        // (.../branch/branch-<name>/schema/schema-<id>) rather than the base table's. Mirrors the
+        // apply-before-resolve already in getTableStatistics(3-arg) / getPartitions. For a version/tag/time
+        // pin (no branch sentinel) applySnapshot only threads scan options resolveTable ignores, so the
+        // resolved table -- and its schemaAt read -- is byte-for-byte unchanged.
+        PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
+        Table table = resolveTable(pinned);
         // FIX-B-MC2: memoize the schemaAt schema-file read across queries. resolveTable + buildTableSchema
         // still run every query (keeping the live coreOptions/properties current); only the schemaAt
-        // round-trip is skipped on a repeat. The memo is keyed by (handle-identity, schemaId) — a pure
-        // function — and owned by the per-catalog PaimonConnector. resolveTable runs ONCE, outside the
-        // loader, so a branch handle's getTable reload happens at most once per query (= the pre-fix path).
+        // round-trip is skipped on a repeat. The memo is keyed by (pinned-handle-identity, schemaId) -- a
+        // pure function -- and owned by the per-catalog PaimonConnector. Key on the PINNED handle (which
+        // carries branchName in equals/hashCode) so a branch@schemaId and a base@same-schemaId cannot
+        // collide in this long-lived memo. resolveTable runs ONCE, outside the loader.
         PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                schemaAtMemo.getOrLoad(paimonHandle, schemaId, () -> catalogOps.schemaAt(table, schemaId));
+                schemaAtMemo.getOrLoad(pinned, schemaId, () -> catalogOps.schemaAt(table, schemaId));
         return buildTableSchema(
                 paimonHandle.getTableName(),
                 table,
@@ -1013,9 +1021,20 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long schemaId = snapshot.getSchemaId();
-        Table table = resolveTable(paimonHandle);
+        // Resolve the table AT the snapshot's identity BEFORE reading the pinned schema. buildColumnHandles
+        // (PluginDrivenScanNode) calls this with the BASE handle -- the branch/MVCC pin is threaded onto
+        // the scan node's currentHandle only later, in pinMvccSnapshot -- so a @branch read would otherwise
+        // resolve the branch's schemaId against the BASE table's schema dir -> "No such file
+        // .../schema/schema-<id>". applySnapshot routes the CoreOptions.BRANCH sentinel to withBranch so
+        // schemaAt reads the branch's own schema dir; mirrors getTableStatistics(3-arg) / getPartitions. A
+        // version/tag/time pin only threads scan options resolveTable ignores -> table unchanged.
+        PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
+        Table table = resolveTable(pinned);
+        // Key the memo on the PINNED handle (carries branchName in equals/hashCode): schemaAtMemo is
+        // per-catalog and long-lived, so keying on the base handle would let a branch@schemaId poison a
+        // later base@same-schemaId read (each has its own independently-evolved schema-<id>).
         PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                schemaAtMemo.getOrLoad(paimonHandle, schemaId, () -> catalogOps.schemaAt(table, schemaId));
+                schemaAtMemo.getOrLoad(pinned, schemaId, () -> catalogOps.schemaAt(table, schemaId));
         return buildColumnHandles(schema.fields());
     }
 
