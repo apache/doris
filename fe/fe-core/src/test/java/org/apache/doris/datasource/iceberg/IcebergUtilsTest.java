@@ -336,6 +336,35 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testGetCommonIdentityPartitionColumnsUsesSafeIntersection() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("id")
+                .identity("Dt")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("Dt")
+                .day("ts")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(oldSpec.specId(), oldSpec);
+        specs.put(currentSpec.specId(), currentSpec);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.specs()).thenReturn(specs);
+
+        Assert.assertEquals(Collections.singletonList("Dt"),
+                IcebergUtils.getCommonIdentityPartitionColumns(table));
+    }
+
+    @Test
     public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "Dt", Types.StringType.get()),

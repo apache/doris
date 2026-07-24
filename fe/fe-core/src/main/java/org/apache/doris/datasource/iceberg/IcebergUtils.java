@@ -781,6 +781,33 @@ public class IcebergUtils {
         return new ArrayList<>(partitionColumns);
     }
 
+    /**
+     * Get identity partition columns that exist in all partition specs.
+     * The legacy file scanner uses partition columns in the first scan range for all ranges,
+     * so only common identity partition columns can be used for partition pruning.
+     */
+    public static List<String> getCommonIdentityPartitionColumns(Table table) {
+        LinkedHashSet<Integer> commonSourceIds = new LinkedHashSet<>();
+        for (PartitionField field : table.spec().fields()) {
+            NestedField sourceField = table.schema().findField(field.sourceId());
+            if (field.transform().isIdentity() && sourceField != null
+                    && isSupportedPartitionValueType(sourceField.type().typeId())) {
+                commonSourceIds.add(field.sourceId());
+            }
+        }
+        for (PartitionSpec spec : table.specs().values()) {
+            Set<Integer> specIdentitySourceIds = spec.fields().stream()
+                    .filter(field -> field.transform().isIdentity())
+                    .map(PartitionField::sourceId)
+                    .collect(Collectors.toSet());
+            commonSourceIds.retainAll(specIdentitySourceIds);
+        }
+        return commonSourceIds.stream()
+                .map(table.schema()::findColumnName)
+                .filter(columnName -> columnName != null)
+                .collect(Collectors.toList());
+    }
+
     public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
             PartitionSpec partitionSpec, Table table, String timeZone) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
@@ -795,8 +822,7 @@ public class IcebergUtils {
             if (!partitionField.transform().isIdentity()) {
                 continue;
             }
-            TypeID partitionTypeId = field.type().typeId();
-            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+            if (!isSupportedPartitionValueType(field.type().typeId())) {
                 continue;
             }
 
@@ -813,6 +839,10 @@ public class IcebergUtils {
             }
         }
         return partitionInfoMap;
+    }
+
+    private static boolean isSupportedPartitionValueType(TypeID typeId) {
+        return typeId != TypeID.BINARY && typeId != TypeID.FIXED;
     }
 
     public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
