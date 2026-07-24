@@ -2835,6 +2835,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -2844,6 +2845,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         Env.getCurrentEnv().getAlterInstance().checkNoForceProperty(properties);
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    invertedIndexFileStorageFormat.name());
+        }
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         boolean enableUniqueKeyMergeOnWrite = false;
@@ -2940,7 +2947,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
             LOG.info("Properties already up-to-date");
             return;
         }

@@ -88,7 +88,10 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("ReplicaAllocation", ScalarType.createStringType()),
             new Column("IsMutable", ScalarType.createType(PrimitiveType.BOOLEAN)),
             new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)),
-            new Column("UnsyncTables", ScalarType.createStringType()));
+            new Column("UnsyncTables", ScalarType.createStringType()),
+            new Column("CommittedVersion", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("RowCount", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("InvertedIndexStorageFormat", ScalarType.createStringType()));
 
     private static final ImmutableList<Column> SCHEMA_FOR_EXTERNAL_TABLE = ImmutableList.of(
             new Column("Partition", ScalarType.createStringType()));

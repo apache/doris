@@ -1366,7 +1366,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         recyclePartitionParam.dataProperty,
                         recyclePartitionParam.replicaAlloc,
                         recyclePartitionParam.isInMemory,
-                        recyclePartitionParam.isMutable);
+                        recyclePartitionParam.isMutable,
+                        recyclePartitionParam.invertedIndexFileStorageFormat);
 
             } else if (partitionInfo.getType() == PartitionType.LIST) {
                 // construct a dummy range
@@ -1386,7 +1387,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         recyclePartitionParam.dataProperty,
                         recyclePartitionParam.replicaAlloc,
                         recyclePartitionParam.isInMemory,
-                        recyclePartitionParam.isMutable);
+                        recyclePartitionParam.isMutable,
+                        recyclePartitionParam.invertedIndexFileStorageFormat);
             } else {
                 // unpartition
                 // construct a dummy range and dummy list.
@@ -1405,7 +1407,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         recyclePartitionParam.dataProperty,
                         recyclePartitionParam.replicaAlloc,
                         recyclePartitionParam.isInMemory,
-                        recyclePartitionParam.isMutable);
+                        recyclePartitionParam.isMutable,
+                        recyclePartitionParam.invertedIndexFileStorageFormat);
             }
         } else if (!reserveTablets) {
             Env.getCurrentEnv().onErasePartition(partition);
@@ -2208,6 +2211,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         recyclePartitionParam.replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
         recyclePartitionParam.isInMemory = partitionInfo.getIsInMemory(partition.getId());
         recyclePartitionParam.isMutable = partitionInfo.getIsMutable(partition.getId());
+        recyclePartitionParam.invertedIndexFileStorageFormat =
+                partitionInfo.getInvertedIndexFileStorageFormat(partition.getId());
         recyclePartitionParam.partitionItem = partitionInfo.getItem(partition.getId());
         recyclePartitionParam.partition = partition;
     }
@@ -2234,6 +2239,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         recyclePartitionParam.replicaAlloc = replicaAlloc;
         recyclePartitionParam.isInMemory = isInMemory;
         recyclePartitionParam.isMutable = isMutable;
+        recyclePartitionParam.invertedIndexFileStorageFormat =
+                partitionInfo.getInvertedIndexFileStorageFormat(oldPartition.getId());
         recyclePartitionParam.partitionItem = partitionInfo.getItem(oldPartition.getId());
         recyclePartitionParam.partition = oldPartition;
 
@@ -2246,6 +2253,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
             partitionInfo.addPartition(newPartition.getId(), dataProperty, replicaAlloc, isInMemory, isMutable);
+        }
+        if (recyclePartitionParam.invertedIndexFileStorageFormat != null) {
+            partitionInfo.setInvertedIndexFileStorageFormat(newPartition.getId(),
+                    recyclePartitionParam.invertedIndexFileStorageFormat);
         }
 
         return oldPartition;
@@ -3176,6 +3187,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildInvertedIndexFileStorageFormat();
     }
 
+    public void setPartitionInvertedIndexFileStorageFormat(
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                invertedIndexFileStorageFormat.name());
+        tableProperty.buildPartitionInvertedIndexFileStorageFormat();
+    }
+
     public TStorageFormat getStorageFormat() {
         if (tableProperty == null) {
             return TStorageFormat.DEFAULT;
@@ -3188,6 +3207,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return TInvertedIndexFileStorageFormat.V2;
         }
         return tableProperty.getInvertedIndexFileStorageFormat();
+    }
+
+    public TInvertedIndexFileStorageFormat getPartitionInvertedIndexFileStorageFormat() {
+        TInvertedIndexFileStorageFormat format = tableProperty == null
+                ? getInvertedIndexFileStorageFormat()
+                : tableProperty.getPartitionInvertedIndexFileStorageFormat();
+        if (format == null) {
+            format = getInvertedIndexFileStorageFormat();
+        }
+        return format == TInvertedIndexFileStorageFormat.DEFAULT
+                ? PropertyAnalyzer.getDefaultInvertedIndexFileStorageFormat() : format;
+    }
+
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormatForPartition(long partitionId) {
+        TInvertedIndexFileStorageFormat format = partitionInfo.getInvertedIndexFileStorageFormat(partitionId);
+        return format == null ? getInvertedIndexFileStorageFormat() : format;
     }
 
     public TCompressionType getCompressionType() {

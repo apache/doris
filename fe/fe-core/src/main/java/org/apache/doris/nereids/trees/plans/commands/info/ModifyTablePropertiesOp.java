@@ -281,6 +281,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + " should be set to true or false");
             }
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(
+                    new java.util.HashMap<>(properties));
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
             throw new AnalysisException(
                     "Property "

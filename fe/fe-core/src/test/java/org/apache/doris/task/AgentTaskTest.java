@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
@@ -171,6 +172,11 @@ public class AgentTaskTest {
         Assert.assertEquals(TTaskType.CREATE, request.getTaskType());
         Assert.assertEquals(createReplicaTask.getSignature(), request.getSignature());
         Assert.assertNotNull(request.getCreateTabletReq());
+        ((CreateReplicaTask) createReplicaTask).setInvertedIndexFileStorageFormat(
+                TInvertedIndexFileStorageFormat.V3);
+        request = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createReplicaTask);
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                request.getCreateTabletReq().getInvertedIndexFileStorageFormat());
 
         // create with row binlog schema
         BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, false);
