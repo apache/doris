@@ -15,9 +15,12 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# install latest changes in dbt-core
-git+https://github.com/dbt-labs/dbt-core.git#egg=dbt-core&subdirectory=core
-git+https://github.com/dbt-labs/dbt-core.git#egg=dbt-tests-adapter&subdirectory=tests/adapter
+# dbt framework and adapter test fixtures, pinned to the 1.10 line.
+# dbt-core moved off the old /core subdirectory and dbt-tests-adapter now
+# lives in dbt-labs/dbt-adapters, so the previous git refs no longer resolve.
+# These released versions still support Python 3.9 (setup.py python_requires).
+dbt-core>=1.10.4,<1.11
+dbt-tests-adapter>=1.10.3,<1.11
 
 mypy
 freezegun
@@ -31,10 +34,13 @@ pre-commit
 pytest
 pytest-dotenv
 pytest-logbook
+logbook<1.8
 pytest-csv
 pytest-xdist
 pytz
 tox>=3.13
 twine
 wheel
-mysql-connector-python>=8.0.33,<8.3
+
+# >=9.1.0 picks up the fix for GHSA-hgjp-83m4-h4fj (9.1 through 9.4 keep py39 support)
+mysql-connector-python>=9.1.0
