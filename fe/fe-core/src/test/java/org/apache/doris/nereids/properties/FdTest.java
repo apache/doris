@@ -147,18 +147,18 @@ class FdTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(1)), ImmutableSet.of(plan.getOutput().get(2))));
 
-        // foj
+        // foj: both sides nullable, FDs from neither side propagate
         plan = PlanChecker.from(connectContext)
                 .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
                         + "from uni as t1 full outer join uni as t2 on t1.id2 = t2.id2")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
-        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
 
-        // loj
+        // loj: left side preserved, right side nullable — only left FDs propagate
         plan = PlanChecker.from(connectContext)
                 .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
                         + "from uni as t1 left outer join uni as t2 on t1.id2 = t2.id2")
@@ -166,16 +166,16 @@ class FdTest extends TestWithFeService {
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
-        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
 
-        // roj
+        // roj: right side preserved, left side nullable — only right FDs propagate
         plan = PlanChecker.from(connectContext)
                 .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
                         + "from uni as t1 right outer join uni as t2 on t1.id2 = t2.id2")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
