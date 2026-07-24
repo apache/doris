@@ -504,6 +504,7 @@ public class NereidsCoordinator extends Coordinator {
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
         this.coordinatorContext.queryOptions.setNewVersionPercentile(true);
+        this.coordinatorContext.queryOptions.setNewVersionBitmapOpCount(true);
     }
 
     private void setForQuery() {

@@ -69,7 +69,8 @@ public enum ExpressionRuleType {
     TIMESTAMP_TO_ADD_TIME,
     TOPN_TO_MAX,
     REWRITE_DEFAULT_EXPRESSION,
-    ADD_SESSION_VAR_GUARD;
+    ADD_SESSION_VAR_GUARD,
+    BITMAP_COUNT_TO_BITMAP_OP_COUNT;
     public int type() {
         return ordinal();
     }

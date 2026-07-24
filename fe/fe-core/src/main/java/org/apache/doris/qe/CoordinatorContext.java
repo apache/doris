@@ -310,6 +310,7 @@ public class CoordinatorContext {
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setNewVersionUnixTimestamp(true);
         queryOptions.setNewVersionPercentile(true);
+        queryOptions.setNewVersionBitmapOpCount(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
