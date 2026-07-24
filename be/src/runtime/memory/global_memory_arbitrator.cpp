@@ -68,10 +68,10 @@ std::atomic<bool> GlobalMemoryArbitrator::memtable_memory_refresh_notify {false}
 void GlobalMemoryArbitrator::refresh_memory_bvar() {
     memory_jemalloc_cache_bytes << JemallocControl::je_cache_bytes() -
                                            memory_jemalloc_cache_bytes.get_value();
-    memory_jemalloc_dirty_pages_bytes << JemallocControl::je_dirty_pages_mem() -
-                                                 memory_jemalloc_dirty_pages_bytes.get_value();
+    memory_jemalloc_dirty_pages_bytes
+            << JemallocControl::je_dirty_bytes() - memory_jemalloc_dirty_pages_bytes.get_value();
     memory_jemalloc_metadata_bytes
-            << JemallocControl::je_metadata_mem() - memory_jemalloc_metadata_bytes.get_value();
+            << JemallocControl::je_metadata_bytes() - memory_jemalloc_metadata_bytes.get_value();
     memory_jemalloc_virtual_bytes << JemallocControl::je_virtual_memory_used() -
                                              memory_jemalloc_virtual_bytes.get_value();
 

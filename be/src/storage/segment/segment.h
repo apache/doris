@@ -107,7 +107,6 @@ public:
     ~Segment() override;
 
     int64_t get_metadata_size() const override;
-    void update_metadata_size();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
@@ -271,6 +270,8 @@ private:
                                        const io::IOContext* io_ctx = nullptr);
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
+
+    void _update_metadata_size();
 
     friend class SegmentIterator;
     friend class ColumnReaderCache;

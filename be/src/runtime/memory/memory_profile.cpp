@@ -104,8 +104,21 @@ void MemoryProfile::init_memory_overview_counter() {
             jemalloc_memory_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     _jemalloc_cache_usage_counter =
             jemalloc_memory_details_profile->AddHighWaterMarkCounter("Cache", TUnit::BYTES);
+    // jemalloc details, refer to https://jemalloc.net/jemalloc.3.html
+    _jemalloc_resident_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Resident", TUnit::BYTES);
+    _jemalloc_allocated_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Allocated", TUnit::BYTES);
+    _jemalloc_active_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Active", TUnit::BYTES);
+    _jemalloc_tcache_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("TCache", TUnit::BYTES);
     _jemalloc_metadata_usage_counter =
             jemalloc_memory_details_profile->AddHighWaterMarkCounter("Metadata", TUnit::BYTES);
+    _jemalloc_dirty_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Dirty", TUnit::BYTES);
+    _jemalloc_muzzy_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Muzzy", TUnit::BYTES);
 
     // 4 add global/metadata/cache/Jvm memory counter
     _global_usage_counter =
@@ -255,15 +268,18 @@ void MemoryProfile::refresh_memory_overview_profile() {
     memory_reserved_memory_bytes << GlobalMemoryArbitrator::process_reserved_memory() -
                                             memory_reserved_memory_bytes.get_value();
 
-    all_tracked_mem_sum += JemallocControl::je_cache_bytes();
-    COUNTER_SET(_jemalloc_cache_usage_counter,
-                static_cast<int64_t>(JemallocControl::je_cache_bytes()));
-    all_tracked_mem_sum += JemallocControl::je_metadata_mem();
-    COUNTER_SET(_jemalloc_metadata_usage_counter,
-                static_cast<int64_t>(JemallocControl::je_metadata_mem()));
-    COUNTER_SET(_jemalloc_memory_usage_counter,
-                _jemalloc_cache_usage_counter->current_value() +
-                        _jemalloc_metadata_usage_counter->current_value());
+    all_tracked_mem_sum += JemallocControl::je_internal_bytes();
+    COUNTER_SET(_jemalloc_memory_usage_counter, JemallocControl::je_internal_bytes());
+    COUNTER_SET(_jemalloc_cache_usage_counter, JemallocControl::je_cache_bytes());
+    // jemalloc details, refer to https://jemalloc.net/jemalloc.3.html
+    COUNTER_SET(_jemalloc_resident_usage_counter, JemallocControl::je_resident_bytes());
+    COUNTER_SET(_jemalloc_allocated_usage_counter, JemallocControl::je_allocated_bytes());
+    COUNTER_SET(_jemalloc_active_usage_counter, JemallocControl::je_active_bytes());
+    COUNTER_SET(_jemalloc_tcache_usage_counter, JemallocControl::je_tcache_bytes());
+    COUNTER_SET(_jemalloc_metadata_usage_counter, JemallocControl::je_metadata_bytes());
+    COUNTER_SET(_jemalloc_dirty_usage_counter, JemallocControl::je_dirty_bytes());
+    COUNTER_SET(_jemalloc_muzzy_usage_counter, JemallocControl::je_muzzy_bytes());
+
     int64_t jvm_heap_bytes = 0;
     int64_t jvm_non_heap_bytes = 0;
     // JvmMetrics only inited when enable_java_support == true, or it is nullptr

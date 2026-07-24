@@ -123,6 +123,7 @@ public:
         return g_rowset_meta_mem_bytes.get_value() + g_rowset_mem_bytes.get_value();
     }
 
+#ifdef BE_TEST
     static int64_t get_all_segments_size() {
         return g_segment_mem_bytes.get_value() + g_column_reader_mem_bytes.get_value() +
                g_bloom_filter_index_reader_mem_bytes.get_value() +
@@ -132,6 +133,7 @@ public:
                g_ordinal_index_reader_mem_bytes.get_value() +
                g_zone_map_index_reader_mem_bytes.get_value();
     }
+#endif
 
     // Doris currently uses the estimated segments memory as the basis, maybe it is more realistic.
     static int64_t get_all_segments_estimate_size() {
@@ -153,7 +155,7 @@ protected:
         int64_t old_size = this->_current_meta_size;
         this->_current_meta_size = other._current_meta_size;
         int64_t size_diff = this->_current_meta_size - old_size;
-        add_mem_size(size_diff);
+        _add_mem_size(size_diff);
 
         return *this;
     }
@@ -162,56 +164,57 @@ protected:
         int64_t old_size = this->_current_meta_size;
         this->_current_meta_size = other._current_meta_size;
         int64_t size_diff = this->_current_meta_size - old_size;
-        add_mem_size(size_diff);
+        _add_mem_size(size_diff);
 
-        other.clear_memory();
+        other._clear_memory();
 
         return *this;
     }
 
-    void clear_memory();
-
+private:
     int64_t _current_meta_size {0};
 
-    void add_mem_size(int64_t val);
+    void _add_mem_size(int64_t val);
 
-    void add_num(int64_t val);
+    void _add_num(int64_t val);
+
+    void _clear_memory();
 };
 
 template <typename T>
 MetadataAdder<T>::MetadataAdder(const MetadataAdder<T>& other) {
     this->_current_meta_size = other._current_meta_size;
-    add_num(1);
-    add_mem_size(this->_current_meta_size);
+    _add_num(1);
+    _add_mem_size(this->_current_meta_size);
 }
 
 template <typename T>
 MetadataAdder<T>::MetadataAdder(MetadataAdder&& other) {
     this->_current_meta_size = other._current_meta_size;
-    add_num(1);
-    add_mem_size(this->_current_meta_size);
+    _add_num(1);
+    _add_mem_size(this->_current_meta_size);
 
-    other.clear_memory();
+    other._clear_memory();
 }
 
 template <typename T>
 MetadataAdder<T>::MetadataAdder() {
     this->_current_meta_size = sizeof(T);
-    add_mem_size(this->_current_meta_size);
-    add_num(1);
+    _add_mem_size(this->_current_meta_size);
+    _add_num(1);
 }
 
 template <typename T>
 MetadataAdder<T>::~MetadataAdder() {
-    add_mem_size(-_current_meta_size);
-    add_num(-1);
+    _add_mem_size(-_current_meta_size);
+    _add_num(-1);
 }
 
 template <typename T>
-void MetadataAdder<T>::clear_memory() {
+void MetadataAdder<T>::_clear_memory() {
     int64_t old_size = _current_meta_size;
     _current_meta_size = sizeof(T);
-    add_mem_size(_current_meta_size - old_size);
+    _add_mem_size(_current_meta_size - old_size);
 }
 
 template <typename T>
@@ -220,11 +223,11 @@ void MetadataAdder<T>::update_metadata_size() {
     _current_meta_size = get_metadata_size();
     int64_t size_diff = _current_meta_size - old_size;
 
-    add_mem_size(size_diff);
+    _add_mem_size(size_diff);
 }
 
 template <typename T>
-void MetadataAdder<T>::add_mem_size(int64_t val) {
+void MetadataAdder<T>::_add_mem_size(int64_t val) {
     if (val == 0) {
         return;
     }
@@ -257,13 +260,13 @@ void MetadataAdder<T>::add_mem_size(int64_t val) {
     } else if constexpr (std::is_same_v<T, segment_v2::ZoneMapIndexReader>) {
         g_zone_map_index_reader_mem_bytes << val;
     } else {
-        LOG(FATAL) << "add_mem_size not match class type: " << typeid(T).name() << ", " << val;
+        LOG(FATAL) << "_add_mem_size not match class type: " << typeid(T).name() << ", " << val;
         __builtin_unreachable();
     }
 }
 
 template <typename T>
-void MetadataAdder<T>::add_num(int64_t val) {
+void MetadataAdder<T>::_add_num(int64_t val) {
     if (val == 0) {
         return;
     }
@@ -296,7 +299,7 @@ void MetadataAdder<T>::add_num(int64_t val) {
     } else if constexpr (std::is_same_v<T, segment_v2::ZoneMapIndexReader>) {
         g_zone_map_index_reader_num << val;
     } else {
-        LOG(FATAL) << "add_num not match class type: " << typeid(T).name() << ", " << val;
+        LOG(FATAL) << "_add_num not match class type: " << typeid(T).name() << ", " << val;
         __builtin_unreachable();
     }
 }

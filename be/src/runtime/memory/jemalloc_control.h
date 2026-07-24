@@ -47,7 +47,7 @@ public:
     template <typename T>
     static inline T get_jemallctl_value(const std::string& name) {
 #ifdef USE_JEMALLOC
-        T value;
+        T value = 0;
         size_t value_size = sizeof(T);
         if (jemallctl(name.c_str(), &value, &value_size, nullptr, 0) != 0) {
             LOG(WARNING) << fmt::format("Failed, jemallctl get {}", name);
@@ -94,17 +94,34 @@ public:
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
     static void refresh_allocator_mem();
 
-    static inline size_t je_cache_bytes() {
+    static inline int64_t je_resident_bytes() {
+        return je_resident_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_allocated_bytes() {
+        return je_allocated_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_active_bytes() {
+        return je_active_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_tcache_bytes() {
+        return je_tcache_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_metadata_bytes() {
+        return je_metadata_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_dirty_bytes() {
+        return je_dirty_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_muzzy_bytes() {
+        return je_muzzy_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_internal_bytes() {
+        return je_internal_bytes_.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_cache_bytes() {
         return je_cache_bytes_.load(std::memory_order_relaxed);
     }
-    static inline size_t je_tcache_mem() { return je_tcache_mem_.load(std::memory_order_relaxed); }
-    static inline size_t je_metadata_mem() {
-        return je_metadata_mem_.load(std::memory_order_relaxed);
-    }
-    static inline int64_t je_dirty_pages_mem() {
-        return je_dirty_pages_mem_.load(std::memory_order_relaxed);
-    }
-    static inline size_t je_virtual_memory_used() {
+    static inline int64_t je_virtual_memory_used() {
         return je_virtual_memory_used_.load(std::memory_order_relaxed);
     }
 
@@ -124,10 +141,16 @@ public:
     }
 
 private:
+    static std::atomic<int64_t> je_resident_bytes_;
+    static std::atomic<int64_t> je_allocated_bytes_;
+    static std::atomic<int64_t> je_active_bytes_;
+    static std::atomic<int64_t> je_tcache_bytes_;
+    static std::atomic<int64_t> je_metadata_bytes_;
+    static std::atomic<int64_t> je_dirty_bytes_;
+    static std::atomic<int64_t> je_muzzy_bytes_;
+
+    static std::atomic<int64_t> je_internal_bytes_;
     static std::atomic<int64_t> je_cache_bytes_;
-    static std::atomic<int64_t> je_tcache_mem_;
-    static std::atomic<int64_t> je_metadata_mem_;
-    static std::atomic<int64_t> je_dirty_pages_mem_;
     static std::atomic<int64_t> je_virtual_memory_used_;
 };
 

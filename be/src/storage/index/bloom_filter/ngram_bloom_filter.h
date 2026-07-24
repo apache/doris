@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris {
@@ -58,7 +59,7 @@ private:
 #pragma clang diagnostic pop
 #endif
     size_t words = 0;
-    std::vector<uint64_t> filter;
+    DorisVector<uint64_t> filter;
 };
 
 } // namespace segment_v2

@@ -316,7 +316,7 @@ int64_t Segment::get_metadata_size() const {
            (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
 }
 
-void Segment::update_metadata_size() {
+void Segment::_update_metadata_size() {
     MetadataAdder::update_metadata_size();
     g_segment_estimate_mem_bytes << _meta_mem_usage - _tracked_meta_mem_usage;
     _tracked_meta_mem_usage = _meta_mem_usage;
@@ -347,12 +347,11 @@ Status Segment::_open(OlapReaderStatistics* stats, const io::IOContext* source_i
                                 config::max_segment_partial_column_cache_size) *
                        config::estimated_mem_per_column_reader;
 
-    // 1024 comes from SegmentWriterOptions
-    _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
-    // 0.01 comes from PrimaryKeyIndexBuilder::init
-    _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
-
-    update_metadata_size();
+    if (footer_pb_shared->has_short_key_index_page()) {
+        // 1024 comes from SegmentWriterOptions.
+        _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
+    }
+    _update_metadata_size();
 
     return Status::OK();
 }
@@ -687,7 +686,7 @@ Status Segment::_load_pk_bloom_filter(OlapReaderStatistics* stats,
         // for BE UT "segment_cache_test"
         return _load_pk_bf_once.call([this] {
             _meta_mem_usage += 100;
-            update_metadata_size();
+            _update_metadata_size();
             return Status::OK();
         });
     }
