@@ -395,6 +395,11 @@ DEFINE_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 DEFINE_mInt32(trash_file_expire_time_sec, "0");
+// BE-only dynamic configs for shutdown tablet sweep throttling. The round budget defaults to 200
+// with a valid range of [1, 10000], and the interval defaults to 1000 ms with a valid range of
+// [0, 10000]. Values outside these ranges fall back to the historical defaults at the use site.
+DEFINE_mInt32(shutdown_tablet_sweep_round_budget, "200");
+DEFINE_mInt32(shutdown_tablet_sweep_interval_ms, "1000");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
