@@ -43,6 +43,26 @@ suite("test_tso_api", "nonConcurrent") {
     assertTrue(data.current_tso_physical_time > 0)
     assertTrue(data.current_tso_logical_counter >= 0)
 
+    // Test SHOW TSO STATUS SQL interface
+    def statusRows = sql_return_maparray "SHOW TSO STATUS"
+    assertEquals(1, statusRows.size())
+
+    def status = statusRows[0]
+    assertTrue(status.containsKey("window_end_physical_time"))
+    assertTrue(status.containsKey("current_tso"))
+    assertTrue(status.containsKey("current_tso_physical_time"))
+    assertTrue(status.containsKey("current_tso_logical_counter"))
+
+    long statusWindowEnd = Long.parseLong(status.window_end_physical_time.toString())
+    long statusCurrentTso = Long.parseLong(status.current_tso.toString())
+    long statusPhysicalTime = Long.parseLong(status.current_tso_physical_time.toString())
+    long statusLogicalCounter = Long.parseLong(status.current_tso_logical_counter.toString())
+    assertTrue(statusWindowEnd >= statusPhysicalTime)
+    assertTrue(statusCurrentTso > 0)
+    assertTrue(statusPhysicalTime > 0)
+    assertTrue(statusLogicalCounter >= 0)
+    assertEquals(statusCurrentTso, (statusPhysicalTime << 18) | statusLogicalCounter)
+
     // Test 2: Multiple TSO API calls should return consistent increasing values
     def result1 = Http.GET(url, true, true)
     Thread.sleep(10) // Small delay to ensure time progression

@@ -467,6 +467,7 @@ supportedShowStatement
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW TYPECAST ((FROM | IN) database=identifier)?                              #showTypeCast
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
+    | SHOW TSO STATUS                                                               #showTsoStatus
     | SHOW statementScope? STATUS                                                   #showStatus
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW TABLETS BELONG
@@ -2369,6 +2370,7 @@ nonReserved
     | TREE
     | TRIGGERS
     | TRUNCATE
+    | TSO
     | TYPE
     | TYPES
     | UNCOMMITTED
