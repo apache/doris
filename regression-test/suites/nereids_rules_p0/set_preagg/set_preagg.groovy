@@ -354,4 +354,9 @@ suite("set_preagg") {
         sql("""select count(distinct k6, v7) from preagg_t1;""")
         notContains "(preagg_t1), PREAGGREGATION: ON"
     }
+
+    explain {
+        sql("""select count(distinct k6, k5) from preagg_t1;""")
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
 }
