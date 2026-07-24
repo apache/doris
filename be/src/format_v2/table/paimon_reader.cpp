@@ -274,8 +274,10 @@ Status PaimonHybridReader::_to_file_format(const TFileRangeDesc& range,
     DORIS_CHECK(file_format != nullptr);
     auto format_type =
             range.__isset.format_type ? range.format_type : TFileFormatType::FORMAT_PARQUET;
-    if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
-        range.table_format_params.__isset.paimon_params) {
+    // JNI splits also carry file_format metadata; only a split without paimon_split can use
+    // FORMAT_JNI as the legacy encoding of a native file.
+    if (format_type == TFileFormatType::FORMAT_JNI && !_is_jni_split(range) &&
+        range.__isset.table_format_params && range.table_format_params.__isset.paimon_params) {
         const auto& params = range.table_format_params.paimon_params;
         if (params.__isset.file_format && params.file_format == "orc") {
             format_type = TFileFormatType::FORMAT_ORC;

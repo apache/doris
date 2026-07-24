@@ -373,8 +373,9 @@ TFileRangeDesc make_paimon_jni_range() {
     return range;
 }
 
-TFileRangeDesc make_paimon_range_without_reader_type(TFileFormatType::type format_type) {
-    TFileRangeDesc range = make_paimon_native_range(format_type);
+TFileRangeDesc make_legacy_paimon_native_range(TFileFormatType::type physical_format_type) {
+    TFileRangeDesc range = make_paimon_native_range(physical_format_type);
+    range.__set_format_type(TFileFormatType::FORMAT_JNI);
     range.table_format_params.paimon_params.__isset.reader_type = false;
     return range;
 }
@@ -714,7 +715,7 @@ TEST(PaimonHybridReaderTest, ClassifiesJniSplitByReaderType) {
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
             make_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
-            make_paimon_range_without_reader_type(TFileFormatType::FORMAT_JNI)));
+            make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
     EXPECT_TRUE(paimon::PaimonHybridReader::TEST_is_jni_split(make_paimon_jni_range()));
 }
 
@@ -727,6 +728,17 @@ TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
 
     ASSERT_TRUE(paimon::PaimonHybridReader::TEST_to_file_format(
                         make_paimon_native_range(TFileFormatType::FORMAT_ORC), &file_format)
+                        .ok());
+    EXPECT_EQ(file_format, FileFormat::ORC);
+
+    ASSERT_TRUE(
+            paimon::PaimonHybridReader::TEST_to_file_format(
+                    make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET), &file_format)
+                    .ok());
+    EXPECT_EQ(file_format, FileFormat::PARQUET);
+
+    ASSERT_TRUE(paimon::PaimonHybridReader::TEST_to_file_format(
+                        make_legacy_paimon_native_range(TFileFormatType::FORMAT_ORC), &file_format)
                         .ok());
     EXPECT_EQ(file_format, FileFormat::ORC);
 
