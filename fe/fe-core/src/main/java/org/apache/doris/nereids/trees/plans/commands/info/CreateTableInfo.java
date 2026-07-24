@@ -843,8 +843,12 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             try {
-                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties));
+                invertedIndexFileStorageFormat =
+                        PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+                if (invertedIndexFileStorageFormat == null) {
+                    invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties));
+                }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }

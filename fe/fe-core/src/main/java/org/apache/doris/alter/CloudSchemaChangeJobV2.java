@@ -46,9 +46,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +59,9 @@ import java.util.stream.Collectors;
 
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
+
+    @SerializedName("psv")
+    private Map<Long, Integer> partitionIdToBaseSchemaVersion = new HashMap<>();
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
             String tableName, long timeoutMs) {
@@ -78,6 +83,26 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     }
 
     private CloudSchemaChangeJobV2() {}
+
+    public void setPartitionIdToBaseSchemaVersion(Map<Long, Integer> partitionIdToBaseSchemaVersion) {
+        this.partitionIdToBaseSchemaVersion = partitionIdToBaseSchemaVersion;
+    }
+
+    public Map<Long, Integer> getPartitionIdToBaseSchemaVersion() {
+        return partitionIdToBaseSchemaVersion;
+    }
+
+    public void setBaseShadowIndexSchemaVersion(long baseIndexId, int schemaVersion) {
+        for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
+            if (entry.getValue() == baseIndexId) {
+                indexSchemaVersionAndHashMap.get(entry.getKey()).schemaVersion = schemaVersion;
+            }
+        }
+    }
+
+    private int getBaseSchemaVersion(long partitionId, int defaultSchemaVersion) {
+        return partitionIdToBaseSchemaVersion.getOrDefault(partitionId, defaultSchemaVersion);
+    }
 
     @Override
     protected void commitShadowIndex() throws AlterCancelException {
@@ -217,6 +242,21 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         }
     }
 
+    @Override
+    protected void addShadowIndexToCatalog(OlapTable tbl) {
+        super.addShadowIndexToCatalog(tbl);
+        for (long partitionId : partitionIndexMap.rowKeySet()) {
+            Partition partition = tbl.getPartition(partitionId);
+            Preconditions.checkNotNull(partition, partitionId);
+            for (long shadowIndexId : partitionIndexMap.row(partitionId).keySet()) {
+                if (isShadowIndexOfBase(shadowIndexId, tbl)) {
+                    int schemaVersion = indexSchemaVersionAndHashMap.get(shadowIndexId).schemaVersion;
+                    partition.setSchemaVersion(shadowIndexId, getBaseSchemaVersion(partitionId, schemaVersion));
+                }
+            }
+        }
+    }
+
     private void createShadowIndexReplicaForPartition(OlapTable tbl) throws Exception {
         for (long partitionId : partitionIndexMap.rowKeySet()) {
             Partition partition = tbl.getPartition(partitionId);
@@ -227,15 +267,19 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
             for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                 long shadowIdxId = entry.getKey();
                 MaterializedIndex shadowIdx = entry.getValue();
+                boolean isBaseShadowIndex = isShadowIndexOfBase(shadowIdxId, tbl);
 
                 short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                 List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
                 List<Integer> clusterKeyUids = null;
-                if (shadowIdxId == tbl.getBaseIndexId() || isShadowIndexOfBase(shadowIdxId, tbl)) {
+                if (shadowIdxId == tbl.getBaseIndexId() || isBaseShadowIndex) {
                     clusterKeyUids = OlapTable.getClusterKeyUids(shadowSchema);
                 }
                 int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
+                int schemaVersion = isBaseShadowIndex
+                        ? getBaseSchemaVersion(partitionId, shadowSchemaVersion)
+                        : shadowSchemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
@@ -255,7 +299,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),
                                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                            shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                            schemaVersion, tbl.getCompactionPolicy(),
                                             tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                             tbl.getTimeSeriesCompactionFileCountThreshold(),
                                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -263,7 +307,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getTimeSeriesCompactionLevelThreshold(),
                                             tbl.disableAutoCompaction(),
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                            tbl.getInvertedIndexFileStorageFormat(),
+                                            tbl.getInvertedIndexFileStorageFormatForPartition(partitionId),
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),

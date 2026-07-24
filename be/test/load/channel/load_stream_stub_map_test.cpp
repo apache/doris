@@ -18,6 +18,7 @@
 
 #include "exec/sink/load_stream_map_pool.h"
 #include "exec/sink/load_stream_stub.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
@@ -54,6 +55,22 @@ TEST_F(LoadStreamMapPoolTest, test) {
     EXPECT_EQ(1, pool.size());
     EXPECT_TRUE(streams_for_node2->release());
     EXPECT_EQ(0, pool.size());
+}
+
+TEST_F(LoadStreamMapPoolTest, schema_is_keyed_by_partition_and_index) {
+    constexpr int64_t index_id = 100;
+    constexpr int64_t v2_partition_id = 101;
+    constexpr int64_t v3_partition_id = 102;
+    PUniqueId load_id;
+    auto schemas = std::make_shared<PartitionIndexToTabletSchema>();
+    auto v2_schema = std::make_shared<TabletSchema>();
+    auto v3_schema = std::make_shared<TabletSchema>();
+    schemas->emplace(PartitionIndexId {v2_partition_id, index_id}, v2_schema);
+    schemas->emplace(PartitionIndexId {v3_partition_id, index_id}, v3_schema);
+
+    LoadStreamStub stub(load_id, 1, schemas, std::make_shared<IndexToEnableMoW>());
+    EXPECT_EQ(v2_schema, stub.tablet_schema(v2_partition_id, index_id));
+    EXPECT_EQ(v3_schema, stub.tablet_schema(v3_partition_id, index_id));
 }
 
 } // namespace doris

@@ -54,7 +54,10 @@ public class ModifyDynamicPartitionInfoTest {
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
-        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L, 200L, "test", properties);
+        HashMap<Long, Integer> indexIdToSchemaVersion = new HashMap<>();
+        indexIdToSchemaVersion.put(300L, 1);
+        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(
+                100L, 200L, "test", properties, indexIdToSchemaVersion);
         modifyDynamicPartitionInfo.write(out);
         out.flush();
         out.close();
@@ -65,6 +68,7 @@ public class ModifyDynamicPartitionInfoTest {
         Assert.assertEquals(readModifyDynamicPartitionInfo.getDbId(), 100L);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getTableId(), 200L);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getProperties(), properties);
+        Assert.assertEquals(readModifyDynamicPartitionInfo.getIndexIdToSchemaVersion(), indexIdToSchemaVersion);
         in.close();
     }
 

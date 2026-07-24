@@ -97,6 +97,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.DEFAULT;
 
+    private TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat;
+
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
     private boolean enableLightSchemaChange = false;
@@ -182,6 +184,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
                 buildPartitionRetentionCount();
+                buildPartitionInvertedIndexFileStorageFormat();
                 buildColumnSeqMapping();
                 break;
             default:
@@ -681,6 +684,13 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildPartitionInvertedIndexFileStorageFormat() {
+        String format = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+        partitionInvertedIndexFileStorageFormat =
+                format == null ? null : TInvertedIndexFileStorageFormat.valueOf(format);
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         // Compatibility note: ModifyTablePropertyOperationLog persists only properties to set, not keys removed
         // here. Keep its payload unchanged for this legacy repair. During a rolling FE upgrade, alter these
@@ -759,6 +769,10 @@ public class TableProperty implements GsonPostProcessable {
 
     public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
         return invertedIndexFileStorageFormat;
+    }
+
+    public TInvertedIndexFileStorageFormat getPartitionInvertedIndexFileStorageFormat() {
+        return partitionInvertedIndexFileStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -955,6 +969,7 @@ public class TableProperty implements GsonPostProcessable {
         buildStorageMedium();
         buildStorageFormat();
         buildInvertedIndexFileStorageFormat();
+        buildPartitionInvertedIndexFileStorageFormat();
         buildDataSortInfo();
         buildCompressionType();
         buildStoragePolicy();

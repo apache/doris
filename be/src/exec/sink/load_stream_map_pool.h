@@ -118,7 +118,7 @@ private:
     std::mutex _mutex;
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> _streams_for_node;
     LoadStreamMapPool* _pool = nullptr;
-    std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
+    std::shared_ptr<PartitionIndexToTabletSchema> _tablet_schema_for_partition_and_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
     std::shared_ptr<CloseWaitNotifier> _close_wait_notifier;
 

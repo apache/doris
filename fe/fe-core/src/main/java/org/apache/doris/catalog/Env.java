@@ -4021,6 +4021,13 @@ public class Env {
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)
+                    .append("\" = \"")
+                    .append(olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat())
+                    .append("\"");
+        }
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
@@ -6346,6 +6353,12 @@ public class Env {
 
     // The caller need to hold the table write lock
     public void modifyTableProperties(Database db, OlapTable table, Map<String, String> properties) {
+        modifyTableProperties(db, table, properties, new HashMap<>());
+    }
+
+    // The caller need to hold the table write lock
+    public void modifyTableProperties(Database db, OlapTable table, Map<String, String> properties,
+            Map<Long, Integer> indexIdToSchemaVersion) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -6369,7 +6382,8 @@ public class Env {
                 .buildVerticalCompactionNumColumnsPerGroup()
                 .buildTTLSeconds()
                 .buildAutoAnalyzeProperty()
-                .buildPartitionRetentionCount();
+                .buildPartitionRetentionCount()
+                .buildPartitionInvertedIndexFileStorageFormat();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -6377,9 +6391,13 @@ public class Env {
             table.getPartitionInfo().setStoragePolicy(partition.getId(), tableProperty.getStoragePolicy());
         }
 
+        for (Map.Entry<Long, Integer> entry : indexIdToSchemaVersion.entrySet()) {
+            table.getIndexMetaByIndexId(entry.getKey()).setSchemaVersion(entry.getValue());
+        }
+
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
-                        properties);
+                        properties, indexIdToSchemaVersion);
         editLog.logModifyTableProperties(info);
     }
 
@@ -6416,6 +6434,13 @@ public class Env {
             } else {
                 tableProperty.modifyTableProperties(properties);
                 tableProperty.buildProperty(opCode);
+            }
+
+            Map<Long, Integer> indexIdToSchemaVersion = info.getIndexIdToSchemaVersion();
+            if (indexIdToSchemaVersion != null) {
+                for (Map.Entry<Long, Integer> entry : indexIdToSchemaVersion.entrySet()) {
+                    olapTable.getIndexMetaByIndexId(entry.getKey()).setSchemaVersion(entry.getValue());
+                }
             }
 
             // need to replay partition info meta

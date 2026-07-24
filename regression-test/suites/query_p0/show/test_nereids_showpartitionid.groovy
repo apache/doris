@@ -36,7 +36,8 @@ suite("test_nereids_showpartitionid") {
     distributed by hash(id) buckets 2
     properties(
         "replication_num"="1",
-        "light_schema_change"="true"
+        "light_schema_change"="true",
+        "partition.inverted_index_storage_format"="V3"
     );
     """
 
@@ -50,9 +51,9 @@ suite("test_nereids_showpartitionid") {
     }
     
     checkNereidsExecute("show partition ${partitionId}")
-    def result1 = sql "show partition ${partitionId}";
-    logger.info("${result1}");
+    def partitionDetails = sql_return_maparray "show partition ${partitionId}"
+    assertEquals(1, partitionDetails.size())
+    assertEquals("V3", partitionDetails[0].InvertedIndexStorageFormat)
         
 
 }
-

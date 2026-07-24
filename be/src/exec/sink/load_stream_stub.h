@@ -72,9 +72,24 @@ class LoadStreamStub;
 
 struct SegmentStatistics;
 
-using IndexToTabletSchema = phmap::parallel_flat_hash_map<
-        int64_t, std::shared_ptr<TabletSchema>, std::hash<int64_t>, std::equal_to<int64_t>,
-        std::allocator<phmap::Pair<const int64_t, std::shared_ptr<TabletSchema>>>, 4, std::mutex>;
+struct PartitionIndexId {
+    int64_t partition_id;
+    int64_t index_id;
+
+    bool operator==(const PartitionIndexId&) const = default;
+};
+
+struct PartitionIndexIdHash {
+    size_t operator()(const PartitionIndexId& id) const {
+        return std::hash<int64_t> {}(id.partition_id) ^ (std::hash<int64_t> {}(id.index_id) << 1);
+    }
+};
+
+using PartitionIndexToTabletSchema = phmap::parallel_flat_hash_map<
+        PartitionIndexId, std::shared_ptr<TabletSchema>, PartitionIndexIdHash,
+        std::equal_to<PartitionIndexId>,
+        std::allocator<phmap::Pair<const PartitionIndexId, std::shared_ptr<TabletSchema>>>, 4,
+        std::mutex>;
 
 using IndexToEnableMoW =
         phmap::parallel_flat_hash_map<int64_t, bool, std::hash<int64_t>, std::equal_to<int64_t>,
@@ -121,13 +136,13 @@ class LoadStreamStub : public std::enable_shared_from_this<LoadStreamStub> {
 public:
     // construct new stub
     LoadStreamStub(PUniqueId load_id, int64_t src_id,
-                   std::shared_ptr<IndexToTabletSchema> schema_map,
+                   std::shared_ptr<PartitionIndexToTabletSchema> schema_map,
                    std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false,
                    std::shared_ptr<CloseWaitNotifier> close_wait_notifier =
                            std::make_shared<CloseWaitNotifier>());
 
     LoadStreamStub(UniqueId load_id, int64_t src_id,
-                   std::shared_ptr<IndexToTabletSchema> schema_map,
+                   std::shared_ptr<PartitionIndexToTabletSchema> schema_map,
                    std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false,
                    std::shared_ptr<CloseWaitNotifier> close_wait_notifier =
                            std::make_shared<CloseWaitNotifier>())
@@ -189,8 +204,8 @@ public:
         return Status::OK();
     };
 
-    std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
-        return (*_tablet_schema_for_index)[index_id];
+    std::shared_ptr<TabletSchema> tablet_schema(int64_t partition_id, int64_t index_id) const {
+        return (*_tablet_schema_for_partition_and_index)[{partition_id, index_id}];
     }
 
     bool enable_unique_mow(int64_t index_id) const {
@@ -293,7 +308,7 @@ protected:
 
     bthread::Mutex _schema_mutex;
     bthread::ConditionVariable _schema_cv;
-    std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
+    std::shared_ptr<PartitionIndexToTabletSchema> _tablet_schema_for_partition_and_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 
     bthread::Mutex _success_tablets_mutex;
@@ -314,7 +329,7 @@ protected:
 class LoadStreamStubs {
 public:
     LoadStreamStubs(size_t num_streams, UniqueId load_id, int64_t src_id,
-                    std::shared_ptr<IndexToTabletSchema> schema_map,
+                    std::shared_ptr<PartitionIndexToTabletSchema> schema_map,
                     std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false,
                     std::shared_ptr<CloseWaitNotifier> close_wait_notifier =
                             std::make_shared<CloseWaitNotifier>())

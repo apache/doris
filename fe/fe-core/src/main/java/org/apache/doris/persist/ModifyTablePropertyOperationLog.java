@@ -43,14 +43,22 @@ public class ModifyTablePropertyOperationLog implements Writable {
     private String tableName;
     @SerializedName(value = "properties")
     private Map<String, String> properties = new HashMap<>();
+    @SerializedName(value = "indexIdToSchemaVersion")
+    private Map<Long, Integer> indexIdToSchemaVersion = new HashMap<>();
     @SerializedName(value = "sql")
     private String sql;
 
     public ModifyTablePropertyOperationLog(long dbId, long tableId, String tableName, Map<String, String> properties) {
+        this(dbId, tableId, tableName, properties, new HashMap<>());
+    }
+
+    public ModifyTablePropertyOperationLog(long dbId, long tableId, String tableName, Map<String, String> properties,
+            Map<Long, Integer> indexIdToSchemaVersion) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
         this.properties = properties;
+        this.indexIdToSchemaVersion = indexIdToSchemaVersion;
 
         StringBuilder sb = new StringBuilder();
         sb.append("SET (");
@@ -93,6 +101,10 @@ public class ModifyTablePropertyOperationLog implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public Map<Long, Integer> getIndexIdToSchemaVersion() {
+        return indexIdToSchemaVersion;
     }
 
     @Override

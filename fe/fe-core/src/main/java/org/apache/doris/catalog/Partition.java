@@ -82,6 +82,11 @@ public class Partition extends MetaObject {
     @SerializedName(value = "isi", alternate = {"idToShadowIndex"})
     private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
 
+    // Cloud schema storage is keyed by index id and schema version. Keep the version assigned when this
+    // partition was created so tablet recreation can reuse the schema that matches this partition.
+    @SerializedName(value = "isv", alternate = {"indexIdToSchemaVersion"})
+    private Map<Long, Integer> indexIdToSchemaVersion = Maps.newHashMap();
+
     /**
      * committed version(hash): after txn is committed, set committed version(hash)
      * visible version(hash): after txn is published, set visible version
@@ -255,6 +260,14 @@ public class Partition extends MetaObject {
         } else {
             return idToShadowIndex.get(indexId);
         }
+    }
+
+    public int getSchemaVersion(long indexId, int defaultSchemaVersion) {
+        return indexIdToSchemaVersion.getOrDefault(indexId, defaultSchemaVersion);
+    }
+
+    public void setSchemaVersion(long indexId, int schemaVersion) {
+        indexIdToSchemaVersion.put(indexId, schemaVersion);
     }
 
     public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState) {

@@ -95,8 +95,9 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
             for (const auto& schema : response.tablet_schemas()) {
                 auto tablet_schema = std::make_unique<TabletSchema>();
                 tablet_schema->init_from_pb(schema.tablet_schema());
-                stub->_tablet_schema_for_index->emplace(schema.index_id(),
-                                                        std::move(tablet_schema));
+                stub->_tablet_schema_for_partition_and_index->emplace(
+                        PartitionIndexId {schema.partition_id(), schema.index_id()},
+                        std::move(tablet_schema));
                 stub->_enable_unique_mow_for_index->emplace(
                         schema.index_id(), schema.enable_unique_key_merge_on_write());
             }
@@ -146,12 +147,12 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler
 }
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
-                               std::shared_ptr<IndexToTabletSchema> schema_map,
+                               std::shared_ptr<PartitionIndexToTabletSchema> schema_map,
                                std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental,
                                std::shared_ptr<CloseWaitNotifier> close_wait_notifier)
         : _load_id(load_id),
           _src_id(src_id),
-          _tablet_schema_for_index(schema_map),
+          _tablet_schema_for_partition_and_index(schema_map),
           _enable_unique_mow_for_index(mow_map),
           _is_incremental(incremental),
           _close_wait_notifier(std::move(close_wait_notifier)) {
@@ -218,7 +219,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
         tablet_schema->init_from_pb(resp.tablet_schema());
-        _tablet_schema_for_index->emplace(resp.index_id(), std::move(tablet_schema));
+        _tablet_schema_for_partition_and_index->emplace(
+                PartitionIndexId {resp.partition_id(), resp.index_id()}, std::move(tablet_schema));
         _enable_unique_mow_for_index->emplace(resp.index_id(),
                                               resp.enable_unique_key_merge_on_write());
     }
@@ -332,7 +334,8 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     if (!_is_open.load()) {
         return _status;
     }
-    if (_tablet_schema_for_index->contains(index_id)) {
+    const PartitionIndexId partition_index_id {partition_id, index_id};
+    if (_tablet_schema_for_partition_and_index->contains(partition_index_id)) {
         return Status::OK();
     }
     PTabletID tablet;
@@ -343,14 +346,15 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 
     MonotonicStopWatch watch;
     watch.start();
-    while (!_tablet_schema_for_index->contains(index_id) &&
+    while (!_tablet_schema_for_partition_and_index->contains(partition_index_id) &&
            watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
         RETURN_IF_ERROR(check_cancel());
         static_cast<void>(wait_for_new_schema(100));
     }
 
-    if (!_tablet_schema_for_index->contains(index_id)) {
-        return Status::TimedOut("timeout to get tablet schema for index {}", index_id);
+    if (!_tablet_schema_for_partition_and_index->contains(partition_index_id)) {
+        return Status::TimedOut("timeout to get tablet schema for partition {}, index {}",
+                                partition_id, index_id);
     }
     return Status::OK();
 }

@@ -30,6 +30,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -42,8 +43,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 public class RangePartitionInfoTest {
 
@@ -478,6 +481,23 @@ public class RangePartitionInfoTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testInvertedIndexStorageFormatMapping() {
+        partitionInfo = new RangePartitionInfo(partitionColumns);
+        partitionInfo.setInvertedIndexFileStorageFormat(100L, TInvertedIndexFileStorageFormat.V3);
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                partitionInfo.getInvertedIndexFileStorageFormat(100L));
+
+        Map<Long, Long> partitionIdMap = new HashMap<>();
+        partitionIdMap.put(200L, 100L);
+        partitionInfo.resetPartitionIdForRestore(partitionIdMap, null, false);
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                partitionInfo.getInvertedIndexFileStorageFormat(200L));
+
+        partitionInfo.dropPartition(200L);
+        Assert.assertNull(partitionInfo.getInvertedIndexFileStorageFormat(200L));
     }
 
     @Test

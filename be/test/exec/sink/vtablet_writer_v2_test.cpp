@@ -32,6 +32,7 @@
 #include "exec/sink/load_stream_stub.h"
 #include "exec/sink/sink_test_utils.h"
 #include "io/fs/local_file_system.h"
+#include "load/delta_writer/delta_writer_v2.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "storage/storage_engine.h"
@@ -99,24 +100,28 @@ static void prepare_load_runtime_state(MockRuntimeState& state, int sender_id) {
 }
 
 static void prepare_open_streams(std::shared_ptr<LoadStreamMap> load_stream_map, int64_t node_id,
-                                 int64_t index_id, const TabletSchemaSPtr& tablet_schema) {
+                                 int64_t partition_id, int64_t index_id,
+                                 const TabletSchemaSPtr& tablet_schema) {
     auto streams = load_stream_map->get_or_create(node_id);
     streams->mark_open();
     for (auto& stream : streams->streams()) {
         stream->_is_open.store(true);
         stream->_status = Status::OK();
-        stream->_tablet_schema_for_index->emplace(index_id, tablet_schema);
+        stream->_tablet_schema_for_partition_and_index->emplace(
+                PartitionIndexId {partition_id, index_id}, tablet_schema);
         stream->_enable_unique_mow_for_index->emplace(index_id, false);
     }
 }
 
-static TabletSchemaSPtr create_int_tablet_schema() {
+static TabletSchemaSPtr create_int_tablet_schema(
+        InvertedIndexStorageFormatPB format = InvertedIndexStorageFormatPB::V2) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema_pb.set_keys_type(DUP_KEYS);
     tablet_schema_pb.set_num_short_key_columns(1);
     tablet_schema_pb.set_num_rows_per_row_block(1024);
     tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
     tablet_schema_pb.set_next_column_unique_id(2);
+    tablet_schema_pb.set_inverted_index_storage_format(format);
     testutil::add_column_pb(&tablet_schema_pb, 1, "c1", "INT", true, false);
 
     auto tablet_schema = std::make_shared<TabletSchema>();
@@ -229,7 +234,7 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     ASSERT_EQ(creator_writer->_delta_writer_for_tablet, current_writer->_delta_writer_for_tablet);
 
     const auto tablet_schema = create_int_tablet_schema();
-    prepare_open_streams(creator_writer->_load_stream_map, 1, index_id, tablet_schema);
+    prepare_open_streams(creator_writer->_load_stream_map, 1, 1, index_id, tablet_schema);
 
     auto block = std::make_shared<Block>(ColumnHelper::create_block<DataTypeInt32>({1}));
     Rows rows;
@@ -279,6 +284,91 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     DebugPoints::instance()->remove("DeltaWriterV2.write.flush_limit_wait");
 
     current_writer->_cancel(Status::Cancelled("test cleanup"));
+}
+
+TEST_F(TestVTabletWriterV2, delta_writers_use_tablet_schema_for_each_partition) {
+    const bool old_share_delta_writers = config::share_delta_writers;
+    config::share_delta_writers = false;
+    Defer restore_configs([&] { config::share_delta_writers = old_share_delta_writers; });
+
+    ExecEnv* exec_env = ExecEnv::GetInstance();
+    auto old_load_stream_map_pool = std::move(exec_env->_load_stream_map_pool);
+    auto old_delta_writer_v2_pool = std::move(exec_env->_delta_writer_v2_pool);
+    auto old_memtable_memory_limiter = std::move(exec_env->_memtable_memory_limiter);
+    auto old_storage_engine = std::move(exec_env->_storage_engine);
+    const std::string old_storage_root_path = config::storage_root_path;
+    char cwd_buffer[1024];
+    ASSERT_NE(nullptr, getcwd(cwd_buffer, sizeof(cwd_buffer)));
+    const std::string test_data_dir =
+            std::string(cwd_buffer) + "/vtablet_writer_v2_partition_schema_test";
+    Defer restore_exec_env([&]() mutable {
+        exec_env->_delta_writer_v2_pool.reset();
+        exec_env->_load_stream_map_pool.reset();
+        exec_env->_storage_engine.reset();
+        exec_env->_memtable_memory_limiter.reset();
+        exec_env->_storage_engine = std::move(old_storage_engine);
+        exec_env->_memtable_memory_limiter = std::move(old_memtable_memory_limiter);
+        exec_env->_delta_writer_v2_pool = std::move(old_delta_writer_v2_pool);
+        exec_env->_load_stream_map_pool = std::move(old_load_stream_map_pool);
+        config::storage_root_path = old_storage_root_path;
+        static_cast<void>(io::global_local_filesystem()->delete_directory(test_data_dir));
+    });
+
+    config::storage_root_path = test_data_dir;
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(test_data_dir).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_data_dir).ok());
+    EngineOptions options;
+    options.store_paths.emplace_back(test_data_dir, -1);
+    auto engine = std::make_unique<StorageEngine>(options);
+    ASSERT_TRUE(engine->open().ok());
+    exec_env->_storage_engine = std::move(engine);
+    auto memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
+    ASSERT_TRUE(memtable_memory_limiter->init(1024 * 1024 * 1024).ok());
+    exec_env->_memtable_memory_limiter = std::move(memtable_memory_limiter);
+    exec_env->_load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
+    exec_env->_delta_writer_v2_pool = std::make_unique<DeltaWriterV2Pool>();
+
+    OperatorContext context;
+    prepare_load_runtime_state(context.state, 0);
+    TOlapTableSchemaParam schema;
+    TTupleId tuple_id = 0;
+    int64_t index_id = 0;
+    sink_test_utils::build_desc_tbl_and_schema(context, schema, tuple_id, index_id, false);
+    schema.indexes[0].__set_columns_desc({create_int_column_desc(false)});
+
+    TUniqueId load_id;
+    load_id.hi = 381;
+    load_id.lo = 1;
+    const auto partition = sink_test_utils::build_partition_param(index_id);
+    const auto location = sink_test_utils::build_location_param();
+    const auto t_sink = create_vtablet_writer_sink(schema, partition, location, tuple_id, load_id);
+    VExprContextSPtrs output_exprs;
+    auto writer = std::make_unique<VTabletWriterV2>(t_sink, output_exprs, nullptr, nullptr);
+    ASSERT_TRUE(writer->_init(&context.state, &context.profile).ok());
+
+    prepare_open_streams(writer->_load_stream_map, 1, 1, index_id,
+                         create_int_tablet_schema(InvertedIndexStorageFormatPB::V2));
+    prepare_open_streams(writer->_load_stream_map, 1, 2, index_id,
+                         create_int_tablet_schema(InvertedIndexStorageFormatPB::V3));
+
+    auto block = std::make_shared<Block>(ColumnHelper::create_block<DataTypeInt32>({1}));
+    Rows first_partition_rows;
+    first_partition_rows.partition_id = 1;
+    first_partition_rows.index_id = index_id;
+    first_partition_rows.row_payload.row_idxs.push_back(0);
+    Rows second_partition_rows = first_partition_rows;
+    second_partition_rows.partition_id = 2;
+
+    ASSERT_TRUE(writer->_write_memtable(block, 100, first_partition_rows).ok());
+    ASSERT_TRUE(writer->_write_memtable(block, 200, second_partition_rows).ok());
+    ASSERT_EQ(InvertedIndexStorageFormatPB::V2,
+              writer->_delta_writer_for_tablet->_map.at(100)
+                      ->_tablet_schema->get_inverted_index_storage_format());
+    ASSERT_EQ(InvertedIndexStorageFormatPB::V3,
+              writer->_delta_writer_for_tablet->_map.at(200)
+                      ->_tablet_schema->get_inverted_index_storage_format());
+
+    writer->_cancel(Status::Cancelled("test cleanup"));
 }
 
 TEST_F(TestVTabletWriterV2, close_wait_notifier_should_be_scoped_to_load_stream_map) {

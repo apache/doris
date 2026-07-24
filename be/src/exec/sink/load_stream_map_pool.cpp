@@ -30,7 +30,7 @@ LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, 
           _use_cnt(num_use),
           _num_incremental_streams(0),
           _pool(pool),
-          _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
+          _tablet_schema_for_partition_and_index(std::make_shared<PartitionIndexToTabletSchema>()),
           _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()),
           _close_wait_notifier(std::make_shared<CloseWaitNotifier>()) {
     DCHECK(num_streams > 0) << "stream num should be greater than 0";
@@ -47,8 +47,8 @@ std::shared_ptr<LoadStreamStubs> LoadStreamMap::get_or_create(int64_t dst_id, bo
         _num_incremental_streams.fetch_add(1);
     }
     streams = std::make_shared<LoadStreamStubs>(
-            _num_streams, _load_id, _src_id, _tablet_schema_for_index, _enable_unique_mow_for_index,
-            incremental, _close_wait_notifier);
+            _num_streams, _load_id, _src_id, _tablet_schema_for_partition_and_index,
+            _enable_unique_mow_for_index, incremental, _close_wait_notifier);
     _streams_for_node[dst_id] = streams;
     return streams;
 }

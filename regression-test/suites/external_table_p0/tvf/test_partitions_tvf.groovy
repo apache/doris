@@ -34,7 +34,8 @@ suite("test_partitions_tvf", "p0,external") {
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "partition.inverted_index_storage_format" = "V3"
         );
         """
     order_qt_desc "desc function partitions('catalog'='internal','database'='${dbName}','table'='${tableName}');"
@@ -71,6 +72,13 @@ suite("test_partitions_tvf", "p0,external") {
     // SyncWithBaseTables
     assertEquals(true, res[0][18]);
     assertEquals(true, res2[0][18]);
+    // CommittedVersion
+    assertEquals(res[0][20], res2[0][20]);
+    // RowCount
+    assertEquals(res[0][21], res2[0][21]);
+    // InvertedIndexStorageFormat
+    assertEquals("V3", res[0][22]);
+    assertEquals("V3", res2[0][22]);
 
 
     // test exception

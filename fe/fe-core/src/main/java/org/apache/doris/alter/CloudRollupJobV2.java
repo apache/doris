@@ -108,6 +108,15 @@ public class CloudRollupJobV2 extends RollupJobV2 {
     }
 
     @Override
+    protected void addRollupIndexToCatalog(OlapTable tbl) {
+        super.addRollupIndexToCatalog(tbl);
+        int schemaVersion = tbl.getBaseSchemaVersion();
+        for (Partition partition : tbl.getPartitions()) {
+            partition.setSchemaVersion(rollupIndexId, schemaVersion);
+        }
+    }
+
+    @Override
     protected void onCreateRollupReplicaDone() throws AlterCancelException {
         List<Long> rollupIndexList = new ArrayList<Long>();
         rollupIndexList.add(rollupIndexId);

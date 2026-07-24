@@ -104,11 +104,14 @@ Status DeltaWriterV2::init() {
     }
     // build tablet schema in request level
     DBUG_EXECUTE_IF("DeltaWriterV2.init.stream_size", { _streams.clear(); });
-    if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
-        return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
+    if (_streams.size() == 0 ||
+        _streams[0]->tablet_schema(_req.partition_id, _req.index_id) == nullptr) {
+        return Status::InternalError("failed to find tablet schema for partition {}, index {}",
+                                     _req.partition_id, _req.index_id);
     }
-    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                                 *_streams[0]->tablet_schema(_req.index_id)));
+    RETURN_IF_ERROR(_build_current_tablet_schema(
+            _req.index_id, _req.table_schema_param.get(),
+            *_streams[0]->tablet_schema(_req.partition_id, _req.index_id)));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;

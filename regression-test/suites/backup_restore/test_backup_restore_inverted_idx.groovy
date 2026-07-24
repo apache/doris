@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Http
+
 suite("test_backup_restore_inverted_idx", "backup_restore") {
     String suiteName = "test_backup_restore_inverted_idx"
     String dbName = "${suiteName}_db"
@@ -25,6 +27,23 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+
+    def assertPartitionFormat = { partitionName, expectedFormat ->
+        def partitions = sql_return_maparray(
+                "SHOW PARTITIONS FROM ${dbName}.${tableName} WHERE PartitionName = '${partitionName}'")
+        assertEquals(1, partitions.size())
+        def partitionDetails = sql_return_maparray("SHOW PARTITION ${partitions[0].PartitionId}")
+        assertEquals(1, partitionDetails.size())
+        assertEquals(expectedFormat, partitionDetails[0].InvertedIndexStorageFormat)
+
+        def tablets = sql_return_maparray(
+                "SHOW TABLETS FROM ${dbName}.${tableName} PARTITION(${partitionName})")
+        assertTrue(!tablets.isEmpty())
+        tablets.each { tablet ->
+            def tabletMeta = Http.GET(tablet.MetaUrl, true, false)
+            assertEquals(expectedFormat, tabletMeta.schema.inverted_index_storage_format)
+        }
+    }
 
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -48,7 +67,8 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES
         (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "inverted_index_storage_format" = "V2"
         )
         """
     List<String> values = []
@@ -61,6 +81,11 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
     def indexes = sql_return_maparray "SHOW INDEX FROM ${dbName}.${tableName}"
     logger.info("current indexes: ${indexes}")
     assertTrue(indexes.any { it.Key_name == "idx_value" && it.Index_type == "INVERTED" })
+
+    sql """ALTER TABLE ${dbName}.${tableName} SET ("partition.inverted_index_storage_format" = "V3")"""
+    sql """ALTER TABLE ${dbName}.${tableName} ADD PARTITION p8 VALUES LESS THAN ("80")"""
+    assertPartitionFormat("p1", "V2")
+    assertPartitionFormat("p8", "V3")
 
     def query_index_id = { indexName ->
         def res = sql_return_maparray "SHOW TABLETS FROM ${dbName}.${tableName}"
@@ -114,14 +139,17 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
 
         def newIndexId = query_index_id("idx_value")
         assertTrue(newIndexId == indexId, "old index id ${indexId}, new index id ${newIndexId}")
+        for (int partitionNumber = 1; partitionNumber <= 7; partitionNumber++) {
+            assertPartitionFormat("p${partitionNumber}", "V2")
+        }
+        assertPartitionFormat("p8", "V3")
 
         // 1. query with inverted index
         sql """ set enable_match_without_inverted_index = false """
         def res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_segment_limit_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "10" """
         assertTrue(res.size() > 0)
 
-        // 2. add partition and query
-        sql """ ALTER TABLE ${dbName}.${tableName} ADD PARTITION p8 VALUES LESS THAN ("80") """
+        // 2. write restored V3 partition and query
         sql """ INSERT INTO ${dbName}.${tableName} VALUES (75, "75 750", "76 77") """
         res = sql """ SELECT /*+ SET_VAR(inverted_index_skip_threshold = 0, enable_segment_limit_pushdown = true) */ * FROM ${dbName}.${tableName} WHERE value MATCH_ANY "75" """
         assertTrue(res.size() > 0)
@@ -171,4 +199,3 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
 }
-

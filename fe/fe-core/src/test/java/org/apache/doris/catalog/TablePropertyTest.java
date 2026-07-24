@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -34,6 +36,25 @@ public class TablePropertyTest {
             "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION;
     private static final String REPLICATION_ALLOCATION =
             "tag.location.group_0: 1, tag.location.group_1: 1, tag.location.group_2: 1";
+
+    @Test
+    public void testPartitionInvertedIndexStorageFormat() throws IOException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V3");
+        TableProperty tableProperty = new TableProperty(properties).buildPartitionInvertedIndexFileStorageFormat();
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                tableProperty.getPartitionInvertedIndexFileStorageFormat());
+
+        TableProperty copiedTableProperty = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(tableProperty),
+                TableProperty.class);
+        copiedTableProperty.gsonPostProcess();
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                copiedTableProperty.getPartitionInvertedIndexFileStorageFormat());
+
+        TableProperty oldTableProperty = new TableProperty(Maps.newHashMap());
+        oldTableProperty.gsonPostProcess();
+        Assert.assertNull(oldTableProperty.getPartitionInvertedIndexFileStorageFormat());
+    }
 
     // A non-whitelisted dynamic_partition.* key is ignored (skipped via continue), so it is not
     // collected at all and the table is neither built as dynamic nor flagged as incomplete.

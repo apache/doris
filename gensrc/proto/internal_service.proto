@@ -1022,6 +1022,7 @@ message PTabletSchemaWithIndex {
     optional int64 index_id = 1;
     optional TabletSchemaPB tablet_schema = 2;
     optional bool enable_unique_key_merge_on_write = 3;
+    optional int64 partition_id = 4;
 }
 
 message POpenLoadStreamResponse {

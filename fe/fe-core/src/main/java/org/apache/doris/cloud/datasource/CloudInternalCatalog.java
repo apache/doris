@@ -110,7 +110,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified)
+                                                   boolean isStorageMediumSpecified,
+                                                   TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -126,6 +127,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         // create partition with base index
         Partition partition = new CloudPartition(partitionId, partitionName, baseIndex,
                 distributionInfo, dbId, tbl.getId());
+        Partition sourcePartition = tbl.getPartition(partitionName);
 
         // add to index map
         Map<Long, MaterializedIndex> indexMap = Maps.newHashMap();
@@ -148,6 +150,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
             MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+            int schemaVersion = sourcePartition == null
+                    ? indexMeta.getSchemaVersion()
+                    : sourcePartition.getSchemaVersion(indexId, indexMeta.getSchemaVersion());
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
@@ -167,6 +172,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
+            TInvertedIndexFileStorageFormat indexInvertedIndexFileStorageFormat =
+                    indexId == tbl.getBaseIndexId() ? invertedIndexFileStorageFormat : null;
             List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
                 // only base and shadow index need cluster key unique column ids
@@ -182,7 +189,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), schemaVersion,
                         tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -190,7 +197,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        indexInvertedIndexFileStorageFormat,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
@@ -208,6 +215,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 // add rollup index to partition
                 partition.createRollupIndex(index);
             }
+            partition.setSchemaVersion(indexId, schemaVersion);
         }
 
         LOG.info("succeed in creating partition[{}-{}], table : [{}-{}], vault {}", partitionId, partitionName,

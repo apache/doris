@@ -34,7 +34,7 @@ class EmptyIndexFileTest : public testing::Test {
     class MockStreamStub : public LoadStreamStub {
     public:
         MockStreamStub(PUniqueId load_id, int64_t src_id)
-                : LoadStreamStub(load_id, src_id, std::make_shared<IndexToTabletSchema>(),
+                : LoadStreamStub(load_id, src_id, std::make_shared<PartitionIndexToTabletSchema>(),
                                  std::make_shared<IndexToEnableMoW>()) {};
 
         virtual ~MockStreamStub() = default;

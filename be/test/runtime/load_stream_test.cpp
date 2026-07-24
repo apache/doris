@@ -33,13 +33,14 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/sink/load_stream_map_pool.h"
+#include "exec/sink/load_stream_stub.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/channel/load_stream_mgr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
-#include "service/internal_service.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
@@ -47,6 +48,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug/leakcheck_disabler.h"
 
 using namespace brpc;
@@ -140,8 +142,10 @@ void construct_schema(OlapTableSchemaParam* schema) {
 }
 
 // copied from delta_writer_test.cpp
-static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
-                                  TCreateTabletReq* request) {
+static void create_tablet_request(
+        int64_t tablet_id, int32_t schema_hash,
+        TInvertedIndexFileStorageFormat::type inverted_index_storage_format,
+        TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->partition_id = 30001;
     request->__set_version(1);
@@ -150,6 +154,7 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
     request->tablet_schema.storage_type = TStorageType::COLUMN;
     request->__set_storage_format(TStorageFormat::V2);
+    request->__set_inverted_index_file_storage_format(inverted_index_storage_format);
 
     TColumn k1;
 
@@ -370,6 +375,7 @@ public:
                     return;
                 }
                 auto resp = response->add_tablet_schemas();
+                resp->set_partition_id(req.partition_id());
                 resp->set_index_id(req.index_id());
                 resp->set_enable_unique_key_merge_on_write(
                         tablet->enable_unique_key_merge_on_write());
@@ -405,20 +411,9 @@ public:
 
     class MockSinkClient {
     public:
-        MockSinkClient() = default;
+        explicit MockSinkClient(butil::EndPoint server_endpoint)
+                : _server_endpoint(server_endpoint) {}
         ~MockSinkClient() { disconnect(); }
-
-        class MockClosure : public google::protobuf::Closure {
-        public:
-            MockClosure(std::function<void()> cb) : _cb(cb) {}
-            void Run() override {
-                _cb();
-                delete this;
-            }
-
-        private:
-            std::function<void()> _cb;
-        };
 
         Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID, int total_streams = 1) {
             brpc::Channel channel;
@@ -429,7 +424,7 @@ public:
             options.connection_type = "single";
             options.timeout_ms = 10000 /*milliseconds*/;
             options.max_retry = 3;
-            CHECK_EQ(0, channel.Init("127.0.0.1:18947", nullptr));
+            CHECK_EQ(0, channel.Init(_server_endpoint, nullptr));
 
             // Normally, you should not call a Channel directly, but instead construct
             // a stub Service wrapping it. stub can be shared by all threads as well.
@@ -485,6 +480,7 @@ public:
         Status close() { return Status::OK(); }
 
     private:
+        butil::EndPoint _server_endpoint;
         brpc::StreamId _stream;
         brpc::Controller _cntl;
         brpc::StreamOptions _stream_options;
@@ -609,12 +605,16 @@ public:
         server_options.idle_timeout_sec = 300;
         {
             debug::ScopedLeakCheckDisabler disable_lsan;
-            CHECK_EQ(0, _server->Start("127.0.0.1:18947", &server_options));
+            CHECK_EQ(0, _server->Start(0, &server_options));
         }
+        _server_endpoint = _server->listen_address();
 
         for (int i = 0; i < 3; i++) {
             TCreateTabletReq request;
-            create_tablet_request(NORMAL_TABLET_ID + i, SCHEMA_HASH, &request);
+            create_tablet_request(NORMAL_TABLET_ID + i, SCHEMA_HASH,
+                                  i == 1 ? TInvertedIndexFileStorageFormat::V3
+                                         : TInvertedIndexFileStorageFormat::V2,
+                                  &request);
             auto profile = std::make_unique<RuntimeProfile>("test");
             Status res = engine_ref->create_tablet(request, profile.get());
             EXPECT_EQ(Status::OK(), res);
@@ -659,6 +659,7 @@ public:
 
     ExecEnv* _env;
     brpc::Server* _server;
+    butil::EndPoint _server_endpoint;
     StreamService* _stream_service;
 
     FifoThreadPool _heavy_work_pool;
@@ -669,8 +670,103 @@ public:
 
 // <client, index, bucket>
 // one client
+TEST_F(LoadStreamMgrTest,
+       load_stream_map_shares_open_schemas_by_partition_and_index_across_destinations) {
+    constexpr int64_t second_partition_id = NORMAL_PARTITION_ID + 1;
+    constexpr int64_t second_tablet_id = NORMAL_TABLET_ID + 1;
+
+    PUniqueId load_id;
+    load_id.set_hi(3);
+    load_id.set_lo(1);
+    auto load_stream_map =
+            std::make_shared<LoadStreamMap>(UniqueId(load_id), NORMAL_SENDER_ID, 1, 1, nullptr);
+    auto source_stream = load_stream_map->get_or_create(1)->streams().front();
+    auto peer_stream = load_stream_map->get_or_create(2)->streams().front();
+    BrpcClientCache<PBackendService_Stub> client_cache("baidu_std", "single", "streaming");
+    NodeInfo node;
+    node.id = 1;
+    node.host = "127.0.0.1";
+    node.brpc_port = _server_endpoint.port;
+
+    OlapTableSchemaParam schema;
+    construct_schema(&schema);
+    PTabletID first_tablet;
+    first_tablet.set_partition_id(NORMAL_PARTITION_ID);
+    first_tablet.set_index_id(NORMAL_INDEX_ID);
+    first_tablet.set_tablet_id(NORMAL_TABLET_ID);
+    PTabletID second_tablet;
+    second_tablet.set_partition_id(second_partition_id);
+    second_tablet.set_index_id(NORMAL_INDEX_ID);
+    second_tablet.set_tablet_id(second_tablet_id);
+
+    ASSERT_TRUE(source_stream
+                        ->open(&client_cache, node, NORMAL_TXN_ID, schema,
+                               {first_tablet, second_tablet}, 1, 10'000, false)
+                        .ok());
+    ASSERT_NE(nullptr, peer_stream->tablet_schema(NORMAL_PARTITION_ID, NORMAL_INDEX_ID));
+    ASSERT_NE(nullptr, peer_stream->tablet_schema(second_partition_id, NORMAL_INDEX_ID));
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V2,
+              peer_stream->tablet_schema(NORMAL_PARTITION_ID, NORMAL_INDEX_ID)
+                      ->get_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              peer_stream->tablet_schema(second_partition_id, NORMAL_INDEX_ID)
+                      ->get_inverted_index_storage_format());
+
+    source_stream->cancel(Status::Cancelled("test complete"));
+    source_stream.reset();
+    peer_stream.reset();
+    load_stream_map.reset();
+    wait_for_close();
+    EXPECT_EQ(0, _load_stream_mgr->get_load_stream_num());
+}
+
+TEST_F(LoadStreamMgrTest, load_stream_stub_fetches_schema_by_partition_and_index) {
+    constexpr int64_t second_partition_id = NORMAL_PARTITION_ID + 1;
+    constexpr int64_t second_tablet_id = NORMAL_TABLET_ID + 1;
+
+    PUniqueId load_id;
+    load_id.set_hi(3);
+    load_id.set_lo(1);
+    auto schemas = std::make_shared<PartitionIndexToTabletSchema>();
+    auto stream = std::make_shared<LoadStreamStub>(load_id, NORMAL_SENDER_ID, schemas,
+                                                   std::make_shared<IndexToEnableMoW>());
+    BrpcClientCache<PBackendService_Stub> client_cache("baidu_std", "single", "streaming");
+    NodeInfo node;
+    node.id = 1;
+    node.host = "127.0.0.1";
+    node.brpc_port = _server_endpoint.port;
+
+    OlapTableSchemaParam schema;
+    construct_schema(&schema);
+    PTabletID first_tablet;
+    first_tablet.set_partition_id(NORMAL_PARTITION_ID);
+    first_tablet.set_index_id(NORMAL_INDEX_ID);
+    first_tablet.set_tablet_id(NORMAL_TABLET_ID);
+
+    ASSERT_TRUE(stream->open(&client_cache, node, NORMAL_TXN_ID, schema, {first_tablet}, 1, 10'000,
+                             false)
+                        .ok());
+    ASSERT_NE(nullptr, stream->tablet_schema(NORMAL_PARTITION_ID, NORMAL_INDEX_ID));
+
+    ASSERT_TRUE(
+            stream->wait_for_schema(second_partition_id, NORMAL_INDEX_ID, second_tablet_id, 10'000)
+                    .ok());
+    EXPECT_NE(nullptr, stream->tablet_schema(second_partition_id, NORMAL_INDEX_ID));
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V2,
+              stream->tablet_schema(NORMAL_PARTITION_ID, NORMAL_INDEX_ID)
+                      ->get_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              stream->tablet_schema(second_partition_id, NORMAL_INDEX_ID)
+                      ->get_inverted_index_storage_format());
+
+    stream->cancel(Status::Cancelled("test complete"));
+    stream.reset();
+    wait_for_close();
+    EXPECT_EQ(0, _load_stream_mgr->get_load_stream_num());
+}
+
 TEST_F(LoadStreamMgrTest, one_client_normal) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -702,7 +798,7 @@ TEST_F(LoadStreamMgrTest, one_client_normal) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_abnormal_load) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -728,7 +824,7 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_load) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_abnormal_index) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -764,7 +860,7 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_index) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_abnormal_sender) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -800,7 +896,7 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_sender) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_abnormal_tablet) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -836,7 +932,7 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_tablet) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0_zero_bytes) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -882,7 +978,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0_zero_b
 }
 
 TEST_F(LoadStreamMgrTest, close_load_before_recv_eos) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -927,7 +1023,7 @@ TEST_F(LoadStreamMgrTest, close_load_before_recv_eos) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -978,7 +1074,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment_without_eos) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -1024,7 +1120,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment_without
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment1) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -1072,7 +1168,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment1) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_two_segment) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -1130,7 +1226,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_two_segment) {
 }
 
 TEST_F(LoadStreamMgrTest, one_client_one_index_three_tablet) {
-    MockSinkClient client;
+    MockSinkClient client(_server_endpoint);
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
 
@@ -1202,7 +1298,8 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_three_tablet) {
 }
 
 TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
-    MockSinkClient clients[2];
+    MockSinkClient clients[2] = {MockSinkClient(_server_endpoint),
+                                 MockSinkClient(_server_endpoint)};
 
     for (int i = 0; i < 2; i++) {
         auto st = clients[i].connect_stream(NORMAL_SENDER_ID + i, 2);
@@ -1280,7 +1377,8 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
 }
 
 TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {
-    MockSinkClient clients[2];
+    MockSinkClient clients[2] = {MockSinkClient(_server_endpoint),
+                                 MockSinkClient(_server_endpoint)};
 
     EXPECT_TRUE(clients[0].connect_stream(NORMAL_SENDER_ID, 2).ok());
 

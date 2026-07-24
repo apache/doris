@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+
 public class RecyclePartitionParam {
     public Partition partition;
     public PartitionItem partitionItem;
@@ -24,6 +26,7 @@ public class RecyclePartitionParam {
     public ReplicaAllocation replicaAlloc;
     public boolean isInMemory;
     public boolean isMutable = true;
+    public TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
 
     public RecyclePartitionParam() {
         // do nothing.

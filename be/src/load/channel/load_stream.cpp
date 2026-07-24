@@ -579,6 +579,7 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
             break;
         }
         auto* resp = response.add_tablet_schemas();
+        resp->set_partition_id(req.partition_id());
         resp->set_index_id(req.index_id());
         resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
         tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());

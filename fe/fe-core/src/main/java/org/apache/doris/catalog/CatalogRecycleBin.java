@@ -32,6 +32,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -234,9 +235,16 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     public boolean recyclePartition(long dbId, long tableId, String tableName, Partition partition,
-                                                 Range<PartitionKey> range, PartitionItem listPartitionItem,
-                                                 DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                                 boolean isInMemory, boolean isMutable) {
+            Range<PartitionKey> range, PartitionItem listPartitionItem, DataProperty dataProperty,
+            ReplicaAllocation replicaAlloc, boolean isInMemory, boolean isMutable) {
+        return recyclePartition(dbId, tableId, tableName, partition, range, listPartitionItem, dataProperty,
+                replicaAlloc, isInMemory, isMutable, null);
+    }
+
+    public boolean recyclePartition(long dbId, long tableId, String tableName, Partition partition,
+            Range<PartitionKey> range, PartitionItem listPartitionItem, DataProperty dataProperty,
+            ReplicaAllocation replicaAlloc, boolean isInMemory, boolean isMutable,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
         writeLock();
         try {
             if (idToPartition.containsKey(partition.getId())) {
@@ -246,7 +254,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // recycle partition
             RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                    range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable);
+                    range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable,
+                    invertedIndexFileStorageFormat);
             idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
             idToPartition.put(partition.getId(), partitionInfo);
             dbTblIdPartitionNameToIds.computeIfAbsent(Pair.of(dbId, tableId), k -> new ConcurrentHashMap<>())
@@ -1051,6 +1060,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             partitionInfo.setReplicaAllocation(partitionId, recoverPartitionInfo.getReplicaAlloc());
             partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
             partitionInfo.setIsMutable(partitionId, recoverPartitionInfo.isMutable());
+            if (recoverPartitionInfo.getInvertedIndexFileStorageFormat() != null) {
+                partitionInfo.setInvertedIndexFileStorageFormat(partitionId,
+                        recoverPartitionInfo.getInvertedIndexFileStorageFormat());
+            }
 
             // remove from recycle bin
             idToPartition.remove(partitionId);
@@ -1767,6 +1780,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         private boolean isInMemory;
         @SerializedName("mu")
         private boolean isMutable = true;
+        @SerializedName("iifsf")
+        private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
 
         public RecyclePartitionInfo() {
             // for persist
@@ -1775,7 +1790,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         public RecyclePartitionInfo(long dbId, long tableId, Partition partition,
                                     Range<PartitionKey> range, PartitionItem listPartitionItem,
                                     DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                    boolean isInMemory, boolean isMutable) {
+                                    boolean isInMemory, boolean isMutable,
+                                    TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
             this.dbId = dbId;
             this.tableId = tableId;
             this.partition = partition;
@@ -1785,6 +1801,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             this.replicaAlloc = replicaAlloc;
             this.isInMemory = isInMemory;
             this.isMutable = isMutable;
+            this.invertedIndexFileStorageFormat = invertedIndexFileStorageFormat;
         }
 
         public long getDbId() {
@@ -1821,6 +1838,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public boolean isMutable() {
             return isMutable;
+        }
+
+        public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
+            return invertedIndexFileStorageFormat;
         }
 
         public void write(DataOutput out) throws IOException {

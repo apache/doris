@@ -127,6 +127,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
 
+    public static final String PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT =
+            "partition.inverted_index_storage_format";
+
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
@@ -1222,36 +1225,52 @@ public class PropertyAnalyzer {
 
     public static TInvertedIndexFileStorageFormat analyzeInvertedIndexFileStorageFormat(Map<String, String> properties)
             throws AnalysisException {
-        String invertedIndexFileStorageFormat = "";
         if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
-            invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
-            properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
-        } else {
-            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
-                return TInvertedIndexFileStorageFormat.V2;
-            } else {
-                return TInvertedIndexFileStorageFormat.V3;
-            }
+            return analyzeInvertedIndexFileStorageFormat(properties,
+                    PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, true);
         }
 
-        if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
+        return getDefaultInvertedIndexFileStorageFormat();
+    }
+
+    public static TInvertedIndexFileStorageFormat analyzePartitionInvertedIndexFileStorageFormat(
+            Map<String, String> properties) throws AnalysisException {
+        if (properties == null || !properties.containsKey(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            return null;
+        }
+
+        TInvertedIndexFileStorageFormat format = analyzeInvertedIndexFileStorageFormat(properties,
+                PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, false);
+        if (format == TInvertedIndexFileStorageFormat.V1) {
+            throw new AnalysisException("partition inverted index storage format only supports V2 and V3");
+        }
+        return format;
+    }
+
+    private static TInvertedIndexFileStorageFormat analyzeInvertedIndexFileStorageFormat(
+            Map<String, String> properties, String propertyName, boolean allowV1) throws AnalysisException {
+        String invertedIndexFileStorageFormat = properties.remove(propertyName);
+
+        if (allowV1 && invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
             return TInvertedIndexFileStorageFormat.V1;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
             return TInvertedIndexFileStorageFormat.V3;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
-            if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
-            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
-                return TInvertedIndexFileStorageFormat.V2;
-            } else {
-                return TInvertedIndexFileStorageFormat.V3;
-            }
+            return getDefaultInvertedIndexFileStorageFormat();
         } else {
             throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
+        }
+    }
+
+    public static TInvertedIndexFileStorageFormat getDefaultInvertedIndexFileStorageFormat() {
+        if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+            return TInvertedIndexFileStorageFormat.V1;
+        } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+            return TInvertedIndexFileStorageFormat.V2;
+        } else {
+            return TInvertedIndexFileStorageFormat.V3;
         }
     }
 
