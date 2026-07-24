@@ -101,6 +101,46 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
         return new S3FileSystem(properties);
     }
 
+    private static final String[] GUESS_ENDPOINT_NAMES = {
+            "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
+            "glue.endpoint", "aws.glue.endpoint"};
+    private static final String[] GUESS_REGION_NAMES = {
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region",
+            "rest.signing-region", "client.region"};
+
+    @Override
+    public boolean supportsExplicit(Map<String, String> properties) {
+        return Boolean.parseBoolean(properties.getOrDefault(FS_S3_SUPPORT, "false"));
+    }
+
+    @Override
+    public boolean supportsGuess(Map<String, String> properties) {
+        // Port of fe-core S3Properties.guessIsMe on raw props.
+        String endpoint = null;
+        for (String name : GUESS_ENDPOINT_NAMES) {
+            String value = properties.get(name);
+            if (value != null) {
+                endpoint = value;
+                break;
+            }
+        }
+        if (endpoint != null && !endpoint.isBlank()) {
+            return endpoint.contains("amazonaws.com");
+        }
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
+                return entry.getValue().contains("amazonaws.com");
+            }
+        }
+        for (String name : GUESS_REGION_NAMES) {
+            String value = properties.get(name);
+            if (value != null && !value.isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));

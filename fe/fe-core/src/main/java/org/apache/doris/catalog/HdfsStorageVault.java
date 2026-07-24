@@ -21,7 +21,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
@@ -132,7 +132,7 @@ public class HdfsStorageVault extends StorageVault {
                 !Strings.isNullOrEmpty(pathPrefix), "%s is null or empty", PropertyKey.VAULT_PATH_PREFIX);
 
         try (FileSystem fs = FileSystemFactory.getFileSystem(
-                StorageProperties.createPrimary(newProperties))) {
+                StorageAdapter.of(newProperties))) {
             Long timestamp = System.currentTimeMillis();
             String remotePath = hadoopFsName + "/" + pathPrefix + "/doris-check-connectivity" + timestamp.toString();
             Location loc = Location.of(remotePath);

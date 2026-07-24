@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource.connectivity;
 
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 public class S3ConnectivityTester extends AbstractS3CompatibleConnectivityTester {
 
-    public S3ConnectivityTester(S3Properties properties, String testLocation) {
-        super(properties, testLocation);
+    public S3ConnectivityTester(StorageAdapter adapter, String testLocation) {
+        super(adapter, testLocation);
     }
 
     @Override

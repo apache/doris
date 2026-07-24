@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import lombok.Getter;
@@ -66,7 +66,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                               List<StorageProperties> storagePropertiesList) {
+                               List<StorageAdapter> storagePropertiesList) {
         try {
             catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HIVE);
             Configuration conf = buildHiveConfiguration(storagePropertiesList);
@@ -81,10 +81,10 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     /**
      * Builds the Hadoop Configuration by adding hive-site.xml and storage-specific configs.
      */
-    private Configuration buildHiveConfiguration(List<StorageProperties> storagePropertiesList) {
+    private Configuration buildHiveConfiguration(List<StorageAdapter> storagePropertiesList) {
         Configuration conf = new Configuration();
         conf.addResource(hmsBaseProperties.getHiveConf());
-        for (StorageProperties sp : storagePropertiesList) {
+        for (StorageAdapter sp : storagePropertiesList) {
             if (sp.getHadoopStorageConfig() != null) {
                 conf.addResource(sp.getHadoopStorageConfig());
             }

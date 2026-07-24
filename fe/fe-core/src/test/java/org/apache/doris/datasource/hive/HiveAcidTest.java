@@ -19,8 +19,8 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
-import org.apache.doris.datasource.property.storage.LocalProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.local.LocalFileSystem;
 
 import com.google.common.collect.ImmutableMap;
@@ -42,8 +42,9 @@ import java.util.stream.Collectors;
 
 public class HiveAcidTest {
 
-    private static final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = ImmutableMap.of(
-            StorageProperties.Type.LOCAL, new LocalProperties(new HashMap<>())
+    // file_path is the LOCAL provider's guess key, mirroring the legacy LocalProperties binding.
+    private static final Map<StorageTypeId, StorageAdapter> storagePropertiesMap = ImmutableMap.of(
+            StorageTypeId.LOCAL, StorageAdapter.of(ImmutableMap.of("file_path", "/tmp"))
     );
 
     private static final LocalFileSystem SPI_LOCAL_FS = new LocalFileSystem(new HashMap<>());

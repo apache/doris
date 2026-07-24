@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.jfs.properties;
 
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.hdfs.properties.HdfsCompatibleProperties;
 import org.apache.doris.filesystem.hdfs.properties.HdfsPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -53,6 +54,26 @@ public class JfsProperties extends HdfsCompatibleProperties {
 
     public JfsProperties(Map<String, String> origProps) {
         super(origProps);
+    }
+
+    @Override
+    public String providerName() {
+        return "JFS";
+    }
+
+    @Override
+    public FileSystemType type() {
+        return FileSystemType.JFS;
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return SUPPORT_SCHEMA;
+    }
+
+    @Override
+    public String validateAndNormalizeUri(String uri) {
+        return HdfsPropertiesUtils.validateAndNormalizeUri(uri, SUPPORT_SCHEMA);
     }
 
     @Override

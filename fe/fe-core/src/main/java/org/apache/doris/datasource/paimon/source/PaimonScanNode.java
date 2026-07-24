@@ -37,7 +37,8 @@ import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -154,7 +155,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private String serializedTable;
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
 
@@ -180,7 +181,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                catalog.getCatalogProperty().getStorageAdaptersMap(),
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
@@ -304,7 +305,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
             // convert the deletion file uri to make sure FileReader can read it in be
-            LocationPath locationPath = LocationPath.of(deletionFile.path(), storagePropertiesMap);
+            LocationPath locationPath = LocationPath.ofAdapters(deletionFile.path(), storagePropertiesMap);
             String path = locationPath.toStorageLocation().toString();
             tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
@@ -453,7 +454,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
                     RawFile file = rawFiles.get(i);
-                    LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
+                    LocationPath locationPath = LocationPath.ofAdapters(file.path(), storagePropertiesMap);
                     try {
                         List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,

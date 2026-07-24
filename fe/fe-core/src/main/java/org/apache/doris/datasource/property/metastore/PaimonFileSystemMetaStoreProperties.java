@@ -17,10 +17,9 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.catalog.Catalog;
@@ -37,14 +36,13 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageAdapter> storageAdapters) {
         buildCatalogOptions();
         Configuration conf = new Configuration();
-        storagePropertiesList.forEach(storageProperties -> {
-            conf.addResource(storageProperties.getHadoopStorageConfig());
-            if (storageProperties.getType().equals(StorageProperties.Type.HDFS)) {
-                this.executionAuthenticator = new HadoopExecutionAuthenticator(((HdfsProperties) storageProperties)
-                        .getHadoopAuthenticator());
+        storageAdapters.forEach(storageAdapter -> {
+            conf.addResource(storageAdapter.getHadoopStorageConfig());
+            if (storageAdapter.getType().equals(StorageTypeId.HDFS)) {
+                this.executionAuthenticator = asLegacyAuthenticator(storageAdapter.getExecutionAuthenticator());
             }
         });
         appendUserHadoopConfig(conf);

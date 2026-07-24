@@ -17,7 +17,11 @@
 
 package org.apache.doris.filesystem.hdfs.properties;
 
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.hdfs.HdfsConfigBuilder;
+import org.apache.doris.filesystem.hdfs.KerberosHadoopAuthenticator;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -81,8 +85,56 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private Map<String, String> userOverriddenHdfsConfig;
 
+    private String dfsNameServices = "";
+
     public HdfsProperties(Map<String, String> origProps) {
         super(origProps);
+    }
+
+    @Override
+    public String providerName() {
+        return "HDFS";
+    }
+
+    @Override
+    public FileSystemType type() {
+        return FileSystemType.HDFS;
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return SUPPORT_SCHEMA;
+    }
+
+    @Override
+    public boolean isKerberos() {
+        return "kerberos".equalsIgnoreCase(hdfsAuthenticationType);
+    }
+
+    @Override
+    protected ExecutionAuthenticator createExecutionAuthenticator() {
+        if (isKerberos()) {
+            // Same construction path as DFSFileSystem: the Hadoop Configuration is derived
+            // from the backend map. Kerberos login happens here, on first use only.
+            return new KerberosHadoopAuthenticator(hdfsKerberosPrincipal, hdfsKerberosKeytab,
+                    HdfsConfigBuilder.build(getBackendConfigProperties()));
+        }
+        return super.createExecutionAuthenticator();
+    }
+
+    @Override
+    public String validateAndNormalizeUri(String uri) {
+        return HdfsPropertiesUtils.convertUrlToFilePath(uri, dfsNameServices, fsDefaultFS, SUPPORT_SCHEMA);
+    }
+
+    @Override
+    public String validateAndGetUri(Map<String, String> loadProperties) {
+        try {
+            return HdfsPropertiesUtils.validateAndGetUri(loadProperties, dfsNameServices, fsDefaultFS,
+                    SUPPORT_SCHEMA);
+        } catch (UserException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
     }
 
     @Override
@@ -140,6 +192,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(hadoopUsername)) {
             props.put("hadoop.username", hadoopUsername);
         }
+        this.dfsNameServices = props.getOrDefault("dfs.nameservices", "");
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = props.getOrDefault(HDFS_DEFAULT_FS_NAME, "");
         }

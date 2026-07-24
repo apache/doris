@@ -19,8 +19,10 @@ package org.apache.doris.filesystem.properties;
 
 import org.apache.doris.filesystem.FileSystemType;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Parsed and validated FileSystem properties owned by a specific provider.
@@ -65,6 +67,40 @@ public interface FileSystemProperties extends StorageProperties {
      * implementation details.</p>
      */
     Map<String, String> matchedProperties();
+
+    /**
+     * Returns the URI schemes this provider accepts, lower-cased (e.g. {@code {hdfs, viewfs}}).
+     *
+     * <p>Single source of truth for the provider's scheme identity: URI parsing and
+     * scheme-to-storage routing both read this set. The default is empty for providers
+     * without a scheme identity (e.g. Broker, Local); every scheme-addressable provider
+     * overrides it.</p>
+     */
+    default Set<String> getSupportedSchemes() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Storage family name reported to fe-core consumers and persisted in e.g. backup
+     * Repository metadata (the legacy {@code getStorageName()} contract). Defaults to the
+     * provider name; families with a legacy spelling override it (every S3-compatible
+     * dialect reports {@code "S3"}, HDFS-family {@code "HDFS"}, Local {@code "local"}).
+     */
+    default String storageFamilyName() {
+        return providerName();
+    }
+
+    /**
+     * The exact scheme set the legacy fe-core {@code schemas()} contract exposed for this
+     * provider — feeds per-scheme {@code fs.<schema>.impl.disable.cache} handling. This is
+     * deliberately NOT {@link #getSupportedSchemes()}: that set advertises broader routing
+     * aliases (e.g. OSS accepts {@code {oss, s3, s3a}}) while the legacy disable-cache loop
+     * only ever saw the narrow per-type sets (e.g. OSS = {@code {oss}}, HDFS family =
+     * {@code {hdfs}} only).
+     */
+    default Set<String> legacyCacheSchemes() {
+        return Collections.emptySet();
+    }
 
     /**
      * Validates and normalizes a single storage URI against this provider's configuration.

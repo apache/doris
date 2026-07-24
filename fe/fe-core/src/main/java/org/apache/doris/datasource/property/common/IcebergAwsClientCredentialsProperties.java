@@ -17,7 +17,8 @@
 
 package org.apache.doris.datasource.property.common;
 
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AwsClientProperties;
@@ -31,17 +32,18 @@ public final class IcebergAwsClientCredentialsProperties {
 
     private IcebergAwsClientCredentialsProperties() {}
 
-    public static void putCredentialProviderProperties(Map<String, String> target, S3Properties s3Properties) {
-        switch (getCredentialType(s3Properties)) {
+    public static void putCredentialProviderProperties(Map<String, String> target, StorageAdapter s3Adapter) {
+        switch (getCredentialType(s3Adapter)) {
             case EXPLICIT:
-                putExplicitRestCredentials(target, s3Properties.getAccessKey(), s3Properties.getSecretKey(),
-                        s3Properties.getSessionToken());
+                S3CompatibleFileSystemProperties s3 = spi(s3Adapter);
+                putExplicitRestCredentials(target, s3.getAccessKey(), s3.getSecretKey(),
+                        s3.getSessionToken());
                 return;
             case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Adapter);
                 return;
             case PROVIDER_CHAIN:
-                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
+                putCredentialsProvider(target, s3Adapter.getAwsCredentialsProviderMode());
                 return;
             default:
                 throw new IllegalStateException("Unsupported Iceberg AWS credential type");
@@ -58,42 +60,48 @@ public final class IcebergAwsClientCredentialsProperties {
     }
 
     public static void putS3FileIOCredentialProperties(Map<String, String> target,
-            S3Properties s3Properties) {
-        putS3FileIOProperties(target, s3Properties);
-        switch (getCredentialType(s3Properties)) {
+            StorageAdapter s3Adapter) {
+        putS3FileIOProperties(target, spi(s3Adapter));
+        switch (getCredentialType(s3Adapter)) {
             case EXPLICIT:
                 return;
             case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Adapter);
                 return;
             case PROVIDER_CHAIN:
-                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
+                putCredentialsProvider(target, s3Adapter.getAwsCredentialsProviderMode());
                 return;
             default:
                 throw new IllegalStateException("Unsupported Iceberg AWS credential type");
         }
     }
 
-    public static AwsCredentialsProvider createAwsCredentialsProvider(S3Properties s3Properties,
+    public static AwsCredentialsProvider createAwsCredentialsProvider(StorageAdapter s3Adapter,
             boolean includeAnonymousInDefault) {
-        switch (getCredentialType(s3Properties)) {
+        switch (getCredentialType(s3Adapter)) {
             case EXPLICIT:
             case ASSUME_ROLE:
-                return s3Properties.getAwsCredentialsProvider();
+                return s3Adapter.getAwsCredentialsProvider();
             case PROVIDER_CHAIN:
                 return AwsCredentialsProviderFactory.createV2(
-                        s3Properties.getAwsCredentialsProviderMode(), includeAnonymousInDefault);
+                        s3Adapter.getAwsCredentialsProviderMode(), includeAnonymousInDefault);
             default:
                 throw new IllegalStateException("Unsupported Iceberg AWS credential type");
         }
     }
 
-    private static CredentialType getCredentialType(S3Properties s3Properties) {
-        if (StringUtils.isNotBlank(s3Properties.getAccessKey())
-                && StringUtils.isNotBlank(s3Properties.getSecretKey())) {
+    private static S3CompatibleFileSystemProperties spi(StorageAdapter s3Adapter) {
+        return (S3CompatibleFileSystemProperties) s3Adapter.getSpiProperties();
+    }
+
+    private static CredentialType getCredentialType(StorageAdapter s3Adapter) {
+        S3CompatibleFileSystemProperties s3 = spi(s3Adapter);
+        if (StringUtils.isNotBlank(s3.getAccessKey())
+                && StringUtils.isNotBlank(s3.getSecretKey())) {
             return CredentialType.EXPLICIT;
         }
-        if (StringUtils.isNotBlank(s3Properties.getS3IAMRole())) {
+        // legacy getS3IAMRole == SPI getRoleArn
+        if (StringUtils.isNotBlank(s3.getRoleArn())) {
             return CredentialType.ASSUME_ROLE;
         }
         return CredentialType.PROVIDER_CHAIN;
@@ -109,7 +117,7 @@ public final class IcebergAwsClientCredentialsProperties {
     }
 
     private static void putS3FileIOProperties(Map<String, String> target,
-            S3Properties s3Properties) {
+            S3CompatibleFileSystemProperties s3Properties) {
         if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
             target.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
         }

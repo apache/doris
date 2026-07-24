@@ -25,7 +25,8 @@ import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -67,7 +68,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
@@ -78,7 +79,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                catalog.getCatalogProperty().getStorageAdaptersMap(),
                 targetTable.getIcebergTable());
     }
 
@@ -173,14 +174,14 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
         // hadoop config
         Map<String, String> props = new HashMap<>();
-        for (StorageProperties storageProperties : storagePropertiesMap.values()) {
+        for (StorageAdapter storageProperties : storagePropertiesMap.values()) {
             props.putAll(storageProperties.getBackendConfigProperties());
         }
         tSink.setHadoopConfig(props);
 
         // location
         String originalLocation = IcebergUtils.dataLocation(icebergTable);
-        LocationPath locationPath = LocationPath.of(originalLocation, storagePropertiesMap);
+        LocationPath locationPath = LocationPath.ofAdapters(originalLocation, storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(originalLocation);
         TFileType fileType = locationPath.getTFileTypeForBE();

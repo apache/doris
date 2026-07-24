@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.credentials;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -138,7 +138,7 @@ public class CredentialUtilsTest {
     @Test
     public void testGetBackendPropertiesFromStorageMapWithSingleStorage() {
         // Create mock storage properties
-        StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
+        StorageAdapter s3Properties = Mockito.mock(StorageAdapter.class);
 
         Map<String, String> s3BackendProps = new HashMap<>();
         s3BackendProps.put("AWS_ACCESS_KEY", "testAccessKey");
@@ -147,8 +147,8 @@ public class CredentialUtilsTest {
 
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
 
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, s3Properties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
@@ -161,9 +161,9 @@ public class CredentialUtilsTest {
     @Test
     public void testGetBackendPropertiesFromStorageMapWithMultipleStorages() {
         // Create mock storage properties
-        StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
-        StorageProperties ossProperties = Mockito.mock(StorageProperties.class);
-        StorageProperties hdfsProperties = Mockito.mock(StorageProperties.class);
+        StorageAdapter s3Properties = Mockito.mock(StorageAdapter.class);
+        StorageAdapter ossProperties = Mockito.mock(StorageAdapter.class);
+        StorageAdapter hdfsProperties = Mockito.mock(StorageAdapter.class);
 
         Map<String, String> s3BackendProps = new HashMap<>();
         s3BackendProps.put("AWS_ACCESS_KEY", "s3AccessKey");
@@ -180,10 +180,10 @@ public class CredentialUtilsTest {
         Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
         Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
 
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, s3Properties);
-        storagePropertiesMap.put(Type.OSS, ossProperties);
-        storagePropertiesMap.put(Type.HDFS, hdfsProperties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.S3, s3Properties);
+        storagePropertiesMap.put(StorageTypeId.OSS, ossProperties);
+        storagePropertiesMap.put(StorageTypeId.HDFS, hdfsProperties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
@@ -198,7 +198,7 @@ public class CredentialUtilsTest {
 
     @Test
     public void testGetBackendPropertiesFromStorageMapWithNullValues() {
-        StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
+        StorageAdapter s3Properties = Mockito.mock(StorageAdapter.class);
 
         Map<String, String> s3BackendProps = new HashMap<>();
         s3BackendProps.put("AWS_ACCESS_KEY", "testAccessKey");
@@ -208,8 +208,8 @@ public class CredentialUtilsTest {
 
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
 
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, s3Properties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
@@ -222,7 +222,7 @@ public class CredentialUtilsTest {
 
     @Test
     public void testGetBackendPropertiesFromStorageMapWithEmptyMap() {
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
@@ -232,11 +232,11 @@ public class CredentialUtilsTest {
 
     @Test
     public void testGetBackendPropertiesFromStorageMapWithEmptyBackendProps() {
-        StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
+        StorageAdapter s3Properties = Mockito.mock(StorageAdapter.class);
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(new HashMap<>());
 
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, s3Properties);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 

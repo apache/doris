@@ -20,6 +20,8 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,10 +111,10 @@ public class OzonePropertiesTest {
         List<StorageProperties> properties = StorageProperties.createAll(origProps);
         Assertions.assertEquals(OzoneProperties.class, properties.get(0).getClass());
 
-        Map<StorageProperties.Type, StorageProperties> propertiesMap = properties.stream()
-                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-        LocationPath locationPath = LocationPath.of("s3a://dn-data/warehouse/test_table", propertiesMap);
-        Assertions.assertTrue(locationPath.getStorageProperties() instanceof OzoneProperties);
+        Map<StorageTypeId, StorageAdapter> propertiesMap = StorageAdapter.ofAll(origProps).stream()
+                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
+        LocationPath locationPath = LocationPath.ofAdapters("s3a://dn-data/warehouse/test_table", propertiesMap);
+        Assertions.assertEquals(StorageTypeId.OZONE, locationPath.getStorageAdapter().getType());
     }
 
     @Test

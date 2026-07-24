@@ -19,8 +19,8 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -39,7 +39,7 @@ import java.util.Map;
 
 public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergProperties {
 
-    private S3Properties s3Properties;
+    private StorageAdapter s3Adapter;
 
     public IcebergS3TablesMetaStoreProperties(Map<String, String> props) {
         super(props);
@@ -53,12 +53,16 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        s3Properties = S3Properties.of(origProps);
+        s3Adapter = StorageAdapter.ofProvider("S3", origProps);
+    }
+
+    private String getS3Region() {
+        return ((S3CompatibleFileSystemProperties) s3Adapter.getSpiProperties()).getRegion();
     }
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                               List<StorageProperties> storagePropertiesList) {
+                               List<StorageAdapter> storagePropertiesList) {
         buildS3CatalogProperties(catalogProps);
         S3TablesClient client = buildS3TablesClient(catalogProps);
         S3TablesCatalog catalog = new S3TablesCatalog();
@@ -67,21 +71,21 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
             return catalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize S3TablesCatalog for Iceberg. "
-                    + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion()
+                    + "CatalogName=" + catalogName + ", region=" + getS3Region()
                     + ", msg: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
     private void buildS3CatalogProperties(Map<String, String> props) {
-        props.put(AwsClientProperties.CLIENT_REGION, s3Properties.getRegion());
-        IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties(props, s3Properties);
+        props.put(AwsClientProperties.CLIENT_REGION, getS3Region());
+        IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties(props, s3Adapter);
     }
 
     private S3TablesClient buildS3TablesClient(Map<String, String> props) {
         S3TablesClientBuilder builder = S3TablesClient.builder()
-                .region(Region.of(s3Properties.getRegion()))
+                .region(Region.of(getS3Region()))
                 .credentialsProvider(IcebergAwsClientCredentialsProperties.createAwsCredentialsProvider(
-                        s3Properties, false));
+                        s3Adapter, false));
         String s3TablesEndpoint = props.get(S3TablesProperties.S3TABLES_ENDPOINT);
         if (StringUtils.isNotBlank(s3TablesEndpoint)) {
             builder.endpointOverride(URI.create(s3TablesEndpoint));

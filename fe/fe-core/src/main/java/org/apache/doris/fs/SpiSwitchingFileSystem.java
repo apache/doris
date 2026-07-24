@@ -18,7 +18,8 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisInputStream;
 import org.apache.doris.filesystem.DorisOutputFile;
@@ -48,10 +49,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>Implements {@link FileSystem} and routes each operation to the appropriate
  * {@link FileSystem} based on the URI scheme / authority of the path operand.  The
- * storage-type → {@link StorageProperties} mapping comes from the catalog's
- * {@code storagePropertiesMap}.
+ * storage-type → {@link StorageAdapter} mapping comes from the catalog's
+ * {@code storageAdaptersMap}.
  *
- * <p>Resolved {@link FileSystem} instances are cached per {@link StorageProperties} reference
+ * <p>Resolved {@link FileSystem} instances are cached per {@link StorageAdapter} reference
  * (identity-based) to avoid recreating connections on every call.
  *
  * <p><strong>Legacy cross-scheme fallback translation.</strong> {@link LocationPath} documents a
@@ -69,19 +70,19 @@ public class SpiSwitchingFileSystem implements FileSystem {
 
     private static final Logger LOG = LogManager.getLogger(SpiSwitchingFileSystem.class);
 
-    private final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private final Map<StorageTypeId, StorageAdapter> storageAdaptersMap;
     /** Non-null only when created via the test constructor — all paths delegate here. */
     private FileSystem testDelegate;
     /**
-     * Cache: StorageProperties → spi.FileSystem.
-     * Uses value-based equality (via ConnectionProperties.equals/hashCode on origProps),
-     * so logically identical configurations share the same FileSystem instance.
+     * Cache: StorageAdapter → spi.FileSystem.
+     * Adapters are identity-keyed: every resolution draws from the same {@code storageAdaptersMap}
+     * instances, so one FileSystem is created per configured storage, as before.
      */
-    private final Map<StorageProperties, FileSystem> cache = new ConcurrentHashMap<>();
+    private final Map<StorageAdapter, FileSystem> cache = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    public SpiSwitchingFileSystem(Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
-        this.storagePropertiesMap = storagePropertiesMap;
+    public SpiSwitchingFileSystem(Map<StorageTypeId, StorageAdapter> storageAdaptersMap) {
+        this.storageAdaptersMap = storageAdaptersMap;
     }
 
     /**
@@ -90,7 +91,7 @@ public class SpiSwitchingFileSystem implements FileSystem {
      */
     @VisibleForTesting
     public SpiSwitchingFileSystem(FileSystem testDelegate) {
-        this.storagePropertiesMap = java.util.Collections.emptyMap();
+        this.storageAdaptersMap = java.util.Collections.emptyMap();
         this.testDelegate = testDelegate;
     }
 
@@ -115,16 +116,16 @@ public class SpiSwitchingFileSystem implements FileSystem {
             return new Resolved(testDelegate, null, null);
         }
         String uri = location.uri();
-        LocationPath lp = LocationPath.of(uri, storagePropertiesMap);
-        StorageProperties sp = lp.getStorageProperties();
+        LocationPath lp = LocationPath.ofAdapters(uri, storageAdaptersMap);
+        StorageAdapter sp = lp.getStorageAdapter();
         if (sp == null) {
             throw new IOException("No StorageProperties found for path: " + uri);
         }
         FileSystem fs;
         try {
-            fs = cache.computeIfAbsent(sp, props -> {
+            fs = cache.computeIfAbsent(sp, adapter -> {
                 try {
-                    return FileSystemFactory.getFileSystem(props);
+                    return FileSystemFactory.getFileSystem(adapter.getSpiProperties());
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
@@ -154,8 +155,8 @@ public class SpiSwitchingFileSystem implements FileSystem {
      *       translation is exactly reversible for URIs the delegate returns.</li>
      * </ul>
      */
-    private static String[] compatSchemePrefixes(String uri, LocationPath lp, StorageProperties sp) {
-        StorageProperties.Type schemeType = LocationPath.fromSchemaWithContext(uri, lp.getSchema());
+    private static String[] compatSchemePrefixes(String uri, LocationPath lp, StorageAdapter sp) {
+        StorageTypeId schemeType = LocationPath.fromSchemaWithContext(uri, lp.getSchema());
         if (schemeType == sp.getType()) {
             return null;
         }

@@ -20,8 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
@@ -62,7 +61,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
 
         Map<String, String> catalogProps = new HashMap<>();
         IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties(
-                catalogProps, S3Properties.of(props));
+                catalogProps, StorageAdapter.ofProvider("S3", props));
 
         Assertions.assertEquals("https://s3.us-east-1.amazonaws.com",
                 catalogProps.get(S3FileIOProperties.ENDPOINT));
@@ -91,7 +90,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
                 .putAll(s3Props)
                 .build();
         IcebergS3TablesMetaStoreProperties properties = (IcebergS3TablesMetaStoreProperties) MetastoreProperties.create(allProps);
-        Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageProperties.createAll(allProps));
+        Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageAdapter.ofAll(allProps));
         Assertions.assertEquals(S3TablesCatalog.class, catalog.getClass());
     }
 

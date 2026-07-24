@@ -18,16 +18,16 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisInputStream;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 
-import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
@@ -36,7 +36,6 @@ import org.mockito.Mockito;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +54,7 @@ public class SpiSwitchingFileSystemTest {
     private final FileSystem mockDelegate = Mockito.mock(FileSystem.class);
 
     /**
-     * H2: When {@link FileSystemFactory#getFileSystem(StorageProperties)} throws {@link IOException},
+     * H2: When {@link FileSystemFactory#getFileSystem(FileSystemProperties)} throws {@link IOException},
      * {@link SpiSwitchingFileSystem#forPath(String)} must rethrow it as {@link IOException},
      * not as {@link RuntimeException}.
      *
@@ -66,15 +65,16 @@ public class SpiSwitchingFileSystemTest {
      */
     @Test
     public void testForPathPropagatesIOExceptionNotRuntimeException() {
-        BrokerProperties bp = BrokerProperties.of("test-broker", Maps.newHashMap());
+        StorageAdapter bp = Mockito.mock(StorageAdapter.class);
+        Mockito.when(bp.getSpiProperties()).thenReturn(Mockito.mock(FileSystemProperties.class));
         IOException rootCause = new IOException("simulated connection failure");
 
         try (MockedStatic<LocationPath> mockedLocationPath = Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            // Mock LocationPath.of() so it returns a LocationPath with a non-null StorageProperties,
-            // allowing execution to reach FileSystemFactory.getFileSystem().
-            mockedLocationPath.when(() -> LocationPath.of(Mockito.anyString(), Mockito.anyMap()))
+            // Mock LocationPath.ofAdapters() so it returns a LocationPath with a non-null
+            // StorageAdapter, allowing execution to reach FileSystemFactory.getFileSystem().
+            mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(inv -> {
                         String location = inv.getArgument(0);
                         return LocationPath.ofDirect(location, "broker", "broker://", bp);
@@ -82,7 +82,7 @@ public class SpiSwitchingFileSystemTest {
 
             // Mock FileSystemFactory to throw IOException — this is the scenario under test.
             mockedFactory.when(() -> FileSystemFactory.getFileSystem(
-                            Mockito.any(StorageProperties.class)))
+                            Mockito.any(FileSystemProperties.class)))
                     .thenThrow(rootCause);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -139,14 +139,9 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        // Use distinct origProps so the two BrokerProperties have different
-        // equals()/hashCode() — ConnectionProperties.equals() is based on origProps.
-        Map<String, String> props1 = new HashMap<>();
-        props1.put("broker.name", "broker1");
-        Map<String, String> props2 = new HashMap<>();
-        props2.put("broker.name", "broker2");
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", props1), countingFs);
-        injectIntoCache(spiFs, BrokerProperties.of("broker2", props2), countingFs);
+        // Two distinct adapter instances — the cache is identity-keyed per configured storage.
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), countingFs);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), countingFs);
 
         spiFs.close();
 
@@ -168,7 +163,7 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", new HashMap<>()), countingFs);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), countingFs);
 
         spiFs.close(); // first close — should close the cached FS
         spiFs.close(); // second close — must be a no-op
@@ -200,14 +195,9 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        // Use distinct origProps so the two BrokerProperties have different
-        // equals()/hashCode() — ConnectionProperties.equals() is based on origProps.
-        Map<String, String> props1 = new HashMap<>();
-        props1.put("broker.name", "broker1");
-        Map<String, String> props2 = new HashMap<>();
-        props2.put("broker.name", "broker2");
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", props1), failingFs1);
-        injectIntoCache(spiFs, BrokerProperties.of("broker2", props2), failingFs2);
+        // Two distinct adapter instances — the cache is identity-keyed per configured storage.
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), failingFs1);
+        injectIntoCache(spiFs, Mockito.mock(StorageAdapter.class), failingFs2);
 
         try {
             spiFs.close();
@@ -242,8 +232,9 @@ public class SpiSwitchingFileSystemTest {
      */
     @Test
     public void testCompatFallbackTranslatesUrisBothWays() throws Exception {
-        StorageProperties s3Props = Mockito.mock(StorageProperties.class);
-        Mockito.when(s3Props.getType()).thenReturn(StorageProperties.Type.S3);
+        StorageAdapter s3Props = Mockito.mock(StorageAdapter.class);
+        Mockito.when(s3Props.getType()).thenReturn(StorageTypeId.S3);
+        Mockito.when(s3Props.getSpiProperties()).thenReturn(Mockito.mock(FileSystemProperties.class));
         CapturingFileSystem fake = new CapturingFileSystem();
 
         try (MockedStatic<LocationPath> mockedLocationPath =
@@ -252,14 +243,14 @@ public class SpiSwitchingFileSystemTest {
                         Mockito.mockStatic(FileSystemFactory.class)) {
             // Simulate the fallback: cos:// path served by an S3-typed storage whose
             // validateAndNormalizeUri rewrote the scheme prefix to s3://.
-            mockedLocationPath.when(() -> LocationPath.of(Mockito.anyString(), Mockito.anyMap()))
+            mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(inv -> {
                         String location = inv.getArgument(0);
                         String normalized = "s3://" + location.substring("cos://".length());
                         return LocationPath.ofDirect(normalized, "cos", "s3://bucket", s3Props);
                     });
             mockedFactory.when(() -> FileSystemFactory.getFileSystem(
-                            Mockito.any(StorageProperties.class)))
+                            Mockito.any(FileSystemProperties.class)))
                     .thenReturn(fake);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -300,22 +291,23 @@ public class SpiSwitchingFileSystemTest {
      */
     @Test
     public void testDirectMatchSkipsTranslation() throws Exception {
-        StorageProperties cosProps = Mockito.mock(StorageProperties.class);
-        Mockito.when(cosProps.getType()).thenReturn(StorageProperties.Type.COS);
+        StorageAdapter cosProps = Mockito.mock(StorageAdapter.class);
+        Mockito.when(cosProps.getType()).thenReturn(StorageTypeId.COS);
+        Mockito.when(cosProps.getSpiProperties()).thenReturn(Mockito.mock(FileSystemProperties.class));
         CapturingFileSystem fake = new CapturingFileSystem();
 
         try (MockedStatic<LocationPath> mockedLocationPath =
                 Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedLocationPath.when(() -> LocationPath.of(Mockito.anyString(), Mockito.anyMap()))
+            mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(inv -> {
                         String location = inv.getArgument(0);
                         String normalized = "s3://" + location.substring("cos://".length());
                         return LocationPath.ofDirect(normalized, "cos", "s3://bucket", cosProps);
                     });
             mockedFactory.when(() -> FileSystemFactory.getFileSystem(
-                            Mockito.any(StorageProperties.class)))
+                            Mockito.any(FileSystemProperties.class)))
                     .thenReturn(fake);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -330,21 +322,22 @@ public class SpiSwitchingFileSystemTest {
      */
     @Test
     public void testSameSchemeFallbackSkipsTranslation() throws Exception {
-        StorageProperties minioProps = Mockito.mock(StorageProperties.class);
-        Mockito.when(minioProps.getType()).thenReturn(StorageProperties.Type.MINIO);
+        StorageAdapter minioProps = Mockito.mock(StorageAdapter.class);
+        Mockito.when(minioProps.getType()).thenReturn(StorageTypeId.MINIO);
+        Mockito.when(minioProps.getSpiProperties()).thenReturn(Mockito.mock(FileSystemProperties.class));
         CapturingFileSystem fake = new CapturingFileSystem();
 
         try (MockedStatic<LocationPath> mockedLocationPath =
                 Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<FileSystemFactory> mockedFactory =
                         Mockito.mockStatic(FileSystemFactory.class)) {
-            mockedLocationPath.when(() -> LocationPath.of(Mockito.anyString(), Mockito.anyMap()))
+            mockedLocationPath.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(inv -> {
                         String location = inv.getArgument(0);
                         return LocationPath.ofDirect(location, "s3", "s3://bucket", minioProps);
                     });
             mockedFactory.when(() -> FileSystemFactory.getFileSystem(
-                            Mockito.any(StorageProperties.class)))
+                            Mockito.any(FileSystemProperties.class)))
                     .thenReturn(fake);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -363,11 +356,11 @@ public class SpiSwitchingFileSystemTest {
      */
     @SuppressWarnings("unchecked")
     private static void injectIntoCache(SpiSwitchingFileSystem spiFs,
-            StorageProperties key, FileSystem value) throws Exception {
+            StorageAdapter key, FileSystem value) throws Exception {
         Field cacheField = SpiSwitchingFileSystem.class.getDeclaredField("cache");
         cacheField.setAccessible(true);
-        Map<StorageProperties, FileSystem> cache =
-                (ConcurrentHashMap<StorageProperties, FileSystem>) cacheField.get(spiFs);
+        Map<StorageAdapter, FileSystem> cache =
+                (ConcurrentHashMap<StorageAdapter, FileSystem>) cacheField.get(spiFs);
         cache.put(key, value);
     }
 

@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ public class PaimonHMSMetaStorePropertiesTest {
         props.put("paimon.catalog.type", "hms");
         props.put("warehouse", "hdfs://mycluster/paimon");
         PaimonHMSMetaStoreProperties paimonProps = (PaimonHMSMetaStoreProperties) MetastoreProperties.create(props);
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
+        List<StorageAdapter> storagePropertiesList = Collections.singletonList(StorageAdapter.of(props));
         //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
         Assertions.assertThrows(RuntimeException.class,
                 () -> paimonProps.initializeCatalog("paimon", storagePropertiesList));

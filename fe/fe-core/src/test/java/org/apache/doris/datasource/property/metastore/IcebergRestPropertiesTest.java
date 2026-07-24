@@ -19,9 +19,8 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.storage.OSSProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.hadoop.conf.Configuration;
@@ -934,21 +933,21 @@ public class IcebergRestPropertiesTest {
         s3Props.put("s3.secret_key", "s3SecretKey");
         s3Props.put("s3.region", "us-east-1");
         s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
 
         Map<String, String> ossProps = new HashMap<>();
         ossProps.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         ossProps.put("oss.access_key", "ossAccessKey");
         ossProps.put("oss.secret_key", "ossSecretKey");
         ossProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss = (OSSProperties) StorageProperties.createPrimary(ossProps);
+        StorageAdapter oss = StorageAdapter.of(ossProps);
 
         Map<String, String> restPropsMap = new HashMap<>();
         restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
         IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageList = new ArrayList<>();
+        List<StorageAdapter> storageList = new ArrayList<>();
         storageList.add(s3);
         storageList.add(oss);
 
@@ -971,14 +970,14 @@ public class IcebergRestPropertiesTest {
         s3Props.put("s3.secret_key", "s3SecretKey");
         s3Props.put("s3.region", "us-east-1");
         s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
 
         Map<String, String> restPropsMap = new HashMap<>();
         restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
         IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageList = new ArrayList<>();
+        List<StorageAdapter> storageList = new ArrayList<>();
         storageList.add(s3);
 
         Map<String, String> fileIOProperties = new HashMap<>();
@@ -999,28 +998,28 @@ public class IcebergRestPropertiesTest {
         s3Props.put("s3.secret_key", "s3SK");
         s3Props.put("s3.region", "us-east-1");
         s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
 
         Map<String, String> ossProps1 = new HashMap<>();
         ossProps1.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         ossProps1.put("oss.access_key", "ossAK1");
         ossProps1.put("oss.secret_key", "ossSK1");
         ossProps1.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss1 = (OSSProperties) StorageProperties.createPrimary(ossProps1);
+        StorageAdapter oss1 = StorageAdapter.of(ossProps1);
 
         Map<String, String> ossProps2 = new HashMap<>();
         ossProps2.put("oss.endpoint", "oss-cn-shanghai.aliyuncs.com");
         ossProps2.put("oss.access_key", "ossAK2");
         ossProps2.put("oss.secret_key", "ossSK2");
         ossProps2.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss2 = (OSSProperties) StorageProperties.createPrimary(ossProps2);
+        StorageAdapter oss2 = StorageAdapter.of(ossProps2);
 
         Map<String, String> restPropsMap = new HashMap<>();
         restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
         IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageList = new ArrayList<>();
+        List<StorageAdapter> storageList = new ArrayList<>();
         storageList.add(s3);
         storageList.add(oss1);
         storageList.add(oss2);

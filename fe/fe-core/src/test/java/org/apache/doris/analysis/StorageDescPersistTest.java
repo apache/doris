@@ -17,8 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -41,10 +40,10 @@ public class StorageDescPersistTest {
 
         BrokerDesc restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(brokerDesc), BrokerDesc.class);
 
-        Assert.assertNotNull(restored.getStorageProperties());
-        Assert.assertTrue(restored.getStorageProperties() instanceof BrokerProperties);
-        Assert.assertEquals("BROKER", restored.getStorageProperties().getStorageName());
-        Assert.assertEquals("user", restored.getStorageProperties().getBackendConfigProperties()
+        Assert.assertNotNull(restored.getStorageAdapter());
+        Assert.assertEquals("BROKER", restored.getStorageAdapter().getStorageName());
+        Assert.assertEquals("test_broker", restored.getStorageAdapter().getBrokerName());
+        Assert.assertEquals("user", restored.getStorageAdapter().getBackendConfigProperties()
                 .get("broker.username"));
     }
 
@@ -63,13 +62,17 @@ public class StorageDescPersistTest {
         BrokerLoadJob restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(job), BrokerLoadJob.class);
         BrokerDesc restoredBrokerDesc =
                 (BrokerDesc) getField(BrokerLoadJob.class.getSuperclass(), restored, "brokerDesc");
-        StorageProperties restoredStorageProperties = restoredBrokerDesc.getStorageProperties();
+        StorageAdapter restoredStorageProperties = restoredBrokerDesc.getStorageAdapter();
 
         Assert.assertNotNull(restoredStorageProperties);
         Assert.assertEquals("S3", restoredStorageProperties.getStorageName());
         Assert.assertEquals(EtlJobType.BROKER, restored.getJobType());
         Assert.assertEquals(StorageBackend.StorageType.S3, restoredBrokerDesc.getStorageType());
         Assert.assertEquals("test-bucket", restoredStorageProperties.getOrigProps().get("s3.bucket"));
+        Assert.assertNotNull(restoredBrokerDesc.getStorageAdapter());
+        Assert.assertEquals("S3", restoredBrokerDesc.getStorageAdapter().getStorageName());
+        Assert.assertEquals("test-bucket",
+                restoredBrokerDesc.getStorageAdapter().getOrigProps().get("s3.bucket"));
     }
 
     private static void setField(Class<?> clazz, Object target, String fieldName, Object value)

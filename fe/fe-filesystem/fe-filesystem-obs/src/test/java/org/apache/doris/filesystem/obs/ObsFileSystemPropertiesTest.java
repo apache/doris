@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -175,5 +176,51 @@ class ObsFileSystemPropertiesTest {
 
         Assertions.assertTrue(provider.supports(Map.of(
                 "AWS_ENDPOINT", "https://obs.cn-north-4.myhuaweicloud.com")));
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_virtualHostedHuaweicloudUri_derivesEndpointAndRegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.obs.cn-north-4.myhuaweicloud.com/data/file.csv");
+        raw.put("obs.access_key", "ak");
+        raw.put("obs.secret_key", "sk");
+
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-north-4", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.obs.cn-north-4.myhuaweicloud.com/data/file.csv");
+        raw.put("obs.endpoint", "obs.cn-east-3.myhuaweicloud.com");
+        raw.put("obs.access_key", "ak");
+        raw.put("obs.secret_key", "sk");
+
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("obs.cn-east-3.myhuaweicloud.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-east-3", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenEndpointRequiredFires() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "obs.cn-north-4.myhuaweicloud.com/bucket/file.csv"); // no scheme
+        raw.put("obs.access_key", "ak");
+        raw.put("obs.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ObsFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Property obs.endpoint is required."),
+                exception.getMessage());
     }
 }

@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.commons.lang3.StringUtils;
@@ -138,7 +138,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-            List<StorageProperties> storagePropertiesList) {
+            List<StorageAdapter> storagePropertiesList) {
         catalogProps.putAll(getIcebergJdbcCatalogProperties());
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);

@@ -44,7 +44,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TSortType;
@@ -85,7 +85,7 @@ public class CloudRestoreJobTest {
     private StorageVaultMgr storageVaultMgr = Mockito.mock(StorageVaultMgr.class);
 
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            BrokerProperties.of("broker", Maps.newHashMap()));
+            StorageAdapter.ofBroker("broker", Maps.newHashMap()));
 
     private MockedStatic<MetaServiceProxy> mockedMetaServiceProxy;
     private MetaServiceProxy mockMetaServiceProxyInstance;

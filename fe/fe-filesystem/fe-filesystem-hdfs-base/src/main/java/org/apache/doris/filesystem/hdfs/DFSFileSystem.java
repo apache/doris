@@ -23,7 +23,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -52,7 +52,7 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
 
     private final Map<String, String> properties;
     private final Configuration conf;
-    private final HadoopAuthenticator authenticator;
+    private final ExecutionAuthenticator authenticator;
     // Keyed by URI authority (host:port or "" for default-FS paths) so that a
     // single DFSFileSystem instance can serve paths on multiple HDFS authorities
     // without the "Wrong FS" error that occurred when a singleton cached the FS

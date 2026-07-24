@@ -33,16 +33,31 @@ class S3ObjStorageTest {
     // ------------------------------------------------------------------
 
     @Test
-    void getClient_endpointOnlyConfigurationUsesRegionBuiltByProperties() throws Exception {
+    void constructor_rejectsEndpointOnlyConfigurationWithoutDerivableRegion() {
+        // Align fe-core (ledger 2.4-4): a non-standard endpoint with no region no longer falls
+        // back to us-east-1 — property binding throws, same as fe-core.
         Map<String, String> props = new HashMap<>();
         props.put("AWS_ENDPOINT", "https://minio.local");
+        props.put("AWS_ACCESS_KEY", "ak");
+        props.put("AWS_SECRET_KEY", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> new S3ObjStorage(props));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"));
+    }
+
+    @Test
+    void getClient_usesExplicitRegionFromProperties() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://minio.local");
+        props.put("AWS_REGION", "us-west-2");
         props.put("AWS_ACCESS_KEY", "ak");
         props.put("AWS_SECRET_KEY", "sk");
 
         S3ObjStorage storage = new S3ObjStorage(props);
         S3Client client = storage.getClient();
         try {
-            Assertions.assertEquals(Region.US_EAST_1, client.serviceClientConfiguration().region());
+            Assertions.assertEquals(Region.US_WEST_2, client.serviceClientConfiguration().region());
         } finally {
             storage.close();
         }

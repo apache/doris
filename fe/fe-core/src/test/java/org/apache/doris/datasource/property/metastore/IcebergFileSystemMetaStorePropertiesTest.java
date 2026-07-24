@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ public class IcebergFileSystemMetaStorePropertiesTest {
         props.put("iceberg.catalog.type", "hadoop");
         props.put("warehouse", "hdfs://mycluster_test/ice");
         IcebergFileSystemMetaStoreProperties icebergProps = (IcebergFileSystemMetaStoreProperties) MetastoreProperties.create(props);
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
+        List<StorageAdapter> storagePropertiesList = Collections.singletonList(StorageAdapter.of(props));
         //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
         Assertions.assertThrows(RuntimeException.class, () -> icebergProps.initializeCatalog("iceberg", storagePropertiesList));
     }
@@ -57,7 +57,7 @@ public class IcebergFileSystemMetaStorePropertiesTest {
         props.put("warehouse", "file:///tmp");
         IcebergFileSystemMetaStoreProperties icebergProps = (IcebergFileSystemMetaStoreProperties) MetastoreProperties.create(props);
         Assertions.assertEquals("hadoop", icebergProps.getIcebergCatalogType());
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
+        List<StorageAdapter> storagePropertiesList = Collections.singletonList(StorageAdapter.of(props));
         Assertions.assertDoesNotThrow(() -> icebergProps.initializeCatalog("iceberg", storagePropertiesList));
         props.put("fs.defaultFS", "hdfs://mycluster" + System.currentTimeMillis());
         props.put("warehouse", "hdfs://mycluster" + System.currentTimeMillis());
