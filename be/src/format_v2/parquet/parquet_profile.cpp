@@ -175,6 +175,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                               TUnit::BYTES, parquet_profile, 1);
     predicate_compaction_count = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PredicateCompactionCount",
                                                               TUnit::UNIT, parquet_profile, 1);
+    predicate_alignment_columns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PredicateAlignmentColumns",
+                                                               TUnit::UNIT, parquet_profile, 1);
     fixed_width_predicate_direct_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "FixedWidthPredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
     fixed_width_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -316,6 +318,7 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .predicate_compaction_time = predicate_compaction_time,
             .predicate_compaction_bytes = predicate_compaction_bytes,
             .predicate_compaction_count = predicate_compaction_count,
+            .predicate_alignment_columns = predicate_alignment_columns,
             .fixed_width_predicate_direct_batches = fixed_width_predicate_direct_batches,
             .fixed_width_predicate_direct_rows = fixed_width_predicate_direct_rows,
             .dict_filter_rewrite_time = dict_filter_rewrite_time,
