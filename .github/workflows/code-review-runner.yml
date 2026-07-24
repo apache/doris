@@ -50,8 +50,12 @@ jobs:
 
       - name: Install ripgrep
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          if command -v rg >/dev/null 2>&1; then
+            rg --version | head -n 1
+          else
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
 
       - name: Install Codex
         run: |
@@ -326,6 +330,7 @@ jobs:
           You can comment on the pull request.
           This review task is executed in Codex goal mode. Subsequent prompts and skill indicate all the review and commenting actions you need to perform. The current round can only be concluded after completing the main agent risk scan, the normal full-review subagent review for each round, and the risk-focused subagent scan (if applicable). The final GitHub review can only be submitted after all subagents return NO_NEW_VALUABLE_FINDINGS, and all candidate points from the subagents have been validated, deduplicated, accepted, or rejected by the main agent.
           In addition, the number of iterations shall not exceed 3 rounds. If new subagents identify valuable candidate points after 3 rounds, the main agent must indicate in the final summary that the review is incomplete.
+          Fast feedback is a separate checkpoint, not a replacement for the complete review. Complete it immediately after the main-agent initial risk scan and before spawning any subagents. Aim to publish the checkpoint within 2 minutes after Codex starts; never trade correctness for the deadline.
 
           Context:
           - Repository: PLACEHOLDER_REPO
@@ -348,12 +353,20 @@ jobs:
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
           The active review goal's progress tracking MUST include, and must stay current throughout the review:
           1. Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
-          2. Perform a main-agent initial risk scan before spawning review subagents. You must thoroughly read all the changes in this PR and understand all the involved mechanisms, pointing out: if there is a problem with this PR, where is the problem most likely to be? Or are there any points you suspect to be risky? write the result under `## Main Initial Risk Scan` in the shared ledger.
-          3. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
-          4. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
-          5. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
-          6. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
-          7. Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+          2. Perform a time-bounded main-agent initial risk scan before spawning review subagents. Read the entire authoritative diff once, prioritize high-confidence correctness and lifecycle blockers, and record the most suspicious mechanisms under `## Main Initial Risk Scan` in the shared ledger. Complete mechanism tracing continues after fast feedback; do not delay the checkpoint merely to turn every suspicion into a conclusion.
+          3. Publish the fast-feedback checkpoint for the reviewed HEAD SHA by following the Fast Feedback Protocol below. This checkpoint must be completed before any subagent is spawned.
+          4. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
+          5. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
+          6. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
+          7. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
+          8. Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+
+          Fast Feedback Protocol:
+          - Immediately before publishing, re-read the live PR head with `gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER --jq .head.sha`. If it is not exactly PLACEHOLDER_HEAD_SHA, do not publish fast feedback; stop the review because its context is stale.
+          - Only a concrete issue that the main agent has already verified against the diff and surrounding code is a confirmed blocker. A suspicion or an item that still needs subagent research is not a confirmed blocker.
+          - If the initial risk scan finds one or more confirmed blockers, immediately submit them as a `REQUEST_CHANGES` review with inline comments through the GitHub Reviews API. The JSON request must set `"commit_id":"PLACEHOLDER_HEAD_SHA"` explicitly. Start the review body with `[Automated review fast feedback]`, verify that the review and inline comments landed, and record the submitted finding IDs and review ID in the shared ledger so the final review does not duplicate them.
+          - If the initial risk scan finds no confirmed blocker, immediately post one PR conversation comment with `gh pr comment PLACEHOLDER_PR_NUMBER --body ...`. The body must start with `[Automated review fast feedback]`, identify PLACEHOLDER_HEAD_SHA, say that the initial blocker scan found no confirmed blocking issue, and state clearly that the complete review is still running and this is not final approval.
+          - After publishing either result, continue the complete multi-agent review. Later findings may change a preliminary no-blocker result. The workflow must not dismiss a review, approve the PR, or trigger a build from this checkpoint; the PR author decides whether to run buildall after reading the clearly provisional result.
 
           Subagent Constraints:
           - Every subagent appends only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
@@ -368,6 +381,7 @@ jobs:
           - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent.
           - The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item.
           - Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review. At this stage, you can conduct final research on any part you still have doubts about or which may not have been fully investigated, ensuring that all potential issues have been thoroughly investigated and reported.
+          - Findings already submitted during fast feedback must not be submitted a second time. Re-verify them during the complete review. If one is disproved, reply to its inline thread with the concrete counter-evidence, mark it `dismissed_with_evidence` in the ledger, and state clearly in the final summary that the fast-feedback finding is withdrawn; do not dismiss the review automatically. Otherwise, reference its review ID in the final summary and submit only newly accepted inline findings during the final review.
 
           Any agent MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
 
@@ -382,15 +396,17 @@ jobs:
 
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
-              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
+          - Immediately before submitting the final review, re-read the live PR head with `gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER --jq .head.sha`. If it is not exactly PLACEHOLDER_HEAD_SHA, do not submit the final review; stop because the review context is stale.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion through the GitHub Reviews API with `{"commit_id":"PLACEHOLDER_HEAD_SHA","event":"COMMENT","body":"[Automated review final]\n<summary>"}`.
           - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Start the review body with `[Automated review final]`.
+              - Set `"commit_id":"PLACEHOLDER_HEAD_SHA"` explicitly in the JSON request.
               - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
               - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
               - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
-              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+              - The JSON file should contain: {"commit_id":"PLACEHOLDER_HEAD_SHA","event":"REQUEST_CHANGES","body":"[Automated review final]\n<summary>","comments":[...]}
           PROMPT
 
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
@@ -421,6 +437,15 @@ jobs:
           - Subagents must not rewrite this file, edit another subagent section, edit main-owned sections, edit repository source files, or submit GitHub comments.
           - Avoid duplicates. If a candidate overlaps an existing candidate, add a duplicate note in your own section that references the existing candidate ID.
           - The main agent owns final status, final deduplication, GitHub review submission, and GitHub API verification.
+
+          ## Fast Feedback
+
+          Main-owned fields:
+
+          - Status: pending
+            Published at:
+            Review or comment ID:
+            Submitted finding IDs:
 
           ## Main Initial Risk Scan
 
@@ -534,14 +559,23 @@ jobs:
 
           if [ -z "$failure_reason" ]; then
             reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            fast_feedback_comments_file="$REVIEW_CONTEXT_DIR/pr_fast_feedback_comments.json"
             reviews_api_ok=false
             review_verified=false
+            fast_feedback_verified=false
+            fast_feedback_at=""
             for attempt in 1 2 3 4 5 6; do
               if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
                 reviews_api_ok=true
                 if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
                   (add // [])
-                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | map(select(
+                      (.submitted_at // "") >= $started_at
+                      and (.commit_id // "") == $head_sha
+                      and (.user.login // "") == "github-actions[bot]"
+                      and ((.state // "") == "COMMENTED" or (.state // "") == "CHANGES_REQUESTED")
+                      and ((.body // "") | startswith("[Automated review final]"))
+                    ))
                   | length > 0
                 ' "$reviews_file" >/dev/null; then
                   review_verified=true
@@ -551,10 +585,80 @@ jobs:
               sleep 5
             done
 
+            if [ "$reviews_api_ok" = "true" ] && jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+              (add // [])
+              | map(select(
+                  (.submitted_at // "") >= $started_at
+                  and (.commit_id // "") == $head_sha
+                  and (.user.login // "") == "github-actions[bot]"
+                  and ((.state // "") == "CHANGES_REQUESTED" or (.state // "") == "DISMISSED")
+                  and ((.body // "") | startswith("[Automated review fast feedback]"))
+                ))
+              | length > 0
+            ' "$reviews_file" >/dev/null; then
+              fast_feedback_verified=true
+              fast_feedback_at="$(jq -r --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                (add // [])
+                | map(select(
+                    (.submitted_at // "") >= $started_at
+                    and (.commit_id // "") == $head_sha
+                    and (.user.login // "") == "github-actions[bot]"
+                    and ((.state // "") == "CHANGES_REQUESTED" or (.state // "") == "DISMISSED")
+                    and ((.body // "") | startswith("[Automated review fast feedback]"))
+                  ))
+                | map(.submitted_at)
+                | min // ""
+              ' "$reviews_file")"
+            fi
+
+            if [ "$fast_feedback_verified" != "true" ]; then
+              for attempt in 1 2 3; do
+                if gh api --paginate --slurp "repos/${REPO}/issues/${PR_NUMBER}/comments" > "$fast_feedback_comments_file" \
+                  && jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                    (add // [])
+                    | map(select(
+                        (.created_at // "") >= $started_at
+                        and (.user.login // "") == "github-actions[bot]"
+                        and ((.body // "") | startswith("[Automated review fast feedback]"))
+                        and ((.body // "") | contains($head_sha))
+                      ))
+                    | length > 0
+                  ' "$fast_feedback_comments_file" >/dev/null; then
+                  fast_feedback_verified=true
+                  fast_feedback_at="$(jq -r --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                    (add // [])
+                    | map(select(
+                        (.created_at // "") >= $started_at
+                        and (.user.login // "") == "github-actions[bot]"
+                        and ((.body // "") | startswith("[Automated review fast feedback]"))
+                        and ((.body // "") | contains($head_sha))
+                      ))
+                    | map(.created_at)
+                    | min // ""
+                  ' "$fast_feedback_comments_file")"
+                  break
+                fi
+                sleep 5
+              done
+            fi
+
+            if [ "$fast_feedback_verified" = "true" ] && [ -n "$fast_feedback_at" ]; then
+              fast_feedback_seconds="$(jq -nr --arg started_at "$review_started_at" --arg published_at "$fast_feedback_at" '
+                ($published_at | fromdateiso8601) - ($started_at | fromdateiso8601)
+              ')"
+              echo "Fast-feedback checkpoint was published ${fast_feedback_seconds}s after Codex started."
+              echo "fast_feedback_seconds=${fast_feedback_seconds}" >> "$GITHUB_OUTPUT"
+              if [ "$fast_feedback_seconds" -gt 120 ]; then
+                echo "::warning::Fast-feedback checkpoint missed the 120s target (${fast_feedback_seconds}s)."
+              fi
+            fi
+
             if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
               failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
             elif [ "$review_verified" != "true" ]; then
               failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
+            elif [ "$fast_feedback_verified" != "true" ]; then
+              failure_reason="Codex completed, but no fast-feedback checkpoint was published for the current head SHA."
             fi
           fi
 
