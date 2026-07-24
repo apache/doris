@@ -20,24 +20,36 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace doris {
-    //AWS Credentials Provider Type
-    enum class CredProviderType {
-        Default = 0,
-        Simple = 1,
-        InstanceProfile = 2,
-        Env = 3,
-        SystemProperties = 4,
-        WebIdentity = 5,
-        Container = 6,
-        Anonymous = 7
-    };
+//AWS Credentials Provider Type
+enum class CredProviderType {
+    Default = 0,
+    Simple = 1,
+    InstanceProfile = 2,
+    Env = 3,
+    SystemProperties = 4,
+    WebIdentity = 5,
+    Container = 6,
+    Anonymous = 7,
+    // GKE Workload Identity; only valid with provider GCP.
+    GcpWorkloadIdentity = 8
+};
 
-    CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
+inline constexpr std::string_view GCS_XML_ENDPOINT = "https://storage.googleapis.com";
 
-    CredProviderType cred_provider_type_from_string(const std::string& type);
+bool is_gcs_xml_endpoint(std::string_view endpoint);
 
-    std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
+CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
 
-    } // namespace doris
+CredProviderType cred_provider_type_from_string(const std::string& type);
+
+CredProviderType resolve_cred_provider_type(CredProviderType configured_type,
+                                            bool has_static_credentials, bool has_role_arn);
+
+std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
+
+} // namespace doris

@@ -442,9 +442,8 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
     return ObjectStorageResponse::OK();
 }
 
-std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                                          int64_t expiration_secs,
-                                                          const S3ClientConf& conf) {
+Result<std::string> AzureObjStorageClient::generate_presigned_url(
+        const ObjectStoragePathOptions& opts, int64_t expiration_secs, const S3ClientConf& conf) {
     Azure::Storage::Sas::BlobSasBuilder sas_builder;
     sas_builder.ExpiresOn =
             std::chrono::system_clock::now() + std::chrono::seconds(expiration_secs);

@@ -384,8 +384,12 @@ private:
         std::string bucket = s3_uri.get_bucket();
         std::string key = s3_uri.get_key();
         DORIS_CHECK(!bucket.empty() && !key.empty());
-        media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key}, ttl_seconds,
-                                                      s3_client_conf);
+        auto presigned_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key},
+                                                               ttl_seconds, s3_client_conf);
+        if (!presigned_url) {
+            return presigned_url.error();
+        }
+        media_url = std::move(presigned_url).value();
         return Status::OK();
     }
 };

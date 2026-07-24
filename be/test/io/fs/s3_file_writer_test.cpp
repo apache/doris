@@ -1203,8 +1203,9 @@ public:
         return default_response;
     }
 
-    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs, const S3ClientConf& conf) override {
+    Result<std::string> generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                               int64_t expiration_secs,
+                                               const S3ClientConf& conf) override {
         std::lock_guard lock(_mutex);
         last_opts = opts;
         last_expiration_secs = expiration_secs;

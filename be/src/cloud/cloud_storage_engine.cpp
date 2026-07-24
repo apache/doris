@@ -124,6 +124,24 @@ static Status vault_process_error(std::string_view id,
     return Status::IOError("Invalid vault, id {}, err {}, detail conf {}", id, err, ss.str());
 }
 
+static void check_keyless_storage_vault(const std::string& id, const S3Conf& s3_conf,
+                                        const std::shared_ptr<io::S3FileSystem>& fs,
+                                        bool check_fs) {
+    if (!check_fs ||
+        (s3_conf.client_conf.role_arn.empty() &&
+         s3_conf.client_conf.cred_provider_type != CredProviderType::GcpWorkloadIdentity)) {
+        return;
+    }
+
+    bool exists = false;
+    auto st = fs->exists("not_exist_object", &exists);
+    if (!st.ok()) {
+        LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
+                   << "s3_conf: " << s3_conf.to_string()
+                   << "add enable_check_storage_vault=false to be.conf to skip the check";
+    }
+}
+
 struct VaultCreateFSVisitor {
     VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
                          bool check_fs)
@@ -133,16 +151,7 @@ struct VaultCreateFSVisitor {
                   << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
-        if (check_fs && !s3_conf.client_conf.role_arn.empty()) {
-            bool res = false;
-            // just check connectivity, not care object if exist
-            auto st = fs->exists("not_exist_object", &res);
-            if (!st.ok()) {
-                LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
-                           << "s3_conf: " << s3_conf.to_string()
-                           << "add enable_check_storage_vault=false to be.conf to skip the check";
-            }
-        }
+        check_keyless_storage_vault(id, s3_conf, fs, check_fs);
 
         put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
@@ -166,8 +175,8 @@ struct VaultCreateFSVisitor {
 
 struct RefreshFSVaultVisitor {
     RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs,
-                          const cloud::StorageVaultPB_PathFormat& path_format)
-            : id(id), fs(std::move(fs)), path_format(path_format) {}
+                          const cloud::StorageVaultPB_PathFormat& path_format, bool check_fs)
+            : id(id), fs(std::move(fs)), path_format(path_format), check_fs(check_fs) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -176,8 +185,10 @@ struct RefreshFSVaultVisitor {
         auto st = client_holder->reset(s3_conf.client_conf);
         if (!st.ok()) {
             LOG(WARNING) << "failed to update s3 fs, resource_id=" << id << ": " << st;
+            return st;
         }
-        return st;
+        check_keyless_storage_vault(id, s3_conf, s3_fs, check_fs);
+        return Status::OK();
     }
 
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
@@ -193,6 +204,7 @@ struct RefreshFSVaultVisitor {
     const std::string& id;
     io::FileSystemSPtr fs;
     const cloud::StorageVaultPB_PathFormat& path_format;
+    bool check_fs;
 };
 
 Status CloudStorageEngine::open() {
@@ -405,7 +417,18 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     return Status::OK();
 }
 
+bool CloudStorageEngine::_should_check_storage_vault(const S3ClientConf* current_conf,
+                                                     const S3ClientConf& new_conf) {
+    if (!config::enable_check_storage_vault ||
+        (new_conf.role_arn.empty() &&
+         new_conf.cred_provider_type != CredProviderType::GcpWorkloadIdentity)) {
+        return false;
+    }
+    return current_conf == nullptr || *current_conf != new_conf;
+}
+
 void CloudStorageEngine::sync_storage_vault() {
+    std::lock_guard sync_lock(_sync_storage_vault_mtx);
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
 
@@ -420,25 +443,32 @@ void CloudStorageEngine::sync_storage_vault() {
         return;
     }
 
-    bool check_storage_vault = false;
-    bool expected = false;
-    if (first_sync_storage_vault.compare_exchange_strong(expected, true)) {
-        check_storage_vault = config::enable_check_storage_vault;
-        LOG(INFO) << "first sync storage vault info, BE try to check iam role connectivity, "
-                     "check_storage_vault="
-                  << check_storage_vault;
-    }
-
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
+        bool check_storage_vault = false;
+        if (auto* s3_conf = std::get_if<S3Conf>(&vault_info); s3_conf != nullptr) {
+            if (fs == nullptr) {
+                check_storage_vault = _should_check_storage_vault(nullptr, s3_conf->client_conf);
+            } else {
+                DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
+                auto s3_fs = std::static_pointer_cast<io::S3FileSystem>(fs);
+                auto current_conf = s3_fs->client_holder()->s3_client_conf();
+                check_storage_vault =
+                        _should_check_storage_vault(&current_conf, s3_conf->client_conf);
+            }
+        }
+        if (check_storage_vault) {
+            LOG(INFO) << "check keyless storage vault connectivity, resource_id=" << id;
+        }
         auto status =
                 (fs == nullptr)
                         ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
                                      vault_info)
-                        : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                        : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format,
+                                                            check_storage_vault},
                                      vault_info);
         if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
+            LOG(WARNING) << vault_process_error(id, vault_info, std::move(status));
         }
     }
 

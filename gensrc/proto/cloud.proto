@@ -274,6 +274,9 @@ enum CredProviderTypePB {
     WEB_IDENTITY = 6;  // STSAssumeRoleWebIdentityCredentialsProvider
     CONTAINER = 7;  // TaskRoleCredentialsProvider
     ANONYMOUS = 8;  // AnonymousAWSCredentialsProvider
+    // GKE Workload Identity. Requests to the GCS XML API are authenticated
+    // with a short-lived OAuth2 token from the GKE metadata server.
+    GCP_WORKLOAD_IDENTITY = 9;
 }
 
 message ObjectStoreInfoPB {

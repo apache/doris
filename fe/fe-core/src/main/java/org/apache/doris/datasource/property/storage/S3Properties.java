@@ -64,6 +64,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static final String EXTERNAL_ID = "s3.external_id";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
 
+    /** Authenticate GCP storage vaults with a token from the GKE metadata server. */
+    public static final String GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER = "gcp_workload_identity";
+    public static final String GCS_XML_ENDPOINT = "https://storage.googleapis.com";
+
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
@@ -662,10 +666,33 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 || properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE);
     }
 
+    public static boolean isGcpWorkloadIdentityCredentialsProvider(Map<String, String> properties) {
+        String mode = properties.get(CREDENTIALS_PROVIDER_TYPE);
+        if (StringUtils.isBlank(mode)) {
+            mode = properties.get(Env.CREDENTIALS_PROVIDER_TYPE);
+        }
+        return GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER.equalsIgnoreCase(mode);
+    }
+
+    public static String normalizeGcpWorkloadIdentityEndpoint(String endpoint) {
+        String normalized = StringUtils.trimToEmpty(endpoint);
+        if (normalized.equalsIgnoreCase("storage.googleapis.com")
+                || normalized.equalsIgnoreCase(GCS_XML_ENDPOINT)) {
+            return GCS_XML_ENDPOINT;
+        }
+        throw new IllegalArgumentException(String.format(
+                "%s requires the HTTPS GCS XML endpoint %s",
+                GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER, GCS_XML_ENDPOINT));
+    }
+
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(S3Properties.ENDPOINT)) {
-            builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
+            String endpoint = properties.get(S3Properties.ENDPOINT);
+            if (isGcpWorkloadIdentityCredentialsProvider(properties)) {
+                endpoint = normalizeGcpWorkloadIdentityEndpoint(endpoint);
+            }
+            builder.setEndpoint(endpoint);
         }
         if (properties.containsKey(S3Properties.REGION)) {
             builder.setRegion(properties.get(S3Properties.REGION));
@@ -702,7 +729,21 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
 
         if (hasCredentialsProviderType(properties)) {
-            builder.setCredProviderType(getCredProviderTypePB(properties));
+            if (isGcpWorkloadIdentityCredentialsProvider(properties)) {
+                Preconditions.checkArgument(!builder.hasProvider() || builder.getProvider() == Provider.GCP,
+                        "%s=%s is only supported with provider GCP",
+                        CREDENTIALS_PROVIDER_TYPE, GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER);
+                Preconditions.checkArgument(!builder.hasAk() && !builder.hasSk(),
+                        "%s=%s cannot be used together with %s/%s",
+                        CREDENTIALS_PROVIDER_TYPE, GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER,
+                        ACCESS_KEY, SECRET_KEY);
+                Preconditions.checkArgument(Strings.isNullOrEmpty(properties.get(S3Properties.ROLE_ARN)),
+                        "%s=%s cannot be used together with %s",
+                        CREDENTIALS_PROVIDER_TYPE, GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER, ROLE_ARN);
+                builder.setCredProviderType(CredProviderTypePB.GCP_WORKLOAD_IDENTITY);
+            } else {
+                builder.setCredProviderType(getCredProviderTypePB(properties));
+            }
         }
 
         if (properties.containsKey(S3Properties.ROLE_ARN)) {

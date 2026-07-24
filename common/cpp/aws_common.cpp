@@ -39,6 +39,8 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
         return CredProviderType::Container;
     case cloud::CredProviderTypePB::ANONYMOUS:
         return CredProviderType::Anonymous;
+    case cloud::CredProviderTypePB::GCP_WORKLOAD_IDENTITY:
+        return CredProviderType::GcpWorkloadIdentity;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type
@@ -72,8 +74,31 @@ CredProviderType cred_provider_type_from_string(const std::string& type) {
     if (type == "ANONYMOUS") {
         return CredProviderType::Anonymous;
     }
+    if (type == "GCP_WORKLOAD_IDENTITY") {
+        return CredProviderType::GcpWorkloadIdentity;
+    }
     LOG(WARNING) << "Unknown credentials provider type: " << type << ", use default instead.";
     return CredProviderType::Default;
+}
+
+CredProviderType resolve_cred_provider_type(CredProviderType configured_type,
+                                            bool has_static_credentials, bool has_role_arn) {
+    if (configured_type != CredProviderType::GcpWorkloadIdentity) {
+        return configured_type;
+    }
+    // Old protobuf consumers preserve the Workload Identity enum as an unknown field. Explicit
+    // credentials must win if that stale value reappears after a downgrade and later upgrade.
+    if (has_static_credentials) {
+        return CredProviderType::Default;
+    }
+    if (has_role_arn) {
+        return CredProviderType::InstanceProfile;
+    }
+    return configured_type;
+}
+
+bool is_gcs_xml_endpoint(std::string_view endpoint) {
+    return endpoint == GCS_XML_ENDPOINT;
 }
 
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths) {
@@ -84,4 +109,4 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
     }
     return "";
 }
-}
+} // namespace doris

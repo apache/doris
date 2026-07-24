@@ -85,30 +85,14 @@ Status ObjClientHolder::init() {
 }
 
 Status ObjClientHolder::reset(const S3ClientConf& conf) {
-    S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        if (conf.get_hash() == _conf.get_hash()) {
+        if (conf == _conf) {
             return Status::OK(); // Same conf
         }
-
-        reset_conf = _conf;
-        reset_conf.ak = conf.ak;
-        reset_conf.sk = conf.sk;
-        reset_conf.token = conf.token;
-        reset_conf.bucket = conf.bucket;
-        reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
-        reset_conf.max_connections = conf.max_connections;
-        reset_conf.request_timeout_ms = conf.request_timeout_ms;
-        reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
-
-        reset_conf.role_arn = conf.role_arn;
-        reset_conf.external_id = conf.external_id;
-        reset_conf.cred_provider_type = conf.cred_provider_type;
-        // Should check endpoint here?
     }
 
-    auto client = S3ClientFactory::instance().create(reset_conf);
+    auto client = S3ClientFactory::instance().create(conf);
     if (!client) {
         return Status::InvalidArgument("failed to init s3 client with conf {}", conf.to_string());
     }
@@ -118,7 +102,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     {
         std::lock_guard lock(_mtx);
         _client = std::move(client);
-        _conf = std::move(reset_conf);
+        _conf = conf;
     }
 
     return Status::OK();
@@ -146,6 +130,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
 }
 
 std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
+    std::shared_lock lock(_mtx);
     return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
 }
 
@@ -440,8 +425,8 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
 
 // oss has public endpoint and private endpoint, is_public_endpoint determines
 // whether to return a public endpoint.
-std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
-                                                 bool is_public_endpoint) const {
+Result<std::string> S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                                         bool is_public_endpoint) const {
     std::string key = fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
     if (is_public_endpoint &&

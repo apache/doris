@@ -33,6 +33,58 @@ class S3ClientFactoryTest : public testing::Test {
     FRIEND_TEST(S3ClientFactoryTest, S3ClientFactory);
 };
 
+TEST_F(S3ClientFactoryTest, GcpWorkloadIdentityClientCreation) {
+    // Workload Identity has neither ak/sk nor role_arn; the factory must build a
+    // client wired with the shared metadata token provider (and anonymous SDK
+    // credentials, so no signing happens at request time).
+    S3ClientConf conf;
+    conf.endpoint = "https://storage.googleapis.com";
+    conf.region = "us-central1";
+    conf.bucket = "dummy-bucket";
+    conf.provider = io::ObjStorageType::GCP;
+    conf.cred_provider_type = CredProviderType::GcpWorkloadIdentity;
+
+    auto client = S3ClientFactory::instance().create(conf);
+    ASSERT_NE(client, nullptr);
+
+    conf.endpoint = "http://storage.googleapis.com";
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+    conf.endpoint = "https://example.com";
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+
+    conf.endpoint = "https://storage.googleapis.com";
+    conf.provider = io::ObjStorageType::AWS;
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+
+    conf.provider = io::ObjStorageType::GCP;
+    conf.ak = "access-key";
+    conf.sk = "secret-key";
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+}
+
+TEST_F(S3ClientFactoryTest, ClientIdentityDistinguishesAddressingAndEndpointOverride) {
+    S3ClientConf path_style_conf {
+            .endpoint = "https://config-identity-test.example.com",
+            .region = "us-east-1",
+            .ak = "access-key",
+            .sk = "secret-key",
+            .use_virtual_addressing = false,
+            .need_override_endpoint = true,
+    };
+    S3ClientConf virtual_hosted_conf = path_style_conf;
+    virtual_hosted_conf.use_virtual_addressing = true;
+    virtual_hosted_conf.need_override_endpoint = false;
+
+    EXPECT_NE(path_style_conf, virtual_hosted_conf);
+    EXPECT_NE(path_style_conf.get_hash(), virtual_hosted_conf.get_hash());
+
+    auto path_style_client = S3ClientFactory::instance().create(path_style_conf);
+    auto virtual_hosted_client = S3ClientFactory::instance().create(virtual_hosted_conf);
+    ASSERT_NE(path_style_client, nullptr);
+    ASSERT_NE(virtual_hosted_client, nullptr);
+    EXPECT_NE(path_style_client, virtual_hosted_client);
+}
+
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientFactory& factory = S3ClientFactory::instance();
     S3ClientConf anonymous_conf;
@@ -50,6 +102,9 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 
     S3ClientConf web_identity_conf;
     web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
+
+    S3ClientConf gcp_workload_identity_conf;
+    gcp_workload_identity_conf.cred_provider_type = CredProviderType::GcpWorkloadIdentity;
 
     config::aws_credentials_provider_version = "v2";
     {
@@ -71,6 +126,15 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
                 std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
                         provider_v2);
         ASSERT_NE(instance_profile_v2, nullptr);
+    }
+
+    {
+        // Workload Identity must yield anonymous credentials: SigV4 signing is skipped
+        // and requests carry an OAuth2 bearer header instead.
+        auto provider_v2 = factory.get_aws_credentials_provider(gcp_workload_identity_conf);
+        auto anonymous_v2 =
+                std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider_v2);
+        ASSERT_NE(anonymous_v2, nullptr);
     }
 
     {
