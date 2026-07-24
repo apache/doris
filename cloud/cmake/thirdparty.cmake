@@ -119,6 +119,18 @@ if(BUILD_AZURE STREQUAL "ON")
 endif()
 # end azure libs
 
+# begin oss libs
+if(NOT BUILD_OSS STREQUAL "OFF")
+    add_thirdparty(darabonba_core)
+    add_thirdparty(alibabacloud_credentials)
+    add_thirdparty(alibabacloud_open_api_v2)
+    add_thirdparty(alibabacloud_sts20150401)
+    add_thirdparty(alibabacloud-oss-cpp-sdk)
+    add_thirdparty(apr)
+    add_thirdparty(apr-util LIBNAME "lib/libaprutil.a")
+endif()
+# end oss libs
+
 add_thirdparty(gtest NOTADD)
 add_thirdparty(gtest_main NOTADD)
 add_thirdparty(gmock NOTADD)

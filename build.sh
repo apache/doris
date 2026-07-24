@@ -80,6 +80,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    DISABLE_BUILD_OSS           If set DISABLE_BUILD_OSS=ON, it will not build the native OSS C++ SDK into BE.
     DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=OFF, it will package juicefs-hadoop jar into FE/BE output. Default is ON (skip).
     DISABLE_BUILD_JINDOFS       If set DISABLE_BUILD_JINDOFS=OFF, it will package jindofs jars into FE/BE output. Default is ON (skip).
     EXTRA_FE_MODULES            Optional FE feature modules in feature=module_path format, separated by commas.
@@ -292,6 +293,7 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
+BUILD_OSS='ON'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -590,6 +592,10 @@ if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]
     BUILD_AZURE='OFF'
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_OSS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_OSS='OFF'
+fi
+
 if [[ "$(echo "${DISABLE_BUILD_JINDOFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
     BUILD_JINDOFS='ON'
 else
@@ -841,6 +847,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_OSS="${BUILD_OSS}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
         "${BE_EXTRA_CMAKE_ARGS[@]}" \
@@ -884,6 +891,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_OSS="${BUILD_OSS}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         "${CLOUD_EXTRA_CMAKE_ARGS[@]}" \
