@@ -3,9 +3,9 @@
 1	a	\N
 2	b	\N
 
--- !b2_no_dropped_col --
-1	\N
-2	\N
+-- !b2_keeps_pre_drop_col --
+1	a
+2	b
 
 -- !b3_new_type --
 1	10
@@ -33,4 +33,3 @@ col3	int	Yes	true	\N
 
 -- !b4_new_schema --
 1	\N
-

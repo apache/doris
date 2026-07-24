@@ -6,7 +6,7 @@
 1
 
 -- !branch_3 --
-1	\N	\N
+1
 
 -- !branch_4 --
 1	\N	\N
@@ -17,8 +17,8 @@
 2
 
 -- !branch_6 --
-1	\N	\N
-2	\N	\N
+1
+2
 
 -- !branch_6 --
 1	\N	\N
@@ -31,9 +31,9 @@
 3
 
 -- !branch_9 --
-1	\N	\N
-2	\N	\N
-3	4	\N
+1	\N
+2	\N
+3	4
 
 -- !branch_10 --
 1	\N	\N
@@ -42,19 +42,19 @@
 1
 
 -- !branch_12 --
-1	\N	\N
+1
 
 -- !branch_13 --
 1	\N	\N
 2	\N	\N
 
 -- !branch_14 --
-1	\N
-2	\N
+1
+2
 
 -- !branch_15 --
-1	\N	\N
-2	\N	\N
+1
+2
 
 -- !branch_16 --
 1	\N	\N
@@ -67,9 +67,9 @@
 3	4
 
 -- !branch_18 --
-1	\N	\N
-2	\N	\N
-3	4	\N
+1	\N
+2	\N
+3	4
 
 -- !tag_1 --
 1
@@ -128,15 +128,15 @@
 1	\N	\N
 
 -- !version_2 --
-1	\N	\N
+1
 
 -- !version_3 --
 1	\N	\N
 2	\N	\N
 
 -- !version_4 --
-1	\N	\N
-2	\N	\N
+1
+2
 
 -- !version_5 --
 1	\N	\N
@@ -144,9 +144,9 @@
 3	4	\N
 
 -- !version_6 --
-1	\N	\N
-2	\N	\N
-3	4	\N
+1	\N
+2	\N
+3	4
 
 -- !version_7 --
 1
@@ -196,22 +196,22 @@
 3
 
 -- !sub_join_branch_with_branch_1 --
-1	\N	\N	1	\N	\N
+1	1
 
 -- !sub_join_branch_with_branch_2 --
-1	\N	\N	1	\N	\N
+1	1
 
 -- !sub_join_branch_with_branch_3 --
-1	\N	\N	1	\N	\N
-2	\N	\N	2	\N	\N
+1	1
+2	2
 
 -- !sub_join_branch_with_branch_4 --
-1	\N	\N	1	\N	\N
+1	1
 
 -- !sub_join_branch_with_branch_5 --
-1	\N	\N	1	\N	\N
-2	\N	\N	2	\N	\N
-3	4	\N	3	4	\N
+1	\N	1	\N
+2	\N	2	\N
+3	4	3	4
 
 -- !sub_join_tag_with_tag_1 --
 1	1
@@ -239,17 +239,17 @@
 3	4	3	4
 
 -- !sub_with_branch_1 --
-1	\N
+1
 
 -- !sub_with_branch_2 --
-2	\N
+2
 
 -- !sub_with_branch_3 --
-3	4	\N
+3	4
 
 -- !sub_with_branch_4 --
-2	\N	\N
-3	4	\N
+2	\N
+3	4
 
 -- !sub_with_tag_1 --
 1
@@ -271,7 +271,7 @@
 1
 
 -- !branch_3 --
-1	\N	\N
+1
 
 -- !branch_4 --
 1	\N	\N
@@ -282,8 +282,8 @@
 2
 
 -- !branch_6 --
-1	\N	\N
-2	\N	\N
+1
+2
 
 -- !branch_6 --
 1	\N	\N
@@ -296,9 +296,9 @@
 3
 
 -- !branch_9 --
-1	\N	\N
-2	\N	\N
-3	4	\N
+1	\N
+2	\N
+3	4
 
 -- !branch_10 --
 1	\N	\N
@@ -307,19 +307,19 @@
 1
 
 -- !branch_12 --
-1	\N	\N
+1
 
 -- !branch_13 --
 1	\N	\N
 2	\N	\N
 
 -- !branch_14 --
-1	\N
-2	\N
+1
+2
 
 -- !branch_15 --
-1	\N	\N
-2	\N	\N
+1
+2
 
 -- !branch_16 --
 1	\N	\N
@@ -332,9 +332,9 @@
 3	4
 
 -- !branch_18 --
-1	\N	\N
-2	\N	\N
-3	4	\N
+1	\N
+2	\N
+3	4
 
 -- !tag_1 --
 1
@@ -393,15 +393,15 @@
 1	\N	\N
 
 -- !version_2 --
-1	\N	\N
+1
 
 -- !version_3 --
 1	\N	\N
 2	\N	\N
 
 -- !version_4 --
-1	\N	\N
-2	\N	\N
+1
+2
 
 -- !version_5 --
 1	\N	\N
@@ -409,9 +409,9 @@
 3	4	\N
 
 -- !version_6 --
-1	\N	\N
-2	\N	\N
-3	4	\N
+1	\N
+2	\N
+3	4
 
 -- !version_7 --
 1
@@ -461,22 +461,22 @@
 3
 
 -- !sub_join_branch_with_branch_1 --
-1	\N	\N	1	\N	\N
+1	1
 
 -- !sub_join_branch_with_branch_2 --
-1	\N	\N	1	\N	\N
+1	1
 
 -- !sub_join_branch_with_branch_3 --
-1	\N	\N	1	\N	\N
-2	\N	\N	2	\N	\N
+1	1
+2	2
 
 -- !sub_join_branch_with_branch_4 --
-1	\N	\N	1	\N	\N
+1	1
 
 -- !sub_join_branch_with_branch_5 --
-1	\N	\N	1	\N	\N
-2	\N	\N	2	\N	\N
-3	4	\N	3	4	\N
+1	\N	1	\N
+2	\N	2	\N
+3	4	3	4
 
 -- !sub_join_tag_with_tag_1 --
 1	1
@@ -504,17 +504,17 @@
 3	4	3	4
 
 -- !sub_with_branch_1 --
-1	\N
+1
 
 -- !sub_with_branch_2 --
-2	\N
+2
 
 -- !sub_with_branch_3 --
-3	4	\N
+3	4
 
 -- !sub_with_branch_4 --
-2	\N	\N
-3	4	\N
+2	\N
+3	4
 
 -- !sub_with_tag_1 --
 1
@@ -528,4 +528,3 @@
 -- !sub_with_tag_4 --
 2	\N
 3	4
-

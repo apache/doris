@@ -150,44 +150,43 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external") {
     qt_tag5_final """ SELECT * FROM ${branch_table_name}@tag(tag5) ORDER BY id """
     
     // ==================================================================================
-    // Verify schema behavior: branches get latest schema, tags keep creation-time schema
+    // Verify schema behavior: branches and tags keep their referenced snapshot schema
     // ==================================================================================
     
     // Test specific column queries to verify schema differences
     
-    // IMPORTANT: Branches will use the LATEST schema from main branch
-    // Tags will use the schema from when they were created
+    // Branches and tags both use the schema from their referenced snapshot.
     
-    // branch1: should use LATEST schema (same as main) - id, name, grade, email, phone
-    qt_branch1_latest_schema """ SELECT * FROM ${branch_table_name}@branch(branch1) ORDER BY id """
+    // branch1: original schema - id, name, age, score
+    qt_branch1_snapshot_schema """ SELECT * FROM ${branch_table_name}@branch(branch1) ORDER BY id """
     
     // tag1: should have ORIGINAL schema when created - id, name, age, score (no email, phone, grade)
     qt_tag1_original_schema """ SELECT * FROM ${branch_table_name}@tag(tag1) ORDER BY id """
     qt_tag1_age_score """ SELECT id, age, score FROM ${branch_table_name}@tag(tag1) ORDER BY id """
     
-    // branch2: should use LATEST schema (same as main) - id, name, grade, email, phone
-    qt_branch2_latest_schema """ SELECT * FROM ${branch_table_name}@branch(branch2) ORDER BY id """
+    // branch2: schema at its snapshot - id, name, age, score, email
+    qt_branch2_snapshot_schema """ SELECT * FROM ${branch_table_name}@branch(branch2) ORDER BY id """
     
     // tag2: should have schema when created - id, name, age, score, email (no phone, grade)
     qt_tag2_creation_schema """ SELECT * FROM ${branch_table_name}@tag(tag2) ORDER BY id """
     qt_tag2_age_email """ SELECT id, age, score, email FROM ${branch_table_name}@tag(tag2) ORDER BY id """
     
-    // branch3: should use LATEST schema (same as main) - id, name, grade, email, phone
-    qt_branch3_latest_schema """ SELECT * FROM ${branch_table_name}@branch(branch3) ORDER BY id """
+    // branch3: schema at its snapshot - id, name, score, email
+    qt_branch3_snapshot_schema """ SELECT * FROM ${branch_table_name}@branch(branch3) ORDER BY id """
     
     // tag3: should have schema when created - id, name, score, email (no age, phone, grade)
     qt_tag3_creation_schema """ SELECT * FROM ${branch_table_name}@tag(tag3) ORDER BY id """
     qt_tag3_score_email """ SELECT id, score, email FROM ${branch_table_name}@tag(tag3) ORDER BY id """
     
-    // branch4: should use LATEST schema (same as main) - id, name, grade, email, phone
-    qt_branch4_latest_schema """ SELECT * FROM ${branch_table_name}@branch(branch4) ORDER BY id """
+    // branch4: schema at its snapshot - id, name, grade, email
+    qt_branch4_snapshot_schema """ SELECT * FROM ${branch_table_name}@branch(branch4) ORDER BY id """
     
     // tag4: should have schema when created - id, name, grade, email (no age, score, phone)
     qt_tag4_creation_schema """ SELECT * FROM ${branch_table_name}@tag(tag4) ORDER BY id """
     qt_tag4_grade_email """ SELECT id, grade, email FROM ${branch_table_name}@tag(tag4) ORDER BY id """
     
-    // branch5: should use LATEST schema (same as main) - id, name, grade, email, phone
-    qt_branch5_latest_schema """ SELECT * FROM ${branch_table_name}@branch(branch5) ORDER BY id """
+    // branch5 references the final schema.
+    qt_branch5_snapshot_schema """ SELECT * FROM ${branch_table_name}@branch(branch5) ORDER BY id """
     
     // tag5: should have schema when created - id, name, grade, email, phone
     qt_tag5_creation_schema """ SELECT * FROM ${branch_table_name}@tag(tag5) ORDER BY id """
@@ -197,22 +196,19 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external") {
     // Negative tests: verify schema behavior differences between branches and tags
     // ==================================================================================
     
-    // ALL BRANCHES should have the LATEST schema (same as main)
-    // So all branches should have: id, name, grade, email, phone
-    
-    // Verify all branches have the latest columns
-    qt_all_branches_have_grade """ SELECT id, grade FROM ${branch_table_name}@branch(branch1) WHERE grade > 0 ORDER BY id """
-    qt_all_branches_have_email """ SELECT id, email FROM ${branch_table_name}@branch(branch2) WHERE email IS NOT NULL ORDER BY id """
-    qt_all_branches_have_phone """ SELECT id, phone FROM ${branch_table_name}@branch(branch3) WHERE phone IS NOT NULL ORDER BY id """
-    
-    // All branches should NOT have old columns that were dropped/renamed
+    // Verify each branch exposes columns from its own snapshot.
+    qt_branch1_age_score """ SELECT id, age, score FROM ${branch_table_name}@branch(branch1) ORDER BY id """
+    qt_branch2_age_email """ SELECT id, age, email FROM ${branch_table_name}@branch(branch2) ORDER BY id """
+    qt_branch3_score_email """ SELECT id, score, email FROM ${branch_table_name}@branch(branch3) ORDER BY id """
+    qt_branch4_grade_email """ SELECT id, grade, email FROM ${branch_table_name}@branch(branch4) ORDER BY id """
+
     test {
-        sql """ SELECT age FROM ${branch_table_name}@branch(branch1) """
-        exception "Unknown column 'age'"
+        sql """ SELECT email FROM ${branch_table_name}@branch(branch1) """
+        exception "Unknown column 'email'"
     }
     test {
-        sql """ SELECT score FROM ${branch_table_name}@branch(branch2) """
-        exception "Unknown column 'score'"
+        sql """ SELECT grade FROM ${branch_table_name}@branch(branch2) """
+        exception "Unknown column 'grade'"
     }
     
     // TAGS should have their CREATION-TIME schema
@@ -276,7 +272,7 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external") {
     // Main branch has the latest schema
     qt_summary_main """ SELECT * FROM ${branch_table_name} ORDER BY id """
     
-    // ALL BRANCHES use the LATEST schema (same as main)
+    // Branches use their referenced snapshot schema.
     qt_summary_branch1 """ SELECT * FROM ${branch_table_name}@branch(branch1) ORDER BY id """
     qt_summary_branch2 """ SELECT * FROM ${branch_table_name}@branch(branch2) ORDER BY id """
     qt_summary_branch3 """ SELECT * FROM ${branch_table_name}@branch(branch3) ORDER BY id """

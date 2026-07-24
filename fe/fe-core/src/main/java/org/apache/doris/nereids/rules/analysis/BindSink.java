@@ -813,6 +813,8 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
 
+        // Iceberg branches share the table metadata schema, so writes use the latest schema
+        // even though reads of an older branch remain pinned to that branch's historical schema.
         List<Column> insertSchema = table.getFullSchema();
         if (!sink.isRewrite()) {
             insertSchema = insertSchema.stream()

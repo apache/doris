@@ -37,6 +37,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -103,6 +106,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected SessionVariable sessionVariable;
 
     protected TableScanParams scanParams;
+    private Optional<MvccSnapshot> relationSnapshot = Optional.empty();
+    private boolean relationSnapshotInitialized = false;
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
@@ -174,7 +179,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params = new TFileScanRangeParams();
         params.setDestTupleId(desc.getId().asInt());
         List<String> partitionKeys = getPathPartitionKeys();
-        List<Column> columns = desc.getTable().getBaseSchema(false);
+        List<Column> columns = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getBaseSchema(getRelationSnapshot(), false)
+                : desc.getTable().getBaseSchema(false);
         params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
@@ -274,7 +281,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = desc.getTable().getFullSchema();
+        // Column positions must follow this relation's snapshot when one statement scans
+        // multiple versions of the same external table.
+        List<Column> columns = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getFullSchema(getRelationSnapshot())
+                : desc.getTable().getFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             columnNameMap.putIfAbsent(columns.get(i).getName(), i);
@@ -583,7 +594,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // We need to save mapping from slot name to schema position
     protected void genSlotToSchemaIdMapForOrc() {
         Preconditions.checkNotNull(params);
-        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        // ORC positions are relation-local for the same reason as the regular column mapping.
+        List<Column> baseSchema = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getBaseSchema(getRelationSnapshot(), false)
+                : desc.getTable().getBaseSchema();
         Map<String, Integer> columnNameToPosition = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
             int idx = 0;
@@ -716,6 +730,29 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     public TableScanParams getScanParams() {
         return this.scanParams;
+    }
+
+    /**
+     * Return metadata pinned for this scan relation.
+     */
+    protected Optional<MvccSnapshot> getRelationSnapshot() {
+        if (relationSnapshotInitialized) {
+            return relationSnapshot;
+        }
+        relationSnapshotInitialized = true;
+        TableIf targetTable = desc.getTable();
+        if (!(targetTable instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        if (tableSnapshot != null || scanParams != null) {
+            // A statement can scan several versions of one table, so execution must reconstruct
+            // the snapshot from this scan node's own qualifiers rather than the table-only map.
+            relationSnapshot = Optional.of(((MvccTable) targetTable).loadSnapshot(
+                    Optional.ofNullable(tableSnapshot), Optional.ofNullable(scanParams)));
+            return relationSnapshot;
+        }
+        relationSnapshot = MvccUtil.getSnapshotFromContext(targetTable);
+        return relationSnapshot;
     }
 
     protected boolean fileCacheAdmissionCheck() throws UserException {

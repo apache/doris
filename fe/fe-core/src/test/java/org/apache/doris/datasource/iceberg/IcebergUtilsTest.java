@@ -323,6 +323,19 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesTopLevelAndNestedComments() {
+        Schema schema = new Schema(Types.NestedField.optional(
+                1, "info", Types.StructType.of(
+                        Types.NestedField.optional(2, "value", Types.IntegerType.get(), "nested-comment")),
+                "top-level-comment"));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("top-level-comment", columns.get(0).getComment());
+        Assert.assertTrue(columns.get(0).getType().toSql().contains("comment 'nested-comment'"));
+    }
+
+    @Test
     public void testParseSchemaPreservesInitialDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
@@ -662,14 +675,14 @@ public class IcebergUtilsTest {
         assertQuerySpecSnapshotByAtTagList(table, tag1, 1, 0, tag1);
 
         // query branch1
-        assertQuerySpecSnapshotByVersionOf(table, branch1, 1, 2, branch1);
-        assertQuerySpecSnapshotByAtBranchMap(table, branch1, 1, 2, branch1);
-        assertQuerySpecSnapshotByAtBranchList(table, branch1, 1, 2, branch1);
+        assertQuerySpecSnapshotByVersionOf(table, branch1, 1, 0, branch1);
+        assertQuerySpecSnapshotByAtBranchMap(table, branch1, 1, 0, branch1);
+        assertQuerySpecSnapshotByAtBranchList(table, branch1, 1, 0, branch1);
 
         // query branch2
-        assertQuerySpecSnapshotByVersionOf(table, branch2, 3, 2, branch2);
-        assertQuerySpecSnapshotByAtBranchMap(table, branch2, 3, 2, branch2);
-        assertQuerySpecSnapshotByAtBranchList(table, branch2, 3, 2, branch2);
+        assertQuerySpecSnapshotByVersionOf(table, branch2, 3, 1, branch2);
+        assertQuerySpecSnapshotByAtBranchMap(table, branch2, 3, 1, branch2);
+        assertQuerySpecSnapshotByAtBranchList(table, branch2, 3, 1, branch2);
 
         // query snapshotId 1
         assertQuerySpecSnapshotByVersionOf(table, "1", 1, 0, null);

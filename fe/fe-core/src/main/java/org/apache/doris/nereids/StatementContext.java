@@ -986,7 +986,12 @@ public class StatementContext implements Closeable {
             Optional<TableScanParams> scanParams) {
         if (specificTable instanceof MvccTable) {
             MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
-            if (!snapshots.containsKey(mvccTableInfo)) {
+            if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+                // Explicit time-travel relations must pin their own metadata even when another
+                // relation for the same table was already bound in this statement.
+                snapshots.put(mvccTableInfo,
+                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+            } else if (!snapshots.containsKey(mvccTableInfo)) {
                 snapshots.put(mvccTableInfo,
                         ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
             }

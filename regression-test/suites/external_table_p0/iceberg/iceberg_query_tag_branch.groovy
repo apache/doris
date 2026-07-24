@@ -48,25 +48,26 @@ suite("iceberg_query_tag_branch", "p0,external") {
 
     def query_tag_branch_only = {
 
+        // Explicit projections must use the schema pinned by each historical reference.
         qt_branch_1  """ select * from tag_branch_table@branch(b1) order by c1;""" 
         qt_branch_2  """ select c1 from tag_branch_table@branch(b1) order by c1;""" 
-        qt_branch_3  """ select c1,c2,c3 from tag_branch_table@branch(b1) order by c1;""" 
+        qt_branch_3  """ select c1 from tag_branch_table@branch(b1) order by c1;"""
         qt_branch_4  """ select * from tag_branch_table@branch(b2) order by c1 ;""" 
         qt_branch_5  """ select c1 from tag_branch_table@branch(b2) order by c1;""" 
-        qt_branch_6  """ select c1,c2,c3 from tag_branch_table@branch(b2) order by c1;""" 
+        qt_branch_6  """ select c1 from tag_branch_table@branch(b2) order by c1;"""
         qt_branch_6  """ select * from tag_branch_table@branch(b3) order by c1 ;""" 
         qt_branch_7  """ select c1 from tag_branch_table@branch(b3) order by c1;""" 
-        qt_branch_9  """ select c1,c2,c3 from tag_branch_table@branch(b3) order by c1;""" 
+        qt_branch_9  """ select c1,c2 from tag_branch_table@branch(b3) order by c1;"""
 
         qt_branch_10  """ select * from tag_branch_table@branch('name'='b1') order by c1 ;""" 
         qt_branch_11  """ select c1 from tag_branch_table@branch('name'='b1') order by c1 ;""" 
-        qt_branch_12  """ select c1,c2,c3 from tag_branch_table@branch(b1) order by c1;""" 
+        qt_branch_12  """ select c1 from tag_branch_table@branch(b1) order by c1;"""
         qt_branch_13  """ select * from tag_branch_table@branch('name'='b2') order by c1 ;""" 
-        qt_branch_14  """ select c1,c2 from tag_branch_table@branch('name'='b2') order by c1 ;""" 
-        qt_branch_15  """ select c1,c2,c3 from tag_branch_table@branch(b2) order by c1;""" 
+        qt_branch_14  """ select c1 from tag_branch_table@branch('name'='b2') order by c1 ;"""
+        qt_branch_15  """ select c1 from tag_branch_table@branch(b2) order by c1;"""
         qt_branch_16  """ select * from tag_branch_table@branch('name'='b3') order by c1 ;""" 
         qt_branch_17  """ select c1,c2 from tag_branch_table@branch('name'='b3') order by c1 ;""" 
-        qt_branch_18  """ select c1,c2,c3 from tag_branch_table@branch(b3) order by c1;""" 
+        qt_branch_18  """ select c1,c2 from tag_branch_table@branch(b3) order by c1;"""
 
         qt_tag_1  """ select * from tag_branch_table@tag(t1) order by c1 ;""" 
         qt_tag_2  """ select c1 from tag_branch_table@tag(t1) order by c1 ;""" 
@@ -84,11 +85,11 @@ suite("iceberg_query_tag_branch", "p0,external") {
         qt_tag_13  """ select c1,c2 from tag_branch_table@tag('name'='t3') order by c1 """
 
         qt_version_1  """ select * from tag_branch_table for version as of 'b1' order by c1 ;""" 
-        qt_version_2  """ select c1,c2,c3 from tag_branch_table for version as of 'b1' order by c1 ;""" 
+        qt_version_2  """ select c1 from tag_branch_table for version as of 'b1' order by c1 ;"""
         qt_version_3  """ select * from tag_branch_table for version as of 'b2' order by c1 ;""" 
-        qt_version_4  """ select c1,c2,c3 from tag_branch_table for version as of 'b2' order by c1 ;""" 
+        qt_version_4  """ select c1 from tag_branch_table for version as of 'b2' order by c1 ;"""
         qt_version_5  """ select * from tag_branch_table for version as of 'b3' order by c1 ;""" 
-        qt_version_6  """ select c1,c2,c3 from tag_branch_table for version as of 'b3' order by c1 ;""" 
+        qt_version_6  """ select c1,c2 from tag_branch_table for version as of 'b3' order by c1 ;"""
 
         qt_version_7  """ select * from tag_branch_table for version as of 't1' order by c1 ;""" 
         qt_version_8  """ select c1 from tag_branch_table for version as of 't1' order by c1 ;""" 
@@ -108,23 +109,23 @@ suite("iceberg_query_tag_branch", "p0,external") {
     }
 
     def query_tag_branch_in_subquery = {
-        qt_sub_join_branch_with_branch_1 """ SELECT t1.c1, t1.c2, t1.c3, t2.c1, t2.c2, t2.c3
+        qt_sub_join_branch_with_branch_1 """ SELECT t1.c1, t2.c1
                         FROM tag_branch_table@branch(b1) t1
                         JOIN tag_branch_table@branch(b2) t2
                         ON t1.c1 = t2.c1 order by t1.c1;  """
-        qt_sub_join_branch_with_branch_2 """ SELECT t1.c1, t1.c2, t1.c3, t2.c1, t2.c2, t2.c3
+        qt_sub_join_branch_with_branch_2 """ SELECT t1.c1, t2.c1
                         FROM tag_branch_table@branch(b1) t1
                         JOIN tag_branch_table@branch(b3) t2
                         ON t1.c1 = t2.c1 order by t1.c1;  """
-        qt_sub_join_branch_with_branch_3 """ SELECT t1.c1, t1.c2, t1.c3, t2.c1, t2.c2, t2.c3
+        qt_sub_join_branch_with_branch_3 """ SELECT t1.c1, t2.c1
                         FROM tag_branch_table@branch(b2) t1
                         JOIN tag_branch_table@branch(b3) t2
                         ON t1.c1 = t2.c1 order by t1.c1;  """
-        qt_sub_join_branch_with_branch_4 """ SELECT t1.c1, t1.c2, t1.c3, t2.c1, t2.c2, t2.c3
+        qt_sub_join_branch_with_branch_4 """ SELECT t1.c1, t2.c1
                         FROM tag_branch_table@branch(b1) t1
                         JOIN tag_branch_table@branch(b1) t2
                         ON t1.c1 = t2.c1 order by t1.c1;  """
-        qt_sub_join_branch_with_branch_5 """ SELECT t1.c1, t1.c2, t1.c3, t2.c1, t2.c2, t2.c3
+        qt_sub_join_branch_with_branch_5 """ SELECT t1.c1, t1.c2, t2.c1, t2.c2
                         FROM tag_branch_table@branch(b3) t1
                         JOIN tag_branch_table@branch(b3) t2
                         ON t1.c1 = t2.c1 order by t1.c1;  """
@@ -164,10 +165,10 @@ suite("iceberg_query_tag_branch", "p0,external") {
                         WHERE t1.c1 > 1
                         order by t1.c1;  """
 
-        qt_sub_with_branch_1 """ WITH t1 AS ( SELECT c1,c2 FROM tag_branch_table@branch(b1) WHERE c1 > 0) SELECT * FROM t1 order by c1; """
-        qt_sub_with_branch_2 """ WITH t1 AS ( SELECT c1,c2 FROM tag_branch_table@branch(b2) WHERE c1 > 1) SELECT * FROM t1 order by c1; """
-        qt_sub_with_branch_3 """ WITH t1 AS ( SELECT c1,c2,c3 FROM tag_branch_table@branch(b3) WHERE c2 IS NOT NULL) SELECT * FROM t1 order by c1; """
-        qt_sub_with_branch_4 """ WITH t1 AS ( SELECT c1,c2,c3 FROM tag_branch_table@branch(b3) WHERE c1 > 1) SELECT * FROM t1 order by c1; """
+        qt_sub_with_branch_1 """ WITH t1 AS ( SELECT c1 FROM tag_branch_table@branch(b1) WHERE c1 > 0) SELECT * FROM t1 order by c1; """
+        qt_sub_with_branch_2 """ WITH t1 AS ( SELECT c1 FROM tag_branch_table@branch(b2) WHERE c1 > 1) SELECT * FROM t1 order by c1; """
+        qt_sub_with_branch_3 """ WITH t1 AS ( SELECT c1,c2 FROM tag_branch_table@branch(b3) WHERE c2 IS NOT NULL) SELECT * FROM t1 order by c1; """
+        qt_sub_with_branch_4 """ WITH t1 AS ( SELECT c1,c2 FROM tag_branch_table@branch(b3) WHERE c1 > 1) SELECT * FROM t1 order by c1; """
 
         qt_sub_with_tag_1 """ WITH t1 AS ( SELECT c1 FROM tag_branch_table@tag(t1) WHERE c1 > 0) SELECT * FROM t1 order by c1; """
         qt_sub_with_tag_2 """ WITH t1 AS ( SELECT c1 FROM tag_branch_table@tag(t2) WHERE c1 > 1) SELECT * FROM t1 order by c1; """

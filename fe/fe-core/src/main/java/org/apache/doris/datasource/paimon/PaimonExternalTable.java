@@ -57,6 +57,7 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataField;
@@ -162,12 +163,13 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 if (latestSnapshot.isPresent()) {
                     latestSnapshotId = latestSnapshot.get().id();
                 }
-                // Branches in Paimon can have independent schemas and snapshots.
+                // Use the branch table's effective schema directly: its schema manager can
+                // otherwise resolve the main branch namespace for this independently versioned table.
                 // TODO: Add time travel support for paimon branch tables.
                 DataTable dataTable = (DataTable) table;
-                Long schemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
+                long schemaId = ((FileStoreTable) dataTable).schema().id();
                 return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
-                        new PaimonSnapshot(latestSnapshotId, schemaId, dataTable));
+                        new PaimonSnapshot(latestSnapshotId, schemaId, dataTable), true);
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon branch for table {}", getOrBuildNameMapping().getFullLocalName(), e);
                 throw new RuntimeException(
@@ -331,7 +333,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getFullSchema() {
-        return getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)).getSchema();
+        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        return getPaimonSchemaCacheValue(snapshot).getSchema();
     }
 
     @Override
@@ -339,29 +346,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         makeSureInitialized();
         PaimonSchemaCacheKey paimonSchemaCacheKey = (PaimonSchemaCacheKey) key;
         try {
-            Table table = getBasePaimonTable();
-            TableSchema tableSchema = ((DataTable) table).schemaManager().schema(paimonSchemaCacheKey.getSchemaId());
-            List<DataField> columns = tableSchema.fields();
-            List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
-            Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
-            List<Column> partitionColumns = Lists.newArrayList();
-            for (DataField field : columns) {
-                Column column = new Column(field.name(),
-                        PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary(),
-                                getCatalog().getEnableMappingTimestampTz()),
-                        true,
-                        null, true, field.description(), true,
-                        -1);
-                PaimonUtil.updatePaimonColumnUniqueId(column, field);
-                if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                    column.setWithTZExtraInfo();
-                }
-                dorisColumns.add(column);
-                if (partitionColumnNames.contains(field.name())) {
-                    partitionColumns.add(column);
-                }
-            }
-            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
+            return Optional.of(loadSchema((DataTable) getBasePaimonTable(), paimonSchemaCacheKey.getSchemaId()));
         } catch (Exception e) {
             throw new CacheException("failed to initSchema for: %s.%s.%s.%s",
                     null, getCatalog().getName(), key.getNameMapping().getLocalDbName(),
@@ -377,7 +362,41 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
         PaimonSnapshotCacheValue snapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
+        if (snapshotCacheValue.isSchemaFromSnapshotTable()) {
+            PaimonSnapshot paimonSnapshot = snapshotCacheValue.getSnapshot();
+            // The snapshot table already carries the branch-specific schema; looking it up by id
+            // can accidentally use the base table's schema namespace.
+            return loadSchema(((FileStoreTable) paimonSnapshot.getTable()).schema());
+        }
         return PaimonUtils.getSchemaCacheValue(this, snapshotCacheValue);
+    }
+
+    private PaimonSchemaCacheValue loadSchema(DataTable table, long schemaId) {
+        return loadSchema(table.schemaManager().schema(schemaId));
+    }
+
+    private PaimonSchemaCacheValue loadSchema(TableSchema tableSchema) {
+        List<DataField> columns = tableSchema.fields();
+        List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
+        Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
+        List<Column> partitionColumns = Lists.newArrayList();
+        for (DataField field : columns) {
+            Column column = new Column(field.name(),
+                    PaimonUtil.paimonTypeToDorisType(field.type(), getCatalog().getEnableMappingVarbinary(),
+                            getCatalog().getEnableMappingTimestampTz()),
+                    true,
+                    null, true, field.description(), true,
+                    -1);
+            PaimonUtil.updatePaimonColumnUniqueId(column, field);
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column.setWithTZExtraInfo();
+            }
+            dorisColumns.add(column);
+            if (partitionColumnNames.contains(field.name())) {
+                partitionColumns.add(column);
+            }
+        }
+        return new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema);
     }
 
     private PaimonSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {

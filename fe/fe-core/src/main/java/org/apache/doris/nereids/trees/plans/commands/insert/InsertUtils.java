@@ -373,6 +373,8 @@ public class InsertUtils {
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
+        // Iceberg branch writes follow the shared table schema; historical schemas only apply
+        // when a branch is read, not when INSERT values are bound.
         List<Column> columns = table.getBaseSchema(false);
         Map<String, Expression> staticPartitions = null;
         if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
