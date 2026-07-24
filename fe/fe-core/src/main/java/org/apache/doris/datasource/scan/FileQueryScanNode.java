@@ -181,7 +181,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params = new TFileScanRangeParams();
         params.setDestTupleId(desc.getId().asInt());
         List<String> partitionKeys = getPathPartitionKeys();
-        List<Column> columns = desc.getTable().getBaseSchema(false);
+        List<Column> columns = getPinnedBaseSchema();
         params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
@@ -198,6 +198,27 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+    }
+
+    /**
+     * Visible base schema used to size {@code numOfColumnsFromFile}. Version-BLIND by default (the
+     * table's latest/ambient schema). The plugin-driven scan overrides this to resolve THIS scan
+     * reference's own pinned time-travel snapshot, so an add/drop-column time-travel read counts file
+     * columns as of the version it actually scans.
+     */
+    protected List<Column> getPinnedBaseSchema() throws UserException {
+        return desc.getTable().getBaseSchema(false);
+    }
+
+    /**
+     * Full schema used to position-map file columns in {@link #setColumnPositionMapping()}. Version-BLIND
+     * by default; the plugin-driven scan overrides this to THIS reference's pinned snapshot schema so a
+     * statement reading the same table at multiple versions (e.g. a self-join {@code FOR VERSION AS OF}
+     * across a schema change) maps each side's columns against the schema it actually reads, instead of
+     * the table's latest schema.
+     */
+    protected List<Column> getPinnedFullSchema() throws UserException {
+        return desc.getTable().getFullSchema();
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -281,7 +302,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = desc.getTable().getFullSchema();
+        List<Column> columns = getPinnedFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             columnNameMap.putIfAbsent(columns.get(i).getName(), i);

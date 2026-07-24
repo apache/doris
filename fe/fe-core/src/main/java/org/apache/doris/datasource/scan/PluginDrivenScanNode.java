@@ -663,6 +663,59 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return desc.getTable();
     }
 
+    @Override
+    protected List<Column> getPinnedBaseSchema() throws UserException {
+        List<Column> full = resolvePinnedFullSchema();
+        // Mirror ExternalTable.getBaseSchema(false): the visible columns of the pinned full schema.
+        return full != null ? visibleColumns(full) : super.getPinnedBaseSchema();
+    }
+
+    @Override
+    protected List<Column> getPinnedFullSchema() throws UserException {
+        List<Column> full = resolvePinnedFullSchema();
+        return full != null ? full : super.getPinnedFullSchema();
+    }
+
+    /**
+     * This scan reference's table schema AS OF its own pinned snapshot, or {@code null} when there is no
+     * explicit pin for THIS reference (latest / sys table / non-plugin table) so the caller keeps the
+     * version-blind ambient default. Resolves the pin exactly like {@link #pinMvccSnapshot()} — by this
+     * reference's own selectors — so a statement pinning the same table at several versions keeps each
+     * scan's schema independent instead of collapsing to the table's latest schema.
+     *
+     * <p>Only an explicit pin (snapshot present) diverges from the default. A latest reference resolves
+     * empty here and falls back to the no-arg ambient {@code getFullSchema()} (NOT
+     * {@code getFullSchema(Optional.empty())}, which would strip ambient resolution — see
+     * {@link org.apache.doris.datasource.ExternalTable#getFullSchema()}).</p>
+     */
+    private List<Column> resolvePinnedFullSchema() throws UserException {
+        TableIf table = getTargetTable();
+        Optional<MvccSnapshot> snapshot = table instanceof PluginDrivenExternalTable
+                ? MvccUtil.getSnapshotFromContext(table,
+                        Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()))
+                : Optional.empty();
+        return pinnedSchemaOrNull(table, snapshot);
+    }
+
+    /**
+     * The plugin table's schema AS OF {@code snapshot}, or {@code null} when the pin does not apply — a
+     * non-plugin table, or a reference with no explicit pin (empty snapshot). Pure seam for unit testing.
+     */
+    static List<Column> pinnedSchemaOrNull(TableIf table, Optional<MvccSnapshot> snapshot) {
+        if (!(table instanceof PluginDrivenExternalTable) || !snapshot.isPresent()) {
+            return null;
+        }
+        return ((PluginDrivenExternalTable) table).getFullSchema(snapshot);
+    }
+
+    /**
+     * The visible columns of {@code schema}, mirroring
+     * {@link org.apache.doris.datasource.ExternalTable#getBaseSchema(boolean)} with {@code full=false}.
+     */
+    static List<Column> visibleColumns(List<Column> schema) {
+        return schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+    }
+
     /**
      * Runs a connector scan-plan call with the thread-context classloader pinned to the connector
      * plugin's own loader, restoring it afterward.
