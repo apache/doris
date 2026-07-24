@@ -84,6 +84,10 @@ public:
         adjusted_mem_limit_ = mem_tracker_->limit();
     }
 
+    void set_user_set_mem_limit(int64_t user_set_mem_limit) {
+        user_set_mem_limit_ = user_set_mem_limit;
+    }
+
     // This method is called by workload group manager to set query's memlimit using slot
     // If user set query limit explicitly, then should use less one
     void set_mem_limit(int64_t new_mem_limit) const { mem_tracker_->set_limit(new_mem_limit); }
