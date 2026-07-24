@@ -2163,8 +2163,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
                 idx.setState(IndexState.NORMAL);
                 for (Tablet tablet : idx.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        replica.setState(ReplicaState.NORMAL);
+                    if (isForBackup && !Config.backup_meta_reserve_replica_info) {
+                        tablet.clearReplicas();
+                    } else {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.setState(ReplicaState.NORMAL);
+                        }
                     }
                 }
             }
