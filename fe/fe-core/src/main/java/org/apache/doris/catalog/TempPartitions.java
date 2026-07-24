@@ -79,7 +79,7 @@ public class TempPartitions implements GsonPostProcessable {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
             if (needDropTablet) {
-                Env.getCurrentEnv().onErasePartition(partition);
+                Env.getCurrentEnv().onErasePartition(partition, true);
             }
         }
     }

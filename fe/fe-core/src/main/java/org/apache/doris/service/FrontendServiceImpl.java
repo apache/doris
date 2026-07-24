@@ -2512,8 +2512,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                org.apache.doris.analysis.UserIdentity userIdentity = checkSingleTablePasswordAndPrivs(
+                        request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(), clientAddr, PrivPredicate.ALTER);
+                if (request.isSetIsForce() && request.isIsForce() && !Config.enable_normal_user_force_drop) {
+                    if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN)) {
+                        throw new AuthenticationException("ADMIN privilege is required for FORCE DROP");
+                    }
+                }
             }
             result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
                     Env.getCurrentEnv().getMasterRpcPort()));

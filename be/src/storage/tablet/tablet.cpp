@@ -267,6 +267,7 @@ Tablet::Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* 
           _is_tablet_path_exists(true),
           _last_missed_version(-1),
           _last_missed_time_s(0) {
+    _is_force_deleted = _tablet_meta->is_force_deleted();
     if (_data_dir != nullptr) {
         _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX,
                                    _tablet_meta->shard_id(), tablet_id(), schema_hash());

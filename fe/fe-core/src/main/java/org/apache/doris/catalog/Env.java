@@ -7289,6 +7289,10 @@ public class Env {
     }
 
     public void onEraseOlapTable(long dbId, OlapTable olapTable, boolean isReplay) {
+        onEraseOlapTable(dbId, olapTable, isReplay, false);
+    }
+
+    public void onEraseOlapTable(long dbId, OlapTable olapTable, boolean isReplay, boolean isForce) {
         // inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
@@ -7304,10 +7308,10 @@ public class Env {
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
 
-        getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay);
+        getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay, isForce);
     }
 
-    public void onErasePartition(Partition partition) {
+    public void onErasePartition(Partition partition, boolean isForce) {
         // remove tablet in inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -7316,7 +7320,7 @@ public class Env {
             }
         }
 
-        getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
+        getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition), isForce);
     }
 
     public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {

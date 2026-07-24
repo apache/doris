@@ -75,6 +75,12 @@ public class DropPartitionFromIndexOp extends AlterTableOp {
         if (Strings.isNullOrEmpty(indexName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_INDEX, indexName);
         }
+        if (forceDrop && !org.apache.doris.common.Config.enable_normal_user_force_drop) {
+            if (!org.apache.doris.catalog.Env.getCurrentEnv().getAccessManager()
+                    .checkGlobalPriv(ctx, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN for FORCE DROP");
+            }
+        }
     }
 
     @Override

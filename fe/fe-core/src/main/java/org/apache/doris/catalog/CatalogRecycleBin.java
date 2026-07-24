@@ -31,6 +31,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -406,7 +407,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false, true);
             }
             iterator.remove();
             idToRecycleTime.remove(table.getId());
@@ -469,7 +470,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     }
                     Table table = tableInfo.getTable();
                     if (table.isManagedTable()) {
-                        Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
+                        Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false, true);
                     }
 
                     idToRecycleTime.remove(tableId);
@@ -527,7 +528,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
                 Table table = tableInfo.getTable();
                 if (table.isManagedTable()) {
-                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false, true);
                 }
 
                 idToTable.remove(tableId);
@@ -600,7 +601,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         continue;
                     }
                     Partition partition = partitionInfo.getPartition();
-                    Env.getCurrentEnv().onErasePartition(partition);
+                    Env.getCurrentEnv().onErasePartition(partition, true);
                     idToRecycleTime.remove(partitionId);
 
                     dbTblIdPartitionNameToIds.computeIfPresent(
@@ -664,7 +665,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
                 Partition partition = partitionInfo.getPartition();
 
-                Env.getCurrentEnv().onErasePartition(partition);
+                Env.getCurrentEnv().onErasePartition(partition, true);
                 idToPartition.remove(partitionId);
                 idToRecycleTime.remove(partitionId);
 
@@ -706,7 +707,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     });
 
             Partition partition = partitionInfo.getPartition();
-            Env.getCurrentEnv().onErasePartition(partition);
+            Env.getCurrentEnv().onErasePartition(partition, true);
 
             LOG.info("replay erase partition[{}]", partitionId);
         } finally {
@@ -876,6 +877,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
                     + db.getFullName());
             }
+            ConnectContext connectContext = ConnectContext.get();
+            // As long as the metadata expires on the FE side, it is treated as a forced deletion.
+            // Recovery is strictly prohibited here to avoid inconsistencies with the asynchronous physical deletion.
+            if (connectContext != null && isExpire(table.getId(), System.currentTimeMillis())) {
+                throw new DdlException("Data has been expired, cannot be recovered.");
+            }
 
             if (table.getType() == TableType.MATERIALIZED_VIEW) {
                 throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '"
@@ -1008,6 +1015,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 throw new DdlException("No partition named '" + partitionName
                         + "' or partition id '" + partitionIdToRecover
                         + "' in table " + table.getName());
+            }
+            ConnectContext connectContext = ConnectContext.get();
+            // As long as the metadata expires on the FE side, it is treated as a forced deletion.
+            // Recovery is strictly prohibited here to avoid inconsistencies with the asynchronous physical deletion.
+            if (connectContext != null
+                    && isExpire(recoverPartitionInfo.getPartition().getId(), System.currentTimeMillis())) {
+                throw new DdlException("Data has been expired, cannot be recovered.");
             }
 
             PartitionInfo partitionInfo = table.getPartitionInfo();
@@ -1226,7 +1240,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long dbId = tableInfo.getDbId();
                 Table table = tableInfo.getTable();
                 if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false, true);
                 }
 
                 idToTable.remove(tableId);
@@ -1281,7 +1295,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Partition partition = partitionInfo.getPartition();
-            Env.getCurrentEnv().onErasePartition(partition);
+            Env.getCurrentEnv().onErasePartition(partition, true);
 
             idToPartition.remove(partitionId);
             idToRecycleTime.remove(partitionId);

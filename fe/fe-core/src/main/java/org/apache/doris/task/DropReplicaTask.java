@@ -28,13 +28,20 @@ public class DropReplicaTask extends AgentTask {
     // The former can safely delete all remote data,
     // but the latter can be shared by other bes because the table is still there
     private boolean isDropTableOrPartition;
+    private boolean isForce;
 
     public DropReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash,
                            boolean isDropTableOrPartition) {
+        this(backendId, tabletId, replicaId, schemaHash, isDropTableOrPartition, false);
+    }
+
+    public DropReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash,
+                           boolean isDropTableOrPartition, boolean isForce) {
         super(null, backendId, TTaskType.DROP, -1L, -1L, -1L, -1L, tabletId);
         this.schemaHash = schemaHash;
         this.replicaId = replicaId;
         this.isDropTableOrPartition = isDropTableOrPartition;
+        this.isForce = isForce;
     }
 
     public TDropTabletReq toThrift() {
@@ -44,6 +51,7 @@ public class DropReplicaTask extends AgentTask {
         }
         request.setReplicaId(replicaId);
         request.setIsDropTableOrPartition(isDropTableOrPartition);
+        request.setIsForce(isForce);
         return request;
     }
 
