@@ -18,12 +18,15 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -49,6 +52,15 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest extends TestWithFeService {
+    private static final String CREATE_AI_RESOURCE_SQL = "CREATE EXTERNAL RESOURCE \"ai_resource_log_test\"\n"
+            + "PROPERTIES\n"
+            + "(\n"
+            + "   \"type\" = \"ai\",\n"
+            + "   \"ai.provider_type\" = \"openai\",\n"
+            + "   \"ai.endpoint\" = \"https://api.test\",\n"
+            + "   \"ai.model_name\" = \"gpt-test\",\n"
+            + "   \"ai.api_key\" = \"sk-test-secret\"\n"
+            + ");";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -471,5 +483,50 @@ public class StmtExecutorTest extends TestWithFeService {
             connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
             connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
         }
+    }
+
+    @Test
+    public void testNeedAuditEncryptionStatementLogsMaskedSql() throws Exception {
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        Config.enable_print_request_before_execution = true;
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+            connectContext.getState().reset();
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, CREATE_AI_RESOURCE_SQL);
+            stmtExecutor.execute();
+
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "sk-test-secret"));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, "*XXX"));
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+        }
+        connectContext.getState().reset();
+        StmtExecutor showExecutor = new StmtExecutor(connectContext, "");
+        showExecutor.execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testAlterResourceSuccessLogDoesNotPrintResourceObject() throws Exception {
+        createResource(CREATE_AI_RESOURCE_SQL);
+        String alterSql = "ALTER RESOURCE \"ai_resource_log_test\" PROPERTIES ("
+                + "\"ai.api_key\" = \"sk-updated-secret\")";
+        String fullResourceJson = Env.getCurrentEnv().getResourceMgr().getResource("ai_resource_log_test").toString();
+
+        try (TestLogAppender appender = TestLogAppender.attach(ResourceMgr.class)) {
+            connectContext.getState().reset();
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, alterSql);
+            stmtExecutor.execute();
+
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "sk-updated-secret"));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "\"properties\""));
+            Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, fullResourceJson));
+        }
+    }
+
+    private void createResource(String sql) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 }

@@ -100,6 +100,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
@@ -588,7 +589,7 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
+                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
         }
         queryRetry(queryId);
     }
@@ -756,7 +757,7 @@ public class StmtExecutor {
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
+            LOG.debug("Nereids start to execute query:\n {}", getStmtForLogging(originStmt.originStmt));
         }
         context.setQueryId(queryId);
         context.setStartTime();
@@ -837,15 +838,16 @@ public class StmtExecutor {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 }
                 context.setState(e.getQueryState());
-                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+                throw new NereidsException("Command(" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed",
                         new AnalysisException(e.getMessage(), e));
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
+                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 }
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
@@ -853,13 +855,15 @@ public class StmtExecutor {
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+                throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed",
                         new AnalysisException(e.getMessage(), e));
             } catch (Exception | Error e) {
                 // Maybe our bug
-                LOG.info("Command({}) process failed.", originStmt.originStmt, e);
+                LOG.info("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
-                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+                throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
+                        + ") process failed.",
                         new AnalysisException(e.getMessage() == null ? e.toString() : e.getMessage(), e));
             }
         } else {
@@ -899,7 +903,7 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
+                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
@@ -2388,6 +2392,32 @@ public class StmtExecutor {
             return originStmt.originStmt;
         }
         return "";
+    }
+
+    private String getStmtForLogging(String stmt) {
+        if (stmt == null || !(parsedStmt instanceof LogicalPlanAdapter)) {
+            return stmt;
+        }
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        if (!(logicalPlan instanceof NeedAuditEncryption)) {
+            return stmt;
+        }
+        return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+    }
+
+    private String getStmtForLoggingBeforeParse() {
+        if (originStmt == null || originStmt.originStmt == null) {
+            return null;
+        }
+        try {
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(originStmt.originStmt);
+            if (!(logicalPlan instanceof NeedAuditEncryption)) {
+                return originStmt.originStmt;
+            }
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(originStmt.originStmt);
+        } catch (Exception e) {
+            return originStmt.originStmt;
+        }
     }
 
     public List<ByteBuffer> getProxyQueryResultBufList() {

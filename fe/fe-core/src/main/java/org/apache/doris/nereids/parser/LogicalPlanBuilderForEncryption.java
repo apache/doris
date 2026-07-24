@@ -203,6 +203,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitAlterAuthenticationIntegrationProperties(ctx);
     }
 
+    @Override
+    public LogicalPlan visitAlterResource(DorisParser.AlterResourceContext ctx) {
+        if (ctx.propertyClause() != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterResource(ctx);
+    }
+
     // select from tvf
     @Override
     public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
@@ -244,6 +255,17 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
         }
         return super.visitAlterJob(ctx);
+    }
+
+    @Override
+    public LogicalPlan visitCreateResource(DorisParser.CreateResourceContext ctx) {
+        if (ctx.properties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateResource(ctx);
     }
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
