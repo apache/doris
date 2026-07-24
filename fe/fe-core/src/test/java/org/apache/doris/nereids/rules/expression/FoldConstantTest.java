@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.common.VersionStrings;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -1425,6 +1426,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
         Assertions.assertTrue(e1.getDataType() instanceof VarcharType);
+    }
+
+    @Test
+    void testFoldCurrentVersion() {
+        assertRewriteExpression("current_version()", "'" + VersionStrings.currentVersion() + "'");
+    }
+
+    @Test
+    void testFoldVersionLong() {
+        assertRewriteExpression("version_long()", "'" + VersionStrings.versionLong() + "'");
     }
 
     @Test

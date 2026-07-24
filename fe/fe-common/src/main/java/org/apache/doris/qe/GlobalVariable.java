@@ -17,8 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.common.Version;
+import org.apache.doris.common.VersionStrings;
 
 import com.google.common.collect.Lists;
 
@@ -96,9 +95,7 @@ public final class GlobalVariable {
     public static int variableVersion = CURRENT_VARIABLE_VERSION;
 
     @VarAttrDef.VarAttr(name = VERSION_COMMENT, flag = VarAttrDef.READ_ONLY)
-    public static String versionComment = Version.DORIS_BUILD_VERSION_PREFIX + " version "
-            + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
-            + (Config.isCloudMode() ? " (Cloud Mode)" : "");
+    public static String versionComment = VersionStrings.versionLong();
 
     @VarAttrDef.VarAttr(name = VERSION)
     public static String version = DEFAULT_SERVER_VERSION;

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.VersionStrings;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -66,6 +67,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentVersion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
@@ -77,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.VersionLong;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -164,6 +167,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Database.class, this::visitDatabase),
                 matches(CurrentUser.class, this::visitCurrentUser),
                 matches(CurrentCatalog.class, this::visitCurrentCatalog),
+                matches(CurrentVersion.class, this::visitCurrentVersion),
                 matches(User.class, this::visitUser),
                 matches(ConnectionId.class, this::visitConnectionId),
                 matches(And.class, this::visitAnd),
@@ -180,6 +184,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Array.class, this::visitArray),
                 matches(Date.class, this::visitDate),
                 matches(Version.class, this::visitVersion),
+                matches(VersionLong.class, this::visitVersionLong),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
                 matches(Nvl.class, this::visitNvl),
@@ -371,6 +376,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitCurrentCatalog(CurrentCatalog currentCatalog, ExpressionRewriteContext context) {
         String res = context.cascadesContext.getConnectContext().getDefaultCatalog();
         return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitCurrentVersion(CurrentVersion currentVersion, ExpressionRewriteContext context) {
+        return new VarcharLiteral(VersionStrings.currentVersion());
     }
 
     @Override
@@ -714,6 +724,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitVersion(Version version, ExpressionRewriteContext context) {
         return new StringLiteral(GlobalVariable.version);
+    }
+
+    @Override
+    public Expression visitVersionLong(VersionLong versionLong, ExpressionRewriteContext context) {
+        return new VarcharLiteral(VersionStrings.versionLong());
     }
 
     @Override
