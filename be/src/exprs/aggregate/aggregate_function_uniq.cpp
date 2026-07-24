@@ -36,6 +36,11 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypePtr& result_type,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
+    if (argument_types.size() == 1 &&
+        remove_nullable(argument_types[0])->get_primitive_type() == TYPE_VARIANT) {
+        return creator_without_type::create<AggregateFunctionUniqVariant>(argument_types,
+                                                                          result_is_nullable, attr);
+    }
     return creator_with_type_list<
             TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
             TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR,

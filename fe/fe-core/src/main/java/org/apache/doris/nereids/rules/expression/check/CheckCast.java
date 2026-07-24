@@ -356,7 +356,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
         if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
+            // Variant properties describe the source column layout. The execution value type is
+            // still Variant, so operators may align those properties without changing the value.
+            return true;
         }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array

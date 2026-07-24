@@ -71,13 +71,6 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     @Override
-    public void checkLegalityAfterRewrite() {
-        for (Expression argument : getArguments()) {
-            Count.checkDistinctVariantArgument(argument, new Count(true, argument));
-        }
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctCount(this, context);
     }

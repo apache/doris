@@ -26,12 +26,16 @@ import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuild
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariantErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -85,6 +89,51 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
                             return true;
                         })
                 );
+    }
+
+    @Test
+    public void testVariantParseFunctions() {
+        PlanChecker.from(connectContext)
+                .analyze("select parse_to_variant('{\"a\":1}'), parse_to_variant_error_to_null('{')")
+                .matches(
+                        logicalOneRowRelation().when(oneRowRelation -> {
+                            Expression fail = oneRowRelation.getProjects().get(0).child(0);
+                            Expression errorToNull = oneRowRelation.getProjects().get(1).child(0);
+                            Assertions.assertInstanceOf(ParseToVariant.class, fail);
+                            Assertions.assertInstanceOf(ParseToVariantErrorToNull.class, errorToNull);
+                            Assertions.assertTrue(fail.getDataType().isVariantType());
+                            Assertions.assertTrue(errorToNull.getDataType().isVariantType());
+                            Assertions.assertFalse(fail.nullable());
+                            Assertions.assertTrue(errorToNull.nullable());
+                            return true;
+                        })
+                );
+    }
+
+    @Test
+    public void testVariantV2SessionSelectsComputeResultType() {
+        connectContext.getSessionVariable().enableVariantV2 = true;
+        try {
+            PlanChecker.from(connectContext)
+                    .analyze("select parse_to_variant('{\"a\":1}'), cast(1 as variant), "
+                            + "cast(parse_to_variant('[1]') as array<variant>)")
+                    .matches(
+                            logicalOneRowRelation().when(oneRowRelation -> {
+                                VariantType parsed = (VariantType) oneRowRelation.getProjects().get(0)
+                                        .child(0).getDataType();
+                                VariantType cast = (VariantType) oneRowRelation.getProjects().get(1)
+                                        .child(0).getDataType();
+                                ArrayType array = (ArrayType) oneRowRelation.getProjects().get(2)
+                                        .child(0).getDataType();
+                                Assertions.assertTrue(parsed.isComputeV2());
+                                Assertions.assertTrue(cast.isComputeV2());
+                                Assertions.assertTrue(((VariantType) array.getItemType()).isComputeV2());
+                                return true;
+                            })
+                    );
+        } finally {
+            connectContext.getSessionVariable().enableVariantV2 = false;
+        }
     }
 
     @Test
