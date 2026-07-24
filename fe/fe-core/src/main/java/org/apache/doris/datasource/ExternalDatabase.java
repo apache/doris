@@ -120,12 +120,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
+        boolean needInvalidateMetaCache = false;
         synchronized (this) {
             this.initialized = false;
             this.lowerCaseToTableName = Maps.newConcurrentMap();
             if (metaCache != null) {
-                metaCache.invalidateAll();
+                needInvalidateMetaCache = true;
             }
+        }
+        // Break AB-BA deadlock between synchronized(this) and MetaCache internal CHM lock.
+        // metaCache.invalidateAll() is thread-safe by itself (Caffeine internal locking).
+        // Moving it out of synchronized(this) prevents the circular dependency:
+        //   Thread A: synchronized(this) -> metaCache.invalidateAll() -> CHM lock
+        //   Thread B: CHM lock -> cache loader -> synchronized(this)
+        if (needInvalidateMetaCache) {
+            metaCache.invalidateAll();
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
     }
