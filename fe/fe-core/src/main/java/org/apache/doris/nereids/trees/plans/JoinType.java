@@ -253,6 +253,20 @@ public enum JoinType {
         return this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
+    /**
+     * Whether this join may null-extend slots from its left child.
+     */
+    public final boolean isLeftSideNullable() {
+        return isRightOuterJoin() || isAsofRightOuterJoin() || isFullOuterJoin();
+    }
+
+    /**
+     * Whether this join may null-extend slots from its right child.
+     */
+    public final boolean isRightSideNullable() {
+        return isLeftOuterJoin() || isAsofLeftOuterJoin() || isFullOuterJoin();
+    }
+
     public final boolean isAsofLeftJoin() {
         return this == ASOF_LEFT_INNER_JOIN || this == ASOF_LEFT_OUTER_JOIN;
     }
