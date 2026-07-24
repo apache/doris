@@ -41,6 +41,14 @@ mkdir -p "${result_dir}" "${output_dir}"
 printf '%s\n' "${base_sha}" >"${result_dir}/base-sha.txt"
 git -C "${doris_home}" rev-parse HEAD >"${result_dir}/head-sha.txt"
 
+# The shared benchmark target contains a legacy memcpy benchmark that GCC diagnoses as
+# class-memaccess. Keep warnings strict everywhere else, but build the identical base/head
+# benchmark harness without promoting that unrelated warning to an error.
+benchmark_cxx="${CXX:-g++}"
+if "${benchmark_cxx}" --version 2>/dev/null | head -n 1 | grep -Eq 'g\+\+|GCC'; then
+    export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} -Wno-error=class-memaccess"
+fi
+
 echo "INFO: build Parquet benchmark for PR revision"
 bash "${doris_home}/build.sh" --benchmark --output "${output_dir}/head" \
     2>&1 | tee "${result_dir}/build-head.log"
