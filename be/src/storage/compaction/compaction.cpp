@@ -268,6 +268,9 @@ int64_t Compaction::merge_way_num() {
 }
 
 Status Compaction::merge_input_rowsets() {
+    MergeInputRowsetsResult result;
+    RETURN_IF_ERROR(prepare_merge_input_rowsets(&result));
+
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     input_rs_readers.reserve(_input_rowsets.size());
     for (auto& rowset : _input_rowsets) {
@@ -292,38 +295,10 @@ Status Compaction::merge_input_rowsets() {
         _stats.rowid_conversion = _rowid_conversion.get();
     }
 
-    int64_t way_num = merge_way_num();
-
-    Status res;
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
-        // TODO implement vertical compaction for seq map
-        if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
-            if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
-                RETURN_IF_ERROR(update_delete_bitmap());
-            }
-            auto progress_cb = [compaction_id = this->_compaction_id](int64_t total,
-                                                                      int64_t completed) {
-                CompactionTaskTracker::instance()->update_progress(compaction_id, total, completed);
-            };
-            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
-                                                 input_rs_readers, _output_rs_writer.get(),
-                                                 cast_set<uint32_t>(get_avg_segment_rows()),
-                                                 way_num, &_stats, progress_cb);
-        } else {
-            if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
-                return Status::InternalError(
-                        "mow table with cluster keys does not support non vertical compaction");
-            }
-            res = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
-                                         input_rs_readers, _output_rs_writer.get(), &_stats);
-        }
-
-        _tablet->last_compaction_status = res;
-        if (!res.ok()) {
-            return res;
-        }
+        RETURN_IF_ERROR(do_merge_input_rowsets(input_rs_readers, &result));
         // 2. Merge the remaining inverted index files of the string type
         RETURN_IF_ERROR(do_inverted_index_compaction());
     }
@@ -349,6 +324,7 @@ Status Compaction::merge_input_rowsets() {
 
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
     set_delete_predicate_for_output_rowset();
+    update_output_rowset_after_build(result);
 
     _local_read_bytes_total = _stats.bytes_read_from_local;
     _remote_read_bytes_total = _stats.bytes_read_from_remote;
@@ -363,6 +339,46 @@ Status Compaction::merge_input_rowsets() {
     COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
 
     return check_correctness();
+}
+
+Status Compaction::do_merge_input_rowsets(
+        const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+        MergeInputRowsetsResult* /*result*/) {
+    return execute_merge(input_rs_readers, merge_way_num(), &_stats);
+}
+
+Status Compaction::execute_merge(const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+                                 int64_t merge_way_num, Merger::Statistics* stats,
+                                 std::optional<std::pair<int64_t, int64_t>> segment_range,
+                                 VerticalMergeProgressContext progress) {
+    Status status;
+    // TODO implement vertical compaction for seq map
+    if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
+        if (!_tablet->tablet_schema()->cluster_key_uids().empty() && !segment_range.has_value()) {
+            RETURN_IF_ERROR(update_delete_bitmap());
+        }
+        auto progress_cb = [compaction_id = this->_compaction_id, progress](int64_t total,
+                                                                            int64_t completed) {
+            CompactionTaskTracker::instance()->update_progress(
+                    compaction_id, total * progress.total_ranges,
+                    total * progress.range_index + completed);
+        };
+        status = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
+                                                input_rs_readers, _output_rs_writer.get(),
+                                                cast_set<uint32_t>(get_avg_segment_rows()),
+                                                merge_way_num, stats, progress_cb, segment_range);
+    } else {
+        if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
+            return Status::InternalError(
+                    "mow table with cluster keys does not support non vertical compaction");
+        }
+        status = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
+                                        input_rs_readers, _output_rs_writer.get(), stats,
+                                        segment_range);
+    }
+
+    _tablet->last_compaction_status = status;
+    return status;
 }
 
 void Compaction::set_delete_predicate_for_output_rowset() {

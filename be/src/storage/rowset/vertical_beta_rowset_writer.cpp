@@ -140,8 +140,11 @@ Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* se
         key_bounds.set_min_key(min_key.to_string());
         key_bounds.set_max_key(max_key.to_string());
         this->_segments_encoded_key_bounds.emplace_back(std::move(key_bounds));
-        this->_segment_num_rows.resize(_cur_writer_idx + 1);
-        this->_segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
+        const auto segment_id = segment_writer->get_segment_id();
+        if (segment_id >= this->_segment_num_rows.size()) {
+            this->_segment_num_rows.resize(segment_id + 1);
+        }
+        this->_segment_num_rows[segment_id] = segment_writer->row_count();
     }
     return Status::OK();
 }
@@ -205,6 +208,7 @@ template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::final_flush() {
     for (auto& segment_writer : _segment_writers) {
+        DCHECK(segment_writer);
         uint64_t segment_size = 0;
         //uint64_t footer_position = 0;
         segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
@@ -220,6 +224,8 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         segment_writer.reset();
         _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
     }
+    _segment_writers.clear();
+    _cur_writer_idx = 0;
     return Status::OK();
 }
 

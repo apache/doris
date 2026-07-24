@@ -29,11 +29,16 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <tuple>
 #include <unordered_map>
 
+#include "cloud/cloud_cumulative_compaction.h"
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -43,7 +48,10 @@
 #include "io/io_common.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/delete/delete_handler.h"
+#include "storage/index/index_writer.h"
+#include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/merger.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
@@ -54,10 +62,12 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -79,6 +89,14 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
+
+        std::vector<StorePath> tmp_paths;
+        tmp_paths.emplace_back(absolute_dir, 1024000000);
+        auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(tmp_paths);
+        st = tmp_file_dirs->init();
+        ASSERT_TRUE(st.ok()) << st;
+        ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
         doris::EngineOptions options;
         auto engine = std::make_unique<StorageEngine>(options);
         engine_ref = engine.get();
@@ -86,12 +104,14 @@ protected:
     }
 
     void TearDown() override {
+        ExecEnv::GetInstance()->set_tmp_file_dir(nullptr);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
-    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
+    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS,
+                                   bool with_inverted_index = false) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
@@ -133,6 +153,15 @@ protected:
             column_3->set_is_key(false);
             column_3->set_is_nullable(false);
             column_3->set_is_bf_column(false);
+        }
+
+        if (with_inverted_index) {
+            tablet_schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+            auto* index = tablet_schema_pb.add_index();
+            index->set_index_id(1);
+            index->set_index_name("c2_idx");
+            index->set_index_type(IndexType::INVERTED);
+            index->add_col_unique_id(2);
         }
 
         tablet_schema->init_from_pb(tablet_schema_pb);
@@ -185,7 +214,7 @@ protected:
         }
         auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
                                                            {version, version});
-        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, false);
         EXPECT_TRUE(res.has_value()) << res.error();
         auto rowset_writer = std::move(res).value();
 
@@ -545,6 +574,263 @@ TEST_F(TestRowIdConversion, Basic) {
     RowLocation dst4;
     res = rowid_conversion.get(src4, &dst4);
     EXPECT_EQ(res, -1);
+}
+
+TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComplete) {
+    constexpr int64_t num_segments = 5;
+    constexpr int64_t rows_per_segment = 1500;
+    constexpr int64_t segment_group_size = 2;
+    constexpr int32_t schema_version = 1234;
+    constexpr int64_t newest_write_timestamp = 123456789;
+    constexpr int64_t compaction_level = 2;
+    const bool old_enable_compaction_task_tracker = config::enable_compaction_task_tracker;
+    Defer restore_config {
+            [&] { config::enable_compaction_task_tracker = old_enable_compaction_task_tracker; }};
+    config::enable_compaction_task_tracker = true;
+
+    std::vector<std::vector<std::tuple<int64_t, int64_t>>> input_data;
+    for (int64_t segment_id = 0; segment_id < num_segments; ++segment_id) {
+        std::vector<std::tuple<int64_t, int64_t>> segment_data;
+        for (int64_t row_id = 0; row_id < rows_per_segment; ++row_id) {
+            int64_t key = segment_id * rows_per_segment + row_id;
+            segment_data.emplace_back(key, key + 1);
+        }
+        input_data.push_back(std::move(segment_data));
+    }
+
+    CloudStorageEngine cloud_engine(EngineOptions {});
+    for (bool is_vertical : {false, true}) {
+        SCOPED_TRACE(is_vertical ? "vertical merge" : "horizontal merge");
+
+        TabletSchemaSPtr tablet_schema = create_schema(UNIQUE_KEYS, true);
+        tablet_schema->set_schema_version(schema_version);
+        tablet_schema->set_db_id(1000);
+        RowsetSharedPtr input_rowset = create_rowset(tablet_schema, OVERLAPPING, input_data, 2);
+        ASSERT_TRUE(input_rowset != nullptr);
+
+        TabletSharedPtr local_tablet = create_tablet(*tablet_schema, true);
+        auto writer_context = create_rowset_writer_context(
+                tablet_schema, NONOVERLAPPING, rows_per_segment, input_rowset->version());
+        writer_context.db_id = tablet_schema->db_id();
+        writer_context.table_id = local_tablet->table_id();
+        writer_context.tablet_id = local_tablet->tablet_id();
+        writer_context.index_id = local_tablet->index_id();
+        writer_context.partition_id = local_tablet->partition_id();
+        writer_context.tablet_schema_hash = local_tablet->schema_hash();
+        writer_context.tablet_uid = local_tablet->tablet_uid();
+        writer_context.newest_write_timestamp = newest_write_timestamp;
+        writer_context.compaction_level = compaction_level;
+        writer_context.enable_unique_key_merge_on_write = true;
+        auto writer_result =
+                RowsetFactory::create_rowset_writer(*engine_ref, writer_context, is_vertical);
+        ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+
+        auto cloud_tablet = std::make_shared<CloudTablet>(
+                cloud_engine, std::make_shared<TabletMeta>(*local_tablet->tablet_meta()));
+        CloudCumulativeCompaction compaction(cloud_engine, cloud_tablet);
+        compaction._input_rowsets = {input_rowset};
+        compaction._cur_tablet_schema = tablet_schema;
+        compaction._output_rs_writer = std::move(writer_result).value();
+        compaction._is_vertical = is_vertical;
+        compaction._input_row_num = input_rowset->num_rows();
+        compaction._input_rowsets_data_size = input_rowset->data_disk_size();
+        compaction._stats.rowid_conversion = compaction._rowid_conversion.get();
+
+        auto* compaction_task_tracker = CompactionTaskTracker::instance();
+        CompactionTaskInfo task_info;
+        task_info.compaction_id = compaction.compaction_id();
+        compaction_task_tracker->register_task(std::move(task_info));
+        Defer remove_tracker_task {
+                [compaction_task_tracker, compaction_id = compaction.compaction_id()] {
+                    compaction_task_tracker->remove_task(compaction_id);
+                }};
+
+        Compaction::MergeInputRowsetsResult merge_result;
+        merge_result.is_segment_grouped = true;
+        merge_result.segment_group_size = segment_group_size;
+        ASSERT_TRUE(compaction.do_merge_input_rowsets({}, &merge_result).ok());
+        const int64_t segment_group_count =
+                (num_segments + segment_group_size - 1) / segment_group_size;
+        EXPECT_EQ(merge_result.output_segment_group_count, segment_group_count);
+        if (is_vertical) {
+            constexpr int32_t default_num_columns_per_group = 5;
+            const int32_t num_columns_per_group =
+                    config::vertical_compaction_num_columns_per_group !=
+                                    default_num_columns_per_group
+                            ? config::vertical_compaction_num_columns_per_group
+                            : cloud_tablet->tablet_meta()
+                                      ->vertical_compaction_num_columns_per_group();
+            std::vector<std::vector<uint32_t>> column_groups;
+            std::vector<uint32_t> key_group_cluster_key_idxes;
+            Merger::vertical_split_columns(*tablet_schema, &column_groups,
+                                           &key_group_cluster_key_idxes, num_columns_per_group);
+
+            const auto tracked_tasks = compaction_task_tracker->get_all_tasks();
+            const auto task_it = std::find_if(
+                    tracked_tasks.begin(), tracked_tasks.end(), [&](const auto& tracked_task) {
+                        return tracked_task.compaction_id == compaction.compaction_id();
+                    });
+            ASSERT_NE(task_it, tracked_tasks.end());
+            const int64_t expected_total_groups =
+                    static_cast<int64_t>(column_groups.size()) * segment_group_count;
+            EXPECT_EQ(task_it->vertical_total_groups, expected_total_groups);
+            EXPECT_EQ(task_it->vertical_completed_groups, expected_total_groups);
+        }
+
+        RowsetSharedPtr output_rowset;
+        ASSERT_EQ(Status::OK(), compaction._output_rs_writer->build(output_rowset));
+        ASSERT_TRUE(output_rowset != nullptr);
+        compaction._output_rowset = output_rowset;
+        compaction.update_output_rowset_after_build(merge_result);
+        EXPECT_EQ(compaction._stats.output_rows, input_rowset->num_rows());
+        if (is_vertical) {
+            EXPECT_GT(output_rowset->num_segments(), merge_result.output_segment_group_count);
+        }
+        EXPECT_EQ(output_rowset->rowset_meta()->get_num_segment_rows().size(),
+                  output_rowset->num_segments());
+
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = tablet_schema;
+        reader_context.need_ordered_result = false;
+        std::vector<uint32_t> return_columns = {0, 1};
+        reader_context.return_columns = &return_columns;
+        RowsetReaderSharedPtr output_reader;
+        create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_reader);
+
+        std::vector<std::tuple<int64_t, int64_t>> output_data;
+        Status read_status;
+        do {
+            Block output_block = tablet_schema->create_block(return_columns);
+            read_status = output_reader->next_batch(&output_block);
+            const auto& columns = output_block.get_columns_with_type_and_name();
+            ASSERT_EQ(columns.size(), return_columns.size());
+            for (size_t row_id = 0; row_id < output_block.rows(); ++row_id) {
+                output_data.emplace_back(columns[0].column->get_int(row_id),
+                                         columns[1].column->get_int(row_id));
+            }
+        } while (read_status.ok());
+        ASSERT_TRUE(read_status.is<END_OF_FILE>()) << read_status;
+        ASSERT_EQ(output_data.size(), input_rowset->num_rows());
+
+        auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(output_rowset);
+        ASSERT_TRUE(beta_rowset != nullptr);
+        const auto& rowset_meta = output_rowset->rowset_meta();
+        const auto rowset_meta_pb = rowset_meta->get_rowset_pb();
+        const auto& segment_num_rows_from_meta = rowset_meta->get_num_segment_rows();
+
+        EXPECT_EQ(rowset_meta_pb.rowset_id_v2(), writer_context.rowset_id.to_string());
+        EXPECT_EQ(rowset_meta->rowset_id().to_string(), writer_context.rowset_id.to_string());
+
+        EXPECT_EQ(rowset_meta->rowset_type(), BETA_ROWSET);
+        EXPECT_EQ(rowset_meta->rowset_state(), VISIBLE);
+        EXPECT_TRUE(rowset_meta->has_version());
+        EXPECT_EQ(rowset_meta->version(), input_rowset->version());
+        EXPECT_FALSE(rowset_meta->empty());
+        EXPECT_EQ(rowset_meta->num_rows(), input_rowset->num_rows());
+        EXPECT_EQ(rowset_meta->segments_overlap(), OVERLAPPING);
+        EXPECT_TRUE(rowset_meta->is_segments_overlapping());
+
+        ASSERT_TRUE(rowset_meta->tablet_schema() != nullptr);
+        EXPECT_EQ(*rowset_meta->tablet_schema(), *tablet_schema);
+        EXPECT_TRUE(rowset_meta_pb.has_tablet_schema());
+        TabletSchemaPB expected_tablet_schema_pb;
+        tablet_schema->to_schema_pb(&expected_tablet_schema_pb);
+        EXPECT_EQ(rowset_meta_pb.tablet_schema().SerializeAsString(),
+                  expected_tablet_schema_pb.SerializeAsString());
+        EXPECT_EQ(rowset_meta_pb.schema_version(), schema_version);
+        EXPECT_TRUE(rowset_meta_pb.has_has_variant_type_in_schema());
+        EXPECT_FALSE(rowset_meta_pb.has_variant_type_in_schema());
+
+        std::vector<segment_v2::SegmentSharedPtr> output_segments;
+        ASSERT_TRUE(beta_rowset->load_segments(&output_segments).ok());
+        ASSERT_EQ(rowset_meta->num_segments(), output_segments.size());
+        ASSERT_EQ(segment_num_rows_from_meta.size(), output_segments.size());
+
+        const auto& segment_key_bounds_from_meta = rowset_meta->get_segments_key_bounds();
+        EXPECT_FALSE(rowset_meta->is_segments_key_bounds_aggregated());
+        EXPECT_FALSE(rowset_meta->is_segments_key_bounds_truncated());
+        ASSERT_EQ(segment_key_bounds_from_meta.size(), output_segments.size());
+
+        const auto& inverted_index_file_info_from_meta = rowset_meta->inverted_index_file_info();
+        EXPECT_TRUE(rowset_meta_pb.enable_inverted_index_file_info());
+        ASSERT_EQ(inverted_index_file_info_from_meta.size(), output_segments.size());
+
+        EXPECT_FALSE(rowset_meta_pb.enable_segments_file_size());
+        EXPECT_TRUE(rowset_meta_pb.segments_file_size().empty());
+
+        int64_t actual_data_disk_size = 0;
+        int64_t actual_index_disk_size = 0;
+        int64_t actual_num_rows = 0;
+        for (size_t segment_id = 0; segment_id < output_segments.size(); ++segment_id) {
+            EXPECT_EQ(output_segments[segment_id]->id(), segment_id);
+            EXPECT_EQ(segment_num_rows_from_meta[segment_id],
+                      output_segments[segment_id]->num_rows())
+                    << "segment_id=" << segment_id;
+            EXPECT_EQ(segment_key_bounds_from_meta[segment_id].min_key(),
+                      output_segments[segment_id]->min_key())
+                    << "segment_id=" << segment_id;
+            EXPECT_EQ(segment_key_bounds_from_meta[segment_id].max_key(),
+                      output_segments[segment_id]->max_key())
+                    << "segment_id=" << segment_id;
+
+            const auto& index_file_info = inverted_index_file_info_from_meta[segment_id];
+            ASSERT_TRUE(index_file_info.has_index_size()) << "segment_id=" << segment_id;
+            const auto segment_path = output_rowset->segment_path(segment_id);
+            ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
+            int64_t segment_file_size = 0;
+            const auto segment_file_size_status =
+                    rowset_meta->fs()->file_size(segment_path.value(), &segment_file_size);
+            ASSERT_TRUE(segment_file_size_status.ok()) << segment_file_size_status;
+            actual_data_disk_size += segment_file_size;
+            actual_num_rows += output_segments[segment_id]->num_rows();
+
+            const auto index_file_path =
+                    segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(
+                            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                                    segment_path.value()));
+            int64_t index_file_size = 0;
+            const auto index_file_size_status =
+                    rowset_meta->fs()->file_size(index_file_path, &index_file_size);
+            ASSERT_TRUE(index_file_size_status.ok()) << index_file_size_status;
+            EXPECT_EQ(index_file_info.index_size(), index_file_size) << "segment_id=" << segment_id;
+            actual_index_disk_size += index_file_size;
+        }
+        EXPECT_EQ(rowset_meta->num_rows(), actual_num_rows);
+        EXPECT_EQ(rowset_meta->data_disk_size(), actual_data_disk_size);
+        EXPECT_EQ(rowset_meta->index_disk_size(), actual_index_disk_size);
+        EXPECT_EQ(rowset_meta->total_disk_size(),
+                  rowset_meta->data_disk_size() + rowset_meta->index_disk_size());
+
+        std::vector<uint32_t> output_segment_num_rows;
+        OlapReaderStatistics reader_stats;
+        ASSERT_TRUE(
+                beta_rowset->get_segment_num_rows(&output_segment_num_rows, false, &reader_stats)
+                        .ok());
+
+        RowIdConversion& rowid_conversion = *compaction._stats.rowid_conversion;
+        EXPECT_EQ(rowid_conversion.get_src_segment_to_id_map().size(), num_segments);
+        EXPECT_EQ(rowid_conversion.get_rowid_conversion_map().size(), num_segments);
+        EXPECT_EQ(rowid_conversion.get_rowid_conversion_map().size(),
+                  rowid_conversion.get_src_segment_to_id_map().size());
+        for (int64_t segment_id = 0; segment_id < num_segments; ++segment_id) {
+            for (int64_t row_id = 0; row_id < rows_per_segment; ++row_id) {
+                RowLocation src(input_rowset->rowset_id(), segment_id, row_id);
+                RowLocation dst;
+                ASSERT_EQ(rowid_conversion.get(src, &dst), 0)
+                        << "segment_id=" << segment_id << ", row_id=" << row_id;
+                ASSERT_LT(dst.segment_id, output_segment_num_rows.size());
+                ASSERT_LT(dst.row_id, output_segment_num_rows[dst.segment_id]);
+
+                size_t output_row_id = dst.row_id;
+                for (uint32_t output_segment_id = 0; output_segment_id < dst.segment_id;
+                     ++output_segment_id) {
+                    output_row_id += output_segment_num_rows[output_segment_id];
+                }
+                ASSERT_LT(output_row_id, output_data.size());
+                EXPECT_EQ(output_data[output_row_id], input_data[segment_id][row_id]);
+            }
+        }
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(

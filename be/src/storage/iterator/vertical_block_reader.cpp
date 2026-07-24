@@ -79,10 +79,12 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         return res;
     }
     for (const auto& rs_split : read_params.rs_splits) {
+        RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
         bool use_cache = !rs_split.rs_reader->rowset()->is_local();
+        size_t iterators_start = segment_iters->size();
         RETURN_IF_ERROR(rs_split.rs_reader->get_segment_iterators(&_reader_context, segment_iters,
                                                                   use_cache));
         // if segments overlapping, all segment iterator should be inited in
@@ -90,12 +92,13 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // rowset will be inited and push to heap, other segment will be inited later when current
         // segment reached it's end.
         // Use this iterator_init_flag so we can load few segments in HeapMergeIterator to save memory
+        size_t added_iterators = segment_iters->size() - iterators_start;
         if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
-            for (int i = 0; i < rs_split.rs_reader->rowset()->num_segments(); ++i) {
+            for (size_t i = 0; i < added_iterators; ++i) {
                 iterator_init_flag->push_back(true);
             }
         } else {
-            for (int i = 0; i < rs_split.rs_reader->rowset()->num_segments(); ++i) {
+            for (size_t i = 0; i < added_iterators; ++i) {
                 if (i == 0) {
                     iterator_init_flag->push_back(true);
                     continue;
@@ -103,7 +106,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                 iterator_init_flag->push_back(false);
             }
         }
-        for (int i = 0; i < rs_split.rs_reader->rowset()->num_segments(); ++i) {
+        for (size_t i = 0; i < added_iterators; ++i) {
             rowset_ids->push_back(rs_split.rs_reader->rowset()->rowset_id());
         }
         rs_split.rs_reader->reset_read_options();

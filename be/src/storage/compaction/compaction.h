@@ -30,6 +30,7 @@
 #endif
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cloud/cloud_tablet.h"
@@ -103,7 +104,34 @@ private:
     void set_delete_predicate_for_output_rowset();
 
 protected:
+    struct MergeInputRowsetsResult {
+        bool is_segment_grouped = false;
+        int64_t segment_group_size = 0;
+        int64_t output_segment_group_count = 0;
+    };
+
     Status merge_input_rowsets();
+
+    virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
+        return Status::OK();
+    }
+
+    virtual Status do_merge_input_rowsets(
+            const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+            MergeInputRowsetsResult* result);
+
+    virtual void update_output_rowset_after_build(const MergeInputRowsetsResult& /*result*/) {}
+
+    // Maps one segment-range merge's column-group progress into the whole compaction task.
+    struct VerticalMergeProgressContext {
+        int64_t total_ranges;
+        int64_t range_index;
+    };
+
+    Status execute_merge(const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+                         int64_t merge_way_num, Merger::Statistics* stats,
+                         std::optional<std::pair<int64_t, int64_t>> segment_range = std::nullopt,
+                         VerticalMergeProgressContext progress = {1, 0});
 
     // merge inverted index files
     Status do_inverted_index_compaction();
@@ -255,6 +283,8 @@ protected:
 
     virtual Status garbage_collection();
 
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
+
     // Helper function to apply truncation and log the result
     // Returns the number of rowsets that were truncated
     size_t apply_txn_size_truncation_and_log(const std::string& compaction_name);
@@ -268,8 +298,6 @@ protected:
     virtual Status rebuild_tablet_schema() { return Status::OK(); }
 
 private:
-    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
-
     Status set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx);
 
     Status execute_compact_impl(int64_t permits);
