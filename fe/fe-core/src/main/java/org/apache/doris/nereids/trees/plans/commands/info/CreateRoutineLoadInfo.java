@@ -130,6 +130,7 @@ public class CreateRoutineLoadInfo {
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
             .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
             .add(JsonFileFormatProperties.PROP_FUZZY_PARSE)
+            .add(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
             .add(JsonFileFormatProperties.PROP_JSON_ROOT)
             .add(CsvFileFormatProperties.PROP_ENCLOSE)
             .add(CsvFileFormatProperties.PROP_ESCAPE)
@@ -641,6 +642,14 @@ public class CreateRoutineLoadInfo {
         }
 
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        // fill_missing_columns is a JSON-only property. If the format is not JSON, the value
+        // would otherwise be silently ignored (including typos), so reject it explicitly here
+        // before the format dispatch to keep behavior consistent with ALTER ROUTINE LOAD.
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
+                && !"json".equalsIgnoreCase(format)) {
+            throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                    + " is only supported for JSON format, but found format: " + format);
+        }
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
         fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }

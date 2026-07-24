@@ -74,6 +74,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
             .add(CreateRoutineLoadInfo.WORKLOAD_GROUP)
+            .add(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
             .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
@@ -312,6 +313,24 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                     jobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL));
             analyzedJobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                     String.valueOf(emptyFieldAsNull));
+        }
+
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS)) {
+            String val = jobProperties.get(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS);
+            if (!"true".equalsIgnoreCase(val) && !"false".equalsIgnoreCase(val)) {
+                throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                        + " must be 'true' or 'false', but found: " + val);
+            }
+            // fill_missing_columns is a JSON-only property. This alter cannot change the job format,
+            // so reject it for non-JSON jobs; otherwise the value would be persisted but silently
+            // ignored by the CSV scan path.
+            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                    .getJob(getDbName(), getJobName());
+            if (!"json".equalsIgnoreCase(job.getFormat())) {
+                throw new AnalysisException(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS
+                        + " is only supported for JSON format, but found format: " + job.getFormat());
+            }
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS, val);
         }
     }
 

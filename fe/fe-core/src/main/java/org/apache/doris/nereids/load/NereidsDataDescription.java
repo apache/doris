@@ -436,6 +436,8 @@ public class NereidsDataDescription {
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
                 String.valueOf(taskInfo.isReadJsonByLine()));
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_FILL_MISSING_COLUMNS,
+                String.valueOf(taskInfo.isFillMissingColumns()));
         this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         fileFieldNamesToLowerCase(fileFieldNames);
     }

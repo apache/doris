@@ -75,6 +75,10 @@ public interface NereidsLoadTaskInfo {
 
     boolean isNumAsString();
 
+    default boolean isFillMissingColumns() {
+        return false;
+    }
+
     boolean isReadJsonByLine();
 
     String getPath();
