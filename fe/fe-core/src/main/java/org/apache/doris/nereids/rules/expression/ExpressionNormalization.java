@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeElementAt;
+import org.apache.doris.nereids.rules.expression.rules.NullIfToIf;
 import org.apache.doris.nereids.rules.expression.rules.RewriteDefaultExpression;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
@@ -67,7 +68,10 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 LogToLn.INSTANCE,
                 ConcatWsMultiArrayToOne.INSTANCE,
                 TimestampToAddTime.INSTANCE,
-                FoldConstantRule.INSTANCE,
+                FoldConstantRule.INSTANCE
+            ),
+            NullIfToIf.INSTANCE,
+            bottomUp(
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
                 MedianConvert.INSTANCE,
