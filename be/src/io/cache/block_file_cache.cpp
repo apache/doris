@@ -1828,7 +1828,8 @@ int disk_used_percentage(const std::string& path, std::pair<int, int>* percent) 
 
     unsigned long long inode_free = stat.f_ffree;
     unsigned long long inode_total = stat.f_files;
-    int inode_percentage = cast_set<int>(inode_free * 100 / inode_total);
+    // Some filesystems use dynamic inodes(e.g. btrfs) and stat.f_files are reported as zero.
+    int inode_percentage = inode_total > 0 ? cast_set<int>(inode_free * 100 / inode_total) : 100;
     percent->first = capacity_percentage;
     percent->second = 100 - inode_percentage;
 
