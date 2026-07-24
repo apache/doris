@@ -86,6 +86,7 @@ TFileRangeDesc paimon_cpp_jni_range() {
     auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
     TPaimonFileDesc paimon_params;
     paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+    paimon_params.__set_file_format("parquet");
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
     return range;
 }
@@ -332,7 +333,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"remote_doris", TFileFormatType::FORMAT_ARROW, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
             {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
             {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
@@ -417,11 +418,13 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {
-            TFileFormatType::FORMAT_WAL,
-            TFileFormatType::FORMAT_ES_HTTP,
-            TFileFormatType::FORMAT_LANCE,
-    };
+    params.__set_format_type(TFileFormatType::FORMAT_WAL);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
+                                                                  TFileFormatType::FORMAT_LANCE};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
@@ -441,24 +444,20 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
-TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
+TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
     query_options.__set_enable_paimon_cpp_reader(true);
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
-    // scan-level selector cannot inspect that split yet, JNI scans conservatively stay on V1.
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
 
-    // Older FEs can omit reader_type. The legacy scanner interprets this as Paimon JNI when the C++
-    // reader is disabled, so the scan-level choice must still stay on V1.
+    // Older FE plans without reader_type used Java whenever the C++ option was disabled.
     query_options.__set_enable_paimon_cpp_reader(false);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(
-            FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
@@ -563,6 +562,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
+            {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
