@@ -51,7 +51,6 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
-import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.PartitionPathUtils;
 
@@ -974,9 +973,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         Table table = resolveTable(paimonHandle);
-        RowType rowType = table.rowType();
-        List<DataField> fields = rowType.getFields();
-        return buildColumnHandles(fields);
+        // Mirror getTableSchema(session, handle): for a non-system data table read the LATEST schema FRESH
+        // via schemaManager().latest(), NOT the cached Table's rowType(). paimon's CachingCatalog freezes
+        // rowType() at load time, while an external ALTER (e.g. RENAME COLUMN) bumps the schema file WITHOUT
+        // a new snapshot — so a stale rowType() keeps the OLD column names. The handle map would then be
+        // keyed by the old names, the renamed scan slot would miss the map and be silently dropped from the
+        // scan's `columns`, and the schema-evolution dict's current(-1) entry would omit it -> the BE
+        // StructNode built by field id lacks that column and children.contains(table_column_name) DCHECKs
+        // (aborts the BE). latestSchema() is empty for a non-DataTable/schema-less backend -> fall back to
+        // rowType(). System tables keep their synthetic rowType() (no schema-version history).
+        if (!paimonHandle.isSystemTable()) {
+            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest = catalogOps.latestSchema(table);
+            if (latest.isPresent()) {
+                return buildColumnHandles(latest.get().fields());
+            }
+        }
+        return buildColumnHandles(table.rowType().getFields());
     }
 
     /**
