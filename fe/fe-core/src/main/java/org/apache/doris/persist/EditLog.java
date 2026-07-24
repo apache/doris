@@ -1490,6 +1490,11 @@ public class EditLog {
                     // This log is only used to keep FE/MS cut point in journal timeline.
                     break;
                 }
+                case OperationType.OP_TABLE_META_CHANGE: {
+                    TableMetaChange op = (TableMetaChange) journal.getData();
+                    env.replayTableMetaChange(op);
+                    break;
+                }
                 case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
                     env.getTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
                     break;
@@ -2642,5 +2647,9 @@ public class EditLog {
 
     public long logMetaSyncPoint(CloudMetaSyncPoint syncPoint) {
         return logEdit(OperationType.OP_META_SYNC_POINT, syncPoint);
+    }
+
+    public void logTableMetaChange(TableMetaChange op) {
+        logEdit(OperationType.OP_TABLE_META_CHANGE, op);
     }
 }

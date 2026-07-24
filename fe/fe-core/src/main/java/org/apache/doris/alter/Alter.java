@@ -41,7 +41,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -363,12 +362,11 @@ public class Alter {
                 .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
         }
 
-        olapTable.writeLock();
+        olapTable.readLock();
         try {
-            NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
-            sqlCacheManager.invalidateAboutTable(olapTable);
+            Env.getCurrentEnv().notifyTableMetaChange(olapTable);
         } finally {
-            olapTable.writeUnlock();
+            olapTable.readUnlock();
         }
         return needProcessOutsideTableLock;
     }
