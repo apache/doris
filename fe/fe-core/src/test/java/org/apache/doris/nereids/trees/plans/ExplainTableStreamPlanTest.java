@@ -44,6 +44,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -516,6 +517,72 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         Assertions.assertTrue(prunedScan.isPartitionPruned());
         Assertions.assertFalse(prunedScan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testIncrementalStreamScanForcesValueColumnsNullable() throws Exception {
+        // s2 is an incremental (INCREMENTAL read mode) stream over a unique-key table
+        // (k1 key, k2 value). computeOutput must force non-key value columns to nullable so the
+        // scan output stays consistent with the row-binlog after/before value columns, while key
+        // columns keep their original nullability (forceNullable is skipped for keys).
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable base = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        boolean baseK1Nullable = base.getBaseSchema(false).stream()
+                .filter(c -> c.getName().equals("k1"))
+                .findFirst()
+                .orElseThrow()
+                .isAllowNull();
+
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("select * from test_stream.s2")
+                .getCascadesContext()
+                .getRewritePlan();
+
+        LogicalOlapTableStreamScan streamScan = findFirstLogicalStreamScan(analyzedPlan);
+        Assertions.assertNotNull(streamScan);
+
+        Slot k1 = findSlot(streamScan, "k1");
+        Slot k2 = findSlot(streamScan, "k2");
+        Assertions.assertNotNull(k1, "key column k1 must be present in stream scan output");
+        Assertions.assertNotNull(k2, "value column k2 must be present in stream scan output");
+        Assertions.assertEquals(baseK1Nullable, k1.nullable(),
+                "key column k1 must keep its original nullability (not force-nullable)");
+        Assertions.assertTrue(k2.nullable(), "non-key value column k2 must be forced nullable");
+    }
+
+    @Test
+    public void testResetStreamScanKeepsOriginalNullability() throws Exception {
+        // s_dup@reset does a full base-table scan (RESET read mode). computeOutput must NOT force
+        // value columns to nullable; the value column keeps the base table's original nullability.
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable dupBase = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_base");
+        boolean baseK2Nullable = dupBase.getBaseSchema(false).stream()
+                .filter(c -> c.getName().equals("k2"))
+                .findFirst()
+                .orElseThrow()
+                .isAllowNull();
+
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("select * from test_stream.s_dup@reset()")
+                .getCascadesContext()
+                .getRewritePlan();
+
+        LogicalOlapTableStreamScan streamScan = findFirstLogicalStreamScan(analyzedPlan);
+        Assertions.assertNotNull(streamScan);
+
+        Slot k2 = findSlot(streamScan, "k2");
+        Assertions.assertNotNull(k2);
+        Assertions.assertEquals(baseK2Nullable, k2.nullable(),
+                "RESET scan must keep the base table's original nullability for value columns");
+    }
+
+    private static Slot findSlot(LogicalOlapTableStreamScan scan, String name) {
+        for (Slot slot : scan.getOutput()) {
+            if (slot.getName().equals(name)) {
+                return slot;
+            }
+        }
+        return null;
     }
 
     @Test
