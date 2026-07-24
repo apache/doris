@@ -73,11 +73,11 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     private final class TestableIvmLinearDeltaHandler {
         private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
-        private IvmDeltaRewriteResult exposeRewritePlan(Plan plan, IvmRefreshContext ctx) {
+        private IvmDeltaRewriteResult exposeRewritePlan(Plan plan, IvmIncrRefreshContext ctx) {
             return exposeRewritePlanOptional(plan, ctx).orElseThrow(AssertionError::new);
         }
 
-        private java.util.Optional<IvmDeltaRewriteResult> exposeRewritePlanOptional(Plan plan, IvmRefreshContext ctx) {
+        private java.util.Optional<IvmDeltaRewriteResult> exposeRewritePlanOptional(Plan plan, IvmIncrRefreshContext ctx) {
             Map<OlapTable, OlapTableStream> streams = new HashMap<>();
             plan.collectToList(LogicalOlapScan.class::isInstance).forEach(node -> {
                 LogicalOlapScan scan = (LogicalOlapScan) node;
@@ -100,8 +100,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         }
     }
 
-    private static IvmRefreshContext dummyCtx() {
-        return new IvmRefreshContext(mockMtmv(), new ConnectContext(), null, false);
+    private static IvmIncrRefreshContext dummyCtx() {
+        return new IvmIncrRefreshContext(mockMtmv(), new ConnectContext(), null, false);
     }
 
     private static MTMV mockMtmv() {
@@ -121,7 +121,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
                 bundle.normalizedPlan, bundle.rewriteResult, IvmRewriteContext.incremental(mtmv, false),
                 bundle.connectContext);
         Assertions.assertNotNull(rewritten);
-        return new IvmRefreshManager().buildInsertCommand((org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten,
+        return new IvmIncrRefreshManager().buildInsertCommand((org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten,
                 mtmv);
     }
 
@@ -306,7 +306,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id"));
 
         LogicalOlapScan scan = buildScan();
-        Command command = new IvmRefreshManager().buildInsertCommand(
+        Command command = new IvmIncrRefreshManager().buildInsertCommand(
                 new LogicalProject<>(ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan), mtmv);
 
         UnboundTableSink<?> sink = getSink((InsertIntoTableCommand) command);
@@ -484,7 +484,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
-        IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), rewriteResult, false);
+        IvmIncrRefreshContext rewriteCtx = new IvmIncrRefreshContext(mockMtmv(), new ConnectContext(), rewriteResult, false);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
@@ -513,7 +513,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
-        IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), rewriteResult, false);
+        IvmIncrRefreshContext rewriteCtx = new IvmIncrRefreshContext(mockMtmv(), new ConnectContext(), rewriteResult, false);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
@@ -540,7 +540,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
-        IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), rewriteResult, false);
+        IvmIncrRefreshContext rewriteCtx = new IvmIncrRefreshContext(mockMtmv(), new ConnectContext(), rewriteResult, false);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 

@@ -29,7 +29,7 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mtmv.ivm.IvmRefreshManager;
+import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -108,7 +108,7 @@ public class RefreshMTMVCommand extends Command implements ForwardWithSync, Expl
                 }
                 statementContext.setIvmRewriteContext(Optional.of(
                         IvmRewriteContext.incremental(mtmv, includeExhaustedStreams)));
-                return createIvmRefreshManager().buildInsertCommand(mtmv);
+                return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 if (mtmv.isIvm()) {
                     statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
@@ -147,8 +147,8 @@ public class RefreshMTMVCommand extends Command implements ForwardWithSync, Expl
         explainPlanner = Optional.empty();
     }
 
-    IvmRefreshManager createIvmRefreshManager() {
-        return new IvmRefreshManager();
+    IvmIncrRefreshManager createIvmIncrRefreshManager() {
+        return new IvmIncrRefreshManager();
     }
 
     public RefreshMTMVInfo getRefreshMTMVInfo() {

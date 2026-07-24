@@ -54,7 +54,7 @@ public class IvmDeltaRewriter {
      */
     public Plan generateIncrRefreshPlan(Plan sinkChild, IvmRewriteResult rewriteResult,
             IvmRewriteContext rewriteContext, ConnectContext connectContext) {
-        IvmRefreshContext refreshContext = new IvmRefreshContext(
+        IvmIncrRefreshContext refreshContext = new IvmIncrRefreshContext(
                 rewriteContext.getMtmv(), connectContext, rewriteResult,
                 rewriteContext.isIncludeExhaustedStreams());
         Pair<Plan, List<LogicalProject<?>>> prefixChain = helper.detachAdaptProjectChain(sinkChild);
@@ -79,7 +79,7 @@ public class IvmDeltaRewriter {
         return helper.finalizeQuery(prefixChain, mergedResult, refreshContext);
     }
 
-    Optional<IvmDeltaRewriteResult> rewriteDelta(Plan plan, IvmRefreshContext ctx,
+    Optional<IvmDeltaRewriteResult> rewriteDelta(Plan plan, IvmIncrRefreshContext ctx,
             IvmDeltaRewriteState rewriteState) {
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
                 new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(), rewriteState);
@@ -112,7 +112,7 @@ public class IvmDeltaRewriter {
         return IvmDeltaRewriteHelper.INSTANCE.freshPlan(rewritten);
     }
 
-    private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmRefreshContext ctx, long refreshVersion) {
+    private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmIncrRefreshContext ctx, long refreshVersion) {
         Map<OlapTable, OlapTableStream> streams = new HashMap<>();
         Set<TableNameInfo> excludedTriggerTables = ctx.getMtmv().getExcludedTriggerTables();
         plan.foreach(node -> {

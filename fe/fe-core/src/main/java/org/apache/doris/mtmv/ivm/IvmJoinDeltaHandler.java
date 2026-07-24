@@ -86,7 +86,7 @@ class IvmJoinDeltaHandler {
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
     Optional<IvmDeltaRewriteResult> rewriteJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+            IvmDeltaRewriteVisitor visitor, IvmIncrRefreshContext context) {
         IvmDeltaRewriteState rewriteState = visitor.getRewriteState();
         List<IvmDeltaRewriteResult> contributions = Lists.newArrayListWithExpectedSize(2);
         for (int i = 0; i < join.children().size(); i++) {

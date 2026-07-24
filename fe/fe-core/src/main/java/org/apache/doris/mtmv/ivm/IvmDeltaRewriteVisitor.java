@@ -33,7 +33,7 @@ import java.util.Optional;
 /**
  * Internal visitor that dispatches each plan node to the linear, join, or aggregate handler.
  */
-class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>, IvmRefreshContext> {
+class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>, IvmIncrRefreshContext> {
     private final IvmLinearDeltaHandler linearHandler;
     private final IvmJoinDeltaHandler joinHandler;
     private final IvmAggDeltaHandler aggHandler;
@@ -52,7 +52,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>
         this.rewriteState = rewriteState;
     }
 
-    Optional<IvmDeltaRewriteResult> rewritePlan(Plan normalizedPlan, IvmRefreshContext ctx) {
+    Optional<IvmDeltaRewriteResult> rewritePlan(Plan normalizedPlan, IvmIncrRefreshContext ctx) {
         return normalizedPlan.accept(this, ctx);
     }
 
@@ -61,54 +61,54 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>
     }
 
     @Override
-    public Optional<IvmDeltaRewriteResult> visit(Plan plan, IvmRefreshContext ctx) {
+    public Optional<IvmDeltaRewriteResult> visit(Plan plan, IvmIncrRefreshContext ctx) {
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
     }
 
     @Override
-    public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan, IvmRefreshContext ctx) {
+    public Optional<IvmDeltaRewriteResult> visitLogicalOlapScan(LogicalOlapScan scan, IvmIncrRefreshContext ctx) {
         return linearHandler.rewriteOlapScan(scan, rewriteState);
     }
 
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalProject(LogicalProject<? extends Plan> project,
-            IvmRefreshContext ctx) {
+            IvmIncrRefreshContext ctx) {
         return linearHandler.rewriteProject(project, this, ctx);
     }
 
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalFilter(LogicalFilter<? extends Plan> filter,
-            IvmRefreshContext ctx) {
+            IvmIncrRefreshContext ctx) {
         return linearHandler.rewriteFilter(filter, this, ctx);
     }
 
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
-            IvmRefreshContext ctx) {
+            IvmIncrRefreshContext ctx) {
         return linearHandler.rewriteSubQueryAlias(alias, this, ctx);
     }
 
     @Override
-    public Optional<IvmDeltaRewriteResult> visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
+    public Optional<IvmDeltaRewriteResult> visitLogicalUnion(LogicalUnion union, IvmIncrRefreshContext ctx) {
         return linearHandler.rewriteUnion(union, this, ctx);
     }
 
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
-            IvmRefreshContext ctx) {
+            IvmIncrRefreshContext ctx) {
         return linearHandler.rewriteRepeat(repeat, this, ctx);
     }
 
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmRefreshContext ctx) {
+            IvmIncrRefreshContext ctx) {
         return joinHandler.rewriteJoin(join, this, ctx);
     }
 
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
-            IvmRefreshContext ctx) {
+            IvmIncrRefreshContext ctx) {
         return aggHandler.rewriteAggregate(aggregate, this, ctx);
     }
 }
