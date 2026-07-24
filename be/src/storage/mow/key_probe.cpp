@@ -51,7 +51,8 @@ Result<ProbeOutcome> MowKeyProbe::probe(
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
     auto st = _tablet->lookup_row_key(key, _lookup_schema, key_has_seq_suffix, specified_rowsets,
-                                      &loc, _mow_context->max_version, segment_caches, &rowset);
+                                      &loc, _mow_context->max_version, segment_caches, &rowset,
+                                      /*with_rowid=*/false);
     if (st.is<KEY_NOT_FOUND>()) {
         ++stats.num_rows_new_added;
         return ProbeOutcome {KeyProbeResult::NOT_FOUND, {}, nullptr, /*use_default_or_null=*/true};
