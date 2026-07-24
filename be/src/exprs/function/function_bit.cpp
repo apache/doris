@@ -100,8 +100,9 @@ private:
         auto& a = column_left_ptr->get_data();
         auto& c = column_result->get_data();
         size_t size = a.size();
+        const auto right_value = column_right_ptr->template get_value<Impl::ArgPType>();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::ArgPType>());
+            c[i] = Impl::apply(a[i], right_value);
         }
         return column_result;
     }
@@ -116,8 +117,9 @@ private:
         auto& b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         size_t size = b.size();
+        const auto left_value = column_left_ptr->template get_value<Impl::ArgPType>();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(column_left_ptr->template get_value<Impl::ArgPType>(), b[i]);
+            c[i] = Impl::apply(left_value, b[i]);
         }
         return column_result;
     }
