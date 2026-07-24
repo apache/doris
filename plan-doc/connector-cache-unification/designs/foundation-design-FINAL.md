@@ -79,6 +79,15 @@ public final class ConnectorStatementScopes {
 
 ### C — Authz gate generalization (tools/check-authz-cache-sharding.sh) — REDESIGNED
 
+> **SUPERSEDED (2026-07-24, owner decision): the gate was REMOVED, not generalized.** Two rounds of adversarial
+> clean-room review showed that structurally verifying "this cache is null under session=user" in a shell
+> script requires understanding arbitrary Java boolean/multi-line syntax (compound `&&`/`||` guards, multi-line
+> lambda loaders, string literals, nested ternaries) — intractable and fragile (false positives break builds on
+> legit code; false negatives silently miss leaks). The runtime `IcebergConnectorCacheTest` already proves the
+> invariant for the real caches; the gate (`tools/check-authz-cache-sharding.sh` + self-test + the
+> `fe-connector/pom.xml` execution) was deleted and replaced by an explicit `ATTN` comment at the iceberg cache
+> sites. See [`../progress.md`](../progress.md) "2026-07-24 (5)". The redesign notes below are retained for history only.
+
 Pure tooling; touches no product source. The original owner-file field-marker scan is **rejected** (Review 2 BLOCKER, Review 3 #3): verified that iceberg holds cache fields on both `IcebergConnector.java` (marked) and `IcebergConnectorMetadata.java:152-171` (unmarked injected), and hive constructs an unmarked cross-query `partitionViewCache` at `HiveConnector.java:134` that the `.contains()` filter excludes from scope. A field-marker gate verifies a comment near a declaration, not the actual null-gate, and is blind to any holder off `*Connector.java`.
 
 **Redesigned gate — construction-site scan, location-independent:**

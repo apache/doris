@@ -22,7 +22,7 @@
 |---|---|---|---|---|
 | **D1** | **范围**：本轮只打 hudi，还是把 mc `MC-1`、es `ES-F1/F2` 一并纳入? | hudi 单独立项 + mc/es 各一小 PR；jdbc/paimon/trino P2 进 backlog | ✅ **采纳默认**：hudi + mc + es 都做（各自独立 PR），jdbc/paimon/trino 延后 | ✅ |
 | **D2** | **排序**：先建共享底座泛化 vs per-connector-first? | per-connector-first（避免投机抽象，出现第 2 个消费者再上收） | ✅ **否决默认 → 先建共享底座**：把 iceberg 5 个手写缓存上收为通用封装（升格已存在的 `ConnectorPartitionViewCache`）；**iceberg 本轮就改挂** | ✅ |
-| **D3** | **门禁通用化**：`check-authz-cache-sharding.sh` 现只盯 iceberg，现在就改成扫描任意 `SUPPORTS_USER_SESSION` 连接器吗? | (b) 延后无当下风险 / (a) 前瞻更稳 —— 交用户选 | ✅ **选 (a) 现在就通用化**，且**评审重设计**：从"扫主类带标记字段"改为"**模块内扫缓存构造点 + 断言按用户凭证置空**"（原方案有 BLOCKER 漏洞：iceberg 缓存字段也在 metadata 类上、hive 网关无标记缓存） | ✅ |
+| **D3** | **门禁通用化**：`check-authz-cache-sharding.sh` 现只盯 iceberg，现在就改成扫描任意 `SUPPORTS_USER_SESSION` 连接器吗? | (b) 延后无当下风险 / (a) 前瞻更稳 —— 交用户选 | ✅ **选 (a) 现在就通用化**，且**评审重设计**：从"扫主类带标记字段"改为"**模块内扫缓存构造点 + 断言按用户凭证置空**"（原方案有 BLOCKER 漏洞：iceberg 缓存字段也在 metadata 类上、hive 网关无标记缓存）。**⚠ 2026-07-24 撤销**：门禁经两轮对抗净室复审证伪——shell 无法结构化验证"缓存在每用户模式下是否真置空"（须读懂任意 Java 布尔/多行语法：复合 `&&`/`||`、多行 lambda、字符串字面量、嵌套三元式；误报挡合法构建、漏报放走泄漏，每修冒新边界）。置空正确性**已由运行时 `IcebergConnectorCacheTest` 证明**。owner 拍板**删掉整个门禁**（脚本+自测+pom 执行）+ 在 `IcebergConnector.java` 加显式 `ATTN` 注释兜底。见 [`progress.md`](./progress.md) "2026-07-24 (5)" | 🚫 撤销（删门禁改 ATTN） |
 | **D4** | **共享 helper**：投入 fe-core 共享的"经 statement scope 解析表" helper 吗? | 不提炼；让 hudi 在自己模块内 memo（碰铁律 A，Rule 2） | ✅ **设计后二次确认：不动 fe-core** —— helper 放 `fe-connector-api`（memo 底座已在该层），iceberg + hudi 共用；**铁律 A 不碰**。原"提炼进 fe-core"作废；maxcompute 的"往 fe-core funnel 包一层"备选(B2)一并**删除**（评审三方否决：改到本轮不测的 jdbc/paimon/trino/hive 调用次数契约） | ✅ |
 
 ---

@@ -120,3 +120,24 @@
 - **验证**：全 `Es*` **94 测试绿** + checkstyle 0；`EsScanPlanProviderTest` 12 例。**Rule 9 变异三处**（去 F1 store / F3 clear / F2 绕作用域 → 各对应门禁红、其余绿）。**净室 4-lens + verify**：parity/concurrency（schemaMemo↔scope 嵌套 computeIfAbsent 不同 map 无重入）/freshness 全 `PARITY_HOLDS`；唯一 CONFIRMED = "无门禁钉分片不入作用域" → **补 `ShardRoutingNeverSharedViaScope`**（两 provider 共享 live scope → shard/node 各 2、mapping 1）；nits（List.equals 顺序、死代码 threading）评估接受。
 - **未做/延后**：ES-F4（`existIndex` `_mapping` GET 去重，低优先）；死代码 `EsConnectorMetadata.fetchMetadataState` 清理（保留）。**e2e 需集群本地未跑**，留标注。
 - **下一步（伞形）**：三个 P1 连接器收尾完毕 → P2 backlog（热点触发）+ PR-7 门禁通用化（独立）+ WS-DOC 陈旧注释 + 各连接器 e2e 统一补。
+
+---
+
+## 2026-07-24 (5) — 授权缓存门禁：尝试通用化 → 两轮对抗复审证伪结构化验证不可行 → owner 拍板"删门禁 + 加 ATTN 注释"
+
+> 承接 (4) 剩余的独立项"门禁通用化"。结论是**删除**整个授权缓存门禁（非通用化），改用代码内 `ATTN` 注释 + 现有运行时行为单测兜底。
+
+- **起点**：`tools/check-authz-cache-sharding.sh` 原只扫 `IcebergConnector.java` 字段声明标记。设计（`designs/foundation-design-FINAL.md` §C，owner 签字 D3）要改成"模块内构造点扫描 + 结构化验证每处 `new *Cache(` 是否正确置空"。
+- **做了什么（先按设计实现，再对抗复审）**：
+  1. 实现构造点扫描版门禁（阶段1声明者/1b网关fail-loud/2结构化置空判定/反no-op兜底）+ 16 例自测 + hive/iceberg 4 处豁免注释；对真实树 exit 0、`mvn validate` 通过。
+  2. **第一轮净室对抗复审**（4 lens + 逐条 verify）：确认 10 项，含"反向极性三元式漏报""构造器参数内 `? null :` 误判""跨行 `//` 注释边界串味""委派构造注入缓存漏检""网关 `throw` 8 行内任意即放行"等。逐条加固。
+  3. **第二轮对抗复审（专打加固后逻辑）**：又实测复现 **11 项**——复合 `||`/`&&` 守卫漏报、多行 lambda loader 里 `;` 截断语句致**误报挡合法构建**、字符串字面量里能力名致误报、跨行 `if` 条件网关误判、`throw` 子串蒙混、嵌套 `)` 漏检声明者等。
+- **根本认识**：让 shell 判断"缓存在每用户模式下是否真置空"= 让它读懂任意 Java 布尔/多行语法，**不可行且脆**（误报挡构建、漏报放走泄漏，每修一个冒新边界）。而"置空正确性"**已被运行时行为单测 `IcebergConnectorCacheTest` 在真实实例上证明**（比任何静态检查强），门禁的机器验证是越界。
+- **owner 拍板**：**删掉整个门禁检查，改在代码注释里加显式 `ATTN` 说明**（否决"甲=简化成纯标记门禁""丙=搬到 Java 解析器""乙=继续修正则"三选项）。
+- **落地（严格 4 文件 + 3 doc）**：
+  - 删 `tools/check-authz-cache-sharding.sh` + `tools/check-authz-cache-sharding.test.sh`；移除 `fe/fe-connector/pom.xml` 里 `check-authz-cache-sharding` 的 exec 执行块（保留同款 `check-connector-imports`）。
+  - `IcebergConnector.java`：把原门禁标记注释（`authz-cache-*` token）转成**显式 `ATTN` 段**——讲清 list!=load 越权风险、每个跨查询缓存已在构造函数 `? null : new …` 置空、manifest 豁免、**新增缓存必须置空且被 `IcebergConnectorCacheTest` 覆盖**、"无构建门禁，靠评审+单测"。7 处字段尾标记 → `// null under session=user`。
+  - 本 session 期间加的 hive/iceberg-meta 4 处门禁脚手架注释一并 `git checkout` 还原（它们只为门禁服务）。
+- **验证**：`grep` 全树无残留 gate 引用；`mvn validate -pl fe-connector` **通过**（同款 import 门禁仍跑）；`checkstyle -pl :fe-connector-iceberg` **0 违规**；行长 ≤112。变更集严格 4 文件（IcebergConnector 注释、pom 去执行、删 2 脚本）。
+- **通用教训（进 memory 候选）**：shell/正则门禁只适合"存在性/前缀"类不变量（对齐 `check-connector-imports`/`check-fecore-metadata-funnel`）；一旦需要理解语言语义（布尔逻辑、多行、字符串），就不是 shell 的活——有运行时行为单测时，"注释警示 + 单测 + 评审"胜过脆弱的静态门禁。
+- **下一步（伞形）**：授权缓存门禁项**关闭**（已删+ATTN）。剩余 = P2 backlog（热点触发）+ WS-DOC 陈旧注释 + 各连接器 e2e 统一补。

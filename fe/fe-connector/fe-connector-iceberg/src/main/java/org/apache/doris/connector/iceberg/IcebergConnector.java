@@ -162,29 +162,32 @@ public class IcebergConnector implements Connector {
     // connector (PluginDrivenExternalCatalog.onClose nulls + recreates it) and thus drops both caches. The
     // manifest cache is path-keyed, no-TTL, capacity-bounded; it is consumed only when
     // meta.cache.iceberg.manifest.enable is set (default off → scan uses the SDK planFiles path).
-    // Each cross-query cache below carries an isolation-discipline marker enforced by
-    // tools/check-authz-cache-sharding.sh: under iceberg.rest.session=user a shared, un-partitioned cache would
-    // bypass the per-user loadTable authorization (a metadata disclosure), so every cache field must declare
-    // either 'authz-cache-session-user-disabled' (null under isUserSessionEnabled()) or 'authz-cache-exempt'.
-    private final IcebergLatestSnapshotCache latestSnapshotCache; // authz-cache-session-user-disabled
+    // ATTN — authorization-sensitive cache isolation (a REVIEWED invariant; no build gate enforces it).
+    // Under iceberg.rest.session=user the per-user authorization lives INSIDE the delegated loadTable, so a
+    // shared, un-partitioned cross-query cache that returns metadata WITHOUT that per-user load is a
+    // "list != load" disclosure. Every cross-query cache below is therefore nulled under isUserSessionEnabled()
+    // (see the constructor's `? null : new ...` ternaries) except manifestCache (exempt: read only after a
+    // per-user resolveTable). If you ADD a cross-query cache here or in IcebergConnectorMetadata, it MUST be
+    // null under session=user and covered by IcebergConnectorCacheTest (which asserts exactly that at runtime).
+    private final IcebergLatestSnapshotCache latestSnapshotCache; // null under session=user
     // PERF-01: cross-query cache of the RAW iceberg Table (restores the legacy IcebergExternalMetaCache table
     // cache that the SPI cutover dropped). null when the catalog's credentials are query-dependent
     // (iceberg.rest.session=user / REST vended-credentials) — see the constructor. The per-statement scope
     // (ConnectorStatementScope) shares one loaded table across a statement's read/scan/write regardless of this
     // field, and is what a credential-gated catalog (this field null) relies on within a statement.
-    private final IcebergTableCache tableCache; // authz-cache-session-user-disabled
+    private final IcebergTableCache tableCache; // null under session=user
     // PERF-02: cross-query partition-view cache (the raw PARTITIONS-scan result, keyed by (table, snapshotId)).
     // The value is pure metadata (no FileIO/credential), but under session=user it is an authorization-sensitive
     // projection (a shared hit would disclose one user's partitions), so it is disabled there (see constructor).
-    private final IcebergPartitionCache partitionCache; // authz-cache-session-user-disabled
+    private final IcebergPartitionCache partitionCache; // null under session=user
     // PERF-03: cross-query inferred-file-format cache (the whole-table planFiles() fallback result, keyed by
     // (table, snapshotId)). Same authorization-sensitive treatment as partitionCache: disabled under session=user.
-    private final IcebergFormatCache formatCache; // authz-cache-session-user-disabled
+    private final IcebergFormatCache formatCache; // null under session=user
     // PERF-05: cross-query table-comment cache (value = the 'comment' property string). Built ONLY for a REST
     // vended-credentials catalog that is NOT session=user -- plain catalogs already reuse tableCache (PERF-01) for
     // the comment path, and session=user must stay live because the loadTable itself carries per-user
     // authorization a shared cache would bypass. null for every other flavor.
-    private final IcebergCommentCache commentCache; // authz-cache-session-user-disabled
+    private final IcebergCommentCache commentCache; // null under session=user
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
     // fe-connector-cache), layered ABOVE the raw partitionCache (PERF-02): it memoizes the BUILT derived view
     // (transform-to-range math + overlap merge for the MTMV view; the value-map construction for listPartitions)
@@ -194,12 +197,12 @@ public class IcebergConnector implements Connector {
     // deduped by partitionCache, so two derived caches never double-scan remotely. Authorization-sensitive
     // projection like partitionCache/formatCache: disabled (null) under iceberg.rest.session=user so a shared
     // (no user dimension) hit cannot disclose one user's partition view; kept for every other flavor.
-    private final ConnectorMetadataCache<ConnectorMvccPartitionView> // authz-cache-session-user-disabled
+    private final ConnectorMetadataCache<ConnectorMvccPartitionView> // null under session=user
             mvccPartitionViewCache;
-    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> // authz-cache-session-user-disabled
+    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> // null under session=user
             listPartitionsViewCache;
     // Manifest content cache — pure metadata, default-off (meta.cache.iceberg.manifest.enable), and consumed
-    // ONLY after a per-user resolveTable(ForRead). authz-cache-exempt (no read path without a per-user load).
+    // ONLY after a per-user resolveTable(ForRead) -- exempt: no read path without a per-user load.
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
 
     // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
