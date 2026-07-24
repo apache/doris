@@ -153,7 +153,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
     // disable condition cache if you have delete condition or forced pushed tso predicate
     _read_context->condition_cache_digest =
-            (delete_columns_set.empty() && _read_context->tso_predicate_column_id.has_value())
+            (delete_columns_set.empty() && !_read_context->tso_predicate_column_id.has_value())
                     ? _read_context->condition_cache_digest
                     : 0;
     // create segment iterators
