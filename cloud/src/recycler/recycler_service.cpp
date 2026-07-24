@@ -27,6 +27,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -396,6 +397,65 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
         }
         checker_->pending_instance_cond_.notify_all();
     }
+}
+
+std::pair<MetaServiceCode, std::string> RecyclerServiceImpl::set_instance_recycled_state(
+        const std::string& instance_id, InstanceRecycleState recycled_state) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, std::move(msg)};
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        std::string msg = fmt::format("malformed instance info, key={}", hex(key));
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+    }
+    if (instance.status() != InstanceInfoPB::DELETED) {
+        std::string msg = fmt::format(
+                "failed to set instance recycle state, instance is not deleted, instance_id={}",
+                instance_id);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::INVALID_ARGUMENT, std::move(msg)};
+    }
+
+    instance.set_recycled_state(recycled_state);
+    instance.set_recycled_state_update_time_ms(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+    if (!instance.SerializeToString(&value)) {
+        std::string msg = "failed to serialize InstanceInfoPB";
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::PROTOBUF_SERIALIZE_ERR, std::move(msg)};
+    }
+
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    txn->put(key, value);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to commit kv txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_COMMIT_ERR, std::move(msg)};
+    }
+
+    LOG(INFO) << "set instance recycle state, instance_id=" << instance_id
+              << " recycled_state=" << InstanceRecycleState_Name(recycled_state);
+    return {MetaServiceCode::OK, "OK"};
 }
 
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,

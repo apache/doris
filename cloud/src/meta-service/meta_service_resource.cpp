@@ -2562,6 +2562,9 @@ static std::pair<MetaServiceCode, std::string> drop_single_instance(const std::s
 
     instance->set_status(InstanceInfoPB::DELETED);
     instance->set_mtime(duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+    instance->set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+    instance->set_recycled_state_update_time_ms(
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 
     std::string serialized = instance->SerializeAsString();
     if (serialized.empty()) {
@@ -2634,6 +2637,9 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
     for (auto& instance : predecessors) {
         instance.set_status(InstanceInfoPB::DELETED);
         instance.set_mtime(now);
+        instance.set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+        instance.set_recycled_state_update_time_ms(
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
         std::string serialized;
         if (!instance.SerializeToString(&serialized)) {
             std::string msg =
@@ -2647,6 +2653,9 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
 
     tail_instance->set_status(InstanceInfoPB::DELETED);
     tail_instance->set_mtime(now);
+    tail_instance->set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+    tail_instance->set_recycled_state_update_time_ms(
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
     std::string serialized = tail_instance->SerializeAsString();
     if (serialized.empty()) {
         std::string msg = "failed to serialize";
@@ -2686,6 +2695,14 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     switch (request->op()) {
     case AlterInstanceRequest::DROP: {
         ret = alter_instance(request, [&instance_id](Transaction* txn, InstanceInfoPB* instance) {
+            if (instance->status() == InstanceInfoPB::DELETED &&
+                instance->recycled_state() ==
+                        InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+                std::string msg = "failed to drop instance, instance has already been recycled";
+                LOG(WARNING) << msg << " instance_id=" << instance_id;
+                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, std::move(msg));
+            }
+
             // check instance doesn't have any cluster.
             if (instance->clusters_size() != 0) {
                 std::string msg = "failed to drop instance, instance has clusters";

@@ -1859,6 +1859,7 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
     {
         // Recycle deleted instance
         ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+        ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
     }
 
     {

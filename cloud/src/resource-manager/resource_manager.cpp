@@ -109,6 +109,9 @@ int ResourceManager::init() {
 
     std::unique_lock l(mtx_);
     for (auto& [inst_id, inst] : instances) {
+        if (inst.status() == InstanceInfoPB::DELETED) {
+            continue;
+        }
         for (auto& c : inst.clusters()) {
             add_cluster_to_index_no_lock(inst_id, c);
         }
@@ -1427,6 +1430,12 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
         } else {
             ++i;
         }
+    }
+
+    if (instance.status() == InstanceInfoPB::DELETED) {
+        instance_multi_version_status_.erase(instance_id);
+        instance_source_snapshot_info_.erase(instance_id);
+        return;
     }
 
     // If successor_instance_id is set, it means this instance has a successor instance,

@@ -50,6 +50,9 @@ public:
 
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
 
+    std::pair<MetaServiceCode, std::string> set_instance_recycled_state(
+            const std::string& instance_id, InstanceRecycleState recycled_state);
+
     std::shared_ptr<TxnKv> txn_kv() { return txn_kv_; }
     Recycler* recycler() { return recycler_; }
     Checker* checker() { return checker_; }

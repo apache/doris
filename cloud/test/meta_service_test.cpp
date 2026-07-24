@@ -445,13 +445,25 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
             get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-invalid:m-n3qdpyal27rh8iprxx");
     ASSERT_EQ(instance_id, "");
 
-    sp->set_call_back("is_instance_id_registered", [&](auto&& args) {
-        TxnErrorCode* c0 = try_any_cast<TxnErrorCode*>(args[0]);
-        *c0 = TxnErrorCode::TXN_OK;
-    });
+    auto put_instance = [&](const std::string& id, InstanceInfoPB::Status status) {
+        InstanceInfoPB instance;
+        instance.set_instance_id(id);
+        instance.set_status(status);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(ms->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key({id}), instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    put_instance("ALBJLH4Q-check-valid", InstanceInfoPB::NORMAL);
     instance_id =
-            get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-invalid:m-n3qdpyal27rh8iprxx");
-    ASSERT_EQ(instance_id, "ALBJLH4Q-check-invalid");
+            get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-valid:m-n3qdpyal27rh8iprxx");
+    ASSERT_EQ(instance_id, "ALBJLH4Q-check-valid");
+
+    put_instance("ALBJLH4Q-check-deleted", InstanceInfoPB::DELETED);
+    instance_id =
+            get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-deleted:m-n3qdpyal27rh8iprxx");
+    ASSERT_EQ(instance_id, "");
     config::enable_check_instance_id = false;
 
     sp->clear_all_call_backs();

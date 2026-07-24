@@ -121,11 +121,19 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         }
 
         // check instance_id valid by get fdb
-        if (config::enable_check_instance_id && !rc_mgr->is_instance_id_registered(id)) {
-            LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
-                            "cloud_unique_id="
-                         << cloud_unique_id;
-            return "";
+        if (config::enable_check_instance_id) {
+            InstanceInfoPB instance;
+            auto [code, msg] = rc_mgr->get_instance(nullptr, id, &instance);
+            if (code != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to check instance instance_id=" << id
+                             << ", code=" << format_as(code) << ", info=" + msg;
+                return "";
+            }
+            if (instance.status() == InstanceInfoPB::DELETED) {
+                LOG(WARNING) << "instance status has been set delete, plz check it, instance_id="
+                             << id;
+                return "";
+            }
         }
         return id;
     }

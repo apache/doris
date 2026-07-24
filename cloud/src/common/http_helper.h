@@ -124,6 +124,9 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 [[maybe_unused]] HttpResponse process_query_rate_limit(MetaServiceImpl* service,
                                                        brpc::Controller* cntl);
 
+[[maybe_unused]] HttpResponse process_check_instance_recycle_completed(MetaServiceImpl* service,
+                                                                       brpc::Controller* cntl);
+
 [[maybe_unused]] HttpResponse process_decode_key(MetaServiceImpl*, brpc::Controller* ctrl);
 
 [[maybe_unused]] HttpResponse process_encode_key(MetaServiceImpl*, brpc::Controller* ctrl);
@@ -199,6 +202,9 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                                                        brpc::Controller* cntl);
 [[maybe_unused]] HttpResponse process_check_instance(RecyclerServiceImpl* service,
                                                      brpc::Controller* cntl);
+
+[[maybe_unused]] HttpResponse process_set_instance_recycled_state(RecyclerServiceImpl* service,
+                                                                  brpc::Controller* ctrl);
 
 [[maybe_unused]] HttpResponse process_check_job_info(RecyclerServiceImpl* service,
                                                      brpc::Controller* cntl);
