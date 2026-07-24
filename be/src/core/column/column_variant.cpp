@@ -1830,6 +1830,11 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         }
     }
 
+    const auto& sparse_offsets = serialized_sparse_column_offsets();
+    if (sparse_offsets[nrow - 1] != sparse_offsets[nrow]) {
+        return false;
+    }
+
     const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
     // doc snapshot column is not empty
     if (doc_value_column_map.get_offsets()[nrow - 1] != doc_value_column_map.get_offsets()[nrow]) {
