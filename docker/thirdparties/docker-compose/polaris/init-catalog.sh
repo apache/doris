@@ -33,9 +33,29 @@ CURL_RETRY_MAX_TIME_SECONDS=${POLARIS_INIT_RETRY_MAX_TIME_SECONDS:-45}
 HEALTH_CHECK_ATTEMPTS=${POLARIS_INIT_HEALTH_CHECK_ATTEMPTS:-60}
 HEALTH_CHECK_INTERVAL_SECONDS=${POLARIS_INIT_HEALTH_CHECK_INTERVAL_SECONDS:-2}
 HEALTH_CHECK_REQUEST_TIMEOUT_SECONDS=${POLARIS_INIT_HEALTH_CHECK_REQUEST_TIMEOUT_SECONDS:-2}
+TOKEN_RESPONSE_FILE=/tmp/polaris-token.json
 
 # Keep every network operation bounded when an endpoint accepts a connection but never responds.
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then echo "[polaris-init] ERROR: Initialization failed with exit code $rc." >&2; fi' 0
+
+require_positive_integer() {
+  name=$1
+  value=$2
+  case "$value" in
+    ''|*[!0-9]*)
+      ;;
+    *)
+      if [ "$value" -gt 0 ] 2>/dev/null; then
+        return
+      fi
+      ;;
+  esac
+  echo "[polaris-init] ERROR: $name must be a positive integer, got '$value'." >&2
+  exit 1
+}
+
+require_positive_integer POLARIS_INIT_REQUEST_TIMEOUT_SECONDS "$CURL_REQUEST_TIMEOUT_SECONDS"
+require_positive_integer POLARIS_INIT_HEALTH_CHECK_REQUEST_TIMEOUT_SECONDS "$HEALTH_CHECK_REQUEST_TIMEOUT_SECONDS"
 
 curl_with_retry() {
   curl -sS \
@@ -72,10 +92,11 @@ fi
 
 echo "[polaris-init] Fetching OAuth token via client_credentials ..."
 # Try to obtain token using correct OAuth endpoint
-TOKEN_JSON=$(curl_with_retry \
+curl_with_retry -o "$TOKEN_RESPONSE_FILE" \
   -X POST "http://$HOST:$PORT/api/catalog/v1/oauth/tokens" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d "grant_type=client_credentials&client_id=$USER&client_secret=$PASS&scope=PRINCIPAL_ROLE:ALL")
+  -d "grant_type=client_credentials&client_id=$USER&client_secret=$PASS&scope=PRINCIPAL_ROLE:ALL"
+TOKEN_JSON=$(cat "$TOKEN_RESPONSE_FILE")
 
 # Extract access_token field
 TOKEN=$(printf "%s" "$TOKEN_JSON" | sed -n 's/.*"access_token"\s*:\s*"\([^"]*\)".*/\1/p')
