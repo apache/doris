@@ -100,6 +100,8 @@ public:
 
     void wait_for_close_event(int64_t observed_version, int64_t timeout_ms);
 
+    bool has_incremental_streams() const { return _num_incremental_streams.load() > 0; }
+
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
         decltype(_streams_for_node) snapshot;
         {
