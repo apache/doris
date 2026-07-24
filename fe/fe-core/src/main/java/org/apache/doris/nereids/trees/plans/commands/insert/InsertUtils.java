@@ -30,6 +30,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -373,7 +375,16 @@ public class InsertUtils {
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> fullColumns = table.getBaseSchema(true);
+        if (table instanceof IcebergExternalTable && unboundLogicalSink instanceof UnboundIcebergTableSink) {
+            fullColumns = IcebergUtils.getSchemaForBranch(
+                    (IcebergExternalTable) table,
+                    ((UnboundIcebergTableSink<?>) unboundLogicalSink).getBranchName(),
+                    true);
+        }
+        List<Column> columns = fullColumns.stream()
+                .filter(Column::isVisible)
+                .collect(ImmutableList.toImmutableList());
         Map<String, Expression> staticPartitions = null;
         if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
             staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
@@ -421,7 +432,7 @@ public class InsertUtils {
                     }
                     for (int i = 0; i < values.size(); i++) {
                         Column sameNameColumn = null;
-                        for (Column column : table.getBaseSchema(true)) {
+                        for (Column column : fullColumns) {
                             if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
                                 sameNameColumn = column;
                                 break;

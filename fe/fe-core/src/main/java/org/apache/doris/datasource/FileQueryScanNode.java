@@ -281,7 +281,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = desc.getTable().getFullSchema();
+        // Column positions must follow this relation's snapshot when one statement scans
+        // multiple versions of the same external table.
+        List<Column> columns = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getFullSchema(getRelationSnapshot())
+                : desc.getTable().getFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             columnNameMap.putIfAbsent(columns.get(i).getName(), i);
@@ -590,7 +594,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // We need to save mapping from slot name to schema position
     protected void genSlotToSchemaIdMapForOrc() {
         Preconditions.checkNotNull(params);
-        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        // ORC positions are relation-local for the same reason as the regular column mapping.
+        List<Column> baseSchema = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getBaseSchema(getRelationSnapshot(), false)
+                : desc.getTable().getBaseSchema();
         Map<String, Integer> columnNameToPosition = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
             int idx = 0;

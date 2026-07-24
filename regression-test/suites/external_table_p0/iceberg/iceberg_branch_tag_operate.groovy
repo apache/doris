@@ -218,7 +218,7 @@ suite("iceberg_branch_tag_operate", "p0,external") {
 
     // test branch/tag with schema change
     qt_sc01 """select * from tmp_schema_change_branch order by id;"""
-    /// select by branch will use table schema
+    /// select by branch will use the branch head schema
     qt_sc02 """select * from tmp_schema_change_branch@branch(test_branch) order by id;;"""
     qt_sc03 """select * from tmp_schema_change_branch for version as of "test_branch" order by id;;"""
     List<List<Object>> refs = sql """select * from tmp_schema_change_branch\$refs order by name"""

@@ -57,7 +57,7 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external") {
     // Test 3.1.2: Drop column after branch query
     sql """ alter table ${table_name} create branch b2_schema """
     sql """ alter table ${table_name} drop column name """
-    qt_b2_no_dropped_col """select * from ${table_name}@branch(b2_schema) order by id """ // Should not have 'name' column
+    qt_b2_keeps_pre_drop_col """select * from ${table_name}@branch(b2_schema) order by id """
 
     // Recreate table for next tests
     sql """ drop table if exists ${table_name} """
@@ -134,4 +134,3 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external") {
 
     qt_b4_new_schema """ select * from ${table_name}@branch(b4_schema) where id = 1 """ // Should have new_col
 }
-

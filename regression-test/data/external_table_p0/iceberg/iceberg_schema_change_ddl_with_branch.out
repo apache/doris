@@ -136,10 +136,10 @@ phone	text	Yes	true	\N
 6	Frank	88.7	frank@example.com	\N
 7	Grace	93.2	grace@example.com	555-0123
 
--- !branch1_latest_schema --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
+-- !branch1_snapshot_schema --
+1	Alice	25	95.5
+2	Bob	30	87.2
+3	Charlie	22	92.8
 
 -- !tag1_original_schema --
 1	Alice	25	95.5
@@ -151,11 +151,11 @@ phone	text	Yes	true	\N
 2	30	87.2
 3	22	92.8
 
--- !branch2_latest_schema --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
-4	David	89.1	david@example.com	\N
+-- !branch2_snapshot_schema --
+1	Alice	25	95.5	\N
+2	Bob	30	87.2	\N
+3	Charlie	22	92.8	\N
+4	David	28	89.1	david@example.com
 
 -- !tag2_creation_schema --
 1	Alice	25	95.5	\N
@@ -169,12 +169,12 @@ phone	text	Yes	true	\N
 3	22	92.8	\N
 4	28	89.1	david@example.com
 
--- !branch3_latest_schema --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
-4	David	89.1	david@example.com	\N
-5	Eve	91.3	eve@example.com	\N
+-- !branch3_snapshot_schema --
+1	Alice	95.5	\N
+2	Bob	87.2	\N
+3	Charlie	92.8	\N
+4	David	89.1	david@example.com
+5	Eve	91.3	eve@example.com
 
 -- !tag3_creation_schema --
 1	Alice	95.5	\N
@@ -190,13 +190,13 @@ phone	text	Yes	true	\N
 4	89.1	david@example.com
 5	91.3	eve@example.com
 
--- !branch4_latest_schema --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
-4	David	89.1	david@example.com	\N
-5	Eve	91.3	eve@example.com	\N
-6	Frank	88.7	frank@example.com	\N
+-- !branch4_snapshot_schema --
+1	Alice	95.5	\N
+2	Bob	87.2	\N
+3	Charlie	92.8	\N
+4	David	89.1	david@example.com
+5	Eve	91.3	eve@example.com
+6	Frank	88.7	frank@example.com
 
 -- !tag4_creation_schema --
 1	Alice	95.5	\N
@@ -214,7 +214,7 @@ phone	text	Yes	true	\N
 5	91.3	eve@example.com
 6	88.7	frank@example.com
 
--- !branch5_latest_schema --
+-- !branch5_snapshot_schema --
 1	Alice	95.5	\N	\N
 2	Bob	87.2	\N	\N
 3	Charlie	92.8	\N	\N
@@ -241,15 +241,31 @@ phone	text	Yes	true	\N
 6	88.7	frank@example.com	\N
 7	93.2	grace@example.com	555-0123
 
--- !all_branches_have_grade --
-1	95.5
-2	87.2
-3	92.8
+-- !branch1_age_score --
+1	25	95.5
+2	30	87.2
+3	22	92.8
 
--- !all_branches_have_email --
-4	david@example.com
+-- !branch2_age_email --
+1	25	\N
+2	30	\N
+3	22	\N
+4	28	david@example.com
 
--- !all_branches_have_phone --
+-- !branch3_score_email --
+1	95.5	\N
+2	87.2	\N
+3	92.8	\N
+4	89.1	david@example.com
+5	91.3	eve@example.com
+
+-- !branch4_grade_email --
+1	95.5	\N
+2	87.2	\N
+3	92.8	\N
+4	89.1	david@example.com
+5	91.3	eve@example.com
+6	88.7	frank@example.com
 
 -- !summary_main --
 1	Alice	95.5	\N	\N
@@ -261,30 +277,30 @@ phone	text	Yes	true	\N
 7	Grace	93.2	grace@example.com	555-0123
 
 -- !summary_branch1 --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
+1	Alice	25	95.5
+2	Bob	30	87.2
+3	Charlie	22	92.8
 
 -- !summary_branch2 --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
-4	David	89.1	david@example.com	\N
+1	Alice	25	95.5	\N
+2	Bob	30	87.2	\N
+3	Charlie	22	92.8	\N
+4	David	28	89.1	david@example.com
 
 -- !summary_branch3 --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
-4	David	89.1	david@example.com	\N
-5	Eve	91.3	eve@example.com	\N
+1	Alice	95.5	\N
+2	Bob	87.2	\N
+3	Charlie	92.8	\N
+4	David	89.1	david@example.com
+5	Eve	91.3	eve@example.com
 
 -- !summary_branch4 --
-1	Alice	95.5	\N	\N
-2	Bob	87.2	\N	\N
-3	Charlie	92.8	\N	\N
-4	David	89.1	david@example.com	\N
-5	Eve	91.3	eve@example.com	\N
-6	Frank	88.7	frank@example.com	\N
+1	Alice	95.5	\N
+2	Bob	87.2	\N
+3	Charlie	92.8	\N
+4	David	89.1	david@example.com
+5	Eve	91.3	eve@example.com
+6	Frank	88.7	frank@example.com
 
 -- !summary_branch5 --
 1	Alice	95.5	\N	\N
@@ -329,4 +345,3 @@ phone	text	Yes	true	\N
 5	Eve	91.3	eve@example.com	\N
 6	Frank	88.7	frank@example.com	\N
 7	Grace	93.2	grace@example.com	555-0123
-

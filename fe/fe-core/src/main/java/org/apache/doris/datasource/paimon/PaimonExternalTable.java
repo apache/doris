@@ -57,6 +57,7 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataField;
@@ -162,10 +163,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 if (latestSnapshot.isPresent()) {
                     latestSnapshotId = latestSnapshot.get().id();
                 }
-                // Branches in Paimon can have independent schemas and snapshots.
+                // Use the branch table's effective schema directly: its schema manager can
+                // otherwise resolve the main branch namespace for this independently versioned table.
                 // TODO: Add time travel support for paimon branch tables.
                 DataTable dataTable = (DataTable) table;
-                Long schemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
+                long schemaId = ((FileStoreTable) dataTable).schema().id();
                 return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
                         new PaimonSnapshot(latestSnapshotId, schemaId, dataTable), true);
             } catch (Exception e) {
@@ -362,15 +364,18 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         PaimonSnapshotCacheValue snapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
         if (snapshotCacheValue.isSchemaFromSnapshotTable()) {
             PaimonSnapshot paimonSnapshot = snapshotCacheValue.getSnapshot();
-            // Paimon branch schema ids belong to the branch table and can collide with or be
-            // absent from the base table's schema cache.
-            return loadSchema((DataTable) paimonSnapshot.getTable(), paimonSnapshot.getSchemaId());
+            // The snapshot table already carries the branch-specific schema; looking it up by id
+            // can accidentally use the base table's schema namespace.
+            return loadSchema(((FileStoreTable) paimonSnapshot.getTable()).schema());
         }
         return PaimonUtils.getSchemaCacheValue(this, snapshotCacheValue);
     }
 
     private PaimonSchemaCacheValue loadSchema(DataTable table, long schemaId) {
-        TableSchema tableSchema = table.schemaManager().schema(schemaId);
+        return loadSchema(table.schemaManager().schema(schemaId));
+    }
+
+    private PaimonSchemaCacheValue loadSchema(TableSchema tableSchema) {
         List<DataField> columns = tableSchema.fields();
         List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
         Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());

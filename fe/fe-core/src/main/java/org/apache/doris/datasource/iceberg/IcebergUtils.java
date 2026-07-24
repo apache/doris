@@ -72,6 +72,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -1843,6 +1845,24 @@ public class IcebergUtils {
                     getNameMapping(icebergTable));
         }
         return getLatestSnapshotCacheValue(dorisTable);
+    }
+
+    /**
+     * Resolve the target schema for an Iceberg branch.
+     */
+    public static List<Column> getSchemaForBranch(IcebergExternalTable table,
+            Optional<String> branchName, boolean full) {
+        if (!branchName.isPresent()) {
+            return table.getBaseSchema(full);
+        }
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.BRANCH,
+                ImmutableMap.of(TableScanParams.PARAMS_NAME, branchName.get()),
+                ImmutableList.of());
+        MvccSnapshot snapshot = table.loadSnapshot(Optional.empty(), Optional.of(scanParams));
+        // Keep the target snapshot relation-local; the statement snapshot map may also contain
+        // source relations for this table that must retain their own schema.
+        return table.getBaseSchema(Optional.of(snapshot), full);
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {

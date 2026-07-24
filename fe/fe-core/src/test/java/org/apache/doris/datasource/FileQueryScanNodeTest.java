@@ -25,6 +25,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -44,15 +46,19 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class FileQueryScanNodeTest {
     private static final long MB = 1024L * 1024L;
     private static final Method UPDATE_REQUIRED_SLOTS_METHOD;
+    private static final Method SET_COLUMN_POSITION_MAPPING_METHOD;
 
     static {
         try {
             UPDATE_REQUIRED_SLOTS_METHOD = FileQueryScanNode.class.getDeclaredMethod("updateRequiredSlots");
             UPDATE_REQUIRED_SLOTS_METHOD.setAccessible(true);
+            SET_COLUMN_POSITION_MAPPING_METHOD = FileQueryScanNode.class.getDeclaredMethod("setColumnPositionMapping");
+            SET_COLUMN_POSITION_MAPPING_METHOD.setAccessible(true);
         } catch (ReflectiveOperationException e) {
             throw new ExceptionInInitializerError(e);
         }
@@ -160,6 +166,37 @@ public class FileQueryScanNodeTest {
         Assert.assertSame(slotInfo, updatedSlotInfo);
         Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+    }
+
+    @Test
+    public void testColumnPositionMappingUsesRelationSnapshotSchema() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        MvccSnapshot relationSnapshot = Mockito.mock(MvccSnapshot.class);
+        Column oldColumn = new Column("old_name", Type.INT);
+        node.setTargetTable(externalTable);
+        node.getTupleDescriptor().setTable(externalTable);
+        node.tableSnapshot = Mockito.mock(org.apache.doris.analysis.TableSnapshot.class);
+        Mockito.when(externalTable.loadSnapshot(
+                Optional.of(node.tableSnapshot), Optional.empty())).thenReturn(relationSnapshot);
+        Mockito.when(externalTable.getFullSchema(Optional.of(relationSnapshot)))
+                .thenReturn(Collections.singletonList(oldColumn));
+
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), node.getTupleDescriptor().getId());
+        slot.setColumn(oldColumn);
+        node.getTupleDescriptor().addSlot(slot);
+        TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+        slotInfo.setSlotId(slot.getId().asInt());
+        slotInfo.setCategory(TColumnCategory.REGULAR);
+        slotInfo.setIsFileSlot(true);
+        node.params = new TFileScanRangeParams();
+        node.params.setRequiredSlots(Collections.singletonList(slotInfo));
+
+        SET_COLUMN_POSITION_MAPPING_METHOD.invoke(node);
+
+        Assert.assertEquals(Collections.singletonList(0), node.params.getColumnIdxs());
+        Mockito.verify(externalTable).getFullSchema(Optional.of(relationSnapshot));
+        Mockito.verify(externalTable, Mockito.never()).getFullSchema();
     }
 
 }
