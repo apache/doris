@@ -14,10 +14,12 @@ normalizing only top-level order and page offsets, and primary-key index entries
 bounds, and Bloom lookups. This allows the accepted physical write-order change without hiding a
 content or metadata change.
 
-V2/V3 compound inverted-index and ANN files must exist and be byte-deterministic across two
-same-build runs. They are not checked-in golden byte oracles because their serialized bytes can
-depend on the CPU architecture and third-party library implementation. The test creator does not
-own V1's per-index files, so V1 coverage is limited to its Segment metadata.
+V2/V3 compound inverted-index and ANN files must be readable and nonempty. The test reopens both
+repeat-run artifacts and compares portable content signatures: the complete inverted-index
+field/term-to-row and null-row bitmaps, and every ANN input vector's top-1 row ID. Their raw bytes are not
+compared because CLucene embeds a wall-clock generation and other serialized bytes can depend on
+the CPU architecture and third-party library implementation. The test creator does not own V1's
+per-index files, so V1 coverage is limited to its Segment metadata.
 
 Every keyed schema contains all 20 OLAP key types in one composite key. It is equivalent to the
 legal explicit table property `"short_key" = "20"`; VARCHAR is last. The 24 key/table cases cover
@@ -37,6 +39,7 @@ with both writers, fixed updates that omit a sequence column, fixed updates that
 and Variant while filling another Variant and generating RowStore, basic flexible updates, and
 flexible sequence updates with RowStore. Flexible update baselines use VerticalSegmentWriter, the
 only pre-refactor generation path. Row-binlog baselines use the real pre-refactor horizontal path.
+Each named vertical mode asserts that the vertical SegmentFlusher path ran once for every Segment.
 Compression-threshold decisions after transformation are intentionally not cross-version golden
 oracles because that behavior is allowed to change.
 
@@ -47,7 +50,7 @@ write into a new staging directory. The test never overwrites this checked-in di
 mkdir -p /tmp/segment_flusher_format_golden_staging
 DORIS_SEGMENT_FLUSHER_GOLDEN_OUTPUT_DIR=/tmp/segment_flusher_format_golden_staging \
   ./run-be-ut.sh --run \
-  --filter='SegmentFlusherFormatTest.*:SegmentFlusherTransformFormatTest.*' -j 24
+  --filter='SegmentFlusherFormatTest.*:SegmentFlusherTransformFormatTest.*' -j 64
 ```
 
 Review the complete staging directory before replacing the checked-in files. Never regenerate the
