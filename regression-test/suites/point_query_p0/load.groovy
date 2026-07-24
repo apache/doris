@@ -119,7 +119,11 @@ suite("test_load_and_schema_change_row_store", "p0") {
         UNIQUE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "row_store_columns" = "k1,c_bool,c_tinyint,c_smallint,c_int,c_bigint,c_largeint,c_float,c_double,c_decimal,c_decimalv3,c_date,c_datetime,c_datev2,c_datetimev2,c_char,c_varchar,c_string"
+        );
         """
 
     wait_job_done.call("tbl_scalar_types_dup")
@@ -127,16 +131,17 @@ suite("test_load_and_schema_change_row_store", "p0") {
     sql """alter table tbl_scalar_types_dup_1 set ("bloom_filter_columns" = "c_largeint")"""    
     wait_job_done.call("tbl_scalar_types_dup_1")
 
-    sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_largeint")"""    
-    wait_job_done.call("tbl_scalar_types_dup_1")
-
     def show_result = sql "SHOW CREATE TABLE tbl_scalar_types_dup_1"
-    assertTrue(show_result[0][1].contains("k1,c_largeint"))
-
-    sql """alter table tbl_scalar_types_dup_1 set ("store_row_column" = "true")"""    
-    wait_job_done.call("tbl_scalar_types_dup_1")
-    show_result = sql "SHOW CREATE TABLE tbl_scalar_types_dup_1"
-    assertTrue(show_result[0][1].contains("store_row_column"))
+    assertTrue(show_result[0][1].contains("row_store_columns"))
+    assertTrue(show_result[0][1].contains("c_largeint"))
+    test {
+        sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_largeint")"""    
+        exception("Property row_store_columns is not allowed to modify")
+    }
+    test {
+        sql """alter table tbl_scalar_types_dup_1 set ("store_row_column" = "true")"""    
+        exception("Property store_row_column is not allowed to modify")
+    }
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
 
     sql """
@@ -150,8 +155,49 @@ suite("test_load_and_schema_change_row_store", "p0") {
         contains "SHORT-CIRCUIT"
     } 
 
-    sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
-    wait_job_done.call("tbl_scalar_types_dup_1")
+    test {
+        sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
+        exception("Property row_store_columns is not allowed to modify")
+    }
+    sql """
+        DROP TABLE IF EXISTS tbl_scalar_types_dup_1_tmp FORCE;
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_dup_1_tmp (
+            `k1` bigint(11) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL,
+            `new_column1` int NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "row_store_columns" = "k1,c_datetimev2"
+        );
+    """
+    sql """
+        INSERT INTO tbl_scalar_types_dup_1_tmp
+        SELECT k1,c_bool,c_tinyint,c_smallint,c_int,c_bigint,c_largeint,c_float,c_double,c_decimal,c_decimalv3,c_date,c_datetime,c_datev2,c_datetimev2,c_char,c_varchar,c_string,new_column1
+        FROM tbl_scalar_types_dup_1
+    """
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_dup_1 FORCE"
+    sql "ALTER TABLE tbl_scalar_types_dup_1_tmp RENAME tbl_scalar_types_dup_1"
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
     show_result = sql "SHOW CREATE TABLE tbl_scalar_types_dup_1"
     assertTrue(show_result[0][1].contains("k1,c_datetimev2"))
@@ -161,19 +207,60 @@ suite("test_load_and_schema_change_row_store", "p0") {
         sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
         exception("Not support column store")
     }
+    sql "set enable_short_circuit_query_access_column_store = true"
     explain {
         sql("select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679")
         contains "SHORT-CIRCUIT"
     } 
     qt_sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
 
-    sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
-    wait_job_done.call("tbl_scalar_types_dup_1")
+    test {
+        sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
+        exception("Property row_store_columns is not allowed to modify")
+    }
+    sql """
+        DROP TABLE IF EXISTS tbl_scalar_types_dup_1_tmp2 FORCE;
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_dup_1_tmp2 (
+            `k1` bigint(11) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL,
+            `new_column1` int NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "row_store_columns" = "k1,c_decimalv3"
+        );
+    """
+    sql """
+        INSERT INTO tbl_scalar_types_dup_1_tmp2
+        SELECT k1,c_bool,c_tinyint,c_smallint,c_int,c_bigint,c_largeint,c_float,c_double,c_decimal,c_decimalv3,c_date,c_datetime,c_datev2,c_datetimev2,c_char,c_varchar,c_string,new_column1
+        FROM tbl_scalar_types_dup_1
+    """
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_dup_1 FORCE"
+    sql "ALTER TABLE tbl_scalar_types_dup_1_tmp2 RENAME tbl_scalar_types_dup_1"
     test {
         sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
         exception("Not support column store")
     }
-    sql "set enable_short_circuit_query_access_column_store = true"
     qt_sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
 
 
@@ -190,7 +277,7 @@ suite("test_load_and_schema_change_row_store", "p0") {
         """
     test {
         sql """alter table tbl_scalar_types_uk_not_mow set ("store_row_column" = "true")"""    
-        exception("`store_row_column` only support duplicate model or mow model")
+        exception("Property store_row_column is not allowed to modify")
     }
 
     sql "DROP TABLE IF EXISTS tbl_scalar_types_agg"
@@ -206,7 +293,7 @@ suite("test_load_and_schema_change_row_store", "p0") {
         """
     test {
         sql """alter table tbl_scalar_types_agg set ("store_row_column" = "true")"""    
-        exception("`store_row_column` only support duplicate model or mow model")
+        exception("Property store_row_column is not allowed to modify")
     }
 
     sql "DROP TABLE IF EXISTS test_sclar_types_mow"
@@ -218,33 +305,35 @@ suite("test_load_and_schema_change_row_store", "p0") {
         UNIQUE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "enable_mow_light_delete" = "false");
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "enable_mow_light_delete" = "false",
+            "row_store_columns" = "k1,c_string"
+        );
         """
     sql "insert into test_sclar_types_mow(k1,c_string) values (1,'123'), (2,'456')"
-    sql """alter table test_sclar_types_mow set ("store_row_column" = "true")"""     
-    wait_job_done.call("test_sclar_types_mow")
     show_result = sql "SHOW CREATE TABLE test_sclar_types_mow"
-    assertTrue(show_result[0][1].contains("store_row_column"))
+    assertTrue(show_result[0][1].contains("row_store_columns"))
     qt_sql "select * from test_sclar_types_mow where k1 = 1"
 
-    sql """alter table test_sclar_types_mow set ("row_store_columns" = "c_string")"""     
-    wait_job_done.call("test_sclar_types_mow")
-    show_result = sql "SHOW CREATE TABLE test_sclar_types_mow"
-    assertTrue(show_result[0][1].contains("c_string"))
+    test {
+        sql """alter table test_sclar_types_mow set ("row_store_columns" = "c_string")"""     
+        exception("Property row_store_columns is not allowed to modify")
+    }
     qt_sql "select c_string from test_sclar_types_mow where k1 = 1"
     // alter again
     test {
         sql """alter table test_sclar_types_mow set ("row_store_columns" = "c_string")"""     
-        exception("Nothing is changed")
+        exception("Property row_store_columns is not allowed to modify")
     }
 
-    sql """alter table test_sclar_types_mow set ("store_row_column" = "true")"""     
-    wait_job_done.call("test_sclar_types_mow")
-    sql "select * from test_sclar_types_mow where k1 = 1"
+    test {
+        sql """alter table test_sclar_types_mow set ("store_row_column" = "true")"""     
+        exception("Property store_row_column is not allowed to modify")
+    }
 
     // test delete with partial row store columns
-    sql """alter table test_sclar_types_mow set ("row_store_columns" = "k1,c_string")"""     
-    wait_job_done.call("test_sclar_types_mow")
     sql "delete from test_sclar_types_mow where k1 = 1"
     qt_sql "select * from test_sclar_types_mow where k1 = 1"
 }
