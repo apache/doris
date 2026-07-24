@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene.h>
+#include <CLucene/config/repl_wchar.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <google/protobuf/message.h>
@@ -31,8 +33,10 @@
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <memory>
 #include <numeric>
+#include <roaring/roaring.hh>
 #include <set>
 #include <string>
 #include <string_view>
@@ -53,12 +57,18 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
 #include "core/value/quantile_state.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
+#include "storage/index/ann/ann_index_reader.h"
+#include "storage/index/ann/ann_search_params.h"
+#include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/inverted/inverted_index_common.h"
+#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/primary_key_index.h"
@@ -82,6 +92,7 @@
 #include "storage/utils.h"
 #include "testutil/creators.h"
 #include "testutil/variant_util.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -93,6 +104,8 @@ constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_O
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
 constexpr size_t kExpectedGoldenCaseCount = 76;
 constexpr size_t kExpectedGoldenSegmentCount = 154;
+constexpr size_t kExternalIndexRows = 180;
+constexpr size_t kAnnDimensions = 4;
 
 struct TypeCase {
     std::string_view name;
@@ -599,7 +612,6 @@ TabletSchemaSPtr create_external_inverted_index_schema(InvertedIndexStorageForma
     index->set_index_id(10001);
     index->set_index_name("v_inverted_idx");
     index->set_index_type(IndexType::INVERTED);
-    index->set_index_suffix_name("format_test");
     index->add_col_unique_id(1);
     (*index->mutable_properties())[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_NONE;
 
@@ -610,11 +622,10 @@ TabletSchemaSPtr create_external_inverted_index_schema(InvertedIndexStorageForma
 
 Result<Block> create_external_inverted_index_block(const TabletSchemaSPtr& schema,
                                                    int segment_ordinal) {
-    constexpr size_t kRows = 180;
     Block block = schema->create_block();
-    for (size_t row = 0; row < kRows; ++row) {
-        RETURN_IF_ERROR_RESULT(
-                append_text_value(&block, 0, std::to_string(segment_ordinal * kRows + row)));
+    for (size_t row = 0; row < kExternalIndexRows; ++row) {
+        RETURN_IF_ERROR_RESULT(append_text_value(
+                &block, 0, std::to_string(segment_ordinal * kExternalIndexRows + row)));
         if (schema->column(1).is_nullable() && row % 37 == 0) {
             block.get_by_position(1).column->assert_mutable()->insert_default();
         } else {
@@ -643,7 +654,6 @@ TabletSchemaSPtr create_ann_index_schema(InvertedIndexStorageFormatPB storage_fo
     index->set_index_id(10002);
     index->set_index_name("v_ann_idx");
     index->set_index_type(IndexType::ANN);
-    index->set_index_suffix_name("format_test");
     index->add_col_unique_id(1);
     (*index->mutable_properties())["index_type"] = "hnsw";
     (*index->mutable_properties())["metric_type"] = "l2_distance";
@@ -655,16 +665,24 @@ TabletSchemaSPtr create_ann_index_schema(InvertedIndexStorageFormatPB storage_fo
     return schema;
 }
 
+std::array<float, kAnnDimensions> ann_vector(int segment_ordinal, size_t row) {
+    std::array<float, kAnnDimensions> vector;
+    for (size_t dimension = 0; dimension < vector.size(); ++dimension) {
+        vector[dimension] =
+                static_cast<float>(segment_ordinal * kExternalIndexRows * kAnnDimensions +
+                                   row * kAnnDimensions + dimension);
+    }
+    return vector;
+}
+
 Result<Block> create_ann_index_block(const TabletSchemaSPtr& schema, int segment_ordinal) {
-    constexpr size_t kRows = 180;
     Block block = schema->create_block();
-    for (size_t row = 0; row < kRows; ++row) {
-        RETURN_IF_ERROR_RESULT(
-                append_text_value(&block, 0, std::to_string(segment_ordinal * kRows + row)));
+    for (size_t row = 0; row < kExternalIndexRows; ++row) {
+        RETURN_IF_ERROR_RESULT(append_text_value(
+                &block, 0, std::to_string(segment_ordinal * kExternalIndexRows + row)));
         Array vector;
-        for (size_t dimension = 0; dimension < 4; ++dimension) {
-            vector.push_back(Field::create_field<TYPE_FLOAT>(
-                    static_cast<float>(segment_ordinal * kRows * 4 + row * 4 + dimension)));
+        for (const auto value : ann_vector(segment_ordinal, row)) {
+            vector.push_back(Field::create_field<TYPE_FLOAT>(value));
         }
         block.get_by_position(1).column->assert_mutable()->insert(
                 Field::create_field<TYPE_ARRAY>(std::move(vector)));
@@ -1211,12 +1229,263 @@ Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
     return block;
 }
 
+struct ExternalInvertedIndexSignature {
+    std::string field;
+    std::map<std::string, std::vector<int32_t>> postings;
+    std::vector<uint32_t> null_rows;
+};
+
+Status read_term_postings(lucene::index::IndexReader* index_reader, lucene::index::Term* term,
+                          std::vector<int32_t>* row_ids) {
+    segment_v2::TermDocsPtr term_docs;
+    segment_v2::ErrorContext error_context;
+    try {
+        term_docs = segment_v2::make_term_doc_ptr(index_reader, term);
+        while (term_docs->next()) {
+            row_ids->push_back(term_docs->doc());
+        }
+    } catch (CLuceneError& error) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg =
+                fmt::format("failed to decode inverted index postings: {}", error.what());
+    }
+    FINALLY({ FINALLY_CLOSE(term_docs); })
+    return Status::OK();
+}
+
+Status read_null_bitmap_signature(segment_v2::DorisCompoundReader* compound_reader,
+                                  const std::string& index_path_prefix,
+                                  std::vector<uint32_t>* null_rows) {
+    std::unique_ptr<lucene::store::IndexInput> null_bitmap_input;
+    segment_v2::ErrorContext error_context;
+    Status read_status = Status::OK();
+    try {
+        const auto* null_bitmap_file_name =
+                segment_v2::InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+        if (compound_reader->fileExists(null_bitmap_file_name)) {
+            CLuceneError open_error;
+            if (!compound_reader->openInput(null_bitmap_file_name, null_bitmap_input, open_error,
+                                            4096)) {
+                read_status = Status::IOError("failed to open null bitmap in {}: {}",
+                                              index_path_prefix, open_error.what());
+            } else {
+                const auto null_bitmap_size = null_bitmap_input->length();
+                if (null_bitmap_size == 0) {
+                    read_status = Status::Corruption("empty null bitmap in {}", index_path_prefix);
+                } else {
+                    std::string null_bitmap_bytes(null_bitmap_size, '\0');
+                    null_bitmap_input->readBytes(
+                            reinterpret_cast<uint8_t*>(null_bitmap_bytes.data()), null_bitmap_size);
+                    const auto null_bitmap =
+                            roaring::Roaring::read(null_bitmap_bytes.data(), false);
+                    for (const auto row_id : null_bitmap) {
+                        null_rows->push_back(row_id);
+                    }
+                }
+            }
+        }
+    } catch (CLuceneError& error) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg = fmt::format("failed to decode null bitmap in {}: {}",
+                                            index_path_prefix, error.what());
+    }
+    FINALLY({ FINALLY_CLOSE(null_bitmap_input); })
+    return read_status;
+}
+
+Status read_external_inverted_index_signature(const std::string& index_path_prefix,
+                                              InvertedIndexStorageFormatPB storage_format,
+                                              const TabletIndex* index_meta,
+                                              ExternalInvertedIndexSignature* signature) {
+    auto index_file_reader = std::make_shared<segment_v2::IndexFileReader>(
+            io::global_local_filesystem(), index_path_prefix, storage_format);
+    RETURN_IF_ERROR(index_file_reader->init());
+    auto compound_reader_result = index_file_reader->open(index_meta);
+    if (!compound_reader_result.has_value()) {
+        return compound_reader_result.error();
+    }
+    auto compound_reader = std::move(compound_reader_result).value();
+
+    std::unique_ptr<lucene::index::IndexReader> index_reader;
+    std::unique_ptr<lucene::index::TermEnum> terms;
+    segment_v2::ErrorContext error_context;
+    Status read_status = Status::OK();
+    try {
+        index_reader.reset(lucene::index::IndexReader::open(compound_reader.get()));
+        terms.reset(index_reader->terms());
+        while (terms->next()) {
+            auto* term = terms->term(false);
+            const auto term_field =
+                    lucene_wcstoutf8string(term->field(), lenOfString(term->field()));
+            if (signature->field.empty()) {
+                signature->field = term_field;
+            } else if (signature->field != term_field) {
+                read_status = Status::Corruption("inverted index {} contains fields {} and {}",
+                                                 index_path_prefix, signature->field, term_field);
+                break;
+            }
+            const auto term_text = lucene_wcstoutf8string(term->text(), term->textLength());
+            auto& row_ids = signature->postings[term_text];
+            read_status = read_term_postings(index_reader.get(), term, &row_ids);
+            if (!read_status.ok()) {
+                break;
+            }
+        }
+
+        if (read_status.ok()) {
+            read_status = read_null_bitmap_signature(compound_reader.get(), index_path_prefix,
+                                                     &signature->null_rows);
+        }
+    } catch (CLuceneError& error) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg = fmt::format("failed to decode inverted index {}: {}",
+                                            index_path_prefix, error.what());
+    }
+    FINALLY({
+        FINALLY_CLOSE(terms);
+        FINALLY_CLOSE(index_reader);
+    })
+    return read_status;
+}
+
+Status verify_external_inverted_index_contents(const std::string& index_path_prefix,
+                                               InvertedIndexStorageFormatPB storage_format,
+                                               const TabletSchemaSPtr& schema,
+                                               uint32_t segment_id) {
+    const auto indexes = schema->inverted_indexs(schema->column(1));
+    DORIS_CHECK_EQ(indexes.size(), 1);
+    ExternalInvertedIndexSignature signature;
+    RETURN_IF_ERROR(read_external_inverted_index_signature(index_path_prefix, storage_format,
+                                                           indexes[0], &signature));
+
+    ExternalInvertedIndexSignature expected;
+    expected.field = std::to_string(schema->column(1).unique_id());
+    for (size_t row = 0; row < kExternalIndexRows; ++row) {
+        if (schema->column(1).is_nullable() && row % 37 == 0) {
+            expected.null_rows.push_back(row);
+        } else {
+            expected.postings.emplace(fmt::format("inverted-segment-{}-row-{}", segment_id, row),
+                                      std::vector<int32_t> {cast_set<int32_t>(row)});
+        }
+    }
+
+    if (signature.field != expected.field) {
+        return Status::Corruption("inverted index segment {} has field {}, expected {}", segment_id,
+                                  signature.field, expected.field);
+    }
+    for (const auto& [term, expected_row_ids] : expected.postings) {
+        const auto actual = signature.postings.find(term);
+        if (actual == signature.postings.end()) {
+            return Status::Corruption("inverted index segment {} is missing term {}", segment_id,
+                                      term);
+        }
+        if (actual->second != expected_row_ids) {
+            return Status::Corruption(
+                    "inverted index segment {} term {} has row {}, expected {}", segment_id, term,
+                    actual->second.empty() ? -1 : actual->second.front(), expected_row_ids.front());
+        }
+    }
+    for (const auto& posting : signature.postings) {
+        if (!expected.postings.contains(posting.first)) {
+            return Status::Corruption("inverted index segment {} has unexpected term {}",
+                                      segment_id, posting.first);
+        }
+    }
+    if (signature.null_rows != expected.null_rows) {
+        return Status::Corruption(
+                "inverted index segment {} null rows differ: first actual {}, first expected {}",
+                segment_id, signature.null_rows.empty() ? -1 : signature.null_rows.front(),
+                expected.null_rows.empty() ? -1 : expected.null_rows.front());
+    }
+    return Status::OK();
+}
+
+Status verify_ann_index_contents(const std::string& index_path_prefix,
+                                 InvertedIndexStorageFormatPB storage_format,
+                                 const TabletSchemaSPtr& schema, uint32_t segment_id) {
+    const auto* index_meta = schema->ann_index(schema->column(1));
+    DORIS_CHECK(index_meta != nullptr);
+    auto index_file_reader = std::make_shared<segment_v2::IndexFileReader>(
+            io::global_local_filesystem(), index_path_prefix, storage_format);
+    segment_v2::AnnIndexReader index_reader(index_meta, std::move(index_file_reader), "",
+                                            segment_id, kExternalIndexRows);
+    io::IOContext io_context;
+    RETURN_IF_ERROR(index_reader.load_index(&io_context));
+
+    std::vector<uint64_t> top1_row_ids;
+    top1_row_ids.reserve(kExternalIndexRows);
+    for (size_t row = 0; row < kExternalIndexRows; ++row) {
+        const auto query_vector = ann_vector(segment_id, row);
+        roaring::Roaring candidates;
+        candidates.addRange(0, kExternalIndexRows);
+        VectorSearchUserParams user_params;
+        user_params.hnsw_ef_search = kExternalIndexRows;
+        user_params.hnsw_check_relative_distance = false;
+        user_params.hnsw_bounded_queue = false;
+        segment_v2::AnnTopNParam param {
+                .query_value = query_vector.data(),
+                .query_value_size = query_vector.size(),
+                .limit = 1,
+                ._user_params = user_params,
+                .roaring = &candidates,
+                .rows_of_segment = kExternalIndexRows,
+                .enable_result_cache = false,
+        };
+        segment_v2::AnnIndexStats stats;
+        RETURN_IF_ERROR(index_reader.query(&io_context, &param, &stats));
+        if (param.row_ids == nullptr || param.row_ids->size() != 1 || param.distance == nullptr) {
+            return Status::Corruption("invalid ANN Top-1 result for segment {} row {}", segment_id,
+                                      row);
+        }
+        const auto result_row_id = param.row_ids->front();
+        if (candidates.cardinality() != 1 || !candidates.contains(result_row_id) ||
+            param.distance[0] != 0) {
+            return Status::Corruption(
+                    "invalid ANN Top-1 signature for segment {} row {}: result row {}, distance {}",
+                    segment_id, row, result_row_id, param.distance[0]);
+        }
+        top1_row_ids.push_back(result_row_id);
+    }
+
+    std::vector<uint64_t> expected_row_ids(kExternalIndexRows);
+    std::iota(expected_row_ids.begin(), expected_row_ids.end(), 0);
+    if (top1_row_ids != expected_row_ids) {
+        return Status::Corruption("ANN Top-1 row-id signature changed for segment {}", segment_id);
+    }
+    return Status::OK();
+}
+
+Status verify_external_index_contents(const TabletSchemaSPtr& schema, uint32_t segment_id,
+                                      const std::string& segment_path,
+                                      const std::vector<std::string>& auxiliary_paths) {
+    if ((!schema->has_inverted_index() && !schema->has_ann_index()) ||
+        schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        return Status::OK();
+    }
+    if (auxiliary_paths.size() != 1) {
+        return Status::Corruption("segment {} produced {} compound index files", segment_id,
+                                  auxiliary_paths.size());
+    }
+
+    const std::string index_path_prefix {
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+    const auto storage_format = schema->get_inverted_index_storage_format();
+    if (schema->has_inverted_index()) {
+        return verify_external_inverted_index_contents(index_path_prefix, storage_format, schema,
+                                                       segment_id);
+    }
+    DORIS_CHECK(schema->has_ann_index());
+    return verify_ann_index_contents(index_path_prefix, storage_format, schema, segment_id);
+}
+
 struct AuxiliaryFileFingerprint {
     std::string filename;
     std::string bytes;
 
     bool operator==(const AuxiliaryFileFingerprint& rhs) const {
-        return filename == rhs.filename && bytes == rhs.bytes;
+        // CLucene writes a wall-clock generation into the compound index. Its decoded portable
+        // content is compared above; repeat-run equality only anchors the auxiliary manifest.
+        return filename == rhs.filename;
     }
 };
 
@@ -1745,6 +2014,27 @@ protected:
 
         config::enable_vertical_segment_writer = enable_vertical_writer;
         config::segment_compression_threshold_kb = compression_threshold_kb;
+        std::vector<uint32_t> expected_segment_ids(blocks.size());
+        std::iota(expected_segment_ids.begin(), expected_segment_ids.end(), 0);
+
+        auto* sync_point = SyncPoint::get_instance();
+        const bool sync_point_was_enabled = sync_point->get_enable();
+        sync_point->enable_processing();
+        Defer restore_sync_point {[sync_point, sync_point_was_enabled] {
+            if (!sync_point_was_enabled) {
+                sync_point->disable_processing();
+            }
+        }};
+        std::vector<uint32_t> vertical_segment_ids;
+        SyncPoint::CallbackGuard vertical_writer_guard;
+        sync_point->set_call_back(
+                "SegmentFlusher::flush_vertical_segment_writer",
+                [&vertical_segment_ids](auto&& args) {
+                    auto* segment_id = try_any_cast<uint32_t*>(args[0]);
+                    vertical_segment_ids.push_back(*segment_id);
+                },
+                &vertical_writer_guard);
+
         SegmentFileCollection segment_files;
         InvertedIndexFileCollection index_files;
         SegmentFlusher flusher(context, segment_files, index_files);
@@ -1754,16 +2044,26 @@ protected:
         }
         RETURN_IF_ERROR_RESULT(flusher.close());
 
-        std::vector<uint32_t> expected_segment_ids(blocks.size());
-        std::iota(expected_segment_ids.begin(), expected_segment_ids.end(), 0);
         if (segment_collector->segment_ids != expected_segment_ids) {
             return ResultError(Status::InternalError("unexpected collected segment ids"));
+        }
+        const auto expected_vertical_segment_ids =
+                enable_vertical_writer ? expected_segment_ids : std::vector<uint32_t> {};
+        if (vertical_segment_ids != expected_vertical_segment_ids) {
+            return ResultError(Status::InternalError(
+                    "unexpected Segment writer path for {}: vertical={}, expected {} vertical "
+                    "flushes, observed {}",
+                    case_name, enable_vertical_writer, expected_vertical_segment_ids.size(),
+                    vertical_segment_ids.size()));
         }
         std::vector<SegmentFingerprint> fingerprints;
         fingerprints.reserve(blocks.size());
         for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
-            fingerprints.push_back(fingerprint(segment_id, file_writer_creator->path(segment_id),
-                                               file_writer_creator->index_paths(segment_id)));
+            const auto segment_path = file_writer_creator->path(segment_id);
+            const auto auxiliary_paths = file_writer_creator->index_paths(segment_id);
+            RETURN_IF_ERROR_RESULT(verify_external_index_contents(schema, segment_id, segment_path,
+                                                                  auxiliary_paths));
+            fingerprints.push_back(fingerprint(segment_id, segment_path, auxiliary_paths));
         }
         RETURN_IF_ERROR_RESULT(verify_golden_segments(case_name, schema, context,
                                                       *file_writer_creator, expected_segment_ids));
@@ -2433,12 +2733,13 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
         if (index_case.storage_format != InvertedIndexStorageFormatPB::V1) {
             for (const auto& segment : result.value()) {
                 ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
+                ASSERT_FALSE(segment.auxiliary_files[0].bytes.empty()) << case_name;
             }
         }
     }
 
-    // Faiss HNSW construction uses OpenMP above 100 vectors. Keep the generated index bytes
-    // deterministic for the same-build repeat check; only the Segment file is a golden oracle.
+    // Faiss HNSW construction uses OpenMP above 100 vectors. Keep construction single-threaded so
+    // the repeat semantic queries exercise a reproducible graph; raw index bytes are not compared.
     config::omp_threads_limit = 1;
     for (const auto& [storage_format, storage_format_name] :
          std::array {kInvertedIndexFormats[1], kInvertedIndexFormats[2]}) {
@@ -2456,6 +2757,7 @@ TEST_F(SegmentFlusherFormatTest, EmbeddedAndExternalIndexesKeepTheirSegmentBytes
             ASSERT_TRUE(result.has_value()) << result.error();
             for (const auto& segment : result.value()) {
                 ASSERT_EQ(segment.auxiliary_files.size(), 1) << case_name;
+                ASSERT_FALSE(segment.auxiliary_files[0].bytes.empty()) << case_name;
             }
         }
     }
