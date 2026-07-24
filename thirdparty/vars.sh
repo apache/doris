@@ -548,6 +548,12 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# mecab-ipadic (UTF-8) for the Japanese kuromoji analyzer
+MECAB_IPADIC_DOWNLOAD="https://github.com/lindera/mecab-ipadic/archive/refs/tags/2.7.0-20250920.tar.gz"
+MECAB_IPADIC_NAME="mecab-ipadic-2.7.0-20250920.tar.gz"
+MECAB_IPADIC_SOURCE="mecab-ipadic-2.7.0-20250920"
+MECAB_IPADIC_MD5SUM="a95c409f12f1023fce8ef91f991ef042"
+
 # jindofs
 JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
 JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
@@ -581,6 +587,7 @@ LANCE_C_MD5SUM="eb6ec9bc63fa5245864282f24b521d0b"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'MECAB_IPADIC'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
