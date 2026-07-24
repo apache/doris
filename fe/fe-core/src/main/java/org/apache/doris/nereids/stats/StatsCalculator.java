@@ -527,6 +527,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = getOlapTableRowCount(olapScan);
+        // Track whether the row count was UNKNOWN_ROW_COUNT (-1) before the
+        // clamp below. Downstream gates (e.g. checkBroadcastJoinStats) treat a
+        // clamped row count as untrustworthy so they cannot pick a 1-row build
+        // side based on a value that was actually "we don't know".
+        boolean rowCountWasUnknown = tableRowCount < 0;
         tableRowCount = Math.max(1, tableRowCount);
 
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
@@ -563,6 +568,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
 
         StatisticsBuilder builder = new StatisticsBuilder();
+        builder.setRowCountWasUnknown(rowCountWasUnknown);
 
         // query for system table or FeUt or analysis, use ColumnStatistic.UNKNOWN
 
@@ -1300,6 +1306,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
         double tableRowCount = catalogRelation.getTable().getRowCount();
+        // Track whether the row count was UNKNOWN_ROW_COUNT (-1) before any
+        // clamp below. Downstream gates (e.g. checkBroadcastJoinStats) use this
+        // flag to refuse acting on a clamped value, otherwise an external table
+        // with no stats would be wrongly accepted as a broadcast build side.
+        boolean rowCountWasUnknown = tableRowCount < 0;
+        builder.setRowCountWasUnknown(rowCountWasUnknown);
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
@@ -1323,10 +1335,25 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (tableRowCount <= 0) {
             tableRowCount = 1;
             // try to get row count from col stats
+            boolean recoveredFromColStats = false;
             for (SlotReference slot : slotSet) {
                 ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
+                if (cache.count > 0) {
+                    recoveredFromColStats = true;
+                }
                 tableRowCount = Math.max(cache.count, tableRowCount);
             }
+            // Refresh the unknown flag with both conditions ANDed:
+            //  - the upstream value really was UNKNOWN_ROW_COUNT (-1), i.e.
+            //    rowCountWasUnknown captured at the top of this method, AND
+            //  - per-column stats did not recover a positive row count.
+            // ANDing prevents two failure modes:
+            //  1. Original tableRowCount == 0 (a legitimate empty-table signal,
+            //     not unknown) reaching this branch would otherwise be wrongly
+            //     marked unknown.
+            //  2. Future refactors that broaden the outer `if` predicate cannot
+            //     silently clear a flag that should still be true.
+            builder.setRowCountWasUnknown(rowCountWasUnknown && !recoveredFromColStats);
         }
         for (SlotReference slot : slotSet) {
             ColumnStatistic cache;
