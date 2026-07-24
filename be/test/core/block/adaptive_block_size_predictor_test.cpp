@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/segment/adaptive_block_size_predictor.h"
+#include "core/block/adaptive_block_size_predictor.h"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
-#include <vector>
+#include <string>
+#include <utility>
 
 #include "common/config.h"
 #include "core/block/block.h"
@@ -29,7 +32,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 
@@ -81,7 +83,6 @@ TEST_F(AdaptiveBlockSizePredictorTest, NoHistoryReturnsMaxRows) {
 
     // After one update the first sample is stored directly (no EWMA blending).
     Block blk = make_int32_block(100);
-    std::vector<ColumnId> cols = {0};
     pred.update(blk);
 
     EXPECT_TRUE(pred.has_history_for_test());
@@ -107,8 +108,6 @@ TEST_F(AdaptiveBlockSizePredictorTest, ExplicitMaterializedSampleUsesPreFilterSh
 TEST_F(AdaptiveBlockSizePredictorTest, EwmaConvergence) {
     AdaptiveBlockSizePredictor pred(kBlockBytes, 0.0);
 
-    std::vector<ColumnId> cols = {0};
-
     // Compute expected bytes-per-row from an actual block so the test does not
     // hard-code internal column memory layout assumptions.
     Block probe = make_string_block(100, 100);
@@ -132,7 +131,6 @@ TEST_F(AdaptiveBlockSizePredictorTest, ZeroRowsBlockIgnored) {
 
     // update() with an empty block must be a no-op.
     Block blk = make_int32_block(0);
-    std::vector<ColumnId> cols = {0};
     pred.update(blk);
 
     EXPECT_FALSE(pred.has_history_for_test());
@@ -151,7 +149,6 @@ TEST_F(AdaptiveBlockSizePredictorTest, DisabledWhenBlockSizeIsZero) {
     AdaptiveBlockSizePredictor pred(0, 0.0);
 
     Block blk = make_int32_block(1000);
-    std::vector<ColumnId> cols = {0};
     pred.update(blk);
 
     // update() still records history even when budget == 0.
@@ -174,7 +171,6 @@ TEST_F(AdaptiveBlockSizePredictorTest, PredictReturnsBlockSizeRowsWhenDisabled) 
 
     // Even after update, still returns block_size_rows because block_size_bytes == 0.
     Block blk = make_int32_block(100);
-    std::vector<ColumnId> cols = {0};
     pred.update(blk);
     EXPECT_EQ(pred.predict_next_rows(), pred.block_size_rows_for_test());
 }
@@ -203,7 +199,7 @@ TEST_F(AdaptiveBlockSizePredictorTest, PredictNoHistoryMetadataHint) {
 
     size_t result = pred.predict_next_rows();
 
-    size_t expected = static_cast<size_t>(static_cast<double>(kBlockBytes) / hint_bpr);
+    auto expected = static_cast<size_t>(static_cast<double>(kBlockBytes) / hint_bpr);
     // No history: probe_rows clamps the result.
     expected = std::min(expected, pred.probe_rows_for_test());
     EXPECT_EQ(result, expected);
@@ -249,7 +245,7 @@ TEST_F(AdaptiveBlockSizePredictorTest, PredictWithHistoryNoClamping) {
     pred.set_has_history_for_test(true, 100.0);
 
     size_t result = pred.predict_next_rows();
-    EXPECT_EQ(result, 81u);
+    EXPECT_EQ(result, 81U);
 }
 
 // ── Test: predicted > block_size_rows → clamped to block_size_rows ─────────────
@@ -269,7 +265,7 @@ TEST_F(AdaptiveBlockSizePredictorTest, PredictClampedToOne) {
     // bytes_per_row so large that predicted rounds to 0.
     pred.set_has_history_for_test(true, static_cast<double>(kBlockBytes) * 10.0);
 
-    EXPECT_EQ(pred.predict_next_rows(), 1u);
+    EXPECT_EQ(pred.predict_next_rows(), 1U);
 }
 
 // ── Test: metadata hint with multiple columns ───────────────────────────────
@@ -280,7 +276,7 @@ TEST_F(AdaptiveBlockSizePredictorTest, PredictNoHistoryMultiColumnMetadata) {
     AdaptiveBlockSizePredictor pred(kBlockBytes, hint_bpr);
 
     size_t result = pred.predict_next_rows();
-    size_t expected = static_cast<size_t>(static_cast<double>(kBlockBytes) / hint_bpr);
+    auto expected = static_cast<size_t>(static_cast<double>(kBlockBytes) / hint_bpr);
     // No history: probe_rows clamps the result.
     expected = std::min(expected, pred.probe_rows_for_test());
     EXPECT_EQ(result, expected);
@@ -313,14 +309,14 @@ TEST_F(AdaptiveBlockSizePredictorTest, PredictUsesCustomProbeRowsWithHint) {
 TEST_F(AdaptiveBlockSizePredictorTest, PredictProbeRowsZeroFallsBackToOne) {
     AdaptiveBlockSizePredictor pred(kBlockBytes, 0.0, 0);
 
-    EXPECT_EQ(pred.probe_rows_for_test(), 0u);
-    EXPECT_EQ(pred.predict_next_rows(), 1u);
+    EXPECT_EQ(pred.probe_rows_for_test(), 0U);
+    EXPECT_EQ(pred.predict_next_rows(), 1U);
 }
 
 TEST_F(AdaptiveBlockSizePredictorTest, PredictProbeRowsOneWorks) {
     AdaptiveBlockSizePredictor pred(kBlockBytes, 0.0, 1);
 
-    EXPECT_EQ(pred.predict_next_rows(), 1u);
+    EXPECT_EQ(pred.predict_next_rows(), 1U);
 }
 
 // ── batch_size tests ────────────────────────────────────────────────────────
@@ -330,7 +326,7 @@ TEST_F(AdaptiveBlockSizePredictorTest, DefaultBlockSizeRows) {
 
     EXPECT_EQ(pred.block_size_rows_for_test(),
               AdaptiveBlockSizePredictor::default_block_size_rows_for_test());
-    EXPECT_EQ(pred.block_size_rows_for_test(), 65535u);
+    EXPECT_EQ(pred.block_size_rows_for_test(), 65535U);
 }
 
 TEST_F(AdaptiveBlockSizePredictorTest, CustomBlockSizeRows) {
@@ -363,7 +359,7 @@ TEST_F(AdaptiveBlockSizePredictorTest, BlockSizeRowsDoesNotAffectSmallPrediction
 
     // 100 bytes/row → predicted = 8192/100 = 81 < custom_rows.
     pred.set_has_history_for_test(true, 100.0);
-    EXPECT_EQ(pred.predict_next_rows(), 81u);
+    EXPECT_EQ(pred.predict_next_rows(), 81U);
 }
 
 } // namespace doris

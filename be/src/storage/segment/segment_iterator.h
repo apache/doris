@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/adaptive_block_size_predictor.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
@@ -52,7 +53,6 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
-#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "util/slice.h"

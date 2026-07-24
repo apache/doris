@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/segment/adaptive_block_size_predictor.h"
+#include "core/block/adaptive_block_size_predictor.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -49,7 +49,7 @@ void AdaptiveBlockSizePredictor::update(size_t rows, size_t bytes) {
     }
 }
 
-size_t AdaptiveBlockSizePredictor::predict_next_rows() {
+size_t AdaptiveBlockSizePredictor::predict_next_rows() const {
     if (_block_size_bytes == 0) {
         return _block_size_rows;
     }
