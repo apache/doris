@@ -27,12 +27,21 @@
 #include <vector>
 
 #include "parquet_benchmark_scenarios.h"
+#include "util/byte_stream_split.h"
 #include "util/simd/parquet_kernels.h"
 
 namespace doris::parquet_benchmark {
 namespace detail {
 
 constexpr size_t KERNEL_ROWS = 1UL << 16;
+
+inline void decode_byte_stream_split(const uint8_t* src, size_t width, size_t offset,
+                                     size_t num_values, size_t stride, uint8_t* dest) {
+    if (!simd::try_byte_stream_split_decode(src, width, offset, num_values, stride, dest)) {
+        doris::byte_stream_split_decode(src, static_cast<int>(width), offset, num_values, stride,
+                                        dest);
+    }
+}
 
 template <typename T>
 void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
@@ -83,8 +92,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
 
     switch (scenario.kernel) {
     case Kernel::BYTE_STREAM_SPLIT:
-        simd::byte_stream_split_decode(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
-                                       reinterpret_cast<uint8_t*>(output.data()));
+        decode_byte_stream_split(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
+                                 reinterpret_cast<uint8_t*>(output.data()));
         if (output != input) {
             state.SkipWithError("byte-stream-split kernel produced incorrect values");
             return;
@@ -161,8 +170,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
 
         switch (scenario.kernel) {
         case Kernel::BYTE_STREAM_SPLIT:
-            simd::byte_stream_split_decode(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
-                                           reinterpret_cast<uint8_t*>(output.data()));
+            decode_byte_stream_split(encoded.data(), width, 0, KERNEL_ROWS, KERNEL_ROWS,
+                                     reinterpret_cast<uint8_t*>(output.data()));
             break;
         case Kernel::DELTA_PREFIX_SUM: {
             if constexpr (std::is_integral_v<T>) {

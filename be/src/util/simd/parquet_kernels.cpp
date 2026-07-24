@@ -37,7 +37,6 @@ namespace {
 bool has_avx2() {
     return __builtin_cpu_supports("avx2");
 }
-#endif
 
 void byte_stream_split_decode_scalar(const uint8_t* src, size_t width, size_t offset,
                                      size_t num_values, size_t stride, uint8_t* dest) {
@@ -47,6 +46,7 @@ void byte_stream_split_decode_scalar(const uint8_t* src, size_t width, size_t of
         }
     }
 }
+#endif
 
 template <typename T>
 bool scalar_compare(T lhs, T rhs, RawComparisonOp op) {
@@ -531,8 +531,8 @@ void raw_compare_scalar(const uint8_t* bytes, size_t count, T literal, RawCompar
 
 } // namespace
 
-void byte_stream_split_decode(const uint8_t* src, size_t width, size_t offset, size_t num_values,
-                              size_t stride, uint8_t* dest) {
+bool try_byte_stream_split_decode(const uint8_t* src, size_t width, size_t offset,
+                                  size_t num_values, size_t stride, uint8_t* dest) {
 #ifdef DORIS_PARQUET_X86_SIMD
     if (has_avx2() && num_values >= 32 && (width == 4 || width == 8)) {
         if (width == 4) {
@@ -540,10 +540,10 @@ void byte_stream_split_decode(const uint8_t* src, size_t width, size_t offset, s
         } else {
             byte_stream_split_decode_avx2<8>(src, offset, num_values, stride, dest);
         }
-        return;
+        return true;
     }
 #endif
-    byte_stream_split_decode_scalar(src, width, offset, num_values, stride, dest);
+    return false;
 }
 
 void delta_decode(int32_t* values, size_t count, int32_t min_delta, int32_t* last_value) {

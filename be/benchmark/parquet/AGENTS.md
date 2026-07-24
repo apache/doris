@@ -299,7 +299,7 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 80 kernel, and 151 reader cases. A smoke
+The current expected registration counts are 228 decoder, 80 kernel, and 152 reader cases. A smoke
 run is an execution record only, not a reviewed performance baseline, because repetitions, host
 isolation, warmups, cache control, `perf` data, variance, and before/after comparison are not
 collected.

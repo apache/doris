@@ -111,7 +111,8 @@ TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryS
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {
     const auto scenarios = reader_scenarios();
-    EXPECT_EQ(scenarios.size(), size_t {151});
+    // Keep the exact count aligned with the upstream complex-residual scenario retained by rebase.
+    EXPECT_EQ(scenarios.size(), size_t {152});
     for (const int null_percent : {0, 1, 10, 50, 90}) {
         for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
             for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
@@ -161,7 +162,7 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixHasExactUniqueRegistrationNames) {
     const auto scenarios = reader_scenarios();
-    EXPECT_EQ(scenarios.size(), 152);
+    EXPECT_EQ(scenarios.size(), size_t {152});
 
     std::set<std::string> names;
     for (const auto& scenario : scenarios) {

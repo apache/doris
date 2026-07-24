@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "util/byte_stream_split.h"
 #include "util/simd/parquet_kernels.h"
 
 namespace doris::simd {
@@ -48,9 +49,40 @@ TEST(ParquetSimdKernelsTest, ByteStreamSplitRestoresFourAndEightByteValues) {
         for (const auto [offset, count] :
              {std::pair<size_t, size_t> {0, rows}, {3, 31}, {17, 33}}) {
             std::vector<uint8_t> decoded(count * width);
-            byte_stream_split_decode(encoded.data(), width, offset, count, rows, decoded.data());
+            if (!try_byte_stream_split_decode(encoded.data(), width, offset, count, rows,
+                                              decoded.data())) {
+                doris::byte_stream_split_decode(encoded.data(), static_cast<int>(width), offset,
+                                                count, rows, decoded.data());
+            }
             EXPECT_EQ(0, memcmp(decoded.data(), plain.data() + offset * width, decoded.size()));
         }
+    }
+}
+
+TEST(ParquetSimdKernelsTest, ByteStreamSplitDeclinesToReplaceOptimizedScalarFallback) {
+    constexpr size_t rows = 191;
+    constexpr size_t offset = 17;
+    constexpr size_t count = 31;
+    for (const size_t width : {1, 2, 4, 8, 12, 16, 23}) {
+        std::vector<uint8_t> plain(rows * width);
+        for (size_t byte = 0; byte < plain.size(); ++byte) {
+            plain[byte] = static_cast<uint8_t>((byte * 29 + 17) & 0xff);
+        }
+        std::vector<uint8_t> encoded(plain.size());
+        for (size_t row = 0; row < rows; ++row) {
+            for (size_t byte = 0; byte < width; ++byte) {
+                encoded[byte * rows + row] = plain[row * width + byte];
+            }
+        }
+
+        std::vector<uint8_t> decoded(count * width);
+        EXPECT_FALSE(try_byte_stream_split_decode(encoded.data(), width, offset, count, rows,
+                                                  decoded.data()))
+                << "width=" << width;
+        doris::byte_stream_split_decode(encoded.data(), static_cast<int>(width), offset, count,
+                                        rows, decoded.data());
+        EXPECT_EQ(0, memcmp(decoded.data(), plain.data() + offset * width, decoded.size()))
+                << "width=" << width;
     }
 }
 

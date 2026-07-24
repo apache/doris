@@ -24,8 +24,8 @@ namespace doris::simd {
 
 enum class RawComparisonOp : uint8_t { EQ, NE, LT, LE, GT, GE };
 
-void byte_stream_split_decode(const uint8_t* src, size_t width, size_t offset, size_t num_values,
-                              size_t stride, uint8_t* dest);
+bool try_byte_stream_split_decode(const uint8_t* src, size_t width, size_t offset,
+                                  size_t num_values, size_t stride, uint8_t* dest);
 
 void delta_decode(int32_t* values, size_t count, int32_t min_delta, int32_t* last_value);
 void delta_decode(int64_t* values, size_t count, int64_t min_delta, int64_t* last_value);
