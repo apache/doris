@@ -937,8 +937,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_ensure_dictionary_page_l
         }
         RETURN_IF_ERROR(_decode_dict_page());
         RETURN_IF_ERROR(_page_reader->dict_next_page());
-        _dict_checked = true;
-        return Status::OK();
+        // A nested V1 chunk must inspect its first data-page type before indexed seeking can skip
+        // that page; dictionary discovery alone is not enough to make the OffsetIndex trustworthy.
     }
 }
 
