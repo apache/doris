@@ -668,6 +668,12 @@ under the License.
             <groupId>org.apache.ranger</groupId>
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
+        <!-- for the OpenFGA (Zanzibar style) external access controller -->
+        <dependency>
+            <groupId>dev.openfga</groupId>
+            <artifactId>openfga-sdk</artifactId>
+            <version>0.9.9</version>
+        </dependency>
 
         <!-- for hudi catalog -->
         <dependency>
