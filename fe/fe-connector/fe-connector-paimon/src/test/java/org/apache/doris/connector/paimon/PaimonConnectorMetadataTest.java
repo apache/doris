@@ -206,10 +206,12 @@ public class PaimonConnectorMetadataTest {
         Map<String, ConnectorColumnHandle> handles = metadataWith(ops).getColumnHandles(null, handle);
 
         // WHY: the fast path — when the transient Table is already present, getColumnHandles must
-        // use it and NOT make a redundant remote getTable call. MUTATION: always reloading would
-        // record a getTable entry -> red. This pins the reload as a fallback, not the default.
+        // use it and NOT make a redundant remote getTable reload (the reload is a fallback, not the
+        // default). It DOES consult schemaManager().latest() (mirroring getTableSchema so an external
+        // schema change is reflected), but must not re-fetch the Table. MUTATION: always reloading
+        // would record a getTable entry -> red.
         Assertions.assertEquals(Arrays.asList("id", "name"), new java.util.ArrayList<>(handles.keySet()));
-        Assertions.assertTrue(ops.log.isEmpty(),
+        Assertions.assertTrue(ops.log.stream().noneMatch(e -> e.startsWith("getTable")),
                 "with a present transient table, no remote getTable reload must happen");
     }
 
@@ -358,6 +360,38 @@ public class PaimonConnectorMetadataTest {
                         + "ALTER), not the CachingCatalog-frozen rowType() (2 cols)");
         Assertions.assertEquals("new_col", schema.getColumns().get(2).getName(),
                 "the externally-added column must surface via schemaManager().latest()");
+    }
+
+    @Test
+    public void getColumnHandlesReadsLatestSchemaNotCachedRowType() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        // The handle's transient Table is the CachingCatalog-cached instance whose rowType() is
+        // FROZEN at load time (pre-rename "name") — what getColumnHandles used to read.
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id", "name"), Collections.emptyList(), Collections.emptyList());
+        // After an external RENAME COLUMN name -> renamed (a NEW schema file, NO new snapshot), the
+        // schema manager's latest() carries the renamed column (same field id). This is the live read
+        // the handle map must use so the renamed scan slot is not silently dropped.
+        ops.latestSchema = Optional.of(new PaimonCatalogOps.PaimonSchemaSnapshot(
+                Arrays.asList(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "renamed", DataTypes.INT())),
+                Collections.emptyList(),
+                Collections.emptyList()));
+
+        ConnectorTableHandle handle = metadataWith(ops).getTableHandle(null, "db1", "t1").get();
+        Map<String, ConnectorColumnHandle> handles = metadataWith(ops).getColumnHandles(null, handle);
+
+        // WHY: getColumnHandles must key the handle map by schemaManager().latest() FRESH (mirroring
+        // getTableSchema), NOT the CachingCatalog-frozen rowType(). If it reads the stale rowType (old
+        // "name"), the fresh scan slot "renamed" misses this handle map, fe-core drops it from the scan
+        // `columns`, the paimon schema-evolution dict's current(-1) entry omits it, and BE's
+        // by-field-id StructNode lacks that column -> children.contains(table_column_name) DCHECK aborts
+        // the BE (ExtReg 1004351 test_paimon_jdbc_catalog crash). MUTATION: reading table.rowType() (the
+        // frozen "name") -> keySet is [id, name] with "renamed" missing -> red.
+        Assertions.assertEquals(Arrays.asList("id", "renamed"), new java.util.ArrayList<>(handles.keySet()),
+                "getColumnHandles must key handles by the latest (post-rename) schema, not the "
+                        + "CachingCatalog-frozen rowType()");
     }
 
     @Test
