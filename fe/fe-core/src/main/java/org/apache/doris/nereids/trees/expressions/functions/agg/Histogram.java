@@ -113,4 +113,9 @@ public class Histogram extends NotNullableAggregateFunction
     public Expression resultForEmptyInput() {
         return new VarcharLiteral("{\"num_buckets\":0,\"buckets\":[]}");
     }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
+    }
 }
