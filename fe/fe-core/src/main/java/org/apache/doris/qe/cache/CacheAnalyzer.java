@@ -52,6 +52,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -438,7 +439,8 @@ public class CacheAnalyzer {
         return "";
     }
 
-    private CacheTable buildCacheTableForOlapScanNode(OlapScanNode node) {
+    @VisibleForTesting
+    protected CacheTable buildCacheTableForOlapScanNode(OlapScanNode node) {
         CacheTable cacheTable = new CacheTable();
         OlapTable olapTable = node.getOlapTable();
         cacheTable.partitionNum = node.getSelectedPartitionIds().size();
@@ -459,6 +461,13 @@ public class CacheAnalyzer {
 
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                // Partition dropped mid-flight (concurrent DROP PARTITION): throw so the caller
+                // buildCacheTableList falls back to CacheMode.None rather than caching a partial set.
+                throw new RuntimeException(String.format(
+                        "Partition %d of table %s was dropped during cache building, bypass query cache",
+                        partitionId, olapTable.getName()));
+            }
             scanTable.addScanPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
