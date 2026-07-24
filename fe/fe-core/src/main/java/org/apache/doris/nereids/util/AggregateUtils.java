@@ -150,6 +150,17 @@ public class AggregateUtils {
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
+    /** e.g. Aggregation with avg(distinct a)(not support multiDistinct) or count(distinct a,b) will return true*/
+    public static boolean containsNotSupportMultiDistinctFunction(LogicalAggregate<? extends Plan> aggregate) {
+        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
+            if (expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()) {
+                return !(expr instanceof SupportMultiDistinct)
+                        || expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1;
+            }
+            return false;
+        });
+    }
+
     /** count agg function distinct group, up to 2*/
     public static int distinctArgumentGroupCountUpToTwo(Aggregate<? extends Plan> aggregate) {
         Set<Expression> distinctArgumentGroup = null;

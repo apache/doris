@@ -119,4 +119,10 @@ public class ExponentialMovingAverage extends NullableAggregateFunction
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(1), getArgument(2)) : ImmutableList.of();
+    }
+
 }
