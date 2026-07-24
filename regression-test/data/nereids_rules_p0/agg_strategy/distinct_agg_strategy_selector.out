@@ -110,3 +110,18 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalOlapScan[t1000]
 
+-- !count_distinct_group --
+5	5
+
+-- !count_distinct_group_with_gby --
+1	1
+1	1
+1	1
+1	1
+1	1
+1	1
+1	1
+1	1
+1	1
+1	1
+

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
+import org.apache.doris.nereids.rules.rewrite.DistinctAggregateRewriter.Strategy;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -249,7 +250,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
     }
 
     @Test
-    void testShouldUseMultiDistinctWithoutStatsSatisfyDistribution() throws Exception {
+    void testChooseStrategyWithoutStatsSatisfyDistribution() throws Exception {
         DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
         LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
                 "select bb, count(distinct aa) from "
@@ -265,11 +266,11 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         ((AbstractPlan) child).setStatistics(new Statistics(10000, colStats));
         aggregate.setStatistics(new Statistics(100, ImmutableMap.of()));
 
-        Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
+        Assertions.assertEquals(Strategy.SPLIT_IN_REWRITE, rewriter.chooseStrategy(aggregate));
     }
 
     @Test
-    void testShouldUseMultiDistinctWithStatsSelected() throws Exception {
+    void testChooseStrategyWithStatsSelected() throws Exception {
         DistinctAggregateRewriter rewriter = new DistinctAggregateRewriter();
         LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
                 "select b, count(distinct a) from test.distinct_agg_split_t group by b"
@@ -283,11 +284,11 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         ((AbstractPlan) child).setStatistics(new Statistics(100000, colStats));
         aggregate.setStatistics(new Statistics(240, ImmutableMap.of()));
 
-        Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
+        Assertions.assertEquals(Strategy.SPLIT_IN_REWRITE, rewriter.chooseStrategy(aggregate));
     }
 
     @Test
-    void testShouldUseMultiDistinctWithPartitionTable() {
+    void testChooseStrategyWithPartitionTable() {
         DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
         LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
                 "select count(distinct record_id) from sales_records group by sale_date;"
@@ -301,7 +302,7 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         ((AbstractPlan) child).setStatistics(new Statistics(10000, colStats));
         aggregate.setStatistics(new Statistics(100, ImmutableMap.of()));
 
-        Assertions.assertTrue(rewriter.shouldUseMultiDistinct(aggregate));
+        Assertions.assertEquals(Strategy.MULTI_STRATEGY, rewriter.chooseStrategy(aggregate));
     }
 
     @Test
