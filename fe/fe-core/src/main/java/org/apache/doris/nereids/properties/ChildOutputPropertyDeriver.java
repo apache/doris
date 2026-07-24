@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -703,7 +704,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
             case ASOF_RIGHT_OUTER_JOIN:
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts(),
+                        new Reference<>())) {
                     return new PhysicalProperties(rightHashSpec);
                 } else {
                     // retain left shuffle type, since coordinator use left most node to schedule fragment

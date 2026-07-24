@@ -55,6 +55,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.clone.TenantLevelColocateTableCheckerAndBalancer;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -238,6 +239,8 @@ import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TableStreamCleanupInfo;
+import org.apache.doris.persist.TenantLevelColocateGroupInfo;
+import org.apache.doris.persist.TenantLevelColocateTableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -342,6 +345,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -477,6 +481,7 @@ public class Env {
     private Set<String> aliveSessionSet;
     private TabletInvertedIndex tabletInvertedIndex;
     private ColocateTableIndex colocateTableIndex;
+    private TenantLevelColocateTableIndex tenantLevelColocateTableIndex;
 
     private CatalogRecycleBin recycleBin;
 
@@ -678,6 +683,14 @@ public class Env {
         return this.colocateTableIndex;
     }
 
+    public TenantLevelColocateTableIndex getTenantLevelColocateTableIndex() {
+        return tenantLevelColocateTableIndex;
+    }
+
+    public void setTenantLevelColocateTableIndex(TenantLevelColocateTableIndex tenantLevelColocateTableIndex) {
+        this.tenantLevelColocateTableIndex = tenantLevelColocateTableIndex;
+    }
+
     private CatalogRecycleBin getRecycleBin() {
         return this.recycleBin;
     }
@@ -790,6 +803,7 @@ public class Env {
         this.aliveSessionSet = Sets.newConcurrentHashSet();
         this.tabletInvertedIndex = EnvFactory.getInstance().createTabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
+        this.tenantLevelColocateTableIndex = new TenantLevelColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
 
         this.functionRegistry = new FunctionRegistry();
@@ -1066,6 +1080,10 @@ public class Env {
     // use this to get correct ColocateTableIndex instance
     public static ColocateTableIndex getCurrentColocateIndex() {
         return getCurrentEnv().getColocateTableIndex();
+    }
+
+    public static TenantLevelColocateTableIndex getCurrentTenantLevelColocateIndex() {
+        return getCurrentEnv().getTenantLevelColocateTableIndex();
     }
 
     public static CatalogRecycleBin getCurrentRecycleBin() {
@@ -2016,6 +2034,7 @@ public class Env {
             tabletScheduler.start();
             // Colocate tables checker and balancer
             ColocateTableCheckerAndBalancer.getInstance().start();
+            TenantLevelColocateTableCheckerAndBalancer.getInstance().start();
             // Publish Version Daemon
             publishVersionDaemon.start();
             // Start txn cleaner
@@ -2603,6 +2622,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadTenantLevelColocateTableIndex(DataInputStream dis, long checksum) throws IOException {
+        Env.getCurrentTenantLevelColocateIndex().read(dis);
+        LOG.info("finished replay tenantLevelColocateIndex from image");
+        return checksum;
+    }
+
     public long loadRoutineLoadJobs(DataInputStream dis, long checksum) throws IOException {
         Env.getCurrentEnv().getRoutineLoadManager().readFields(dis);
         LOG.info("finished replay routineLoadJobs from image");
@@ -2952,6 +2977,11 @@ public class Env {
 
     public long saveColocateTableIndex(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentColocateIndex().write(dos);
+        return checksum;
+    }
+
+    public long saveTenantLevelColocateTableIndex(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentTenantLevelColocateIndex().write(dos);
         return checksum;
     }
 
@@ -3984,6 +4014,33 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
             sb.append(colocateTable).append("\"");
         }
+
+        Map<Tag, TenantLevelColocateGroupSchema> colocateGroupMaster = getCurrentTenantLevelColocateIndex()
+                .getMasterGroupByTable(olapTable.getId());
+        if (!colocateGroupMaster.isEmpty()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP).append("\" = \"");
+            List<String> tags = Lists.newArrayList();
+            for (Entry<Tag, TenantLevelColocateGroupSchema> entry : colocateGroupMaster.entrySet()) {
+                tags.add(PropertyAnalyzer.TAG_LOCATION + "." + entry.getKey().value + ": "
+                        + entry.getValue().getName());
+            }
+            String str = Joiner.on(",").join(tags);
+            sb.append(str).append("\"");
+        }
+
+        Map<Tag, TenantLevelColocateGroupSchema> colocateGroupSlave = getCurrentTenantLevelColocateIndex()
+                .getSlaveGroupByTable(olapTable.getId());
+        if (!colocateGroupSlave.isEmpty()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE).append("\" = \"");
+            List<String> tags = Lists.newArrayList();
+            for (Entry<Tag, TenantLevelColocateGroupSchema> entry : colocateGroupSlave.entrySet()) {
+                tags.add(PropertyAnalyzer.TAG_LOCATION + "." + entry.getKey().value + ": "
+                        + entry.getValue().getName());
+            }
+            String str = Joiner.on(",").join(tags);
+            sb.append(str).append("\"");
+        }
+
 
         // dynamic partition
         if (olapTable.dynamicPartitionExists()) {
@@ -5807,6 +5864,12 @@ public class Env {
         String oldGroup = table.getColocateGroup();
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(assignedGroup)) {
+            if (Env.getCurrentTenantLevelColocateIndex().isColocateMasterTable(table.getId())) {
+                throw new DdlException("colocate_with conflict with colocate_group");
+            }
+            if (Env.getCurrentTenantLevelColocateIndex().isColocateSlaveTable(table.getId())) {
+                throw new DdlException("colocate_with conflict with colocate_slave");
+            }
             String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
             // When the new name is the same as the old name, we return it to prevent npe
             if (!Strings.isNullOrEmpty(oldGroup)) {
@@ -5893,6 +5956,237 @@ public class Env {
             editLog.logModifyTableColocate(info);
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
+    }
+
+    public void modifyTenantLevelMasterColocate(Database db, OlapTable table, Map<Tag, String> assignedGroupNameMap,
+            boolean isReplay, Map<Long, TenantLevelColocateGroupInfo> assignedGroupReplayMap)
+            throws DdlException {
+        if (Config.isCloudMode()) {
+            throw new DdlException("colocate_group not implemented in cloud mode");
+        }
+        if (!assignedGroupNameMap.isEmpty() && Env.getCurrentColocateIndex().isColocateTable(table.getId())) {
+            throw new DdlException("colocate_with conflict with colocate_group");
+        }
+        if (!assignedGroupNameMap.isEmpty() && !isReplay && table.isAutoBucket()) {
+            throw new DdlException("table " + table.getName() + " is auto buckets");
+        }
+        Map<Tag, String> oldGroupMap = tenantLevelColocateTableIndex.getMasterGroupNameMapByTable(table.getId());
+        //When the new name is the same as the old name, we return it to prevent npe
+        if (assignedGroupNameMap.equals(oldGroupMap)) {
+            LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
+            return;
+        }
+        for (Map.Entry<Tag, String> entry : assignedGroupNameMap.entrySet()) {
+            String assignedGroup = entry.getValue();
+            Tag tag = entry.getKey();
+            if (Env.getCurrentTenantLevelColocateIndex().hasSlaveGroup(table.getId(), tag)) {
+                throw new DdlException("colocate_slave conflict with colocate_group");
+            }
+            TenantLevelColocateGroupSchema groupSchema = tenantLevelColocateTableIndex.getGroupSchema(assignedGroup,
+                    tag);
+            if (groupSchema == null) {
+                // user set a new colocate group,
+                // check if all partitions all this table has same buckets num and same replication number
+                PartitionInfo partitionInfo = table.getPartitionInfo();
+                int bucketsNum = table.getDefaultDistributionInfo().getBucketNum();
+                ReplicaAllocation replicaAlloc = table.getDefaultReplicaAllocation();
+                int replicaNum = replicaAlloc.getReplicaNumByTag(tag);
+                if (replicaNum <= 0) {
+                    throw new DdlException("No replica in " + table.getName() + "/" + tag.value);
+                }
+                for (Partition partition : table.getPartitions()) {
+                    if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
+                        throw new DdlException(
+                                "Partitions in table " + table.getName() + " have different buckets number");
+                    }
+                    if (replicaNum != partitionInfo.getReplicaAllocation(partition.getId()).getReplicaNumByTag(tag)) {
+                        throw new DdlException("Partitions in table " + table.getName()
+                                + " have different replica allocation.");
+                    }
+                }
+                TenantLevelColocateGroupSchema.checkDynamicPartition(table.getTableProperty().getProperties(),
+                        table.getDefaultDistributionInfo());
+            } else {
+                // set to an already exist colocate group, check if this table can be added to this group.
+                groupSchema.checkMasterColocateSchema(table, table.getTableProperty().getProperties());
+            }
+        }
+        Map<Tag, Long> assignedColocateIdMap = new HashMap<>();
+        for (Entry<Long, TenantLevelColocateGroupInfo> entry : assignedGroupReplayMap.entrySet()) {
+            Long groupId = entry.getKey();
+            TenantLevelColocateGroupInfo colocateGroupInfo = entry.getValue();
+            Tag tag = colocateGroupInfo.getTag();
+            assignedColocateIdMap.put(tag, groupId);
+        }
+        for (Entry<Tag, String> entry : oldGroupMap.entrySet()) {
+            Tag tag = entry.getKey();
+            if (assignedGroupNameMap.containsKey(tag)) {
+                continue;
+            }
+            tenantLevelColocateTableIndex.removeMasterTable(table.getId(), tag);
+        }
+        Map<Long, TenantLevelColocateGroupInfo> result = new HashMap<>();
+        for (Map.Entry<Tag, String> entry : assignedGroupNameMap.entrySet()) {
+            String assignedGroup = entry.getValue();
+            Tag tag = entry.getKey();
+            TenantLevelColocateGroupSchema groupSchema = tenantLevelColocateTableIndex.getGroupSchema(assignedGroup,
+                    tag);
+            Long assignedGroupId = assignedColocateIdMap.get(tag);
+            List<List<Long>> backendsPerBucketSeq;
+            final boolean isGroupExist = groupSchema != null;
+            if (isGroupExist) {
+                backendsPerBucketSeq = tenantLevelColocateTableIndex.getBackendsPerBucketSeqByGroup(
+                        groupSchema.getGroupId());
+                TenantLevelColocateGroupInfo colocateGroupInfo = TenantLevelColocateGroupInfo.create(
+                        groupSchema, backendsPerBucketSeq);
+                result.put(groupSchema.getGroupId(), colocateGroupInfo);
+            } else if (isReplay) {
+                TenantLevelColocateGroupInfo colocateGroupInfo = assignedGroupReplayMap.get(assignedGroupId);
+                backendsPerBucketSeq = colocateGroupInfo.getBackendsPerBucketSeq();
+                result.put(assignedGroupId, colocateGroupInfo);
+            } else {
+                // assign to a newly created group, set backends sequence.
+                // we arbitrarily choose a tablet backends sequence from this table,
+                // let the colocation balancer do the work.
+                backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq().get(tag);
+            }
+            String oldGroup = oldGroupMap.get(tag);
+            if (Objects.equals(oldGroup, assignedGroup)) {
+                continue;
+            }
+            // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
+            groupSchema = tenantLevelColocateTableIndex.changeMasterGroup(table, oldGroup, assignedGroup, tag,
+                    assignedGroupId);
+            long groupId = groupSchema.getGroupId();
+            TenantLevelColocateGroupInfo colocateGroupInfo = TenantLevelColocateGroupInfo.create(groupSchema,
+                    backendsPerBucketSeq);
+            result.put(groupId, colocateGroupInfo);
+            if (!isGroupExist) {
+                Preconditions.checkNotNull(backendsPerBucketSeq);
+                tenantLevelColocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+            }
+            // set this group as unstable
+            tenantLevelColocateTableIndex.markMasterGroupUnstable(groupId, "Colocation group modified by user",
+                    false /* edit log is along with modify table log */);
+        }
+        if (!isReplay) {
+            TenantLevelColocateTableInfo info = new TenantLevelColocateTableInfo(db.getId(), table.getId(), result);
+            editLog.logModifyTenantLevelTableColocate(info);
+        }
+        LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
+    }
+
+    public void replayModifyTenantLevelMasterColocate(TenantLevelColocateTableInfo info) throws MetaNotFoundException {
+        long dbId = info.getDbId();
+        Preconditions.checkState(dbId != 0, "replay modify table colocate failed, table id: " + info.getTableId());
+        long tableId = info.getTableId();
+        Database db = getInternalCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        Map<Tag, String> assignedColocateNameMap = new HashMap<>();
+        for (Entry<Long, TenantLevelColocateGroupInfo> entry : info.getGroupMap().entrySet()) {
+            TenantLevelColocateGroupInfo colocateGroupInfo = entry.getValue();
+            assignedColocateNameMap.put(colocateGroupInfo.getTag(), colocateGroupInfo.getName());
+        }
+        olapTable.writeLock();
+        try {
+            modifyTenantLevelMasterColocate(db, olapTable, assignedColocateNameMap, true,
+                    info.getGroupMap());
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("failed to replay modify table colocate", e);
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    public void modifyTenantLevelSlaveColocate(Database db, OlapTable table, Map<Tag, String> assignedGroupNameMap,
+            boolean isReplay)
+            throws DdlException {
+        if (Config.isCloudMode()) {
+            throw new DdlException("colocate_slave not implemented in cloud mode");
+        }
+        if (!assignedGroupNameMap.isEmpty() && Env.getCurrentColocateIndex().isColocateTable(table.getId())) {
+            throw new DdlException("colocate_slave conflict with colocate_with");
+        }
+        if (!assignedGroupNameMap.isEmpty() && !isReplay && table.isAutoBucket()) {
+            throw new DdlException("table " + table.getName() + " is auto buckets");
+        }
+        Map<Tag, String> oldGroupMap = tenantLevelColocateTableIndex.getSlaveGroupNameMap(table.getId());
+        //When the new name is the same as the old name, we return it to prevent npe
+        if (assignedGroupNameMap.equals(oldGroupMap)) {
+            LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
+            return;
+        }
+        for (Map.Entry<Tag, String> entry : assignedGroupNameMap.entrySet()) {
+            String assignedGroup = entry.getValue();
+            Tag tag = entry.getKey();
+            TenantLevelColocateGroupSchema groupSchema = tenantLevelColocateTableIndex.getGroupSchema(assignedGroup,
+                    tag);
+            if (groupSchema == null) {
+                throw new DdlException("colocate_group not exist:" + assignedGroup);
+            }
+            groupSchema.checkSlaveColocateSchema(table, table.getTableProperty().getProperties());
+            if (Env.getCurrentTenantLevelColocateIndex().hasMasterGroup(table.getId(), tag)) {
+                throw new DdlException("colocate_slave conflict with colocate_group");
+            }
+        }
+        for (Entry<Tag, String> entry : oldGroupMap.entrySet()) {
+            Tag tag = entry.getKey();
+            if (assignedGroupNameMap.containsKey(tag)) {
+                continue;
+            }
+            tenantLevelColocateTableIndex.removeSlaveTable(table.getId(), tag);
+        }
+        Map<Long, TenantLevelColocateGroupInfo> result = new HashMap<>();
+        for (Map.Entry<Tag, String> entry : assignedGroupNameMap.entrySet()) {
+            String assignedGroup = entry.getValue();
+            Tag tag = entry.getKey();
+            TenantLevelColocateGroupSchema groupSchema = tenantLevelColocateTableIndex.getGroupSchema(assignedGroup,
+                    tag);
+            Preconditions.checkNotNull(groupSchema);
+            long groupId = groupSchema.getGroupId();
+            List<List<Long>> backendsPerBucketSeq = tenantLevelColocateTableIndex.getBackendsPerBucketSeqByGroup(
+                    groupId);
+            TenantLevelColocateGroupInfo colocateGroupInfo = TenantLevelColocateGroupInfo.create(groupSchema,
+                    backendsPerBucketSeq);
+            result.put(groupId, colocateGroupInfo);
+            String oldGroup = oldGroupMap.get(tag);
+            if (Objects.equals(oldGroup, assignedGroup)) {
+                continue;
+            }
+            // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
+            tenantLevelColocateTableIndex.changeSlaveGroup(table, oldGroup, groupSchema.getGroupId());
+            // set this group as unstable
+            tenantLevelColocateTableIndex.markSlaveGroupUnstable(groupId, "Colocation group modified by user",
+                    false /* edit log is along with modify table log */);
+        }
+        if (!isReplay) {
+            TenantLevelColocateTableInfo info = new TenantLevelColocateTableInfo(db.getId(), table.getId(), result);
+            editLog.logModifyTableColocateSlave(info);
+        }
+        LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
+    }
+
+    public void replayModifyTableColocateSlave(TenantLevelColocateTableInfo info) throws MetaNotFoundException {
+        long dbId = info.getDbId();
+        Preconditions.checkState(dbId != 0, "replay modify table colocate failed, table id: " + info.getTableId());
+        long tableId = info.getTableId();
+        Database db = getInternalCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        Map<Tag, String> assignedColocateNameMap = new HashMap<>();
+        for (Entry<Long, TenantLevelColocateGroupInfo> entry : info.getGroupMap().entrySet()) {
+            TenantLevelColocateGroupInfo colocateGroupInfo = entry.getValue();
+            assignedColocateNameMap.put(colocateGroupInfo.getTag(), colocateGroupInfo.getName());
+        }
+        olapTable.writeLock();
+        try {
+            modifyTenantLevelSlaveColocate(db, olapTable, assignedColocateNameMap, true);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("failed to replay modify table colocate", e);
+        } finally {
+            olapTable.writeUnlock();
+        }
     }
 
     public void replayModifyTableColocate(TablePropertyInfo info) throws MetaNotFoundException {
@@ -6236,7 +6530,9 @@ public class Env {
             throws UserException {
         convertDynamicPartitionReplicaNumToReplicaAllocation(properties);
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
-            table.checkChangeReplicaAllocation();
+            ReplicaAllocation replicaAlloc = DynamicPartitionProperty.analyzeReplicaAllocation(
+                    new HashMap<>(properties), false);
+            table.checkChangeReplicaAllocation(replicaAlloc);
         }
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
@@ -6297,7 +6593,7 @@ public class Env {
         }
 
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        table.checkChangeReplicaAllocation();
+        table.checkChangeReplicaAllocation(replicaAlloc);
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         Preconditions.checkState(!replicaAlloc.isNotSet());
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
@@ -6332,7 +6628,9 @@ public class Env {
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table,
             Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
-        table.checkChangeReplicaAllocation();
+        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(new HashMap<>(properties),
+                "default", false);
+        table.checkChangeReplicaAllocation(replicaAlloc);
         table.setReplicaAllocation(properties);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
@@ -6476,7 +6774,7 @@ public class Env {
             throws DdlException {
         olapTable.writeLockOrDdlException();
         try {
-            if (olapTable.isColocateTable()) {
+            if (olapTable.isColocateTable() || olapTable.isTenantLevelColocateTable()) {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
             }
 
@@ -6970,7 +7268,7 @@ public class Env {
     public void convertDistributionType(Database db, OlapTable tbl) throws DdlException {
         tbl.writeLockOrDdlException();
         try {
-            if (tbl.isColocateTable()) {
+            if (tbl.isColocateTable() || tbl.isTenantLevelColocateTable()) {
                 throw new DdlException("Cannot change distribution type of colocate table.");
             }
             if (tbl.getKeysType() == KeysType.UNIQUE_KEYS) {
@@ -7303,6 +7601,7 @@ public class Env {
         // TODO: does checkpoint need update colocate index ?
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
+        Env.getCurrentTenantLevelColocateIndex().removeTable(olapTable.getId());
 
         getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay);
     }

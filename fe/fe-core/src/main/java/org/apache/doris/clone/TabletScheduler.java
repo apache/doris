@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
 import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPairComparator;
 import org.apache.doris.clone.SchedException.Status;
@@ -78,6 +79,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -137,6 +139,7 @@ public class TabletScheduler extends MasterDaemon {
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
     private ColocateTableIndex colocateTableIndex;
+    private final TenantLevelColocateTableIndex tenantLevelColocateTableIndex;
     private TabletSchedulerStat stat;
     private Rebalancer rebalancer;
     private Rebalancer diskRebalancer;
@@ -157,6 +160,7 @@ public class TabletScheduler extends MasterDaemon {
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
         this.colocateTableIndex = env.getColocateTableIndex();
+        this.tenantLevelColocateTableIndex = env.getTenantLevelColocateTableIndex();
         this.stat = stat;
         if (rebalancerType.equalsIgnoreCase("partition")) {
             this.rebalancer = new PartitionRebalancer(infoService, invertedIndex, backendsWorkingSlots);
@@ -530,6 +534,7 @@ public class TabletScheduler extends MasterDaemon {
             long tabletId = tabletCtx.getTabletId();
 
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
+            boolean isTenantLevelColocateTable = tenantLevelColocateTableIndex.isColocateTable(tbl.getId());
 
             OlapTableState tableState = tbl.getState();
 
@@ -569,6 +574,34 @@ public class TabletScheduler extends MasterDaemon {
                 tabletHealth = tablet.getColocateHealth(partition.getVisibleVersion(), replicaAlloc, backendsSet);
                 tabletHealth.priority = Priority.HIGH;
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
+            } else if (isTenantLevelColocateTable) {
+                int tabletOrderIdx = tabletCtx.getTabletOrderIdx();
+                if (tabletOrderIdx == -1) {
+                    tabletOrderIdx = idx.getTabletOrderIdx(tablet.getId());
+                }
+                Preconditions.checkState(tabletOrderIdx != -1);
+
+                Set<Long> colocateBackends = tenantLevelColocateTableIndex.getTabletBackendsByTable(tbl.getId(),
+                        tabletOrderIdx);
+                Set<Tag> colocateTags = tenantLevelColocateTableIndex.getAllTagByTable(tbl.getId());
+                replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
+                ReplicaAllocation colocateReplicaAlloc = replicaAlloc.getSubMap(colocateTags);
+                Set<Tag> noColocateTags = new HashSet<>(replicaAlloc.getAllocMap().keySet());
+                noColocateTags.removeAll(colocateTags);
+                tabletHealth = tablet.getColocateHealth(partition.getVisibleVersion(),
+                        colocateReplicaAlloc, colocateBackends, colocateTags);
+                if (!TabletStatus.HEALTHY.equals(tabletHealth.status)) {
+                    tabletCtx.setColocateGroupBackendIds(colocateBackends);
+                    tabletCtx.setExcludeTagSet(noColocateTags);
+                } else {
+                    ReplicaAllocation noColocateReplicaAlloc = replicaAlloc.getSubMap(noColocateTags);
+                    Set<Long> excludeBackends = new HashSet<>(colocateBackends);
+                    excludeBackends.addAll(infoService.getAllBackendIdsByTag(false, colocateTags));
+                    Set<Long> aliveBeIds = infoService.getAllBackendIdsExcludeTag(true, colocateTags);
+                    tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(), noColocateReplicaAlloc,
+                            excludeBackends, aliveBeIds);
+                    tabletCtx.setExcludeTagSet(colocateTags);
+                }
             } else {
                 replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
@@ -782,6 +815,9 @@ public class TabletScheduler extends MasterDaemon {
                 beId = -1;
             }
             Backend be = infoService.getBackend(beId);
+            if (be != null && tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
+                continue;
+            }
             if (replica.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
                     && be.isMixNode()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
@@ -790,6 +826,9 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
+            if (tabletCtx.getExcludeTagSet().contains(entry.getKey())) {
+                continue;
+            }
             short curNum = currentAllocMap.getOrDefault(entry.getKey(), (short) 0);
             if (forMissingReplica && curNum < entry.getValue()) {
                 return entry.getKey();
@@ -938,7 +977,7 @@ public class TabletScheduler extends MasterDaemon {
     private boolean deleteBackendUnavailable(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
-            if (be == null) {
+            if (be == null || tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
                 // this case should be handled in deleteBackendDropped()
                 continue;
             }
@@ -953,6 +992,10 @@ public class TabletScheduler extends MasterDaemon {
 
     private boolean deleteCloneOrDecommissionReplica(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+            if (be != null && tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
+                continue;
+            }
             if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.DECOMMISSION) {
                 deleteReplicaInternal(tabletCtx, replica, replica.getState() + " state", force);
                 return true;
@@ -963,6 +1006,10 @@ public class TabletScheduler extends MasterDaemon {
 
     private boolean deleteReplicaWithFailedVersion(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+            if (be != null && tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
+                continue;
+            }
             if (replica.getLastFailedVersion() > 0) {
                 deleteReplicaInternal(tabletCtx, replica, "version incomplete", force);
                 return true;
@@ -973,6 +1020,10 @@ public class TabletScheduler extends MasterDaemon {
 
     private boolean deleteReplicaWithLowerVersion(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         for (Replica replica : tabletCtx.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+            if (be != null && tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
+                continue;
+            }
             if (!replica.checkVersionCatchUp(tabletCtx.getCommittedVersion(), false)) {
                 deleteReplicaInternal(tabletCtx, replica, "lower version", force);
                 return true;
@@ -990,6 +1041,9 @@ public class TabletScheduler extends MasterDaemon {
             if (be == null) {
                 // this case should be handled in deleteBackendDropped()
                 return false;
+            }
+            if (tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
+                continue;
             }
             List<Replica> replicas = hostToReplicas.get(be.getHost());
             if (replicas == null) {
@@ -1150,6 +1204,11 @@ public class TabletScheduler extends MasterDaemon {
         for (Replica replica : tabletCtx.getReplicas()) {
             if (tabletCtx.getColocateBackendsSet().contains(replica.getBackendIdWithoutException())
                     && !replica.isBad()) {
+                continue;
+            }
+
+            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+            if (be != null && tabletCtx.getExcludeTagSet().contains(be.getLocationTag())) {
                 continue;
             }
 

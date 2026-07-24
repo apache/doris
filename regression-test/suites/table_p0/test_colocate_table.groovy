@@ -38,6 +38,26 @@ suite('test_colocate_table') {
         exception 'Auto buckets for colocate table is unsupported'
     }
 
+    test {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tbl}
+        (
+           k1 date,
+           k2 int
+        )
+        ENGINE=OLAP
+        UNIQUE KEY (k1,k2)
+        DISTRIBUTED BY HASH(k2) BUCKETS AUTO
+        PROPERTIES
+        (
+            "replication_num" = "1",
+            "colocate_group" = "tag.location.default: test_colocate_table_group"
+        )
+        """
+
+        exception 'Auto buckets for colocate table is unsupported'
+    }
+
     sql """
         CREATE TABLE IF NOT EXISTS ${tbl}
         (
@@ -55,6 +75,18 @@ suite('test_colocate_table') {
 
     test {
         sql "ALTER TABLE ${tbl} set ( 'colocate_with' = 'test_colocate_table_group') "
+
+        exception 'is auto buckets'
+    }
+
+    test {
+        sql "ALTER TABLE ${tbl} set ( 'colocate_group' = 'tag.location.default: test_colocate_table_group') "
+
+        exception 'is auto buckets'
+    }
+
+    test {
+        sql "ALTER TABLE ${tbl} set ( 'colocate_slave' = 'tag.location.default: test_colocate_table_group') "
 
         exception 'is auto buckets'
     }

@@ -480,7 +480,7 @@ public class ColocateTableCheckerAndBalancerTest {
         Assert.assertEquals(Lists.newArrayList(2),
                 backendBuckets3.getGroupTabletOrderIndices().get(groupId2));
 
-        Map<GroupId, List<BucketStatistic>> allGroupBucketsMap = globalColocateStatistic.getAllGroupBucketsMap();
+        Map<Object, List<BucketStatistic>> allGroupBucketsMap = globalColocateStatistic.getAllGroupBucketsMap();
         Assert.assertEquals(Lists.newArrayList(new BucketStatistic(0, 5, 100L), new BucketStatistic(1, 5, 200L),
                     new BucketStatistic(2, 5, 300L)),
                 allGroupBucketsMap.get(groupId1));

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
@@ -41,6 +42,7 @@ import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -52,6 +54,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -361,6 +364,18 @@ public class TabletChecker extends MasterDaemon {
             // and we can schedule the tablets in it.
             return LoopControlStatus.CONTINUE;
         }
+
+        // for colocate v2
+        boolean isColocateV2 = Env.getCurrentTenantLevelColocateIndex().isColocateTable(tbl.getId());
+        Set<Tag> colocateTags = Env.getCurrentTenantLevelColocateIndex().getAllTagByTable(tbl.getId());
+        ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
+        Set<Tag> noColocateTags = new HashSet<>(replicaAlloc.getAllocMap().keySet());
+        noColocateTags.removeAll(colocateTags);
+        ReplicaAllocation noColocateReplicaAlloc = replicaAlloc.getSubMap(noColocateTags);
+        Set<Long> allColocateBackends = infoService.getAllBackendIdsByTag(false, colocateTags);
+        allColocateBackends.addAll(Env.getCurrentTenantLevelColocateIndex().getBackendsByTable(tbl.getId()));
+        Set<Long> aliveNoColocateBeIds = infoService.getAllBackendIdsExcludeTag(true, colocateTags);
+
         boolean prioPartIsHealthy = true;
         boolean isUniqKeyMergeOnWrite = tbl.isUniqKeyMergeOnWrite();
         /*
@@ -375,12 +390,20 @@ public class TabletChecker extends MasterDaemon {
                     continue;
                 }
 
-                TabletHealth tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()), aliveBeIds);
+                final TabletHealth tabletHealth;
+                if (isColocateV2) {
+                    tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(), noColocateReplicaAlloc,
+                            allColocateBackends, aliveNoColocateBeIds);
+                } else {
+                    tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
+                            tbl.getPartitionInfo().getReplicaAllocation(partition.getId()), aliveBeIds);
+                }
 
                 if (tabletHealth.status == TabletStatus.HEALTHY) {
-                    // Only set last status check time when status is healthy.
-                    tablet.setLastStatusCheckTime(startTime);
+                    if (!isColocateV2) {
+                        // Only set last status check time when status is healthy.
+                        tablet.setLastStatusCheckTime(startTime);
+                    }
                     continue;
                 } else if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
                     // This tablet is not recoverable, do not set it into tablet scheduler

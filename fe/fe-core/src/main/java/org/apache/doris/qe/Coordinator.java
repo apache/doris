@@ -166,6 +166,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -2359,6 +2360,22 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+    private List<TScanRangeLocation> getFragmentBucketSeqLocationByTag(Optional<Set<String>> colocateTags,
+            TScanRangeLocations scanRangeLocations) {
+        if (!colocateTags.isPresent() || scanRangeLocations.getLocations().isEmpty()) {
+            return scanRangeLocations.getLocations();
+        }
+        List<TScanRangeLocation> result = new ArrayList<>();
+        for (TScanRangeLocation location : scanRangeLocations.getLocations()) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(location.getBackendId());
+            if (backend != null && !colocateTags.get().contains(backend.getLocationTag().value)) {
+                continue;
+            }
+            result.add(location);
+        }
+        return result;
+    }
+
     // To ensure the same bucketSeq tablet to the same execHostPort
     private void computeScanRangeAssignmentByColocate(
             final OlapScanNode scanNode, Map<TNetworkAddress, Long> assignedBytesPerHost,
@@ -2368,23 +2385,35 @@ public class Coordinator implements CoordInterface {
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
 
             // Same as bucket shuffle.
-            int bucketNum = scanNode.getBucketNum();
-            scanNode.getFragment().setBucketNum(bucketNum);
+            PlanFragment fragment = scanNode.getFragment();
+            if (fragment.getColocateData().isPresent()) {
+                int bucketNum = fragment.getColocateData().get().values().iterator().next().size();
+                fragment.setBucketNum(bucketNum);
+            } else {
+                fragment.setBucketNum(scanNode.getBucketNum());
+            }
         }
+        PlanFragment fragment = scanNode.getFragment();
+        int fragmentBucketNum = fragment.getBucketNum();
+        Preconditions.checkState(scanNode.getBucketNum() % fragmentBucketNum == 0);
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
         for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
+            Objects.requireNonNull(bucketSeq);
             //fill scanRangeParamsList
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
-            if (!bucketSeqToAddress.containsKey(bucketSeq)) {
-                getExecHostPortForFragmentIDAndBucketSeq(locations.get(0),
-                        scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost,
+            int colocateBucketSeq = bucketSeq % fragmentBucketNum;
+            if (!bucketSeqToAddress.containsKey(colocateBucketSeq)) {
+                getExecHostPortForFragmentIDAndBucketSeq(
+                        getFragmentBucketSeqLocationByTag(fragment.getColocateData().map(Map::keySet),
+                                locations.get(0)),
+                        scanNode.getFragmentId(), colocateBucketSeq, assignedBytesPerHost,
                         replicaNumPerHost, isEnableOrderedLocations);
             }
 
             for (TScanRangeLocations location : locations) {
                 Map<Integer, List<TScanRangeParams>> scanRanges =
-                        findOrInsert(bucketSeqToScanRange, bucketSeq, new HashMap<>());
+                        findOrInsert(bucketSeqToScanRange, colocateBucketSeq, new HashMap<>());
 
                 List<TScanRangeParams> scanRangeParamsList =
                         findOrInsert(scanRanges, scanNode.getId().asInt(), new ArrayList<>());
@@ -2399,7 +2428,7 @@ public class Coordinator implements CoordInterface {
     }
 
     //ensure bucket sequence distribued to every host evenly
-    private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
+    private void getExecHostPortForFragmentIDAndBucketSeq(List<TScanRangeLocation> seqLocation,
             PlanFragmentId fragmentId, Integer bucketSeq, Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost, boolean isEnableOrderedLocations)
             throws Exception {
@@ -2432,12 +2461,11 @@ public class Coordinator implements CoordInterface {
         });
     }
 
-    public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
+    public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> locations,
                                                          Map<TNetworkAddress, Long> assignedBytesPerHost,
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
                                                          Reference<Long> backendIdRef,
                                                          boolean isEnableOrderedLocations) throws UserException {
-        List<TScanRangeLocation> locations = seqLocation.getLocations();
         if (isEnableOrderedLocations) {
             Collections.sort(locations);
         }
@@ -2508,7 +2536,7 @@ public class Coordinator implements CoordInterface {
         // duplicate "locations" will be converted to list.
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
-            TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
+            TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations.getLocations(),
                     assignedBytesPerHost, replicaNumPerHost, backendIdRef, isEnableOrderedLocations);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
@@ -2813,14 +2841,17 @@ public class Coordinator implements CoordInterface {
 
         // make sure each host have average bucket to scan
         private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
-                PlanFragmentId fragmentId, Integer bucketSeq, ImmutableMap<Long, Backend> idToBackend,
+                PlanFragment fragment, Integer bucketSeq, ImmutableMap<Long, Backend> idToBackend,
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+            PlanFragmentId fragmentId = fragment.getId();
             Map<Long, Integer> buckendIdToBucketCountMap = fragmentIdToBuckendIdBucketCountMap.get(fragmentId);
             int maxBucketNum = Integer.MAX_VALUE;
             long buckendId = Long.MAX_VALUE;
             Long minReplicaNum = Long.MAX_VALUE;
-            for (TScanRangeLocation location : seqLocation.locations) {
+            List<TScanRangeLocation> locations = getFragmentBucketSeqLocationByTag(
+                    fragment.getColocateData().map(Map::keySet), seqLocation);
+            for (TScanRangeLocation location : locations) {
                 if (buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0) < maxBucketNum) {
                     maxBucketNum = buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0);
                     buckendId = location.backend_id;
@@ -2869,7 +2900,7 @@ public class Coordinator implements CoordInterface {
                 //fill scanRangeParamsList
                 List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
                 if (!bucketSeqToAddress.containsKey(bucketSeq)) {
-                    getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragmentId(),
+                    getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragment(),
                             bucketSeq, idToBackend, addressToBackendID, replicaNumPerHost);
                 }
 

@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -29,8 +30,11 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
@@ -170,14 +174,20 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
             ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+            TenantLevelColocateTableIndex tenantLevelColocateTableIndex = Env.getCurrentTenantLevelColocateIndex();
             List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
                     .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
             this.cloningNum = cloningTabletIds.size();
             this.db.getTables().stream().filter(t -> t != null && t.getType() == Table.TableType.OLAP).forEach(t -> {
                 OlapTable olapTable = (OlapTable) t;
-                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId())
-                        ? colocateTableIndex.getGroup(olapTable.getId()) : null;
+                boolean isColocateV1 = colocateTableIndex.isColocateTable(olapTable.getId());
+                // for colocate v2
+                boolean isColocateV2 = tenantLevelColocateTableIndex.isColocateTable(olapTable.getId());
+                Set<Tag> colocateTags = tenantLevelColocateTableIndex.getAllTagByTable(olapTable.getId());
+                Set<Long> aliveNoColocateBeIds = infoService.getAllBackendIdsExcludeTag(true, colocateTags);
+                Set<Long> allColocateBackends = new HashSet<>(infoService.getAllBackendIdsByTag(false, colocateTags));
+
                 olapTable.readLock();
                 try {
                     List<Partition> partitions = Lists.newArrayList(olapTable.getAllPartitions());
@@ -192,6 +202,12 @@ public class TabletHealthProcDir implements ProcDirInterface {
                         long visibleVersion = visibleVersions.get(j);
                         ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
                                 .getReplicaAllocation(partition.getId());
+                        ReplicaAllocation colocateReplicaAlloc = replicaAlloc.getSubMap(colocateTags);
+                        // for colocate v2
+                        Set<Tag> noColocateTags = new HashSet<>(replicaAlloc.getAllocMap().keySet());
+                        noColocateTags.removeAll(colocateTags);
+                        ReplicaAllocation noColocateReplicaAlloc = replicaAlloc.getSubMap(noColocateTags);
+
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
                                 MaterializedIndex.IndexExtState.VISIBLE)) {
                             List<Tablet> tablets = materializedIndex.getTablets();
@@ -204,13 +220,25 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     // getHealth/getColocateHealth follows local deployment logic and may
                                     // misclassify tablets as UNRECOVERABLE.
                                     res = Tablet.TabletStatus.HEALTHY;
-                                } else if (groupId != null) {
+                                } else if (isColocateV1) {
+                                    GroupId groupId = colocateTableIndex.getGroup(olapTable.getId());
                                     ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
                                     if (groupSchema != null) {
                                         replicaAlloc = groupSchema.getReplicaAlloc();
                                     }
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
                                     res = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
+                                } else if (isColocateV2) {
+                                    Set<Long> colocateBackends = tenantLevelColocateTableIndex.getTabletBackendsByTable(
+                                            olapTable.getId(), i);
+                                    res = tablet.getColocateHealth(partition.getVisibleVersion(),
+                                            colocateReplicaAlloc, colocateBackends, colocateTags).status;
+                                    if (TabletStatus.HEALTHY.equals(res)) {
+                                        allColocateBackends.addAll(colocateBackends);
+                                        res = tablet.getHealth(infoService, partition.getVisibleVersion(),
+                                                noColocateReplicaAlloc, allColocateBackends,
+                                                aliveNoColocateBeIds).status;
+                                    }
                                 } else {
                                     res = tablet.getHealth(infoService, visibleVersion, replicaAlloc,
                                             aliveBeIds).status;

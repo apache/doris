@@ -148,6 +148,14 @@ public class MetaPersistMethod {
                         Env.class.getDeclaredMethod("saveColocateTableIndex", CountingDataOutputStream.class,
                                 long.class);
                 break;
+            case "tenantLevelColocateTableIndex":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadTenantLevelColocateTableIndex", DataInputStream.class,
+                                long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveTenantLevelColocateTableIndex", CountingDataOutputStream.class,
+                                long.class);
+                break;
             case "routineLoadJobs":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadRoutineLoadJobs", DataInputStream.class, long.class);

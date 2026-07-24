@@ -41,6 +41,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
@@ -907,6 +908,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         olapScanNode.setNereidsId(olapScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(olapScan.getId(), olapScanNode.getId());
         olapScanNode.setDistributeExprLists(getDistributeExpr(olapScan));
+        olapScanNode.setColocateData(olapScan.getColocateData());
 
         // translate score topn info
         if (!olapScan.getScoreOrderKeys().isEmpty()) {
@@ -1712,11 +1714,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setDistributeExprLists(getDistributeExpr(hashJoin));
         hashJoinNode.setChildrenDistributeExprLists(distributeExprLists);
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
-
-        if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
+        Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
+        boolean hasCommonColocateData = getFragmentCommonColocateData(leftFragment, rightFragment, colocateData);
+        if (hasCommonColocateData && JoinUtils.shouldColocateJoin(physicalHashJoin, colocateData)) {
             // TODO: add reason
             hashJoinNode.setColocate(true, "");
             leftFragment.setHasColocatePlanNode(true);
+            if (colocateData.getRef() != null) {
+                leftFragment.setColocateData(colocateData.getRef());
+            }
         } else if (JoinUtils.shouldBroadcastJoin(physicalHashJoin)) {
             Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
                     "right child of broadcast join must be ExchangeNode but it is " + rightFragment.getPlanRoot());
@@ -3569,5 +3575,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return false;
+    }
+
+    private boolean getFragmentCommonColocateData(PlanFragment leftFragment, PlanFragment rightFragment,
+            Reference<Map<String, List<List<Long>>>> colocateData) {
+        if (leftFragment.getColocateData().isPresent()) {
+            colocateData.setRef(new HashMap<>(leftFragment.getColocateData().get()));
+        }
+        if (rightFragment.getColocateData().isPresent()) {
+            if (colocateData.getRef() == null) {
+                colocateData.setRef(new HashMap<>(rightFragment.getColocateData().get()));
+            } else {
+                Set<String> tags = new HashSet<>(colocateData.getRef().keySet());
+                for (String tag : tags) {
+                    if (!rightFragment.getColocateData().get().containsKey(tag)) {
+                        colocateData.getRef().remove(tag);
+                    }
+                }
+            }
+        }
+        return colocateData.getRef() == null || !colocateData.getRef().isEmpty();
     }
 }

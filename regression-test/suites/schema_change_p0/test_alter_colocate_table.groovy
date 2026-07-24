@@ -72,7 +72,7 @@ suite ("test_alter_colocate_table") {
            PARTITION p1 values less than('2020-02-01'),
            PARTITION p2 values less than('2020-03-01')
         )
-        DISTRIBUTED BY HASH(k2) BUCKETS 3
+        DISTRIBUTED BY HASH(k2) BUCKETS 6
         PROPERTIES
         (
             "replication_allocation" = "tag.location.default:${replicaNum}",
@@ -145,6 +145,95 @@ suite ("test_alter_colocate_table") {
             exception errMsg
         }
 
+        sql """ALTER TABLE ${tbl} set ("colocate_with" = '')"""
+    }
+
+    // test colocate v2
+    sql """ALTER TABLE col_tbl3 set ("colocate_group" = 'tag.location.default: x_group_3')"""
+
+    test {
+        sql """
+           ALTER TABLE col_tbl3 set (
+                "dynamic_partition.replication_allocation" = "tag.location.default:${replicaNum + 1}"
+           )
+        """
+        exception "Colocate tables must have same replication allocation"
+    }
+
+    sql """ALTER TABLE col_tbl2 set ("colocate_group" = 'tag.location.default: x_group_2')"""
+
+    test {
+        sql """
+           ALTER TABLE col_tbl1 set (
+                "colocate_group" = "tag.location.default: x_group_2"
+           )
+        """
+        exception 'Colocate tables must have same bucket num: 3 should be 6'
+    }
+
+    test {
+        sql """
+           ALTER TABLE col_tbl1 set (
+                "colocate_slave" = "tag.location.default: x_group_2"
+           )
+        """
+        exception 'Colocate slave tables must have multiple of bucket num: 6'
+    }
+
+    test {
+        sql """
+        CREATE TABLE IF NOT EXISTS col_tbl4
+        (
+           k1 date,
+           k2 int
+        )
+        ENGINE=OLAP
+        UNIQUE KEY (k1,k2)
+        DISTRIBUTED BY HASH(k2) BUCKETS 15
+        PROPERTIES
+        (
+            "replication_num" = "1",
+            "colocate_group" = "tag.location.default: x_group_2"
+        )
+        """
+
+        exception 'Colocate tables must have same bucket num: 15 should be 6'
+    }
+
+    test {
+        sql """
+        CREATE TABLE IF NOT EXISTS col_tbl4
+        (
+           k1 date,
+           k2 int
+        )
+        ENGINE=OLAP
+        UNIQUE KEY (k1,k2)
+        DISTRIBUTED BY HASH(k2) BUCKETS 15
+        PROPERTIES
+        (
+            "replication_num" = "1",
+            "colocate_slave" = "tag.location.default: x_group_2"
+        )
+        """
+
+        exception 'Colocate slave tables must have multiple of bucket num: 6'
+    }
+
+    sql """ALTER TABLE col_tbl2 set ("colocate_group" = '')"""
+    sql """ALTER TABLE col_tbl1 set ("colocate_group" = 'tag.location.default: x_group_1')"""
+    sql """ALTER TABLE col_tbl2 set ("colocate_slave" = 'tag.location.default: x_group_1')"""
+
+    test {
+        sql """
+           ALTER TABLE col_tbl2 set (
+                "dynamic_partition.replication_allocation" = "tag.location.default:${replicaNum + 1}"
+           )
+        """
+        exception "Colocate tables must have same replication allocation"
+    }
+
+    for (def tbl : tbls) {
         sql "DROP TABLE ${tbl} FORCE"
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -391,7 +392,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         boolean shouldCheckLeftBucketDownGrade = false;
         boolean shouldCheckrightBucketDownGrade = false;
 
-        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts(),
+                new Reference<>())) {
             // check colocate join with scan
             return ImmutableList.of(originChildrenProperties);
         } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {

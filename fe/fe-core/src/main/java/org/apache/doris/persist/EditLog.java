@@ -821,6 +821,74 @@ public class EditLog {
                     env.replayModifyTableColocate(info);
                     break;
                 }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_ADD_MASTER_TABLE: {
+                    final TenantLevelColocateTableInfo info = (TenantLevelColocateTableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_ADD_MASTER_TABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayAddTableToMasterGroup(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_REMOVE_MASTER_TABLE: {
+                    final TenantLevelColocateTableInfo info = (TenantLevelColocateTableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_REMOVE_MASTER_TABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayRemoveMasterTable(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_BACKENDS_PER_BUCKETSEQ: {
+                    final ModifyTenantLevelColocateMapInfo info = (ModifyTenantLevelColocateMapInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_BACKENDS_PER_BUCKETSEQ:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayAddBackendsPerBucketSeq(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_UNSTABLE: {
+                    final TenantLevelColocateStableInfo info = (TenantLevelColocateStableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_UNSTABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayMarkMasterGroupUnstable(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_STABLE: {
+                    final TenantLevelColocateStableInfo info = (TenantLevelColocateStableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_STABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayMarkMasterGroupStable(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_MODIFY_MASTER_TABLE_COLOCATE: {
+                    final TenantLevelColocateTableInfo info = (TenantLevelColocateTableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_MODIFY_MASTER_TABLE_COLOCATE:{}", info);
+                    env.replayModifyTenantLevelMasterColocate(info);
+                    break;
+                }
+
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_ADD_SLAVE_TABLE: {
+                    final TenantLevelColocateTableInfo info = (TenantLevelColocateTableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_ADD_SLAVE_TABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayAddTableToSlaveGroup(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_REMOVE_SLAVE_TABLE: {
+                    final TenantLevelColocateTableInfo info = (TenantLevelColocateTableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_REMOVE_SLAVE_TABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayRemoveSlaveTable(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_UNSTABLE: {
+                    final TenantLevelColocateStableInfo info = (TenantLevelColocateStableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_UNSTABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayMarkSlaveGroupUnstable(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_STABLE: {
+                    final TenantLevelColocateStableInfo info = (TenantLevelColocateStableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_STABLE:{}", info);
+                    env.getTenantLevelColocateTableIndex().replayMarkSlaveGroupStable(info);
+                    break;
+                }
+                case OperationType.OP_TENANT_LEVEL_MODIFY_SLAVE_TABLE_COLOCATE: {
+                    final TenantLevelColocateTableInfo info = (TenantLevelColocateTableInfo) journal.getData();
+                    LOG.info("replay OP_TENANT_LEVEL_MODIFY_SLAVE_TABLE_COLOCATE:{}", info);
+                    env.replayModifyTableColocateSlave(info);
+                    break;
+                }
+
                 case OperationType.OP_HEARTBEAT: {
                     final HbPackage hbPackage = (HbPackage) journal.getData();
                     Env.getCurrentHeartbeatMgr().replayHearbeat(hbPackage);
@@ -2130,6 +2198,61 @@ public class EditLog {
 
     public void logModifyTableColocate(TablePropertyInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_COLOCATE, info);
+    }
+
+    public void logTenantLevelColocateAddMasterTable(TenantLevelColocateTableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_ADD_MASTER_TABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_ADD_MASTER_TABLE, info);
+    }
+
+    public void logTenantLevelColocateRemoveMasterTable(TenantLevelColocateTableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_REMOVE_MASTER_TABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_REMOVE_MASTER_TABLE, info);
+    }
+
+    public void logTenantLevelColocateBackendsPerBucketSeq(ModifyTenantLevelColocateMapInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_BACKENDS_PER_BUCKETSEQ:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_BACKENDS_PER_BUCKETSEQ, info);
+    }
+
+    public void logTenantLevelColocateMarkMasterUnstable(TenantLevelColocateStableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_UNSTABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_UNSTABLE, info);
+    }
+
+    public void logTenantLevelColocateMarkMasterStable(TenantLevelColocateStableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_STABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_MASTER_STABLE, info);
+    }
+
+    public void logModifyTenantLevelTableColocate(TenantLevelColocateTableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_MODIFY_MASTER_TABLE_COLOCATE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_MODIFY_MASTER_TABLE_COLOCATE, info);
+    }
+
+    public void logColocateAddTableSlave(TenantLevelColocateTableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_ADD_SLAVE_TABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_ADD_SLAVE_TABLE, info);
+    }
+
+    public void logColocateRemoveTableSlave(TenantLevelColocateTableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_REMOVE_SLAVE_TABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_REMOVE_SLAVE_TABLE, info);
+    }
+
+    public void logColocateMarkUnstableSlave(TenantLevelColocateStableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_UNSTABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_UNSTABLE, info);
+    }
+
+    public void logColocateMarkStableSlave(TenantLevelColocateStableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_STABLE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_COLOCATE_MARK_SLAVE_STABLE, info);
+    }
+
+    public void logModifyTableColocateSlave(TenantLevelColocateTableInfo info) {
+        LOG.info("log OP_TENANT_LEVEL_MODIFY_SLAVE_TABLE_COLOCATE:{}", info);
+        logEdit(OperationType.OP_TENANT_LEVEL_MODIFY_SLAVE_TABLE_COLOCATE, info);
     }
 
     public void logHeartbeat(HbPackage hbPackage) {

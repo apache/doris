@@ -407,6 +407,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
                 Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                Env.getCurrentTenantLevelColocateIndex().removeTable(table.getId());
             }
             iterator.remove();
             idToRecycleTime.remove(table.getId());

@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryCacheParam;
 import org.apache.doris.thrift.TResultSinkType;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import org.apache.commons.codec.binary.Hex;
@@ -155,6 +156,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     protected boolean hasColocatePlanNode = false;
     protected final Supplier<Boolean> hasBucketShuffleNode;
+    // Only used for tenant-level colocate join to store common tags.
+    // As colocate v1 always has same tag, so it does not need this.
+    // For bucket join, use the bucket num of table instead of colocate bucket num.
+    protected Optional<Map<String, List<List<Long>>>> colocateData = Optional.empty();
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -278,6 +283,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return hasColocatePlanNode;
     }
 
+    public Optional<Map<String, List<List<Long>>>> getColocateData() {
+        return colocateData;
+    }
+
+    public void setColocateData(Map<String, List<List<Long>>> tags) {
+        colocateData = Optional.of(tags);
+    }
+
     /**
      * Finalize plan tree and create stream sink, if needed.
      */
@@ -353,6 +366,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
         str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        if (colocateData.isPresent()) {
+            Set<String> tags = colocateData.get().keySet();
+            str.append("  COLLOCATE TAG: ").append(Joiner.on(", ").join(tags)).append("\n");
+        }
         if (queryCacheParam != null) {
             str.append("\n");
             str.append("  QUERY_CACHE:\n");

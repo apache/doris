@@ -1008,7 +1008,7 @@ public class Alter {
         // 1. replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
         if (!replicaAlloc.isNotSet()) {
-            olapTable.checkChangeReplicaAllocation();
+            olapTable.checkChangeReplicaAllocation(replicaAlloc);
         }
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         // 2. in memory

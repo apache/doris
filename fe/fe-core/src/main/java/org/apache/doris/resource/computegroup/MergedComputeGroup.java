@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class MergedComputeGroup extends ComputeGroup {
@@ -47,6 +48,11 @@ public class MergedComputeGroup extends ComputeGroup {
     @Override
     public ImmutableList<Backend> getBackendList() {
         return systemInfoService.getBackendListByComputeGroup(computeGroupSet);
+    }
+
+    @Override
+    public Optional<Set<String>> getLocationTagSet() {
+        return Optional.of(computeGroupSet);
     }
 
     public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {

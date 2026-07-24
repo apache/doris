@@ -31,6 +31,7 @@ import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class AllBackendComputeGroup extends ComputeGroup {
@@ -63,6 +64,11 @@ public class AllBackendComputeGroup extends ComputeGroup {
     @Override
     public ImmutableList<Backend> getBackendList() {
         return systemInfoService.getAllClusterBackendsNoException().values().asList();
+    }
+
+    @Override
+    public Optional<Set<String>> getLocationTagSet() {
+        return Optional.empty();
     }
 
     // In non cloud mode, if root or admin user not set resource group name, then will use all
