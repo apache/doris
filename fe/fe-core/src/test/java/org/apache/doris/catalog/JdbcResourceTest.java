@@ -361,6 +361,39 @@ public class JdbcResourceTest {
     }
 
     @Test
+    public void testSchemelessEncodedSeparatorRejected() {
+        // Shared resolver must reject encoded separators in a scheme-less name, so direct consumers
+        // (Iceberg/Paimon/legacy JDBC) that call getFullDriverUrl cannot escape jdbc_drivers_dir.
+        Assert.assertThrows(IllegalArgumentException.class, () ->
+                JdbcResource.getFullDriverUrl("%2e%2e%2Fevil.jar"));
+    }
+
+    @Test
+    public void testSecurePathRejectsFileAuthority() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            // A non-local authority makes consumers fetch a remote object though the path matches.
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file://attacker.example/opt/doris/jdbc_drivers/evil.jar"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
+    public void testSecurePathRejectsFileQuery() {
+        String saved = Config.jdbc_driver_secure_path;
+        try {
+            Config.jdbc_driver_secure_path = "file:///opt/doris/jdbc_drivers";
+            Assert.assertThrows(IllegalArgumentException.class, () ->
+                    JdbcResource.getFullDriverUrl("file:///opt/doris/jdbc_drivers/x.jar?evil"));
+        } finally {
+            Config.jdbc_driver_secure_path = saved;
+        }
+    }
+
+    @Test
     public void testEmptySecurePathAllowsAll() {
         String saved = Config.jdbc_driver_secure_path;
         try {

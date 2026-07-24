@@ -55,6 +55,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * External JDBC Catalog resource for external table query.
@@ -300,6 +301,10 @@ public class JdbcResource extends Resource {
         }
     }
 
+    // A scheme-less driver_url must be a plain jar file name: letters, digits, dot, underscore, hyphen.
+    // No path separator (encoded or not) and no other characters, so it can never escape jdbc_drivers_dir.
+    private static final Pattern SAFE_BARE_JAR_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
+
     public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
         if (!(driverUrl.startsWith("file://") || driverUrl.startsWith("http://")
                 || driverUrl.startsWith("https://") || driverUrl.matches("^[^:/]+\\.jar$"))) {
@@ -320,6 +325,15 @@ public class JdbcResource extends Resource {
         String schema = uri.getScheme();
         checkCloudWhiteList(driverUrl);
         if (schema == null && !driverUrl.startsWith("/")) {
+            // Enforce the safe bare-name grammar in this shared resolver, before resolving under
+            // jdbc_drivers_dir. Otherwise an encoded separator (e.g. "%2e%2e%2Fevil.jar") passes the
+            // loose format check above and, once resolved and decoded by the loader, escapes the
+            // directory. The connector rule catches "%" too, but Iceberg/Paimon/legacy JDBC consumers
+            // call getFullDriverUrl directly and bypass that rule, so it must be enforced here.
+            if (!SAFE_BARE_JAR_NAME.matcher(driverUrl).matches()) {
+                throw new IllegalArgumentException(
+                        "Invalid driver_url: a driver file name must match [A-Za-z0-9._-]+.jar: " + driverUrl);
+            }
             return checkAndReturnDefaultDriverUrl(driverUrl);
         }
 
@@ -355,6 +369,15 @@ public class JdbcResource extends Resource {
             return allowedPaths.stream().anyMatch(allowed -> remoteUrlMatches(candidate, allowed));
         }
         // Only file:// reaches here; bare absolute paths and bare "*.jar" are handled earlier.
+        // A local file URL must carry no authority, query or fragment. Otherwise validation (which
+        // looks only at URI.getPath()) and the consumers (URLClassLoader / checksum, which act on the
+        // whole original URL) would address different objects — e.g. "file://attacker/dir/x.jar" is
+        // fetched from a remote authority, and "file:///dir/x.jar?evil" maps to a sibling file.
+        String authority = uri.getRawAuthority();
+        if ((authority != null && !authority.isEmpty())
+                || uri.getRawQuery() != null || uri.getRawFragment() != null) {
+            return false;
+        }
         Path candidate = toLocalPath(driverUrl).normalize();
         return allowedPaths.stream()
                 .map(allowed -> toLocalPath(allowed).normalize())
