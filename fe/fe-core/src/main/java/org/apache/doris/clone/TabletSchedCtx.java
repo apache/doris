@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -186,6 +187,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private Set<Long> colocateBackendsSet = null;
     private int tabletOrderIdx = -1;
+    private Map<Long, Long> rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap();
+    private Map<Long, Long> basePreferredDestPathHashByBackend = Maps.newHashMap();
 
     private SystemInfoService infoService;
 
@@ -555,6 +558,34 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public Set<Long> getColocateBackendsSet() {
         return colocateBackendsSet;
+    }
+
+    public void setRowBinlogRequiredDestPathHashByBackend(Map<Long, Long> requiredDestPathHashByBackend) {
+        this.rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
+    }
+
+    public boolean hasRowBinlogRequiredDestPathHash() {
+        return !rowBinlogRequiredDestPathHashByBackend.isEmpty();
+    }
+
+    public long getRowBinlogRequiredDestPathHash(long backendId) {
+        return rowBinlogRequiredDestPathHashByBackend.getOrDefault(backendId, -1L);
+    }
+
+    public Map<Long, Long> getRowBinlogRequiredDestPathHashByBackend() {
+        return rowBinlogRequiredDestPathHashByBackend;
+    }
+
+    public void setBasePreferredDestPathHashByBackend(Map<Long, Long> preferredDestPathHashByBackend) {
+        this.basePreferredDestPathHashByBackend = Maps.newHashMap(preferredDestPathHashByBackend);
+    }
+
+    public boolean hasBasePreferredDestPathHash() {
+        return !basePreferredDestPathHashByBackend.isEmpty();
+    }
+
+    public Map<Long, Long> getBasePreferredDestPathHashByBackend() {
+        return basePreferredDestPathHashByBackend;
     }
 
     public void setTabletOrderIdx(int idx) {

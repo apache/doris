@@ -1008,6 +1008,18 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * row binlog replica missing marker timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_binlog_missing_timeout_second = 20 * 60;
+
+    /**
+     * row binlog replica missing marker max times.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_binlog_missing_max_times = 5;
+
+    /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
      */
     @ConfField(mutable = true, masterOnly = true)

@@ -1,0 +1,21 @@
+diff a/fe/fe-core/src/main/java/org/apache/doris/clone/ColocateTableCheckerAndBalancer.java b/fe/fe-core/src/main/java/org/apache/doris/clone/ColocateTableCheckerAndBalancer.java	(rejected hunks)
+@@ -523,6 +523,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
+                         // So it does not matter if tablets of other indexes are not matched.
+                         for (MaterializedIndex index
+                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
++                            if (index.isRowBinlog()) {
++                                continue;
++                            }
+                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
+                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
+                             List<Long> tabletIdsInOrder = index.getTabletIdsInOrder();
+@@ -647,6 +650,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
+ 
+                         for (MaterializedIndex index
+                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
++                            if (index.isRowBinlog()) {
++                                continue;
++                            }
+                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
+                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
+                             int tabletOrderIdx = 0;

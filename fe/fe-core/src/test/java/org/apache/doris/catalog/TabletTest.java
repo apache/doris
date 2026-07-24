@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -151,6 +152,37 @@ public class TabletTest {
 
         // The returned snapshot is read-only.
         Assert.assertThrows(UnsupportedOperationException.class, () -> snapshot.add(replica4));
+    }
+
+    @Test
+    public void testLocalReplicaBinlogMissingTimeoutAndCount() {
+        long originTimeoutSecond = Config.tablet_binlog_missing_timeout_second;
+        int originMaxTimes = Config.tablet_binlog_missing_max_times;
+        try {
+            Config.tablet_binlog_missing_timeout_second = 60;
+            Config.tablet_binlog_missing_max_times = 2;
+
+            replica1.setBinlogMissing(true);
+            Assert.assertTrue(replica1.isBinlogMissing());
+
+            replica1.incrBinlogMissingCount();
+            Assert.assertTrue(replica1.isBinlogMissing());
+            replica1.incrBinlogMissingCount();
+            Assert.assertFalse(replica1.isBinlogMissing());
+
+            replica1.setBinlogMissing(true);
+            Assert.assertTrue(replica1.isBinlogMissing());
+            replica1.setBinlogMissing(false);
+            Assert.assertFalse(replica1.isBinlogMissing());
+
+            Config.tablet_binlog_missing_timeout_second = 0;
+            replica1.setBinlogMissing(true);
+            Assert.assertFalse(replica1.isBinlogMissing());
+        } finally {
+            Config.tablet_binlog_missing_timeout_second = originTimeoutSecond;
+            Config.tablet_binlog_missing_max_times = originMaxTimes;
+            replica1.setBinlogMissing(false);
+        }
     }
 
     @Test

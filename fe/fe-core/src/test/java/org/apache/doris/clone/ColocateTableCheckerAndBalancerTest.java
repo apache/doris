@@ -21,8 +21,22 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BackendBuckets;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BucketStatistic;
@@ -30,6 +44,7 @@ import org.apache.doris.clone.ColocateTableCheckerAndBalancer.GlobalColocateStat
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -41,6 +56,7 @@ import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.HashSet;
@@ -96,6 +112,65 @@ public class ColocateTableCheckerAndBalancerTest {
         mixLoadScores.put(7L, 0.8);
         mixLoadScores.put(8L, 0.7);
         mixLoadScores.put(9L, 0.9);
+    }
+
+    @Test
+    public void testBuildGlobalStatisticSkipsRowBinlogIndex() {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
+        Database db = new Database(10000L, "test_db");
+        Column keyColumn = new Column("k1", PrimitiveType.INT);
+        OlapTable table = new OlapTable(10001L, "test_tbl", Lists.newArrayList(keyColumn),
+                KeysType.DUP_KEYS, new RangePartitionInfo(),
+                new HashDistributionInfo(1, Lists.newArrayList(keyColumn)));
+        db.registerTable(table);
+
+        MaterializedIndex baseIndex = new MaterializedIndex(10002L, IndexState.NORMAL);
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(10003L, IndexState.ROW_BINLOG);
+        Partition partition = new Partition(10004L, "p0", baseIndex, new HashDistributionInfo());
+        table.addPartition(partition);
+        table.getPartitionInfo().addPartition(partition.getId(), new DataProperty(TStorageMedium.HDD),
+                ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+
+        Tablet baseTablet = createColocateTablet(10005L, 10006L, Lists.newArrayList(1L, 2L, 3L));
+        Tablet rowBinlogTablet = createColocateTablet(10006L, 10005L, Lists.newArrayList(1L, 2L, 3L));
+        baseIndex.addTablet(baseTablet, null, true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        partition.createRollupIndex(rowBinlogIndex);
+
+        GroupId groupId = new GroupId(db.getId(), 10007L);
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
+        backendsPerBucketSeq.put(Tag.DEFAULT_BACKEND_TAG,
+                Lists.<List<Long>>newArrayList(Lists.newArrayList(1L, 2L, 3L)));
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getColocateTableIndex()).thenReturn(colocateTableIndex);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(db.getId())).thenReturn(db);
+
+            colocateTableIndex.addTableToGroup(db.getId(), table, "test_db.test_group", groupId);
+            colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+
+            GlobalColocateStatistic globalStatistic = Deencapsulation.invoke(balancer,
+                    "buildGlobalColocateStatistic");
+
+            List<BucketStatistic> bucketStatistics = globalStatistic.getAllGroupBucketsMap().get(groupId);
+            Assert.assertEquals(1, bucketStatistics.size());
+            Assert.assertEquals(1, bucketStatistics.get(0).totalReplicaNum);
+        }
+    }
+
+    private Tablet createColocateTablet(long tabletId, long alignedTabletId, List<Long> backendIds) {
+        Tablet tablet = new LocalTablet(tabletId);
+        tablet.setAlignedTabletId(alignedTabletId);
+        for (Long backendId : backendIds) {
+            Replica replica = new LocalReplica(tabletId + backendId, backendId, Replica.ReplicaState.NORMAL, 1, 0);
+            replica.setPathHash(backendId);
+            tablet.addReplica(replica, true);
+        }
+        return tablet;
     }
 
     private ColocateTableIndex createColocateIndex(GroupId groupId, List<Long> flatList) {
