@@ -161,7 +161,7 @@ public:
 
     // Fill version holes by creating empty rowsets for missing versions
     Status fill_version_holes(CloudTablet* tablet, int64_t max_version,
-                              std::unique_lock<std::shared_mutex>& wlock);
+                              std::unique_lock<BthreadSharedMutex>& wlock);
 
     // Create an empty rowset to fill a version hole
     Status create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,

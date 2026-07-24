@@ -930,7 +930,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
-        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        std::lock_guard meta_wlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
         for (auto i = 0; i < _input_rowsets.size(); ++i) {
@@ -952,7 +952,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         // should call it after merge delete_bitmap
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     } else {
-        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+        std::lock_guard wrlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     }
 
