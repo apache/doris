@@ -73,7 +73,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -244,7 +243,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> tabletIds = unboundRelation.getTabletIds();
         StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
         if (changeScanType != null) {
-            table = new RowBinlogTableWrapper((OlapTable) table);
+            table = new RowBinlogTableWrapper((OlapTable) table,
+                    CollectionUtils.isEmpty(partIds)
+                            ? makeUniformedTimestampRangeMap(((OlapTable) table).getPartitionIds(),
+                                    parseTimestampRange(unboundRelation.getScanParams())) :
+                            makeUniformedTimestampRangeMap(partIds,
+                                    parseTimestampRange(unboundRelation.getScanParams())));
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
         }
@@ -295,8 +299,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 throw new AnalysisException(
                         "PREAGGOPEN hint is not supported on @incr (change-read) scans.");
             }
-            return checkAndAddChangeScanFilter(scan, changeScanType,
-                    parseTimestampRange(unboundRelation.getScanParams()), false);
+            return checkAndAddChangeScanFilter(scan, changeScanType, false);
         }
         // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
         // predicate (dup) or a base/binlog union (mow).
@@ -585,7 +588,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // right: binlog MIN_DELTA over tso>t1, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
         // already carry the pre-change value in the (same-named) value columns.
-        RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable);
+        RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable, CollectionUtils.isEmpty(partIds)
+                ? makeUniformedTimestampRangeMap(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
+                makeUniformedTimestampRangeMap(partIds, Pair.of(targetTso, null)));
         RelationId binlogRelationId = cascadesContext.getStatementContext().getNextRelationId();
         LogicalOlapScan binlogScan = CollectionUtils.isEmpty(partIds)
                 ? new LogicalOlapScan(binlogRelationId, binlogTable, qualifier, tabletIds,
@@ -598,8 +603,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         binlogScan = binlogScan.withTableScanParams(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
-        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, Pair.of(targetTso, null),
-                true);
+        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
         right = projectFromOriginSlots(right, visibleOutput);
 
         // both children are bound; BindExpression aligns by position and fills the union output.
@@ -1015,38 +1019,25 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * Add append only filter on olap scan with changes if need.
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
-                                                          StreamScanType scanType,
-                                                          Pair<Long, Long> timestampRange, boolean beforeImageOnly) {
+                                                          StreamScanType scanType, boolean beforeImageOnly) {
         LogicalPlan plan = scan;
-        Slot timestampSlot = null;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
-            if (slot.getName().equals(Column.BINLOG_TSO_COL)) {
-                timestampSlot = slot;
-            }
             if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
                 opSlot = slot;
-            }
-            if (opSlot != null && timestampSlot != null) {
                 break;
             }
         }
-        List<Expression> conjuncts = Lists.newArrayList();
-        Preconditions.checkArgument(timestampSlot != null, "timestampSlot is null");
-        conjuncts.add(new GreaterThan(timestampSlot, new BigIntLiteral(timestampRange.first)));
-        if (timestampRange.second != null) {
-            conjuncts.add(new LessThanEqual(timestampSlot, new BigIntLiteral(timestampRange.second)));
-        }
         if (scanType.equals(StreamScanType.APPEND_ONLY)) {
             Preconditions.checkArgument(opSlot != null, "opSlot is null");
-            conjuncts.add(new EqualTo(opSlot, new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND)));
-        }
-        if (beforeImageOnly) {
-            conjuncts.add(new InPredicate(opSlot, ImmutableList.of(
+            return new LogicalFilter<>(ImmutableSet.of(new EqualTo(opSlot,
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), plan);
+        } else if (beforeImageOnly) {
+            return new LogicalFilter<>(ImmutableSet.of(new InPredicate(opSlot, ImmutableList.of(
                     new BigIntLiteral(BinlogUtils.ROW_BINLOG_DELETE),
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE))));
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), plan);
         }
-        return new LogicalFilter<>(ImmutableSet.copyOf(conjuncts), plan);
+        return plan;
     }
 
     private LogicalPlan projectFromOriginSlots(LogicalPlan plan, List<Slot> wantedSlots) {
@@ -1062,5 +1053,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             project.add(new Alias(match, wanted.getName()));
         }
         return new LogicalProject<>(project, plan);
+    }
+
+    private Map<Long, Pair<Long, Long>> makeUniformedTimestampRangeMap(List<Long> partIds,
+                                                                       Pair<Long, Long> timestampRange) {
+        return partIds.stream().collect(Collectors.toMap(partId -> partId, partId -> timestampRange));
     }
 }

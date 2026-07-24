@@ -144,7 +144,18 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
-            Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> slotFromColumn.get(index));
+            // For INCREMENTAL / SNAPSHOT reads, non-key value columns are materialized from the
+            // base table row-binlog whose after/before value columns are always nullable (see
+            // Column.generateAfterValueColumn / generateBeforeValueColumn). Declare these value
+            // columns as nullable here so the stream scan output stays consistent with the plan
+            // expanded in NormalizeOlapTableStreamScan, otherwise AdjustNullable reports a
+            // not-nullable -> nullable conflict. RESET does a full base-table scan, so keep its
+            // original nullability.
+            Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> {
+                SlotReference slotRef = slotFromColumn.get(index);
+                boolean forceNullable = readMode != StreamReadMode.RESET && !baseSchema.get(index).isKey();
+                return forceNullable ? slotRef.withNullable(true) : slotRef;
+            });
             slots.add(slot);
             if (colToSubPathsMap.containsKey(key.getValue())) {
                 for (List<String> subPath : colToSubPathsMap.get(key.getValue())) {

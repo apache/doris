@@ -79,6 +79,8 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
+    bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
+
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
@@ -87,6 +89,7 @@ private:
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::ACCEPTABLE;
     }
+
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
@@ -95,6 +98,7 @@ private:
                        ? PushDownType::ACCEPTABLE
                        : PushDownType::UNACCEPTABLE;
     }
+
     PushDownType _should_push_down_in_predicate() const override {
         return PushDownType::ACCEPTABLE;
     }
