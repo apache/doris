@@ -375,7 +375,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     false,
                     TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
+                    (LogicalPlan) (sink.child(0)),
+                    sink.getStaticPartitionKeyValues());
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else if (logicalQuery instanceof UnboundIcebergTableSink) {
