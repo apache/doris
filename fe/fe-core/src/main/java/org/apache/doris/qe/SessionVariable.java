@@ -904,6 +904,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD =
             "predicate_lm_stage1_survival_ratio_threshold";
     public static final String PREDICATE_LM_MIN_SCAN_ROWS = "predicate_lm_min_scan_rows";
+    public static final String PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES =
+            "predicate_lm_min_estimated_saved_bytes";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -3075,6 +3077,20 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             checker = "checkPredicateLmMinScanRows")
     public long predicateLmMinScanRows = 65536;
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES,
+            fuzzy = true,
+            description = {
+                    "FE 自动选择多阶段谓词延迟物化 stage1 列所需的最小预估节省字节数。"
+                            + "该值仅用于 FE 收益判断，默认 1073741824（1 GiB），"
+                            + "设置为 0 表示不启用固定字节数门槛。",
+                    "Minimum estimated saved bytes required for FE to automatically select stage1 columns "
+                            + "for multi-stage predicate LM. This value is only used by the FE benefit gate. "
+                            + "Default 1073741824 (1 GiB), and 0 disables the fixed saved-bytes threshold."},
+            needForward = true,
+            checker = "checkPredicateLmMinEstimatedSavedBytes")
+    public long predicateLmMinEstimatedSavedBytes = 1L << 30;
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -6368,16 +6384,24 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkPredicateLmMinScanRows(String value) {
+        checkNonNegativeLongVariable(value, PREDICATE_LM_MIN_SCAN_ROWS);
+    }
+
+    public void checkPredicateLmMinEstimatedSavedBytes(String value) {
+        checkNonNegativeLongVariable(value, PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES);
+    }
+
+    private void checkNonNegativeLongVariable(String value, String variableName) {
         final long v;
         try {
             v = Long.parseLong(value);
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(
-                PREDICATE_LM_MIN_SCAN_ROWS + " must be a valid non-negative integer");
+                variableName + " must be a valid non-negative integer");
         }
         if (v < 0) {
             throw new InvalidParameterException(
-                PREDICATE_LM_MIN_SCAN_ROWS + " should be non-negative, got " + v);
+                variableName + " should be non-negative, got " + v);
         }
     }
 

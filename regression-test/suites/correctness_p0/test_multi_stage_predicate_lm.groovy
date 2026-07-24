@@ -47,6 +47,8 @@ suite("test_multi_stage_predicate_lm", "p0") {
     assertTrue(vars.toString().contains("enable_multi_stage_predicate_lm"))
     def minScanRowsVar = sql """ show variables like 'predicate_lm_min_scan_rows'; """
     assertTrue(minScanRowsVar.toString().contains("predicate_lm_min_scan_rows"))
+    def minSavedBytesVar = sql """ show variables like 'predicate_lm_min_estimated_saved_bytes'; """
+    assertTrue(minSavedBytesVar.toString().contains("predicate_lm_min_estimated_saved_bytes"))
 
     // Baseline (feature off)
     sql """ set enable_multi_stage_predicate_lm = false; """
@@ -65,7 +67,8 @@ suite("test_multi_stage_predicate_lm", "p0") {
 
     // Per-statement override via SET_VAR hint for the remaining public knobs.
     order_qt_lm_hint_rows """
-        SELECT /*+ SET_VAR(enable_multi_stage_predicate_lm=true,predicate_lm_min_scan_rows=0) */
+        SELECT /*+ SET_VAR(enable_multi_stage_predicate_lm=true,predicate_lm_min_scan_rows=0,
+                          predicate_lm_min_estimated_saved_bytes=0) */
                k
         FROM ${tbl}
         WHERE a = 1 AND b = 2
@@ -77,5 +80,6 @@ suite("test_multi_stage_predicate_lm", "p0") {
     sql """ set enable_multi_stage_predicate_lm = false; """
     sql """ set predicate_lm_stage1_survival_ratio_threshold = 0.1; """
     sql """ set predicate_lm_min_scan_rows = 65536; """
+    sql """ set predicate_lm_min_estimated_saved_bytes = 1073741824; """
 
 }

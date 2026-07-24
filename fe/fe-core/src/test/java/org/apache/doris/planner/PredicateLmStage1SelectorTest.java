@@ -146,6 +146,25 @@ public class PredicateLmStage1SelectorTest {
     }
 
     @Test
+    public void testSelectAfterLoweringMinEstimatedSavedBytes() {
+        OlapScanNode scanNode = scanNode(1_000_000L,
+                eq(cheapSelectiveColumn),
+                eq(lateStringColumn));
+        SessionVariable sessionVariable = sessionVariable();
+        sessionVariable.predicateLmMinScanRows = 0;
+        sessionVariable.predicateLmMinEstimatedSavedBytes = 8L << 20;
+        Map<String, ColumnStatistic> stats = ImmutableMap.of(
+                "tenant_id", stats(1_000_000L, 1000, 4),
+                "event_type", stats(1_000_000L, 10, 16));
+
+        SelectionResult result = select(scanNode, sessionVariable, stats);
+
+        Assertions.assertFalse(result.isEmpty());
+        Assertions.assertEquals(SelectionReason.SELECTED, result.getReason());
+        Assertions.assertEquals(8L << 20, result.getMinEstimatedSavedBytes(), 0.1);
+    }
+
+    @Test
     public void testMinSavedBytesUsesLargerMinScanRowsGate() {
         OlapScanNode scanNode = scanNode(100_000_000_000L,
                 eq(cheapSelectiveColumn),
@@ -174,6 +193,7 @@ public class PredicateLmStage1SelectorTest {
         sessionVariable.enableMultiStagePredicateLm = true;
         sessionVariable.predicateLmStage1SurvivalRatioThreshold = 0.1;
         sessionVariable.predicateLmMinScanRows = 65536;
+        sessionVariable.predicateLmMinEstimatedSavedBytes = 1L << 30;
         return sessionVariable;
     }
 

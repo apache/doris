@@ -57,7 +57,6 @@ public class PredicateLmStage1Selector {
     private static final double MAX_SELECTIVITY = 1.0;
     private static final double TARGET_STAGE1_SELECTIVITY_FOR_EARLY_STOP = 0.03;
     private static final double MAX_STAGE1_SELECTIVITY_FOR_SAVED_BYTES_GATE = 0.10;
-    private static final long MIN_ESTIMATED_SAVED_BYTES_FOR_AUTO_SELECT = 1L << 30;
     private static final double CHEAP_STAGE1_EVAL_COST_THRESHOLD = 2.0;
 
     private final OlapScanNode scanNode;
@@ -189,7 +188,7 @@ public class PredicateLmStage1Selector {
 
     private double minEstimatedSavedBytes(double latePredicateReadBytesPerRow) {
         double minScanRowsSavedBytes = sessionVariable.predicateLmMinScanRows * latePredicateReadBytesPerRow;
-        return Math.max(minScanRowsSavedBytes, MIN_ESTIMATED_SAVED_BYTES_FOR_AUTO_SELECT);
+        return Math.max(minScanRowsSavedBytes, sessionVariable.predicateLmMinEstimatedSavedBytes);
     }
 
     private boolean existsLateCandidate(Map<String, PredicateLmCandidate> candidates,

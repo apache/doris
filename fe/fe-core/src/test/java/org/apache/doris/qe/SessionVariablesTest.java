@@ -358,6 +358,9 @@ public class SessionVariablesTest extends TestWithFeService {
                 SessionVariable.PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD, new StringLiteral("0.9")));
         VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
                 SessionVariable.PREDICATE_LM_MIN_SCAN_ROWS, new StringLiteral("131072")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES,
+                new StringLiteral("536870912")));
 
         Map<String, String> forwardVars = sv.getForwardVariables();
         Assertions.assertEquals("true",
@@ -366,6 +369,9 @@ public class SessionVariablesTest extends TestWithFeService {
                 forwardVars.get(SessionVariable.PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD));
         Assertions.assertEquals("131072",
                 forwardVars.get(SessionVariable.PREDICATE_LM_MIN_SCAN_ROWS));
+        Assertions.assertEquals(536870912L, sv.predicateLmMinEstimatedSavedBytes);
+        Assertions.assertEquals("536870912",
+                forwardVars.get(SessionVariable.PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES));
 
         TQueryOptions opts = sv.toThrift();
         Assertions.assertTrue(opts.isSetEnableMultiStagePredicateLm());
