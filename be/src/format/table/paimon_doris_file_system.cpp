@@ -43,11 +43,6 @@
 
 namespace paimon {
 
-struct ParsedUri {
-    std::string scheme;
-    std::string authority;
-};
-
 ParsedUri parse_uri(const std::string& path) {
     ParsedUri parsed;
     size_t scheme_pos = path.find("://");
@@ -158,13 +153,33 @@ std::string normalize_local_path(const std::string& path) {
     return path.substr(start);
 }
 
-std::string normalize_path_for_type(const std::string& path, const std::string& scheme,
+std::string normalize_path_for_type(const std::string& path, const ParsedUri& uri,
                                     doris::TFileType::type type) {
     if (type == doris::TFileType::FILE_LOCAL) {
         return normalize_local_path(path);
     }
-    if (type == doris::TFileType::FILE_S3 && scheme != "s3") {
+    if (type == doris::TFileType::FILE_S3 && uri.scheme != "s3") {
         return replace_scheme(path, "s3");
+    }
+    if (type == doris::TFileType::FILE_HDFS) {
+        if (!uri.authority.empty()) {
+            size_t scheme_pos = path.find("://");
+            size_t delim_len = 3;
+            if (scheme_pos == std::string::npos) {
+                scheme_pos = path.find(":/");
+                delim_len = 2;
+            }
+            if (scheme_pos != std::string::npos) {
+                size_t authority_start = scheme_pos + delim_len;
+                if (authority_start < path.size()) {
+                    size_t next_slash = path.find('/', authority_start);
+                    if (next_slash == std::string::npos) {
+                        return "/";
+                    }
+                    return path.substr(next_slash);
+                }
+            }
+        }
     }
     return path;
 }
@@ -606,7 +621,7 @@ private:
             const std::string& path) const {
         auto uri = parse_uri(path);
         doris::TFileType::type type = map_scheme_to_file_type(uri.scheme);
-        std::string normalized_path = normalize_path_for_type(path, uri.scheme, type);
+        std::string normalized_path = normalize_path_for_type(path, uri, type);
         if (type == doris::TFileType::FILE_LOCAL) {
             doris::io::FileSystemSPtr fs = doris::io::global_local_filesystem();
             return std::make_pair(std::move(fs), normalized_path);

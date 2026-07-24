@@ -27,6 +27,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
+import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -68,7 +69,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
-        metadataOps = ExternalMetadataOperations.newPaimonMetaOps(this, catalog);
+        PaimonMetadataOps ops = ExternalMetadataOperations.newPaimonMetaOps(this, catalog);
+        transactionManager = TransactionManagerFactory.createPaimonTransactionManager(ops);
+        metadataOps = ops;
     }
 
     @Override

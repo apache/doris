@@ -116,6 +116,7 @@ void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
 void register_function_ai(SimpleFunctionFactory& factory);
+void register_function_paimon(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
 void register_function_binary(SimpleFunctionFactory& factory);
@@ -350,6 +351,7 @@ public:
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
             register_function_ai(instance);
+            register_function_paimon(instance);
             register_function_score(instance);
             register_function_binary(instance);
             register_function_soundex(instance);

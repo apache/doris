@@ -40,6 +40,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -2571,6 +2572,12 @@ public class Coordinator implements CoordInterface {
                 Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                         params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
             }
+        }
+
+        long reportTxnId = params.isSetTxnId() ? params.getTxnId() : txnId;
+        if (params.isSetPaimonCommitMessages() && reportTxnId > 0) {
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                    .getTxnById(reportTxnId)).updateCommitMessages(params.getPaimonCommitMessages());
         }
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));

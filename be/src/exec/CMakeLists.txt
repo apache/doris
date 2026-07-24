@@ -23,6 +23,12 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 file(GLOB_RECURSE EXEC_FILES CONFIGURE_DEPENDS *.cpp)
 
+list(FILTER EXEC_FILES EXCLUDE REGEX ".*/sink/writer/paimon/compat/.*\\.cpp$")
+if (NOT ENABLE_PAIMON_CPP)
+    list(FILTER EXEC_FILES EXCLUDE REGEX
+        ".*/sink/writer/paimon/paimon_doris_(memory_pool|hdfs_file_system)\\.cpp$")
+endif()
+
 # Task executor simulator files are built as a separate executable
 list(FILTER EXEC_FILES EXCLUDE REGEX ".*scan/task_executor/tools/simulator/.*")
 

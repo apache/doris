@@ -34,6 +34,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -74,11 +75,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PaimonTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
@@ -540,6 +543,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
                                 Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert, jobId)
                 );
+            } else if (physicalSink instanceof PhysicalPaimonTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTableIf;
+                if (dataSink instanceof PaimonTableSink) {
+                    ((PaimonTableSink) dataSink)
+                            .setCols(((PhysicalPaimonTableSink) physicalSink).getCols());
+                }
+                return ExecutorFactory.from(
+                        planner,
+                        dataSink,
+                        physicalSink,
+                        () -> new PaimonInsertExecutor(ctx, paimonExternalTable, label, planner,
+                                Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))),
+                                emptyInsert, jobId)
+                );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 Dictionary dictionary = (Dictionary) targetTableIf;
@@ -556,7 +574,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
-                        "insert into command only support [olap, dictionary, hive, iceberg, jdbc] table");
+                        "insert into command only support [olap, dictionary, hive, iceberg, jdbc, paimon] table");
             }
         } catch (Throwable t) {
             Throwables.propagateIfInstanceOf(t, RuntimeException.class);
