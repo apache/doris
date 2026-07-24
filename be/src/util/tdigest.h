@@ -388,7 +388,7 @@ public:
             if (index <= weight(0) / 2.0) {
                 DCHECK_GT(weight(0), 0);
                 result[level_index] =
-                        static_cast<double>(_min + 2.0 * index / weight(0) * (mean(0) - _min));
+                        static_cast<Value>(_min + 2.0 * index / weight(0) * (mean(0) - _min));
                 continue;
             }
 
@@ -596,7 +596,9 @@ private:
 
     Value _min = std::numeric_limits<Value>::max();
 
-    Value _max = std::numeric_limits<Value>::min();
+    // min() is the smallest positive value, so use lowest() for all-negative input,
+    // e.g. {-3, -2, -1} must set _max to -1.
+    Value _max = std::numeric_limits<Value>::lowest();
 
     Index _max_processed;
 

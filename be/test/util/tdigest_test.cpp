@@ -237,6 +237,43 @@ TEST_F(TDigestTest, BatchQuantilesMatchSingleQuantiles) {
     }
 }
 
+TEST_F(TDigestTest, BatchQuantilesMatchSingleQuantileInLeftTail) {
+    TDigest digest(2);
+    digest.add(0.0F);
+    digest.compress();
+    digest.add(1.5F, 2.0F);
+    digest.add(3.0F, 3.0F);
+    digest.compress();
+
+    ASSERT_EQ(digest.processed().size(), 2);
+    ASSERT_FLOAT_EQ(digest.processed()[0].mean(), 1.0F);
+    ASSERT_FLOAT_EQ(digest.processed()[0].weight(), 3.0F);
+    ASSERT_EQ(digest.totalWeight(), 6);
+
+    std::vector<double> levels {0.1};
+    std::vector<size_t> permutation {0};
+    std::vector<double> results(levels.size());
+    digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+
+    EXPECT_DOUBLE_EQ(results[0], static_cast<double>(digest.quantile(levels[0])));
+}
+
+TEST_F(TDigestTest, AllNegativeValuesHaveCorrectMaximum) {
+    TDigest digest(1000);
+    digest.add(-3.0);
+    digest.add(-2.0);
+    digest.add(-1.0);
+
+    std::vector<double> levels {1.0};
+    std::vector<size_t> permutation {0};
+    std::vector<double> results(levels.size());
+    digest.quantiles(levels.data(), permutation.data(), levels.size(), results.data());
+
+    EXPECT_FLOAT_EQ(digest.quantile(levels[0]), -1.0F);
+    EXPECT_DOUBLE_EQ(results[0], -1.0);
+    EXPECT_DOUBLE_EQ(results[0], static_cast<double>(digest.quantile(levels[0])));
+}
+
 TEST_F(TDigestTest, BatchQuantilesHandleEmptyAndSingleValueDigests) {
     std::vector<double> levels {0.0, 0.5, 1.0};
     std::vector<size_t> permutation {0, 1, 2};
