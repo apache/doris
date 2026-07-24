@@ -1393,7 +1393,7 @@ DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 // default max to 2048 connections
 DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 
-// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+// level of compression when using LZ4_HC, whose default value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");

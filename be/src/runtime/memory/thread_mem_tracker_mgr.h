@@ -352,7 +352,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveCh
     if (process_limit_checker) {
         if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
             auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because proccess memory exceeded, {}",
+                    "reserve memory failed, size: {}, because process memory exceeded, {}",
                     PrettyPrinter::print_bytes(size),
                     GlobalMemoryArbitrator::process_mem_log_str());
             _limiter_tracker->release(size);         // rollback

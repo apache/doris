@@ -492,7 +492,7 @@ DECLARE_Bool(enable_parquet_cache_compressed_pages);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
-// Cache for mow primary key storage page size, it's seperated from
+// Cache for mow primary key storage page size, it's separated from
 // storage_page_cache_limit
 DECLARE_String(pk_storage_page_cache_limit);
 // data page size for primary key index
@@ -1444,7 +1444,7 @@ DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
 
-// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+// level of compression when using LZ4_HC, whose default value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);

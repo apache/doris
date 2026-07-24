@@ -139,7 +139,7 @@ public:
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!convert_tz_state) {
             return Status::RuntimeError(
-                    "funciton context for function '{}' must have ConvertTzState;", get_name());
+                    "function context for function '{}' must have ConvertTzState;", get_name());
         }
 
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
