@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
@@ -29,6 +30,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.planner.PlanNodeId;
@@ -38,13 +40,22 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPushAggOp;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.IntType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -56,6 +67,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -489,6 +501,156 @@ public class PaimonScanNodeTest {
         List<org.apache.doris.spi.Split> auditLogSplits = spyPaimonScanNode.getSplits(1);
         Assert.assertEquals(1, auditLogSplits.size());
         Assert.assertNotNull(((PaimonSplit) auditLogSplits.get(0)).getSplit());
+    }
+
+    @Test
+    public void testSystemTablePassesIncrementalOptionsToPaimonTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table baseTable = Mockito.mock(Table.class);
+        Table copiedTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        node.setSource(source);
+
+        Map<String, String> params = new HashMap<>();
+        params.put("startSnapshotId", "1");
+        params.put("endSnapshotId", "2");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.INCREMENTAL_READ, params, Collections.emptyList()));
+
+        Map<String, String> expectedOptions = new HashMap<>();
+        expectedOptions.put("scan.snapshot-id", null);
+        expectedOptions.put("scan.mode", null);
+        expectedOptions.put("incremental-between", "1,2");
+        Mockito.when(baseTable.copy(expectedOptions)).thenReturn(copiedTable);
+
+        try {
+            Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.fail("Paimon system table should accept incremental options, but got: "
+                    + e.getTargetException().getMessage());
+        }
+        Mockito.verify(baseTable).copy(expectedOptions);
+    }
+
+    @Test
+    public void testSystemTablePassesDynamicOptionsToPaimonTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table baseTable = Mockito.mock(Table.class);
+        Table copiedTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        node.setSource(source);
+
+        Map<String, String> options = ImmutableMap.of(
+                "scan.snapshot-id", "12345",
+                "scan.mode", "from-snapshot");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS, options, Collections.emptyList()));
+        Mockito.when(baseTable.copy(options)).thenReturn(copiedTable);
+
+        try {
+            Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.fail("Paimon system table should accept dynamic options, but got: "
+                    + e.getTargetException().getMessage());
+        }
+        Mockito.verify(baseTable).copy(options);
+    }
+
+    @Test
+    public void testDataTableQueryOptionsOverrideDefaultsWithoutMutation() throws Exception {
+        Map<String, String> defaultOptions = new HashMap<>();
+        defaultOptions.put("scan.mode", "latest");
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                defaultOptions,
+                null);
+        Table baseTable = new AppendOnlyFileStoreTable(
+                Mockito.mock(FileIO.class),
+                new Path("memory://paimon_dynamic_options"),
+                schema,
+                CatalogEnvironment.empty());
+
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getExternalTable()).thenReturn(Mockito.mock(PaimonExternalTable.class));
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        node.setSource(source);
+
+        Map<String, String> queryOptions = ImmutableMap.of(
+                "scan.mode", "from-snapshot",
+                "scan.snapshot-id", "2");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS, queryOptions, Collections.emptyList()));
+
+        Table processedTable = (Table) invokePrivateMethod(node, "getProcessedTable");
+        Assert.assertEquals("from-snapshot", processedTable.options().get("scan.mode"));
+        Assert.assertEquals("2", processedTable.options().get("scan.snapshot-id"));
+        Assert.assertEquals("latest", baseTable.options().get("scan.mode"));
+        Assert.assertFalse(baseTable.options().containsKey("scan.snapshot-id"));
+    }
+
+    @Test
+    public void testBackendSerializationUsesDynamicOptionsTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable systemTable = Mockito.mock(PaimonSysExternalTable.class);
+        Table baseTable = Mockito.mock(Table.class);
+        Table copiedTable = Mockito.mock(Table.class, Mockito.withSettings().serializable());
+        Mockito.when(source.getExternalTable()).thenReturn(systemTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        // The invocation happens on the deserialized mock copy, so Mockito cannot record it
+        // against this test instance when checking strict stubbings.
+        Mockito.lenient().when(copiedTable.name()).thenReturn("files-at-snapshot");
+        node.setSource(source);
+
+        Map<String, String> options = ImmutableMap.of("scan.snapshot-id", "1");
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS, options, Collections.emptyList()));
+        Mockito.when(baseTable.copy(options)).thenReturn(copiedTable);
+
+        try {
+            invokePrivateMethod(node, "serializeProcessedTable");
+        } catch (NoSuchMethodException e) {
+            Assert.fail("PaimonScanNode must serialize the processed table for backend JNI reads");
+        }
+
+        java.lang.reflect.Field field = PaimonScanNode.class.getDeclaredField("serializedTable");
+        field.setAccessible(true);
+        String encoded = (String) field.get(node);
+        Table decoded = InstantiationUtil.deserializeObject(
+                Base64.getUrlDecoder().decode(encoded), PaimonUtil.class.getClassLoader());
+        Assert.assertEquals("files-at-snapshot", decoded.name());
+    }
+
+    @Test
+    public void testSystemTableRejectsNonIncrementalScanParams() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getExternalTable()).thenReturn(Mockito.mock(PaimonSysExternalTable.class));
+        Mockito.when(source.getPaimonTable()).thenReturn(Mockito.mock(Table.class));
+        node.setSource(source);
+        node.setScanParams(new TableScanParams(
+                TableScanParams.BRANCH,
+                Collections.singletonMap(TableScanParams.PARAMS_NAME, "branch1"),
+                Collections.emptyList()));
+
+        try {
+            invokePrivateMethod(node, "getProcessedTable");
+            Assert.fail("Paimon system table should reject non-incremental scan params");
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.assertTrue(e.getTargetException().getMessage()
+                    .contains("only support INCR or OPTIONS scan params"));
+        }
     }
 
     @Test

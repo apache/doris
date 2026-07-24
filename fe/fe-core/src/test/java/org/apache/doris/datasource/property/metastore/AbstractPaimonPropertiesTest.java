@@ -86,4 +86,19 @@ public class AbstractPaimonPropertiesTest {
         Assertions.assertTrue("3".equals(result.get("fs.s3a.replication.factor")));
     }
 
+    @Test
+    void testForwardTableDefaultOptionsToPaimonCatalog() {
+        Map<String, String> input = new HashMap<>();
+        input.put("paimon.table-default.scan.mode", "latest");
+        input.put("paimon.table-default.scan.snapshot-id", "7");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+
+        testProps.buildCatalogOptions();
+
+        Assertions.assertEquals(
+                "latest", testProps.getCatalogOptionsMap().get("table-default.scan.mode"));
+        Assertions.assertEquals(
+                "7", testProps.getCatalogOptionsMap().get("table-default.scan.snapshot-id"));
+    }
+
 }

@@ -151,7 +151,56 @@ suite("paimon_system_table", "p0,external") {
                         desc ${tableName}\$snapshots
                         """
 
-        // 2.6 system table does not support time travel
+        // 2.6 system table supports dynamic scan options but not time travel
+        // Quote Paimon's partition column because PARTITION is reserved in Doris SQL.
+        List<List<Object>> filesAtSnapshotResult = sql """
+                SELECT `partition`,
+                       bucket,
+                       file_path,
+                       file_format,
+                       schema_id,
+                       level,
+                       record_count,
+                       file_size_in_bytes,
+                       min_sequence_number,
+                       max_sequence_number,
+                       creation_time
+                FROM ${tableName}\$files
+                @options('scan.snapshot-id'='${direct_query_snapshot_id}')
+                """
+        assertTrue(filesAtSnapshotResult.size() > 0,
+                "Files system table should return data for snapshot ${direct_query_snapshot_id}")
+
+        String multiSnapshotTable = "test_paimon_incr_read_db.paimon_incr"
+        List<List<Object>> snapshotRows = sql """
+                select snapshot_id from ${multiSnapshotTable}\$snapshots order by snapshot_id
+                """
+        assertTrue(snapshotRows.size() > 1, "The regression table should contain multiple snapshots")
+        String firstSnapshotId = String.valueOf(snapshotRows.first()[0])
+        String latestSnapshotId = String.valueOf(snapshotRows.last()[0])
+        List<List<Object>> filesWithoutOptions = sql """
+                select file_path from ${multiSnapshotTable}\$files order by file_path
+                """
+        List<List<Object>> filesAtFirstSnapshot = sql """
+                select file_path from ${multiSnapshotTable}\$files
+                @options('scan.snapshot-id'='${firstSnapshotId}')
+                order by file_path
+                """
+        List<List<Object>> filesAtLatestSnapshot = sql """
+                select file_path from ${multiSnapshotTable}\$files
+                @options('scan.snapshot-id'='${latestSnapshotId}')
+                order by file_path
+                """
+        assertTrue(filesAtFirstSnapshot.size() < filesWithoutOptions.size(),
+                "The first snapshot should contain fewer files than the current table")
+        assertEquals(filesWithoutOptions, filesAtLatestSnapshot,
+                "The latest snapshot option should return the same files as a query without options")
+
+        List<List<Object>> incrementalSystemTableResult = sql """
+                select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                """
+        assertNotNull(incrementalSystemTableResult, "System table incremental query result should not be null")
+
         test {
             sql """select * from ${tableName}\$snapshots FOR VERSION AS OF 1"""
             exception "Paimon system tables do not support time travel"
@@ -159,10 +208,6 @@ suite("paimon_system_table", "p0,external") {
         test {
             sql """select * from ${tableName}\$snapshots FOR TIME AS OF "2024-07-11 16:01:57.425" """
             exception "Paimon system tables do not support time travel"
-        }
-        test {
-            sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
-            exception "Paimon system tables do not support scan params"
         }
 
     } catch (Exception e) {

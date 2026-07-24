@@ -185,6 +185,66 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testParseTableOptionsParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.`orders$files`"
+                        + "@options('scan.snapshot-id'='12345', 'scan.mode'='from-snapshot')"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals("options", relation.getScanParams().getParamType());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "12345", "scan.mode", "from-snapshot"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testParseIndependentDataTableOptionsParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1') left_orders "
+                        + "join paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='2') right_orders "
+                        + "on left_orders.id = right_orders.id");
+
+        List<UnboundRelation> relations = new ArrayList<>();
+        collectUnboundRelations(plan, relations);
+        Assertions.assertEquals(2, relations.size());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                relations.get(0).getScanParams().getMapParams());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "2"),
+                relations.get(1).getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectConflictingTableScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1')"
+                        + "@options('scan.snapshot-id'='2')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders@incr("
+                        + "'startSnapshotId'=1, 'endSnapshotId'=2)"
+                        + "@options('scan.snapshot-id'='1')"));
+    }
+
+    @Test
+    public void testOptionsHintIsNotTableScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders "
+                        + "/*+ OPTIONS('scan.snapshot-id'='1') */"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNull(relation.getScanParams());
+    }
+
+    @Test
     public void testErrorListener() {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
                 .assertThrowsExactly(SyntaxParseException.class)
@@ -1008,6 +1068,15 @@ public class NereidsParserTest extends ParserTestBase {
             }
         }
         return null;
+    }
+
+    private void collectUnboundRelations(Plan plan, List<UnboundRelation> relations) {
+        if (plan instanceof UnboundRelation) {
+            relations.add((UnboundRelation) plan);
+        }
+        for (Plan child : plan.children()) {
+            collectUnboundRelations(child, relations);
+        }
     }
 
     @Test

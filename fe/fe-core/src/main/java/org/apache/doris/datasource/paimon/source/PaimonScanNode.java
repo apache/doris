@@ -174,7 +174,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         long startTime = System.currentTimeMillis();
-        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
+        serializeProcessedTable();
         // Todo: Get the current schema id of the table, instead of using -1.
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
@@ -188,6 +188,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
         }
+    }
+
+    private void serializeProcessedTable() throws UserException {
+        // System-table splits are materialized by the BE JNI reader, so it must receive the same
+        // option-bearing table copy that FE uses to plan the split.
+        serializedTable = PaimonUtil.encodeObjectToString(getProcessedTable());
     }
 
     @VisibleForTesting
@@ -912,8 +918,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         Table baseTable = source.getPaimonTable();
         TableScanParams theScanParams = getScanParams();
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
-            if (theScanParams != null) {
-                throw new UserException("Paimon system tables do not support scan params.");
+            if (theScanParams != null && !theScanParams.incrementalRead() && !theScanParams.isOptions()) {
+                throw new UserException("Paimon system tables only support INCR or OPTIONS scan params.");
             }
             if (getQueryTableSnapshot() != null) {
                 throw new UserException("Paimon system tables do not support time travel.");
@@ -924,7 +930,13 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
 
         if (theScanParams != null && theScanParams.incrementalRead()) {
+            // System table handles are cached, so preserve query isolation by applying dynamic
+            // options to a copied Paimon table instead of changing the shared handle.
             return baseTable.copy(getIncrReadParams());
+        }
+        if (theScanParams != null && theScanParams.isOptions()) {
+            // Apply per-query options to a copy so they cannot leak through cached table handles.
+            return baseTable.copy(theScanParams.getMapParams());
         }
         return baseTable;
     }
