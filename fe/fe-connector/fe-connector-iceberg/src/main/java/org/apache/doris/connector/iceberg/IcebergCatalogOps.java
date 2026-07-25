@@ -434,7 +434,10 @@ public interface IcebergCatalogOps {
         @Override
         public void addColumn(String dbName, String tableName, IcebergColumnChange column,
                 ConnectorColumnPosition position) {
-            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            Table table = loadTable(dbName, tableName);
+            IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
+                    table.schema().asStruct(), "", column.getName(), null, "add");
+            UpdateSchema updateSchema = table.updateSchema();
             updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
                     column.getDefaultValue());
             applyPosition(updateSchema, position, column.getName());
@@ -443,7 +446,9 @@ public interface IcebergCatalogOps {
 
         @Override
         public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
-            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            Table table = loadTable(dbName, tableName);
+            IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
+            UpdateSchema updateSchema = table.updateSchema();
             for (IcebergColumnChange column : columns) {
                 updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
                         column.getDefaultValue());
@@ -460,9 +465,7 @@ public interface IcebergCatalogOps {
 
         @Override
         public void renameColumn(String dbName, String tableName, String oldName, String newName) {
-            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
-            updateSchema.renameColumn(oldName, newName);
-            updateSchema.commit();
+            IcebergNestedColumnEvolution.renameTopLevelColumn(loadTable(dbName, tableName), oldName, newName);
         }
 
         @Override
