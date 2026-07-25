@@ -84,17 +84,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 cachedOutputs);
     }
 
-    private static SelectedPartitions initialSelectedPartitions(
-            ExternalTable table, Optional<TableScanParams> scanParams) {
-        if ((table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
-                && scanParams.isPresent() && scanParams.get().isOptions()) {
-            // A relation-scoped historical snapshot cannot reuse partitions cached for the
-            // statement-level latest snapshot; Paimon will prune its selected snapshot instead.
-            return SelectedPartitions.NOT_PRUNED;
-        }
-        return table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table));
-    }
-
     /**
      * Constructor for LogicalFileScan.
      */
@@ -121,6 +110,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
+    }
+
+    private static SelectedPartitions initialSelectedPartitions(
+            ExternalTable table, Optional<TableScanParams> scanParams) {
+        if ((table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
+                && scanParams.isPresent() && scanParams.get().isOptions()) {
+            // A relation-scoped historical snapshot cannot reuse partitions cached for the
+            // statement-level latest snapshot; Paimon will prune its selected snapshot instead.
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        return table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table));
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -244,10 +244,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         }
     }
 
-    private List<Slot> computeIcebergOutput() {
-        return computeOutput(table.getFullSchema());
-    }
-
     private List<Slot> computeOutput(List<Column> schema) {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Builder<Slot> slots = ImmutableList.builder();
@@ -260,6 +256,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             slots.add(virtualColumn.toSlot());
         }
         return slots.build();
+    }
+
+    private List<Slot> computeIcebergOutput() {
+        return computeOutput(table.getFullSchema());
     }
 
     @Override

@@ -103,8 +103,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             DORIS_JNI_IO_MANAGER_TMP_DIR,
             DORIS_JNI_IO_MANAGER_IMPL_CLASS,
             DORIS_ENABLE_FILE_READER_ASYNC);
-    private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
-    private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
 
     private enum SplitReadType {
         JNI,
