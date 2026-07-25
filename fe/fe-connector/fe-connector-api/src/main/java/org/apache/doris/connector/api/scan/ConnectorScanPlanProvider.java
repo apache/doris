@@ -443,8 +443,18 @@ public interface ConnectorScanPlanProvider {
      * refer to the AND children of the filter expression, in the same order as
      * the conjuncts list.</p>
      *
-     * <p>The default wraps {@link #getScanNodeProperties} with an empty not-pushed set,
-     * meaning all conjuncts are assumed to have been pushed.</p>
+     * <p>The indices are into the conjunct list AS RECEIVED, i.e. after
+     * {@code PluginDrivenScanNode.buildRemainingFilter} has dropped CAST-wrapped conjuncts when
+     * {@link org.apache.doris.connector.api.ConnectorPushdownOps#supportsCastPredicatePushdown} is false; the
+     * engine maps them back to the original positions itself and always keeps the conjuncts it never sent.
+     * When {@code filter} is a single non-AND node (the engine does not wrap a lone conjunct in an AND),
+     * index 0 refers to that whole expression.</p>
+     *
+     * <p>The default wraps {@link #getScanNodeProperties} in a result WITHOUT conjunct tracking, which makes
+     * {@code PluginDrivenScanNode.pruneConjunctsFromNodeProperties} remove nothing: every conjunct is still
+     * evaluated on BE. That is the safe default — it is NOT "all conjuncts are assumed pushed". Reporting an
+     * empty not-pushed set through the two-argument {@link ScanNodePropertiesResult} constructor is the
+     * opposite claim (everything was pushed, prune them all), so use it only when the pushdown was exact.</p>
      *
      * @param session the current session
      * @param handle  the table handle (may have been updated by applyFilter)

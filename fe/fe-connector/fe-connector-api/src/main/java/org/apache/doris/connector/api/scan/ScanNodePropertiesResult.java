@@ -32,6 +32,14 @@ import java.util.Set;
  * AND children of the filter expression, in the same order as the conjuncts list.
  * Conjuncts whose indices are NOT in this set were successfully pushed down and
  * will be pruned from the scan node's conjunct list by the engine.</p>
+ *
+ * <p><b>This is the only residual protocol the engine acts on per conjunct</b>, and exactly one shipped
+ * connector uses it (es). The other channel — returning a non-null remaining filter from
+ * {@code ConnectorPushdownOps.applyFilter} — makes the engine keep every conjunct; see
+ * {@code FilterApplicationResult.getRemainingFilter} and the {@code pushdown} package javadoc, Rule 5.
+ * Because a pruned conjunct is not re-evaluated anywhere, only report an index as pushed when the
+ * translation was EXACT: a widened pushdown that would merely cost extra BE work in the other channel
+ * returns extra rows here.</p>
  */
 public class ScanNodePropertiesResult {
 

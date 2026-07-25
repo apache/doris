@@ -1816,9 +1816,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Prunes pushed-down conjuncts using the structured result from
      * {@link ConnectorScanPlanProvider#getScanNodePropertiesResult()}.
      *
-     * <p>Only conjuncts whose indices are in the not-pushed set are retained.
-     * If the connector has no not-pushed tracking (empty set), all conjuncts
-     * are considered pushed and cleared.</p>
+     * <p>Only conjuncts whose indices are in the not-pushed set are retained. A connector that supplies NO
+     * tracking at all (the single-argument {@code ScanNodePropertiesResult} constructor, which is also the
+     * SPI default) prunes NOTHING — every conjunct stays and BE re-evaluates it. That is not the same thing
+     * as reporting an empty not-pushed set, which is the claim "all of them were pushed, prune them all".
+     * Keep the two apart: conflating them would silently drop predicates for the seven connectors that do not
+     * implement tracking.</p>
      */
     private void pruneConjunctsFromNodeProperties() {
         if (conjuncts == null || conjuncts.isEmpty()) {
