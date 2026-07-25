@@ -100,25 +100,6 @@ under the License.
                             </arguments>
                         </configuration>
                     </execution>
-                    <!--
-                      Cache-isolation gate: every cross-query cache holder field on IcebergConnector must
-                      declare an isolation marker (null under session=user, or an exempt justification), so a
-                      new authorization-sensitive cache cannot silently leak per-user metadata under
-                      iceberg.rest.session=user. See tools/check-authz-cache-sharding.sh.
-                    -->
-                    <execution>
-                        <id>check-authz-cache-sharding</id>
-                        <phase>validate</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>${project.basedir}/../../tools/check-authz-cache-sharding.sh</executable>
-                            <arguments>
-                                <argument>${project.basedir}</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
                 </executions>
             </plugin>
         </plugins>

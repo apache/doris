@@ -24,7 +24,13 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.plugin.CatalogStatementTransaction;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import org.junit.jupiter.api.Assertions;
@@ -38,8 +44,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests for the per-statement {@link ConnectorStatementScope}: the {@link ConnectorStatementScope#NONE} no-op,
- * the memoizing {@link ConnectorStatementScopeImpl}, and the {@link StatementContext} hosting + per-execution
- * reset a reused prepared statement relies on.
+ * the memoizing {@link ConnectorStatementScopeImpl}, the {@link StatementContext} hosting + per-execution
+ * reset a reused prepared statement relies on, and that {@link ExecuteCommand} actually invokes that reset on
+ * every execution (external/connector tables are planned through the reused prepared context, so a missing
+ * reset would leak one execution's loaded table into the next — see {@code executeCommandResetsConnectorScope*}).
  */
 public class ConnectorStatementScopeTest {
 
@@ -173,6 +181,49 @@ public class ConnectorStatementScopeTest {
         Assertions.assertEquals(1, closes.get(), "reset closes the dropped scope's closeable values before dropping it");
         Assertions.assertNotSame(s1, ctx.getOrCreateConnectorStatementScope(),
                 "reset drops the scope so the next execution/attempt starts fresh");
+    }
+
+    @Test
+    public void executeCommandResetsConnectorScopePerExecution() throws Exception {
+        // WIRING test: the reset above is only load-bearing if ExecuteCommand.run() actually calls it. A prepared
+        // statement reuses ONE StatementContext across every EXECUTE, and an EXTERNAL/connector table is planned
+        // through that reused context each execution (external tables never take the OLAP short-circuit fast path;
+        // they always fall to the normal executor.execute() planner, which re-resolves the table per execution).
+        // So run() must drop the connector per-statement scope at the top of every execution, or a prior execution's
+        // memoized (loaded) table leaks into the next. The tests above cover only the reset PRIMITIVE; this covers
+        // that the command invokes it. MUTATION: delete `statementContext.resetConnectorStatementScope()` from
+        // ExecuteCommand.run() -> the seeded value survives -> the assertNotSame below flips -> red.
+        StatementContext statementContext = new StatementContext();
+        // Seed a value the way a first execution's connector planning would (one loaded table the statement shares).
+        ConnectorStatementScope firstScope = statementContext.getOrCreateConnectorStatementScope();
+        Object memoizedTable = firstScope.computeIfAbsent("table:1", Object::new);
+
+        // A prepared statement wrapping that reused StatementContext, with a plain (non-cache, non-insert) plan.
+        LogicalPlan plan = Mockito.mock(LogicalPlan.class);
+        PrepareCommand prepareCommand = Mockito.mock(PrepareCommand.class);
+        Mockito.when(prepareCommand.getLogicalPlan()).thenReturn(plan);
+
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        PreparedStatementContext preparedStmtCtx = new PreparedStatementContext(
+                prepareCommand, ctx, statementContext, "SELECT * FROM ext_catalog.db.t WHERE id = ?");
+        Mockito.when(ctx.getPreparedStementContext("s")).thenReturn(preparedStmtCtx);
+        // Force the plain-SELECT path: skip the OLAP group-commit fast path so run() falls to executor.execute().
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableGroupCommitFullPrepare = false;
+        Mockito.when(ctx.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+
+        // A no-op executor: we pin the reset wiring, not the planner. execute() is a mock no-op.
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getContext()).thenReturn(ctx);
+
+        new ExecuteCommand("s", prepareCommand, statementContext).run(ctx, executor);
+
+        ConnectorStatementScope secondScope = statementContext.getOrCreateConnectorStatementScope();
+        Assertions.assertNotSame(firstScope, secondScope,
+                "ExecuteCommand drops the reused context's connector scope so the next execution starts fresh");
+        Assertions.assertNotSame(memoizedTable, secondScope.computeIfAbsent("table:1", Object::new),
+                "a prior execution's memoized connector table must not leak into the next EXECUTE");
     }
 
     @Test

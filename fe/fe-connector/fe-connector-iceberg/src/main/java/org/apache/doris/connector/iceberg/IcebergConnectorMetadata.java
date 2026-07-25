@@ -43,8 +43,8 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
-import org.apache.doris.connector.cache.PartitionViewCacheKey;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
@@ -161,14 +161,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // connector is a REST vended-credentials, non-session catalog (see IcebergConnector); the convenience ctors
     // used by direct-construction tests pass null. Consumed only by getTableComment.
     private final IcebergCommentCache commentCache;
-    // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorPartitionViewCache), injected by the
+    // PERF-06: cross-query DERIVED partition-view cache A (generic ConnectorMetadataCache), injected by the
     // owning IcebergConnector; null = no cross-query derived layer (the convenience ctors used by
     // direct-construction tests pass null; a session=user catalog also passes null). Layered ABOVE partitionCache
     // (raw rows): a hit skips the derived-view BUILD, keyed by (db, table, snapshotId, schemaId). Two typed fields
     // because getMvccPartitionView and listPartitions return different derived types. Consumed by
     // getMvccPartitionView / listPartitions respectively.
-    private final ConnectorPartitionViewCache<ConnectorMvccPartitionView> mvccPartitionViewCache;
-    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> listPartitionsViewCache;
+    private final ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache;
+    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache;
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
@@ -214,8 +214,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache,
             IcebergTableCache tableCache, IcebergPartitionCache partitionCache,
             IcebergCommentCache commentCache,
-            ConnectorPartitionViewCache<ConnectorMvccPartitionView> mvccPartitionViewCache,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> listPartitionsViewCache) {
+            ConnectorMetadataCache<ConnectorMvccPartitionView> mvccPartitionViewCache,
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> listPartitionsViewCache) {
         this.catalogOps = catalogOps;
         this.properties = properties;
         this.context = context;
@@ -1693,11 +1693,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * per-manager map and {@code GlobalExternalTransactionInfoMgr}) and stamped into the data sink —
      * the BE&rarr;FE report path finds the txn by this id to feed it commit fragments.
      *
-     * <p>Gate-closed / dormant until the P6.6 cutover: nothing routes plugin-driven iceberg writes
-     * through this path yet. The single SDK {@code org.apache.iceberg.Transaction} that backs commit is
-     * opened lazily by the write plan via {@link IcebergConnectorTransaction#beginWrite}; op selection
-     * (T04), the commit-validation suite (T05), the sink (T06), and the {@code supportsInsert/Delete/
-     * Merge} capability declarations (T06/T07) land in later tasks.</p>
+     * <p>Live since the iceberg SPI cutover: plugin-driven iceberg writes route through this path. The
+     * single SDK {@code org.apache.iceberg.Transaction} that backs commit is opened lazily by the write
+     * plan via {@link IcebergConnectorTransaction#beginWrite}; op selection, the commit-validation suite,
+     * the sink, and the {@code supportsInsert/Delete/Merge} capability declarations are all in place.</p>
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
@@ -1824,7 +1823,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 if (mvccPartitionViewCache == null) {
                     return Optional.of(buildMvccPartitionViewUncached(session, iceHandle));
                 }
-                PartitionViewCacheKey key = new PartitionViewCacheKey(iceHandle.getDbName(),
+                ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
                         iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
                 return Optional.of(mvccPartitionViewCache.get(key,
                         () -> buildMvccPartitionViewUncached(session, iceHandle)));
@@ -1900,7 +1899,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 if (listPartitionsViewCache == null || filter.isPresent()) {
                     return listPartitionsUncached(session, iceHandle);
                 }
-                PartitionViewCacheKey key = new PartitionViewCacheKey(iceHandle.getDbName(),
+                ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
                         iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
                 return listPartitionsViewCache.get(key, () -> listPartitionsUncached(session, iceHandle));
             });

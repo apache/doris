@@ -317,7 +317,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         // Latest schema (no time-travel pin). Shares the single build path with the at-instant overload below
         // (null instant = latest) so the two can never drift.
-        return buildTableSchema((HudiTableHandle) handle, null);
+        return buildTableSchema(session, (HudiTableHandle) handle, null);
     }
 
     /**
@@ -336,30 +336,51 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         HudiTableHandle hudiHandle = (HudiTableHandle) handle;
-        return buildTableSchema(hudiHandle, hudiHandle.getQueryInstant());
+        return buildTableSchema(session, hudiHandle, hudiHandle.getQueryInstant());
     }
 
     /**
-     * Single build path for {@link #getTableSchema}: reads the columns from the Hudi metaClient AS OF
-     * {@code queryInstant} ({@code null} = latest) and wraps them in a {@link ConnectorTableSchema}. Shared by
-     * the latest (2-arg) and at-instant (3-arg) entry points so they cannot diverge.
+     * Single build path for {@link #getTableSchema}: reads the columns AS OF {@code queryInstant}
+     * ({@code null} = latest) and wraps them in a {@link ConnectorTableSchema}. Shared by the latest (2-arg) and
+     * at-instant (3-arg) entry points so they cannot diverge.
+     *
+     * <p>The latest branch ({@code queryInstant == null}) resolves the columns through the per-statement latest-schema
+     * memo ({@link HudiStatementScope#sharedLatestColumns}), so repeated latest reads in one statement share a single
+     * {@link #getSchemaFromMetaClient} call; value and failure semantics are byte-identical to the un-memoized read
+     * (that method already swallows a failure to an empty list / BE BY_NAME). The at-instant branch
+     * ({@code FOR TIME AS OF}) stays on {@link #getSchemaFromMetaClient}, UNMEMOIZED: the memo key does not carry the
+     * instant, so a latest read and an at-instant read of the same table in one statement must not share it.</p>
      */
-    private ConnectorTableSchema buildTableSchema(HudiTableHandle hudiHandle, String queryInstant) {
+    private ConnectorTableSchema buildTableSchema(ConnectorSession session, HudiTableHandle hudiHandle,
+            String queryInstant) {
         String basePath = hudiHandle.getBasePath();
 
         List<ConnectorColumn> columns;
         if (basePath != null && !basePath.isEmpty()) {
-            columns = getSchemaFromMetaClient(basePath, queryInstant);
+            if (queryInstant == null) {
+                columns = HudiStatementScope.sharedLatestColumns(session, hudiHandle.getDbName(),
+                        hudiHandle.getTableName(), () -> getSchemaFromMetaClient(basePath, null));
+            } else {
+                columns = getSchemaFromMetaClient(basePath, queryInstant);
+            }
         } else {
             columns = getSchemaFromHms(hudiHandle.getDbName(), hudiHandle.getTableName());
         }
 
+        return assembleTableSchema(hudiHandle, columns);
+    }
+
+    /**
+     * Wraps the resolved columns in a {@link ConnectorTableSchema}, stamping the hudi table-type and the
+     * partition-column marker fe-core needs to model the table as partitioned (parity with the OLD
+     * HMSExternalTable/HudiDlaTable path, which read the HMS partition keys). The keys already live on the handle
+     * (getTableHandle -> tableInfo.getPartitionKeys()); emit them as the RAW-name CSV, matching the schema column
+     * names (the partition columns are appended to {@code columns} by both schema sources). Shared by the memoized
+     * latest path and the at-instant {@link #buildTableSchema} path.
+     */
+    private ConnectorTableSchema assembleTableSchema(HudiTableHandle hudiHandle, List<ConnectorColumn> columns) {
         Map<String, String> tableProperties = new HashMap<>();
         tableProperties.put("hudi.table.type", hudiHandle.getHudiTableType());
-        // Stamp the partition-column marker fe-core needs to model the table as partitioned (parity with the OLD
-        // HMSExternalTable/HudiDlaTable path, which read the HMS partition keys). The keys already live on the
-        // handle (getTableHandle -> tableInfo.getPartitionKeys()); emit them as the RAW-name CSV, matching the
-        // schema column names (the partition columns are appended to `columns` by both schema sources).
         List<String> partitionKeyNames = hudiHandle.getPartitionKeyNames();
         if (partitionKeyNames != null && !partitionKeyNames.isEmpty()) {
             tableProperties.put(PARTITION_COLUMNS_PROPERTY, String.join(",", partitionKeyNames));
@@ -389,8 +410,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * default delegates here). It is deliberately NOT placed on {@code getWritePlanProvider}: the admission gate
      * calls {@code getWritePlanProvider} to DECIDE, so throwing there would make the gate throw a {@code
      * DorisConnectorException} the engine misclassifies as an internal error instead of the clean "does not
-     * support INSERT" — keep the provider {@code null} and reject explicitly only here (dormant until hms enters
-     * {@code SPI_READY_TYPES}).
+     * support INSERT" — keep the provider {@code null} and reject explicitly only here (with hms live, a user
+     * write against a hudi table reaches this reject on the gateway path).
      */
     @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
@@ -415,7 +436,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
             ConnectorSession session, ConnectorTableHandle handle) {
-        return buildBeginQuerySnapshot(latestInstant((HudiTableHandle) handle));
+        HudiTableHandle hudiHandle = (HudiTableHandle) handle;
+        // Memoized per statement so repeated snapshot pins share one instant read; the loader IS latestInstant, so
+        // the value (and its fail-loud-on-error semantics) is byte-identical to the un-memoized read.
+        return buildBeginQuerySnapshot(HudiStatementScope.sharedLatestInstant(
+                session, hudiHandle.getDbName(), hudiHandle.getTableName(), () -> latestInstant(hudiHandle)));
     }
 
     /** Builds the query-begin snapshot from a pinned instant. Static for offline unit testing. */
@@ -645,12 +670,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
-        return collectPartitions((HudiTableHandle) handle);
+        // Query-pruning / MTMV enumeration: read the cache (bypassCache=false).
+        return collectPartitions((HudiTableHandle) handle, false);
     }
 
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
-        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle);
+        // SHOW PARTITIONS / partitions() TVF: list FRESH (bypassCache=true) so a newly hive-synced partition is
+        // visible immediately, not up to a TTL later.
+        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle, true);
         List<String> names = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             names.add(partition.getPartitionName());
@@ -661,7 +689,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<List<String>> listPartitionValues(ConnectorSession session,
             ConnectorTableHandle handle, List<String> partitionColumns) {
-        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle);
+        // partition_values() TVF (user-facing enumeration): list FRESH (bypassCache=true), like listPartitionNames.
+        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle, true);
         List<List<String>> result = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             Map<String, String> rawValues = partition.getPartitionValues();
@@ -684,7 +713,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
      * table). Explicit time-travel (non-latest) partition listing is a later step.
      */
-    private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle) {
+    private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle, boolean bypassCache) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             return Collections.emptyList();
@@ -693,8 +722,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // hive-sync tables register their partitions in HMS: list the names from there (already authed via
             // hmsClient, no metaClient), like legacy. The instant still comes from the timeline. If HMS has none
             // (a hive-sync table not yet synced), fall back to the hudi metadata listing (legacy parity).
-            List<String> hmsNames = hmsClient.listPartitionNames(
-                    handle.getDbName(), handle.getTableName(), -1);
+            // bypassCache selects the freshness contract (mirrors HiveConnectorMetadata.collectPartitionNames):
+            // the SHOW-PARTITIONS / partition_values-TVF path (listPartitionNames / listPartitionValues) lists
+            // FRESH — legacy read the raw pooled client, so an externally hive-synced partition must not stay
+            // invisible until TTL/REFRESH — while the query-pruning / MTMV path (listPartitions) reads the cache.
+            List<String> hmsNames = bypassCache
+                    ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
+                    : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
             if (hmsNames != null && !hmsNames.isEmpty()) {
                 return buildPartitionInfos(hmsNames, partKeyNames, latestInstant(handle));
             }
@@ -744,8 +778,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return result;
     }
 
-    /** Pins the latest completed instant, building the metaClient under the plugin auth + TCCL pin. */
-    private long latestInstant(HudiTableHandle handle) {
+    /**
+     * Pins the latest completed instant, building the metaClient under the plugin auth + TCCL pin. Package-private so
+     * a same-loader unit test can override it to count instant reads without a live metaClient.
+     */
+    long latestInstant(HudiTableHandle handle) {
         return metaClientExecutor.execute(() ->
                 HudiScanPlanProvider.latestCompletedInstant(
                         HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
