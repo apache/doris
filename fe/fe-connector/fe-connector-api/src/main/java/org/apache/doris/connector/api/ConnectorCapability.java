@@ -39,7 +39,7 @@ public enum ConnectorCapability {
     SUPPORTS_PASSTHROUGH_QUERY,
     /**
      * Indicates the connector exposes per-partition statistics (record count, on-disk size,
-     * file count) via {@link ConnectorTableOps#listPartitions}.
+     * file count) via {@link ConnectorPartitionListingOps#listPartitions}.
      *
      * <p>{@code SHOW PARTITIONS} renders a rich multi-column result (Partition / PartitionKey /
      * RecordCount / FileSizeInBytes / FileCount) for connectors declaring this capability, instead
@@ -86,8 +86,8 @@ public enum ConnectorCapability {
      * Indicates the connector exposes views as queryable objects distinct from tables.
      *
      * <p>When a connector declares this, a plugin-driven table resolves its {@code isView()} from the
-     * connector ({@link ConnectorTableOps#viewExists}) instead of the {@code false} default, the catalog
-     * merges the connector's {@link ConnectorTableOps#listViewNames} back into {@code SHOW TABLES} (iceberg
+     * connector ({@link ConnectorViewOps#viewExists}) instead of the {@code false} default, the catalog
+     * merges the connector's {@link ConnectorViewOps#listViewNames} back into {@code SHOW TABLES} (iceberg
      * subtracts views from {@code listTableNames}), and the read/DML/SHOW CREATE arms treat the object as a
      * view. Connectors with no view concept (e.g. JDBC, ES) must NOT declare it so every table stays
      * {@code isView()==false} and no view round-trips are issued.</p>
@@ -172,7 +172,7 @@ public enum ConnectorCapability {
      * schema-change clause set (nested paths, the {@code MODIFY COLUMN COMMENT} op) for a plugin-driven
      * table only when its connector declares this (replacing the legacy exact-class {@code instanceof
      * IcebergExternalTable} gate). The actual mutation is routed through {@code PluginDrivenExternalCatalog}'s
-     * {@code ColumnPath} column-DDL overrides into the connector's {@link ConnectorTableOps} column-evolution
+     * {@code ColumnPath} column-DDL overrides into the connector's {@link ConnectorColumnEvolutionOps} column-evolution
      * ops. Resolved per-table via {@code hasScanCapability} so an iceberg-on-HMS table (whose catalog
      * connector is hive) inherits it through the reflected per-table capability set, exactly like
      * {@link #SUPPORTS_NESTED_COLUMN_PRUNE}. Connectors without column schema-change support (JDBC, ES,

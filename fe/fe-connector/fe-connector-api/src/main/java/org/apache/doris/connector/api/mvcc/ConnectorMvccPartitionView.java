@@ -26,7 +26,7 @@ import java.util.Objects;
  * refresh path of a plugin-driven MVCC table.
  *
  * <p>The generic table model ({@code PluginDrivenMvccExternalTable}) builds its partition view from
- * {@link org.apache.doris.connector.api.ConnectorTableOps#listPartitions} by default, which always
+ * {@link org.apache.doris.connector.api.ConnectorPartitionListingOps#listPartitions} by default, which always
  * yields {@code LIST} partitions keyed on a last-modified timestamp. Connectors whose partitions are
  * intrinsically ranges (e.g. iceberg's {@code YEAR}/{@code MONTH}/{@code DAY}/{@code HOUR} time
  * transforms) need {@code RANGE} partition items plus a snapshot-id freshness marker to preserve the

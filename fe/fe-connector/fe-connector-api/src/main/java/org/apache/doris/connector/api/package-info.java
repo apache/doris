@@ -104,7 +104,7 @@
  * <li>{@code api/scan/ConnectorScanRange} — {@code TFileRangeDesc}, {@code TTableFormatFileDesc}</li>
  * <li>{@code api/handle/ConnectorWriteHandle} — {@code TSortInfo}</li>
  * <li>{@code api/write/ConnectorSinkPlan} — {@code TDataSink}</li>
- * <li>{@link ConnectorTableOps#buildTableDescriptor} — {@code TTableDescriptor} (written as an inline
+ * <li>{@link ConnectorTableMetadataOps#buildTableDescriptor} — {@code TTableDescriptor} (written as an inline
  *     fully-qualified name, not an import)</li>
  * </ul>
  *

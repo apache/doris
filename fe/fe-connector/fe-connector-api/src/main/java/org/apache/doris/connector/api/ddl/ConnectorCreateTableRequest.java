@@ -27,7 +27,7 @@ import java.util.Objects;
 
 /**
  * Full {@code CREATE TABLE} payload passed to
- * {@code ConnectorTableOps.createTable(session, request)}.
+ * {@code ConnectorTableDdlOps.createTable(session, request)}.
  *
  * <p>Carries partition / bucket / external / {@code IF NOT EXISTS} information
  * absent from the legacy
