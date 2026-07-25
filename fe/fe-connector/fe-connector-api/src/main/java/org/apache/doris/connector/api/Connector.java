@@ -246,16 +246,6 @@ public interface Connector extends Closeable {
         return Collections.emptyMap();
     }
 
-    /** Returns the table-level property descriptors. */
-    default List<ConnectorPropertyMetadata<?>> getTableProperties() {
-        return Collections.emptyList();
-    }
-
-    /** Returns the session-level property descriptors. */
-    default List<ConnectorPropertyMetadata<?>> getSessionProperties() {
-        return Collections.emptyList();
-    }
-
     /**
      * Returns whether connectivity testing should be enabled by default when
      * the user does not explicitly set the {@code test_connection} property.

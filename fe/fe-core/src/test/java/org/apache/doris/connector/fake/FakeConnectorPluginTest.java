@@ -174,8 +174,6 @@ public class FakeConnectorPluginTest {
     void connectorTopLevelDefaults() {
         Assertions.assertNull(connector.getScanPlanProvider());
         Assertions.assertTrue(connector.getCapabilities().isEmpty());
-        Assertions.assertTrue(connector.getTableProperties().isEmpty());
-        Assertions.assertTrue(connector.getSessionProperties().isEmpty());
         Assertions.assertFalse(connector.defaultTestConnection());
         Assertions.assertTrue(connector.testConnection(session).isSuccess());
     }

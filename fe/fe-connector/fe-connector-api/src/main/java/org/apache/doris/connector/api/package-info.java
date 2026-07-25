@@ -127,7 +127,7 @@
  *
  * <p><b>The two module names are inverted relative to common usage</b> (elsewhere, including Trino,
  * "SPI" names what the plugin implements and "API" names the engine services it consumes). Here
- * {@code fe-connector-api} holds the 95 types a connector implements and {@code fe-connector-spi} holds the
+ * {@code fe-connector-api} holds the types a connector implements and {@code fe-connector-spi} holds the
  * handful it consumes. The names are deliberately NOT being changed — renaming would touch every connector
  * pom and the engine's dependencies for a naming win only — so read the content, not the name.</p>
  *
@@ -157,5 +157,37 @@
  * a value, and is wrong, is worse than no line at all — it produces an implementation that compiles, runs,
  * and silently returns wrong results. So when documenting engine behavior, name the engine class (and
  * ideally the method) that does it, so the next reader can re-verify instead of trusting the sentence.</p>
+ *
+ * <h2>Rule 7 — where a connector's tunable knobs live</h2>
+ *
+ * <p>Pick the channel by the SCOPE of the value. Only the second one obliges anyone to touch the engine, so
+ * a knob that can be catalog-scoped should be.</p>
+ *
+ * <ul>
+ * <li><b>Per catalog</b> &rarr; a key in {@code CREATE CATALOG ... PROPERTIES(...)}. The engine hands the
+ *     whole property map to {@code ConnectorProvider.create} and exposes the same map per query through
+ *     {@link ConnectorSession#getCatalogProperties()}; reject a bad value in
+ *     {@code ConnectorProvider.validateProperties} (see Rule 2 for the exception type). Key names, parsing
+ *     and defaults stay entirely inside the connector — <b>prefix the key with the connector's type name</b>
+ *     so two connectors cannot collide. Shipped precedent: {@code hive.ignore_absent_partitions},
+ *     {@code hive.enable_hms_events_incremental_sync} and {@code hive.hms_events_batch_size_per_rpc} are
+ *     declared in {@code HiveConnectorProperties} and read in {@code HiveScanPlanProvider} /
+ *     {@code HiveConnector}; those key strings appear nowhere in {@code fe-core}.</li>
+ * <li><b>Per FE process</b> (one deployment-level value for every catalog, e.g. a driver directory)
+ *     &rarr; an {@code fe.conf} field forwarded through {@code ConnectorContext.getEnvironment()} by
+ *     {@code DefaultConnectorContext.buildEnvironment}. This is the one knob shape that requires an engine
+ *     change per key, so use it only when the value genuinely is not per catalog.</li>
+ * <li><b>Per session</b> &rarr; read the query's session variables from
+ *     {@link ConnectorSession#getSessionProperties()}. The connector does not declare them; it looks up the
+ *     names it cares about.</li>
+ * </ul>
+ *
+ * <p>There is deliberately <b>no declarative property-descriptor mechanism</b> here. One was carried over
+ * from Trino ({@code ConnectorPropertyMetadata} plus two {@link Connector} getters) and shipped for several
+ * releases with zero implementors and zero consumers; it was removed rather than wired up, because in Doris
+ * it would not have solved the thing it looks like it solves — there is no {@code SET SESSION
+ * catalog.property} syntax to feed, and per-catalog values already arrive through the map above. If you find
+ * yourself wanting the engine to validate unknown catalog property keys, that belongs in
+ * {@code ConnectorProvider.validateProperties}, which already exists and already runs.</p>
  */
 package org.apache.doris.connector.api;
