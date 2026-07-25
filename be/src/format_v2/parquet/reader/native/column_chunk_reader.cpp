@@ -1712,6 +1712,85 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
     return Status::OK();
 }
 
+namespace {
+
+template <typename ColumnType>
+bool try_filter_and_project_dictionary_values(
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        const std::vector<uint32_t>& selected_dictionary_indices,
+        const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
+        IColumn::Filter* row_filter) {
+    if (typed_dictionary == nullptr || projected_values == nullptr) {
+        return false;
+    }
+    const auto* dictionary = check_and_get_column<ColumnType>(*typed_dictionary);
+    auto* projected = check_and_get_column<ColumnType>(*projected_values);
+    if (dictionary == nullptr || projected == nullptr) {
+        return false;
+    }
+
+    const auto& dictionary_data = dictionary->get_data();
+    auto& projected_data = projected->get_data();
+    projected_data.reserve(projected_data.size() + selected_dictionary_indices.size());
+    row_filter->reserve(nullable_selection_nulls.size());
+    size_t physical_row = 0;
+    for (const uint8_t is_null : nullable_selection_nulls) {
+        bool keep = false;
+        if (is_null == 0) {
+            const uint32_t dictionary_id = selected_dictionary_indices[physical_row++];
+            // The decoder validates the complete id batch first, preserving atomic output while
+            // allowing this hot gather loop to use unchecked dictionary lookups.
+            keep = dictionary_filter[dictionary_id] != 0;
+            if (keep) {
+                projected_data.push_back(dictionary_data[dictionary_id]);
+            }
+        }
+        row_filter->push_back(keep ? 1 : 0);
+    }
+    DORIS_CHECK_EQ(physical_row, selected_dictionary_indices.size());
+    return true;
+}
+
+bool try_filter_and_project_fixed_width_dictionary(
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        const std::vector<uint32_t>& selected_dictionary_indices,
+        const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
+        IColumn::Filter* row_filter) {
+#define TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnType)                            \
+    if (try_filter_and_project_dictionary_values<ColumnType>(                    \
+                typed_dictionary, projected_values, selected_dictionary_indices, \
+                nullable_selection_nulls, dictionary_filter, row_filter)) {      \
+        return true;                                                             \
+    }
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnUInt8)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt8)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt16)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt128)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnFloat32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnFloat64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDate)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateTime)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateTimeV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeStampTz)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv4)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv6)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal128V2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal128V3)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal256)
+#undef TRY_FIXED_WIDTH_DICTIONARY_COLUMN
+    return false;
+}
+
+} // namespace
+
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices(
         const IColumn::Filter& dictionary_filter, ColumnSelectVector& select_vector,
@@ -1795,48 +1874,35 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
     }
     DORIS_CHECK_EQ(_selected_dictionary_indices.size(), selection.selected_values);
 
-    auto* projected_int = projected_values == nullptr
-                                  ? nullptr
-                                  : check_and_get_column<ColumnInt32>(*projected_values);
-    const auto* dictionary_int = typed_dictionary == nullptr
-                                         ? nullptr
-                                         : check_and_get_column<ColumnInt32>(*typed_dictionary);
-    const bool direct_int_projection = projected_int != nullptr && dictionary_int != nullptr;
-    ColumnInt32::Container* projected_int_data = nullptr;
-    const ColumnInt32::Container* dictionary_int_data = nullptr;
-    if (direct_int_projection) {
-        projected_int_data = &projected_int->get_data();
-        dictionary_int_data = &dictionary_int->get_data();
-        projected_int_data->reserve(projected_int->size() + selection.selected_values);
-    }
+    const bool direct_fixed_width_projection = try_filter_and_project_fixed_width_dictionary(
+            typed_dictionary, projected_values, _selected_dictionary_indices,
+            _nullable_selection_nulls, dictionary_filter, row_filter);
     auto* matched =
             matched_dictionary_ids == nullptr ? nullptr : &matched_dictionary_ids->get_data();
-    if (matched != nullptr) {
+    if (!direct_fixed_width_projection && matched != nullptr) {
         matched->reserve(matched->size() + selection.selected_values);
     }
-    row_filter->reserve(_nullable_selection_nulls.size());
-    size_t physical_row = 0;
-    for (const uint8_t is_null : _nullable_selection_nulls) {
-        bool keep = false;
-        if (is_null == 0) {
-            const uint32_t dictionary_id = _selected_dictionary_indices[physical_row++];
-            // decode_selected_dictionary_indices validates the complete batch before this loop, so
-            // the hot gather can use unchecked dictionary lookups without partial output.
-            keep = dictionary_filter[dictionary_id] != 0;
-            if (keep) {
-                if (direct_int_projection) {
-                    projected_int_data->push_back((*dictionary_int_data)[dictionary_id]);
-                } else if (matched != nullptr) {
+    if (!direct_fixed_width_projection) {
+        row_filter->reserve(_nullable_selection_nulls.size());
+        size_t physical_row = 0;
+        for (const uint8_t is_null : _nullable_selection_nulls) {
+            bool keep = false;
+            if (is_null == 0) {
+                const uint32_t dictionary_id = _selected_dictionary_indices[physical_row++];
+                // The complete id batch was validated before this loop, so unchecked bitmap access
+                // cannot leak partial output for a corrupt page.
+                keep = dictionary_filter[dictionary_id] != 0;
+                if (keep && matched != nullptr) {
                     matched->push_back(cast_set<int32_t>(dictionary_id));
                 }
             }
+            row_filter->push_back(keep ? 1 : 0);
         }
-        row_filter->push_back(keep ? 1 : 0);
+        DORIS_CHECK_EQ(physical_row, _selected_dictionary_indices.size());
     }
-    DORIS_CHECK_EQ(physical_row, _selected_dictionary_indices.size());
     // Commit page progress only after every external dictionary id has been validated.
     _remaining_num_values -= select_vector.num_values();
-    *projected_directly = direct_int_projection;
+    *projected_directly = direct_fixed_width_projection;
     *used_filter = true;
     return Status::OK();
 }

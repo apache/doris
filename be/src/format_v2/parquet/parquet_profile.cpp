@@ -187,6 +187,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictionaryPredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictionaryPredicateProjectedRows", TUnit::UNIT, parquet_profile, 1);
+    dictionary_predicate_fused_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictionaryPredicateFusedProjectedRows", TUnit::UNIT, parquet_profile, 1);
     dict_filter_rewrite_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterRewriteTime", parquet_profile, 1);
     dict_filter_expr_rewrite_time =
@@ -199,6 +201,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictFilterCandidateColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_columns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterColumns", TUnit::UNIT,
                                                        parquet_profile, 1);
+    dict_filter_typed_compare_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterTypedCompareColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_string_compare_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterStringCompareColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_unsupported_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictFilterUnsupportedColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_read_failures = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterReadFailures",
@@ -282,6 +288,7 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .hybrid_selection_batches = hybrid_selection_batches,
             .hybrid_selection_ranges = hybrid_selection_ranges,
             .hybrid_selection_null_fallback_batches = hybrid_selection_null_fallback_batches,
+            .dictionary_predicate_fused_projected_rows = dictionary_predicate_fused_projected_rows,
             .decompress_time = decompress_time,
             .decompress_count = decompress_cnt,
             .decode_header_time = decode_header_time,
@@ -336,6 +343,8 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .dict_filter_build_time = dict_filter_build_time,
             .dict_filter_candidate_columns = dict_filter_candidate_columns,
             .dict_filter_columns = dict_filter_columns,
+            .dict_filter_typed_compare_columns = dict_filter_typed_compare_columns,
+            .dict_filter_string_compare_columns = dict_filter_string_compare_columns,
             .dict_filter_unsupported_columns = dict_filter_unsupported_columns,
             .dict_filter_read_failures = dict_filter_read_failures,
             .rows_filtered_by_dict_filter = rows_filtered_by_dict_filter,

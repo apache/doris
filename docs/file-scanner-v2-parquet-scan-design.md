@@ -340,10 +340,12 @@ flowchart LR
 
 - Applies to compatible equality and range predicates on non-repeated primitive columns whose
   complete Column Chunk uses `RLE_DICTIONARY` or legacy `PLAIN_DICTIONARY` data encoding.
-- Predicate-only batches decode selected IDs straight from the page decoder and never convert the
-  dictionary to a Doris value column. When projection is required, the typed dictionary is cached
-  once per generation: INT survivors are written by the filtering loop itself, other fixed-width
-  types use a compact gather, and variable-width types use typed indexed insert.
+- Predicate-only batches decode selected IDs straight from the page decoder and never materialize
+  a row-sized predicate value column. The typed dictionary is cached once per generation. Simple
+  numeric comparisons build its ID bitmap over contiguous typed values, while string equality and
+  range comparisons operate directly on dictionary slices. When projection is required, all
+  fixed-width survivors are written by the filtering loop itself; strings pre-size their character
+  and offset buffers and copy each compact survivor once.
 - Safe AND subexpressions may remove components exactly covered by dictionary evaluation. OR or
   non-equivalent expressions are not rewritten aggressively.
 - Stateful, potentially throwing, or whole-batch-sensitive expressions disable staged
@@ -600,8 +602,8 @@ entry bitmap; decoded IDs are checked against both dictionary length and bitmap 
 dictionary/plain transition falls back before consuming data. Once selected dictionary reading has
 advanced a page cursor, loss of dictionary output is corruption rather than a retry through another
 path with shifted state. Predicate-only slots stop after decoder-level ID filtering and retain only
-the output row shape. Projected slots write INT survivors in the filtering loop or gather compact
-survivor IDs directly into the target column for other logical types.
+the output row shape. Projected slots write fixed-width survivors in the filtering loop or gather
+compact string survivors directly into pre-sized target buffers.
 
 Missing optional indexes or unsupported predicate/type combinations retain rows. Malformed
 offsets, inconsistent page counts, out-of-range dictionary IDs, overlapping/unsorted invalid ranges,
@@ -874,8 +876,8 @@ flowchart TD
 | --- | --- |
 | Row Group pruning | How many total Row Groups were pruned by Statistics/Dictionary/Bloom, and how much time did each stage take? |
 | Page index pruning | How many indexes were checked, pages/rows were pruned, ranges selected, and pages skipped? |
-| Dictionary row filter | How often were predicates rewritten, dictionaries read, bitmaps built, and attempts successful or rejected? |
-| Dictionary direct predicate | How many batches and input rows filtered through dictionary IDs, and how many survivor values were projected? Inspect `DictionaryPredicateDirectBatches/Rows` and `DictionaryPredicateProjectedRows`. |
+| Dictionary row filter | How often were predicates rewritten, dictionaries read, and bitmaps built? `DictFilterTypedCompareColumns` and `DictFilterStringCompareColumns` distinguish typed kernels from the generic expression fallback. |
+| Dictionary direct predicate | How many batches and input rows were filtered through dictionary IDs, and how many survivor values were projected? Inspect `DictionaryPredicateDirectBatches/Rows`, `DictionaryPredicateProjectedRows`, and `DictionaryPredicateFusedProjectedRows`. |
 | Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
 | Predicate compaction | Did selection-first evaluation avoid repeated movement? Inspect `PredicateCompactionTime/Bytes/Count`; single-column rounds retain row mappings and compact at multi-column/delete/output boundaries. |
 | PLAIN direct predicate | How many eligible predicate-only physical batches and input rows bypassed Doris-column materialization? Inspect `PlainPredicateDirectBatches/Rows`. |

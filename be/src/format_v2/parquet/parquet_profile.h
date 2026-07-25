@@ -41,6 +41,7 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_projected_rows = nullptr;
     // Native page/encoding reader internals. These counters keep page IO, decompression, levels,
     // value decode and conversion attributable to separate stages.
     RuntimeProfile::Counter* decompress_time = nullptr;
@@ -100,8 +101,12 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr; // dictionary page read time (ns)
     RuntimeProfile::Counter* dict_filter_build_time =
             nullptr; // dictionary entry bitmap build time (ns)
-    RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;   // candidate columns
-    RuntimeProfile::Counter* dict_filter_columns = nullptr;             // optimized columns
+    RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr; // candidate columns
+    RuntimeProfile::Counter* dict_filter_columns = nullptr;           // optimized columns
+    RuntimeProfile::Counter* dict_filter_typed_compare_columns =
+            nullptr; // fixed-width typed comparison columns
+    RuntimeProfile::Counter* dict_filter_string_compare_columns =
+            nullptr; // string typed comparison columns
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr; // unsupported columns
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;       // dictionary read failures
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;    // rows filtered by dict
@@ -157,6 +162,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_projected_rows = nullptr;
     RuntimeProfile::Counter* native_read_calls = nullptr;
     RuntimeProfile::Counter* native_page_fragments = nullptr;
     RuntimeProfile::Counter* page_crossing_batches = nullptr;
@@ -219,6 +225,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* dict_filter_build_time = nullptr;
     RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_typed_compare_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_string_compare_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;

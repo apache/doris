@@ -67,6 +67,7 @@ struct ReaderScenario {
     Projection projection;
     int schema_width;
     int predicate_position;
+    ValueType value_type = ValueType::INT32;
 };
 
 struct KernelScenario {
@@ -145,12 +146,14 @@ inline std::vector<KernelScenario> kernel_scenarios() {
 
 inline std::vector<ReaderScenario> reader_scenarios() {
     std::vector<ReaderScenario> scenarios;
-    std::set<std::tuple<ReaderOperation, Encoding, int, Pattern, int, Projection, int, int>> seen;
+    std::set<std::tuple<ReaderOperation, Encoding, int, Pattern, int, Projection, int, int,
+                        ValueType>>
+            seen;
     const auto add = [&](ReaderScenario scenario) {
-        const auto key = std::make_tuple(scenario.operation, scenario.encoding,
-                                         scenario.null_percent, scenario.null_pattern,
-                                         scenario.selectivity_percent, scenario.projection,
-                                         scenario.schema_width, scenario.predicate_position);
+        const auto key = std::make_tuple(
+                scenario.operation, scenario.encoding, scenario.null_percent, scenario.null_pattern,
+                scenario.selectivity_percent, scenario.projection, scenario.schema_width,
+                scenario.predicate_position, scenario.value_type);
         if (seen.insert(key).second) {
             scenarios.push_back(scenario);
         }
@@ -202,6 +205,20 @@ inline std::vector<ReaderScenario> reader_scenarios() {
             scenario.selectivity_percent = selectivity;
             scenario.projection = projection;
             add(scenario);
+        }
+    }
+    for (const auto value_type : {ValueType::INT64, ValueType::BYTE_ARRAY}) {
+        for (const int selectivity : {10, 50}) {
+            for (const auto projection :
+                 {Projection::PREDICATE_ONLY, Projection::PREDICATE_PROJECTED}) {
+                auto scenario = baseline;
+                scenario.operation = ReaderOperation::PREDICATE_SCAN;
+                scenario.encoding = Encoding::DICTIONARY;
+                scenario.selectivity_percent = selectivity;
+                scenario.projection = projection;
+                scenario.value_type = value_type;
+                add(scenario);
+            }
         }
     }
     for (const int width : {4, 32, 128, 512}) {
@@ -337,11 +354,12 @@ inline std::string to_string(ReaderOperation value) {
 }
 
 inline std::string reader_scenario_name(const ReaderScenario& scenario) {
-    return to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/null_" +
-           std::to_string(scenario.null_percent) + "/" + to_string(scenario.null_pattern) +
-           "/sel_" + std::to_string(scenario.selectivity_percent) + "/" +
-           to_string(scenario.projection) + "/width_" + std::to_string(scenario.schema_width) +
-           "/predicate_" + std::to_string(scenario.predicate_position);
+    return to_string(scenario.operation) + "/" + to_string(scenario.encoding) + "/" +
+           to_string(scenario.value_type) + "/null_" + std::to_string(scenario.null_percent) + "/" +
+           to_string(scenario.null_pattern) + "/sel_" +
+           std::to_string(scenario.selectivity_percent) + "/" + to_string(scenario.projection) +
+           "/width_" + std::to_string(scenario.schema_width) + "/predicate_" +
+           std::to_string(scenario.predicate_position);
 }
 
 inline std::string to_string(Kernel value) {

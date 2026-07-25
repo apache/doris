@@ -94,6 +94,64 @@ inline std::shared_ptr<arrow::Array> build_int32_array(int null_percent, Pattern
     return builder.Finish().ValueOrDie();
 }
 
+inline std::shared_ptr<arrow::Array> build_int64_array(int null_percent, Pattern pattern) {
+    arrow::Int64Builder builder;
+    PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
+    for (size_t row = 0; row < READER_ROWS; ++row) {
+        if (is_null_row(row, null_percent, pattern)) {
+            PARQUET_THROW_NOT_OK(builder.AppendNull());
+        } else {
+            PARQUET_THROW_NOT_OK(builder.Append(static_cast<int64_t>(row % 100)));
+        }
+    }
+    return builder.Finish().ValueOrDie();
+}
+
+inline std::string padded_decimal(size_t value) {
+    std::string result = std::to_string(value);
+    result.insert(0, 3 - result.size(), '0');
+    return result;
+}
+
+inline std::shared_ptr<arrow::Array> build_string_array(int null_percent, Pattern pattern) {
+    arrow::StringBuilder builder;
+    PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
+    for (size_t row = 0; row < READER_ROWS; ++row) {
+        if (is_null_row(row, null_percent, pattern)) {
+            PARQUET_THROW_NOT_OK(builder.AppendNull());
+        } else {
+            PARQUET_THROW_NOT_OK(builder.Append(padded_decimal(row % 100)));
+        }
+    }
+    return builder.Finish().ValueOrDie();
+}
+
+inline std::shared_ptr<arrow::Array> build_value_array(const ReaderScenario& scenario) {
+    switch (scenario.value_type) {
+    case ValueType::INT32:
+        return build_int32_array(scenario.null_percent, scenario.null_pattern);
+    case ValueType::INT64:
+        return build_int64_array(scenario.null_percent, scenario.null_pattern);
+    case ValueType::BYTE_ARRAY:
+        return build_string_array(scenario.null_percent, scenario.null_pattern);
+    default:
+        throw std::logic_error("unsupported Parquet reader benchmark value type");
+    }
+}
+
+inline std::shared_ptr<arrow::DataType> arrow_value_type(ValueType value_type) {
+    switch (value_type) {
+    case ValueType::INT32:
+        return arrow::int32();
+    case ValueType::INT64:
+        return arrow::int64();
+    case ValueType::BYTE_ARRAY:
+        return arrow::utf8();
+    default:
+        throw std::logic_error("unsupported Parquet reader benchmark value type");
+    }
+}
+
 inline ::parquet::Encoding::type file_encoding(Encoding encoding) {
     switch (encoding) {
     case Encoding::PLAIN:
@@ -113,9 +171,10 @@ inline ::parquet::Encoding::type file_encoding(Encoding encoding) {
 }
 
 inline std::string fixture_name(const ReaderScenario& scenario) {
-    return "v2_" + to_string(scenario.encoding) + "_null" + std::to_string(scenario.null_percent) +
-           "_" + to_string(scenario.null_pattern) + "_w" + std::to_string(scenario.schema_width) +
-           "_p" + std::to_string(scenario.predicate_position) + ".parquet";
+    return "v2_" + to_string(scenario.encoding) + "_" + to_string(scenario.value_type) + "_null" +
+           std::to_string(scenario.null_percent) + "_" + to_string(scenario.null_pattern) + "_w" +
+           std::to_string(scenario.schema_width) + "_p" +
+           std::to_string(scenario.predicate_position) + ".parquet";
 }
 
 inline void verify_fixture_encoding(const std::filesystem::path& path,
@@ -154,13 +213,14 @@ inline std::filesystem::path ensure_fixture(const ReaderScenario& scenario) {
     std::filesystem::create_directories(directory);
     const auto temporary_path = path.string() + ".tmp";
     std::filesystem::remove(temporary_path);
-    const auto values = build_int32_array(scenario.null_percent, scenario.null_pattern);
+    const auto values = build_value_array(scenario);
     std::vector<std::shared_ptr<arrow::Field>> fields;
     std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
     fields.reserve(scenario.schema_width);
     columns.reserve(scenario.schema_width);
     for (int column = 0; column < scenario.schema_width; ++column) {
-        fields.push_back(arrow::field("c" + std::to_string(column), arrow::int32(), true));
+        fields.push_back(arrow::field("c" + std::to_string(column),
+                                      arrow_value_type(scenario.value_type), true));
         columns.push_back(std::make_shared<arrow::ChunkedArray>(values));
     }
     const auto table = arrow::Table::Make(arrow::schema(std::move(fields)), std::move(columns));
@@ -305,6 +365,24 @@ inline VExprSPtr make_int32_comparison(const std::string& function_name, TExprOp
     return comparison;
 }
 
+inline VExprSPtr make_reader_literal(const ReaderScenario& scenario, const DataTypePtr& type) {
+    switch (scenario.value_type) {
+    case ValueType::INT32:
+        return VLiteral::create_shared(remove_nullable(type),
+                                       Field::create_field<TYPE_INT>(scenario.selectivity_percent));
+    case ValueType::INT64:
+        return VLiteral::create_shared(
+                remove_nullable(type),
+                Field::create_field<TYPE_BIGINT>(scenario.selectivity_percent));
+    case ValueType::BYTE_ARRAY:
+        return VLiteral::create_shared(
+                remove_nullable(type),
+                Field::create_field<TYPE_STRING>(padded_decimal(scenario.selectivity_percent)));
+    default:
+        throw std::logic_error("unsupported Parquet reader benchmark predicate type");
+    }
+}
+
 inline VExprContextSPtr make_complex_residual_predicate(int selectivity_percent, int first_position,
                                                         int later_left_position,
                                                         int later_right_position,
@@ -389,9 +467,7 @@ inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& p
                 VSlotRef::create_shared(static_cast<int>(predicate_position),
                                         static_cast<int>(predicate_position), -1,
                                         session->schema[scenario.predicate_position].type, "c0"),
-                VLiteral::create_shared(
-                        remove_nullable(session->schema[scenario.predicate_position].type),
-                        Field::create_field<TYPE_INT>(scenario.selectivity_percent))));
+                make_reader_literal(scenario, session->schema[scenario.predicate_position].type)));
         throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
         throw_if_error(context->open(&session->runtime_state));
         session->request->conjuncts.push_back(context);
@@ -482,6 +558,19 @@ inline int projected_columns(const ReaderScenario& scenario) {
     return std::min(2, scenario.schema_width);
 }
 
+inline size_t value_width(const ReaderScenario& scenario) {
+    switch (scenario.value_type) {
+    case ValueType::INT32:
+        return sizeof(int32_t);
+    case ValueType::INT64:
+        return sizeof(int64_t);
+    case ValueType::BYTE_ARRAY:
+        return 3;
+    default:
+        return sizeof(int32_t);
+    }
+}
+
 inline void run_reader(benchmark::State& state, ReaderScenario scenario) {
     std::filesystem::path fixture;
     try {
@@ -504,8 +593,9 @@ inline void run_reader(benchmark::State& state, ReaderScenario scenario) {
 
         const auto raw_rows = raw_rows_per_iteration(scenario);
         state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * selected_rows));
-        state.SetBytesProcessed(static_cast<int64_t>(
-                state.iterations() * raw_rows * projected_columns(scenario) * sizeof(int32_t)));
+        state.SetBytesProcessed(
+                static_cast<int64_t>(state.iterations() * raw_rows * projected_columns(scenario) *
+                                     value_width(scenario)));
         state.counters["raw_rows"] = static_cast<double>(raw_rows);
         state.counters["selected_rows"] = static_cast<double>(selected_rows);
         state.counters["fixture_bytes"] = static_cast<double>(std::filesystem::file_size(fixture));

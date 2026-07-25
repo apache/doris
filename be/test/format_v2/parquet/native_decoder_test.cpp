@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vliteral.h"
@@ -4084,6 +4085,25 @@ TEST(ParquetV2NativeDecoderTest, FixedLengthStringsAppendAsOneContiguousSpan) {
     EXPECT_EQ(column.get_data_at(0).to_string_view(), "aaa");
     EXPECT_EQ(column.get_data_at(1).to_string_view(), "bbb");
     EXPECT_EQ(column.get_data_at(2).to_string_view(), "ccc");
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryStringGatherAppendsCompactSurvivors) {
+    ColumnString dictionary;
+    dictionary.insert_data("alpha", 5);
+    dictionary.insert_data("bravo", 5);
+    dictionary.insert_data("charlie", 7);
+    dictionary.insert_data("delta", 5);
+    ColumnString destination;
+    destination.insert_data("prefix", 6);
+    const std::array<uint32_t, 3> indices {3, 1, 2};
+
+    ASSERT_TRUE(try_simd_insert_parquet_dictionary_indices(destination, dictionary, indices.data(),
+                                                           indices.size()));
+    ASSERT_EQ(destination.size(), 4);
+    EXPECT_EQ(destination.get_data_at(0).to_string_view(), "prefix");
+    EXPECT_EQ(destination.get_data_at(1).to_string_view(), "delta");
+    EXPECT_EQ(destination.get_data_at(2).to_string_view(), "bravo");
+    EXPECT_EQ(destination.get_data_at(3).to_string_view(), "charlie");
 }
 
 TEST(ParquetV2NativeDecoderTest, ComplexPageStatisticsPreservePerLeafCrossings) {

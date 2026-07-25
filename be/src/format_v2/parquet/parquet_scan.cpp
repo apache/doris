@@ -31,7 +31,9 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -1392,11 +1394,172 @@ uint16_t count_selected_rows(const IColumn::Filter& filter) {
     return selected_rows;
 }
 
-IColumn::Filter build_dictionary_entry_filter(size_t block_position,
-                                              const ParquetColumnSchema& column_schema,
-                                              const VExprContextSPtrs& conjuncts,
-                                              const IColumn& dictionary) {
-    IColumn::Filter dictionary_filter(dictionary.size(), 1);
+enum class DictionaryEntryFilterKernel {
+    GENERIC,
+    TYPED_FIXED_WIDTH,
+    TYPED_STRING,
+};
+
+template <typename ColumnType>
+bool get_fixed_dictionary_raw_values(const IColumn& dictionary, const uint8_t** values,
+                                     size_t* value_width) {
+    const auto* typed_dictionary = check_and_get_column<ColumnType>(dictionary);
+    if (typed_dictionary == nullptr) {
+        return false;
+    }
+    *values = reinterpret_cast<const uint8_t*>(typed_dictionary->get_data().data());
+    *value_width = sizeof(typename ColumnType::value_type);
+    return true;
+}
+
+bool get_numeric_dictionary_raw_values(PrimitiveType primitive_type, const IColumn& dictionary,
+                                       const uint8_t** values, size_t* value_width) {
+    switch (primitive_type) {
+    case TYPE_INT:
+        return get_fixed_dictionary_raw_values<ColumnInt32>(dictionary, values, value_width);
+    case TYPE_BIGINT:
+        return get_fixed_dictionary_raw_values<ColumnInt64>(dictionary, values, value_width);
+    case TYPE_FLOAT:
+        return get_fixed_dictionary_raw_values<ColumnFloat32>(dictionary, values, value_width);
+    case TYPE_DOUBLE:
+        return get_fixed_dictionary_raw_values<ColumnFloat64>(dictionary, values, value_width);
+    default:
+        return false;
+    }
+}
+
+enum class StringDictionaryCompareOp {
+    EQ,
+    NE,
+    LT,
+    LE,
+    GT,
+    GE,
+};
+
+std::optional<StringDictionaryCompareOp> string_dictionary_compare_op(std::string_view name,
+                                                                      bool reverse) {
+    StringDictionaryCompareOp op;
+    if (name == "eq") {
+        op = StringDictionaryCompareOp::EQ;
+    } else if (name == "ne") {
+        op = StringDictionaryCompareOp::NE;
+    } else if (name == "lt") {
+        op = StringDictionaryCompareOp::LT;
+    } else if (name == "le") {
+        op = StringDictionaryCompareOp::LE;
+    } else if (name == "gt") {
+        op = StringDictionaryCompareOp::GT;
+    } else if (name == "ge") {
+        op = StringDictionaryCompareOp::GE;
+    } else {
+        return std::nullopt;
+    }
+    if (!reverse || op == StringDictionaryCompareOp::EQ || op == StringDictionaryCompareOp::NE) {
+        return op;
+    }
+    switch (op) {
+    case StringDictionaryCompareOp::LT:
+        return StringDictionaryCompareOp::GT;
+    case StringDictionaryCompareOp::LE:
+        return StringDictionaryCompareOp::GE;
+    case StringDictionaryCompareOp::GT:
+        return StringDictionaryCompareOp::LT;
+    case StringDictionaryCompareOp::GE:
+        return StringDictionaryCompareOp::LE;
+    default:
+        __builtin_unreachable();
+    }
+}
+
+bool string_compare_matches(int comparison, StringDictionaryCompareOp op) {
+    switch (op) {
+    case StringDictionaryCompareOp::EQ:
+        return comparison == 0;
+    case StringDictionaryCompareOp::NE:
+        return comparison != 0;
+    case StringDictionaryCompareOp::LT:
+        return comparison < 0;
+    case StringDictionaryCompareOp::LE:
+        return comparison <= 0;
+    case StringDictionaryCompareOp::GT:
+        return comparison > 0;
+    case StringDictionaryCompareOp::GE:
+        return comparison >= 0;
+    }
+    __builtin_unreachable();
+}
+
+bool try_apply_string_dictionary_conjunct(size_t block_position, const DataTypePtr& column_type,
+                                          const VExprSPtr& root, const IColumn& dictionary,
+                                          IColumn::Filter* dictionary_filter) {
+    const auto fn = std::dynamic_pointer_cast<VectorizedFnCall>(root);
+    if (fn == nullptr || (!dictionary.is_column_string() && !dictionary.is_column_string64())) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(fn->children());
+    if (!slot_literal.has_value() || slot_literal->slot_index != block_position ||
+        slot_literal->literal.get_type() != TYPE_STRING ||
+        !remove_nullable(slot_literal->slot_type)->equals(*remove_nullable(column_type)) ||
+        !remove_nullable(slot_literal->literal_type)->equals(*remove_nullable(column_type))) {
+        return false;
+    }
+    const auto op =
+            string_dictionary_compare_op(fn->function_name(), slot_literal->literal_on_left);
+    if (!op.has_value()) {
+        return false;
+    }
+    const auto& literal = slot_literal->literal.get<TYPE_STRING>();
+    const StringRef literal_ref(literal.data(), literal.size());
+    for (size_t dictionary_id = 0; dictionary_id < dictionary.size(); ++dictionary_id) {
+        const int comparison = dictionary.get_data_at(dictionary_id).compare(literal_ref);
+        (*dictionary_filter)[dictionary_id] &= string_compare_matches(comparison, *op) ? 1 : 0;
+    }
+    return true;
+}
+
+Status build_dictionary_entry_filter(size_t block_position,
+                                     const ParquetColumnSchema& column_schema,
+                                     const VExprContextSPtrs& conjuncts, const IColumn& dictionary,
+                                     IColumn::Filter* dictionary_filter,
+                                     DictionaryEntryFilterKernel* kernel) {
+    DORIS_CHECK(dictionary_filter != nullptr);
+    DORIS_CHECK(kernel != nullptr);
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary.size(), 1);
+    *kernel = DictionaryEntryFilterKernel::GENERIC;
+    const auto typed_data_type = remove_nullable(column_schema.type);
+    const uint8_t* raw_values = nullptr;
+    size_t value_width = 0;
+    if (std::ranges::all_of(conjuncts,
+                            [&](const auto& conjunct) {
+                                return conjunct->root()->can_execute_on_raw_fixed_values(
+                                        column_schema.type, block_position);
+                            }) &&
+        get_numeric_dictionary_raw_values(typed_data_type->get_primitive_type(), dictionary,
+                                          &raw_values, &value_width)) {
+        // A dictionary is immutable for the row group, so compare its contiguous typed values once
+        // and reuse the resulting id bitmap for every data page.
+        for (const auto& conjunct : conjuncts) {
+            RETURN_IF_ERROR(conjunct->root()->execute_on_raw_fixed_values(
+                    raw_values, dictionary.size(), value_width, column_schema.type, block_position,
+                    dictionary_filter->data()));
+        }
+        *kernel = DictionaryEntryFilterKernel::TYPED_FIXED_WIDTH;
+        return Status::OK();
+    }
+
+    if (std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return try_apply_string_dictionary_conjunct(block_position, column_schema.type,
+                                                        conjunct->root(), dictionary,
+                                                        dictionary_filter);
+        })) {
+        *kernel = DictionaryEntryFilterKernel::TYPED_STRING;
+        return Status::OK();
+    }
+
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary.size(), 1);
     DictionaryEvalContext ctx;
     auto& slot = ctx.slots
                          .emplace(static_cast<int>(block_position),
@@ -1409,12 +1572,13 @@ IColumn::Filter build_dictionary_entry_filter(size_t block_position,
         dictionary.get(dictionary_id, value);
         slot.values.clear();
         slot.values.push_back(std::move(value));
-        dictionary_filter[dictionary_id] = VExprContext::evaluate_dictionary_filter(
-                                                   conjuncts, ctx) == ZoneMapFilterResult::kNoMatch
-                                                   ? 0
-                                                   : 1;
+        (*dictionary_filter)[dictionary_id] =
+                VExprContext::evaluate_dictionary_filter(conjuncts, ctx) ==
+                                ZoneMapFilterResult::kNoMatch
+                        ? 0
+                        : 1;
     }
-    return dictionary_filter;
+    return Status::OK();
 }
 
 } // namespace
@@ -1499,8 +1663,15 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         OwnedExpressionConjuncts residual_conjuncts;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_build_time);
-            dictionary_filter = build_dictionary_entry_filter(
-                    block_position, *column_schema, conjunct_it->second, *dictionary_values);
+            DictionaryEntryFilterKernel filter_kernel = DictionaryEntryFilterKernel::GENERIC;
+            RETURN_IF_ERROR(build_dictionary_entry_filter(block_position, *column_schema,
+                                                          conjunct_it->second, *dictionary_values,
+                                                          &dictionary_filter, &filter_kernel));
+            if (filter_kernel == DictionaryEntryFilterKernel::TYPED_FIXED_WIDTH) {
+                update_counter_if_not_null(_scan_profile.dict_filter_typed_compare_columns, 1);
+            } else if (filter_kernel == DictionaryEntryFilterKernel::TYPED_STRING) {
+                update_counter_if_not_null(_scan_profile.dict_filter_string_compare_columns, 1);
+            }
             residual_conjuncts = build_dictionary_residual_conjuncts(conjunct_it->second);
         }
 

@@ -618,6 +618,10 @@ Status NativeColumnReader::select_with_dictionary_filter(const SelectionVector& 
                     auto& null_map = projected_nullable->get_null_map_data();
                     null_map.resize_fill(null_map.size() + survivor_count, 0);
                 }
+                if (_profile.dictionary_predicate_fused_projected_rows != nullptr) {
+                    COUNTER_UPDATE(_profile.dictionary_predicate_fused_projected_rows,
+                                   survivor_count);
+                }
             } else {
                 DORIS_CHECK_EQ(direct_matched_ids->size(), survivor_count);
                 RETURN_IF_ERROR(_native_reader->append_dictionary_values(direct_matched_ids, _type,
