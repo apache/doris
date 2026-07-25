@@ -748,7 +748,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "endTimestamp" = "${endTimestamp}",
                 "incrementType" =  "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(6, detailWithRangeRows.size())
         assertEquals("2", detailWithRangeRows[0][0].toString())
@@ -774,14 +774,14 @@ suite("test_min_delta_stream", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "incrementType" =  "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(detailWithRangeRows, detailWithStartRows)
 
         def minDeltaDefaultRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr("incrementType" =  "MIN_DELTA")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(2, minDeltaDefaultRows.size())
         assertEquals("2", minDeltaDefaultRows[0][0].toString())
@@ -794,7 +794,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         def emptyIncrRows = sql """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrBase}@incr()
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(minDeltaDefaultRows, emptyIncrRows)
 
@@ -825,7 +825,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrDupBase}@incr('startTimestamp' = '${dupStartTimestamp}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(1, dupDetailRows.size())
         assertEquals("3", dupDetailRows[0][0].toString())
@@ -870,7 +870,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${incrMowNoHistoryBase}@incr('startTimestamp' = '${mowNoHistoryStartTimestamp}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         assertEquals(1, mowNoHistoryDetailRows.size())
         assertEquals("1", mowNoHistoryDetailRows[0][0].toString())
