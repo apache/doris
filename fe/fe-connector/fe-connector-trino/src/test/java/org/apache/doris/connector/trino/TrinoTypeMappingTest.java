@@ -40,6 +40,9 @@ import io.trino.spi.type.VarcharType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 /**
  * Unit tests for {@link TrinoTypeMapping}: every supported Trino SPI type must map to
  * the Doris {@link ConnectorType} name (and precision/scale/children) that the rest of
@@ -130,6 +133,34 @@ public class TrinoTypeMappingTest {
         Assertions.assertEquals(2, ct.getChildren().size());
         Assertions.assertEquals("INT", ct.getChildren().get(0).getTypeName());
         Assertions.assertEquals("STRING", ct.getChildren().get(1).getTypeName());
+        // WHY the names matter: Doris resolves STRUCT sub-field access BY NAME. Drop them here and
+        // fe-core invents "col0"/"col1", so DESCRIBE shows fabricated names and every `SELECT s.a`
+        // written against the source schema is rejected at analysis time as "field a was not found".
+        // The user then has no way at all to reach the field by its real name.
+        Assertions.assertEquals(Arrays.asList("a", "b"), ct.getFieldNames());
+        Assertions.assertEquals(ct.getChildren().size(), ct.getFieldNames().size());
+    }
+
+    @Test
+    public void testAnonymousStructFieldsNamedByPosition() {
+        // Trino ROWs can be anonymous. Each field still needs a DISTINCT resolvable name; the legacy
+        // fe-core mapping named them all "col", which collides as soon as there is more than one.
+        ConnectorType ct = TrinoTypeMapping.toConnectorType(
+                RowType.anonymousRow(IntegerType.INTEGER, VarcharType.VARCHAR));
+        Assertions.assertEquals(Arrays.asList("col0", "col1"), ct.getFieldNames());
+    }
+
+    @Test
+    public void testNestedStructCarriesInnerFieldNames() {
+        // row(a int, b row(c int)) - the recursive path has to carry names too, not just the top level.
+        RowType inner = RowType.rowType(RowType.field("c", IntegerType.INTEGER));
+        ConnectorType ct = TrinoTypeMapping.toConnectorType(RowType.rowType(
+                RowType.field("a", IntegerType.INTEGER),
+                RowType.field("b", inner)));
+        Assertions.assertEquals(Arrays.asList("a", "b"), ct.getFieldNames());
+        ConnectorType nested = ct.getChildren().get(1);
+        Assertions.assertEquals("STRUCT", nested.getTypeName());
+        Assertions.assertEquals(Collections.singletonList("c"), nested.getFieldNames());
     }
 
     @Test
