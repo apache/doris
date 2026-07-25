@@ -25,7 +25,6 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,23 +55,6 @@ public class FakeConnectorPluginTest {
         connector = plugin.create(Collections.emptyMap(), context);
         session = new FakeConnectorPlugin.FakeSession("fake_cat", 1L);
         metadata = connector.getMetadata(session);
-    }
-
-    // ──────────────────── ConnectorContext defaults ────────────────────
-
-    @Test
-    void contextMetaInvalidatorDefaultsToNoop() {
-        ConnectorContext context = new FakeConnectorPlugin.FakeContext("fake_cat", 1L);
-        // T04: default getMetaInvalidator() returns NOOP — exercising it must not throw.
-        Assertions.assertSame(ConnectorMetaInvalidator.NOOP,
-                context.getMetaInvalidator(),
-                "default ConnectorContext.getMetaInvalidator() should return NOOP");
-        context.getMetaInvalidator().invalidateAll();
-        context.getMetaInvalidator().invalidateDatabase("db");
-        context.getMetaInvalidator().invalidateTable("db", "t");
-        context.getMetaInvalidator().invalidatePartition(
-                "db", "t", Collections.singletonList("2024"));
-        context.getMetaInvalidator().invalidateStatistics("db", "t");
     }
 
     // ──────────────────── ConnectorSession defaults ────────────────────

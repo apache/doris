@@ -100,17 +100,6 @@ public interface ConnectorContext {
     }
 
     /**
-     * Returns the meta invalidator the connector can call to notify the engine
-     * of external metadata changes (e.g. from HMS notification events).
-     *
-     * <p>Connectors that have no external change notifications can ignore this;
-     * the default returns {@link ConnectorMetaInvalidator#NOOP}.</p>
-     */
-    default ConnectorMetaInvalidator getMetaInvalidator() {
-        return ConnectorMetaInvalidator.NOOP;
-    }
-
-    /**
      * Builds a <em>sibling</em> connector of another catalog type on top of this same catalog's context, for a
      * heterogeneous "gateway" connector that serves more than one table format from a single catalog and must
      * delegate some tables to another format's connector (e.g. a Hive-metastore catalog whose Iceberg-registered

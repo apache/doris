@@ -21,7 +21,6 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
@@ -77,19 +76,6 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** Broker addresses the fake returns from {@link #getBrokerAddresses()} (broker write sink). Default none,
      * so a FILE_BROKER write fails loud ("No alive broker.") unless a test populates it. */
     List<ConnectorBrokerAddress> brokerAddresses = Collections.emptyList();
-
-    /** "db.table" keys the connector invalidated via {@link #getMetaInvalidator()} (P6.4 procedure dispatch). */
-    final List<String> invalidatedTables = new ArrayList<>();
-
-    @Override
-    public ConnectorMetaInvalidator getMetaInvalidator() {
-        return new ConnectorMetaInvalidator() {
-            @Override
-            public void invalidateTable(String dbName, String tableName) {
-                invalidatedTables.add(dbName + "." + tableName);
-            }
-        };
-    }
 
     @Override
     public String getCatalogName() {

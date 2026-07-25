@@ -98,11 +98,6 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
-    public ConnectorMetaInvalidator getMetaInvalidator() {
-        return delegate.getMetaInvalidator();
-    }
-
-    @Override
     public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
         return delegate.createSiblingConnector(catalogType, properties);
     }

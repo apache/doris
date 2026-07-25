@@ -30,7 +30,6 @@ import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.credentials.CredentialUtils;
@@ -163,11 +162,6 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
     @Override
     public ConnectorHttpSecurityHook getHttpSecurityHook() {
         return httpSecurityHook;
-    }
-
-    @Override
-    public ConnectorMetaInvalidator getMetaInvalidator() {
-        return new ExternalMetaCacheInvalidator(catalogId);
     }
 
     @Override

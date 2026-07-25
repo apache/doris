@@ -24,9 +24,9 @@
  * <li>{@link ConnectorProvider} — <b>implemented by the connector</b>. It is the single entry point the
  *     engine discovers, via Java ServiceLoader or directory-based plugin loading; a connector registers it
  *     in {@code META-INF/services}.</li>
- * <li>{@link ConnectorContext}, {@link ConnectorMetaInvalidator}, {@link ConnectorBrokerAddress} —
- *     <b>implemented (or produced) by the engine</b> and handed to the connector: the storage, filesystem,
- *     authentication and cache-invalidation services a plugin may use without depending on the engine.</li>
+ * <li>{@link ConnectorContext}, {@link ConnectorBrokerAddress} — <b>implemented (or produced) by the
+ *     engine</b> and handed to the connector: the storage, filesystem and authentication services a plugin
+ *     may use without depending on the engine.</li>
  * </ul>
  *
  * <p><b>This package is NOT where the interfaces a connector implements live.</b> Apart from
