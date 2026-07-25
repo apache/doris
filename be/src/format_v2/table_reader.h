@@ -574,6 +574,7 @@ protected:
 
     Status _build_table_filters_from_conjuncts();
     Status _replace_conjuncts(const VExprContextSPtrs& conjuncts);
+    Status _clone_conjunct(const VExprContextSPtr& source, VExprContextSPtr* cloned);
     Status _prepare_conjunct(const VExprContextSPtr& source, VExprContextSPtr* prepared);
     Status _prepare_remaining_conjuncts(const FilterLocalizationResult& localization_result);
     Status _prepare_all_conjuncts_as_remaining();

@@ -195,6 +195,9 @@ private:
 
     std::unique_ptr<format::TableReader> _table_reader;
     size_t _table_reader_owned_conjunct_count = 0;
+    // Cost sorting must not let a late runtime filter cross an older unsafe ordering barrier
+    // when the next split rebuilds its partition-pruning conjuncts.
+    VExprContextSPtrs _append_ordered_conjuncts;
     // Scanner owns one persistent context vector for the first unsafe conjunct and every later
     // conjunct. Hybrid child readers may be recreated or switched, but this state must not be.
     VExprContextSPtrs _scanner_residual_conjuncts;

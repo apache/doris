@@ -553,6 +553,21 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_to_file_format(format_type, &file_format));
     DORIS_CHECK(_table_reader != nullptr);
 
+    if (!_late_arrival_rf_conjuncts.empty()) {
+        const size_t owned_count = _scanner_residual_conjuncts.empty()
+                                           ? _safe_conjunct_prefix_size(_late_arrival_rf_conjuncts)
+                                           : 0;
+        _table_reader_owned_conjunct_count += owned_count;
+        _scanner_residual_conjuncts.insert(
+                _scanner_residual_conjuncts.end(),
+                _late_arrival_rf_conjuncts.begin() + cast_set<ptrdiff_t>(owned_count),
+                _late_arrival_rf_conjuncts.end());
+        _append_ordered_conjuncts.insert(_append_ordered_conjuncts.end(),
+                                         _late_arrival_rf_conjuncts.begin(),
+                                         _late_arrival_rf_conjuncts.end());
+        _late_arrival_rf_conjuncts.clear();
+        _refresh_scanner_residual_profile();
+    }
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
     std::optional<std::vector<format::GlobalIndex>> push_down_count_columns;
@@ -585,8 +600,6 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
     _table_reader_applied_rf_num = _applied_rf_num;
-    // RFs collected before TableReader initialization are already present in the full snapshot.
-    _late_arrival_rf_conjuncts.clear();
     return Status::OK();
 }
 
@@ -826,7 +839,7 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
 }
 
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
-    return _build_table_conjuncts(_conjuncts, conjuncts);
+    return _build_table_conjuncts(_append_ordered_conjuncts, conjuncts);
 }
 
 Status FileScannerV2::_build_table_conjuncts(const VExprContextSPtrs& source,
@@ -853,6 +866,7 @@ size_t FileScannerV2::_safe_conjunct_prefix_size(const VExprContextSPtrs& conjun
 }
 
 void FileScannerV2::_initialize_scanner_residual_conjuncts() {
+    _append_ordered_conjuncts = _conjuncts;
     _table_reader_owned_conjunct_count = _safe_conjunct_prefix_size(_conjuncts);
     // Preserve the entire suffix, not only the unsafe expression. Otherwise a later safe
     // predicate could run below Scanner before a stateful/error-preserving ordering barrier.
@@ -894,6 +908,9 @@ Status FileScannerV2::_sync_table_reader_conjuncts() {
     // Preserve existing expression state and append the identity-tracked RF delta. Cost sorting
     // may move a late RF ahead of an old stateful predicate in the full scanner snapshot.
     RETURN_IF_ERROR(_table_reader->append_conjuncts_with_ownership(appended, owned_count));
+    _append_ordered_conjuncts.insert(_append_ordered_conjuncts.end(),
+                                     _late_arrival_rf_conjuncts.begin(),
+                                     _late_arrival_rf_conjuncts.end());
     _table_reader_owned_conjunct_count += owned_count;
     _scanner_residual_conjuncts.insert(
             _scanner_residual_conjuncts.end(),

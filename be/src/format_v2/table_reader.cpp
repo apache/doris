@@ -742,13 +742,20 @@ Status TableReader::init(TableReadOptions&& options) {
     return _replace_conjuncts(options.conjuncts);
 }
 
-Status TableReader::_prepare_conjunct(const VExprContextSPtr& source, VExprContextSPtr* prepared) {
+Status TableReader::_clone_conjunct(const VExprContextSPtr& source, VExprContextSPtr* cloned) {
     DORIS_CHECK(source != nullptr);
     DORIS_CHECK(source->root() != nullptr);
-    DORIS_CHECK(prepared != nullptr);
+    DORIS_CHECK(cloned != nullptr);
     VExprSPtr root;
     RETURN_IF_ERROR(clone_table_expr_tree(source->root(), &root));
-    auto conjunct = VExprContext::create_shared(std::move(root));
+    *cloned = VExprContext::create_shared(std::move(root));
+    return Status::OK();
+}
+
+Status TableReader::_prepare_conjunct(const VExprContextSPtr& source, VExprContextSPtr* prepared) {
+    DORIS_CHECK(prepared != nullptr);
+    VExprContextSPtr conjunct;
+    RETURN_IF_ERROR(_clone_conjunct(source, &conjunct));
     RETURN_IF_ERROR(conjunct->prepare(_runtime_state, RowDescriptor {}));
     RETURN_IF_ERROR(conjunct->open(_runtime_state));
     *prepared = std::move(conjunct);
@@ -758,9 +765,15 @@ Status TableReader::_prepare_conjunct(const VExprContextSPtr& source, VExprConte
 Status TableReader::_replace_conjuncts(const VExprContextSPtrs& conjuncts) {
     VExprContextSPtrs prepared;
     prepared.reserve(conjuncts.size());
-    for (const auto& source : conjuncts) {
+    for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
         VExprContextSPtr conjunct;
-        RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        if (conjunct_index < _table_reader_owned_conjunct_count) {
+            RETURN_IF_ERROR(_prepare_conjunct(conjuncts[conjunct_index], &conjunct));
+        } else {
+            // Scanner-owned suffixes are cloned only for pruning analysis; preparing them here
+            // would duplicate expression state that must remain exclusively in Scanner.
+            RETURN_IF_ERROR(_clone_conjunct(conjuncts[conjunct_index], &conjunct));
+        }
         prepared.push_back(std::move(conjunct));
     }
     _conjuncts = std::move(prepared);
@@ -786,7 +799,12 @@ Status TableReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
     for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
         const auto& source = conjuncts[conjunct_index];
         VExprContextSPtr conjunct;
-        RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        if (conjunct_index < owned_count) {
+            RETURN_IF_ERROR(_prepare_conjunct(source, &conjunct));
+        } else {
+            // Preserve Scanner as the sole owner of runtime state for appended residuals.
+            RETURN_IF_ERROR(_clone_conjunct(source, &conjunct));
+        }
         _conjuncts.push_back(conjunct);
         if (conjunct_index < owned_count) {
             ++_table_reader_owned_conjunct_count;

@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -143,6 +144,16 @@ private:
     std::shared_ptr<RetryableCloseState> _state;
 };
 
+class CapturingAppendTableReader final : public format::TableReader {
+public:
+    Status append_conjuncts(const VExprContextSPtrs& conjuncts) override {
+        appended_conjuncts = conjuncts;
+        return Status::OK();
+    }
+
+    VExprContextSPtrs appended_conjuncts;
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -163,6 +174,13 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
     bool is_safe_to_execute_on_selected_rows() const override { return false; }
+    double execute_cost() const override { return 100.0; }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<UnsafePartitionPredicate>();
+        return Status::OK();
+    }
 
 private:
     const std::string _expr_name = "UnsafePartitionPredicate";
@@ -909,6 +927,39 @@ TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
     ASSERT_NE(residual_predicates, nullptr);
     EXPECT_FALSE(residual_predicates->empty());
     EXPECT_NE(residual_predicates->find("SlotRef"), std::string::npos) << *residual_predicates;
+}
+
+TEST(FileScannerV2Test, NextSplitPartitionPruningPreservesLateRuntimeFilterAppendOrder) {
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
+    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
+    auto unsafe = runtime_filter_context(std::move(unsafe_predicate), 1);
+    auto late_runtime_filter = runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 2);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2");
+    auto table_reader = std::make_unique<CapturingAppendTableReader>();
+    auto* capturing_reader = table_reader.get();
+    FileScannerV2 scanner(&state, &profile, std::move(table_reader));
+    scanner._slot_id_to_global_index.emplace(1, format::GlobalIndex(0));
+    scanner.TEST_set_scanner_conjuncts({unsafe});
+
+    scanner._conjuncts = {unsafe, late_runtime_filter};
+    std::ranges::stable_sort(scanner._conjuncts, [](const auto& left, const auto& right) {
+        return left->execute_cost() < right->execute_cost();
+    });
+    ASSERT_EQ(scanner._conjuncts[0], late_runtime_filter);
+    scanner._late_arrival_rf_conjuncts = {late_runtime_filter};
+    scanner._applied_rf_num = 1;
+
+    ASSERT_TRUE(scanner._sync_table_reader_conjuncts().ok());
+    ASSERT_EQ(capturing_reader->appended_conjuncts.size(), 1);
+    VExprContextSPtrs partition_prune_conjuncts;
+    ASSERT_TRUE(scanner._build_table_conjuncts(&partition_prune_conjuncts).ok());
+
+    ASSERT_EQ(partition_prune_conjuncts.size(), 2);
+    EXPECT_FALSE(format::TableReader::is_safe_to_pre_execute(partition_prune_conjuncts[0]));
+    EXPECT_TRUE(format::TableReader::is_safe_to_pre_execute(partition_prune_conjuncts[1]));
 }
 
 } // namespace doris
