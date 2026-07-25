@@ -148,6 +148,29 @@ public class AggregateUtils {
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
+    /**
+     * Whether any distinct argument is near-unique (high ndv relative to input rows).
+     *
+     * MultiDistinct keeps a per-group hash set of every distinct value on a single node, so a
+     * near-unique distinct argument under a low-cardinality group by makes one node hold a whole
+     * group's value set. In that case CTE split (which redistributes on the distinct key) is far
+     * safer. Estimates via ExpressionEstimation so if(cond, col, null) propagates col's ndv;
+     * unknown stats do not trigger, to avoid pushing safe cases onto the costlier CTE path.
+     */
+    public static boolean hasHighNdvDistinctArgument(
+            LogicalAggregate<? extends Plan> agg, Statistics childStats, double row) {
+        for (Expression distinctArgument : agg.getDistinctArguments()) {
+            ColumnStatistic stat = ExpressionEstimation.estimate(distinctArgument, childStats);
+            if (stat == null || stat.isUnKnown()) {
+                continue;
+            }
+            if (stat.ndv >= row * MID_CARDINALITY_THRESHOLD) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** count agg function distinct group, up to 2*/
     public static int distinctArgumentGroupCountUpToTwo(Aggregate<? extends Plan> aggregate) {
         Set<Expression> distinctArgumentGroup = null;

@@ -171,11 +171,22 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
                 }
             }
         } else {
+            // A near-unique distinct argument makes MultiDistinct hold a whole group's value set on
+            // one node; force CTE split (redistributes on the distinct key) as the no-group-by branch
+            // above already does. Checked before hasUnknownStatistics so a function group-by key
+            // (e.g. format_datetime) with unknown stats still gets protected.
+            if (AggregateUtils.hasHighNdvDistinctArgument(agg, childStats, row)) {
+                return false;
+            }
             if (agg.hasSkewHint()) {
                 return false;
             }
             if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
-                return true;
+                // No group-by stats to judge cardinality. Grouping by a single low-cardinality key
+                // is the common MultiDistinct OOM case (parallelism capped at the group count), so
+                // prefer CTE split there; with >=2 group-by keys the joint cardinality is usually
+                // high enough for MultiDistinct to spread safely. Mirrors StarRocks' fallback.
+                return agg.getGroupByExpressions().size() >= 2;
             }
             // The joint ndv of Group by key is high, so multi_distinct is not selected;
             if (aggStats.getRowCount() >= row * AggregateUtils.LOW_CARDINALITY_THRESHOLD) {

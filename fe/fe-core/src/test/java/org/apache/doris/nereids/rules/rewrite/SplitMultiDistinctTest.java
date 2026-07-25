@@ -203,16 +203,30 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
 
     @Test
     void multiSumWithGby() {
+        // group by a single column with unknown stats: stage-2 fallback prefers CTE split
+        // (parallelism would otherwise be capped at the group count). See DistinctAggStrategySelector.
         String sql = "select sum(distinct b), sum(distinct a) from test_distinct_multi group by c";
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             Plan plan = planner.getOptimizedPlan();
             MatchingUtils.assertMatches(plan,
-                    physicalResultSink(
-                            physicalDistribute(
-                                    physicalProject(
-                                            physicalHashAggregate(
-                                                    physicalDistribute(
-                                                            physicalHashAggregate(any())))))));
+                    physicalCTEAnchor(
+                            physicalCTEProducer(any()),
+                            physicalResultSink(
+                                    physicalDistribute(
+                                            physicalProject(
+                                                    physicalHashJoin(
+                                                            physicalProject(
+                                                                    physicalHashAggregate(
+                                                                            physicalDistribute(any()))),
+                                                            physicalProject(
+                                                                    physicalHashAggregate(
+                                                                            physicalDistribute(any())))
+                                                    ).when(join -> join.getJoinType() == JoinType.INNER_JOIN)
+                                            )
+                                    )
+                            )
+                    )
+            );
         });
     }
 }
