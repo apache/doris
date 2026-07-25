@@ -142,6 +142,14 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public boolean supportsFileCache() {
+        // copy-on-write hudi tables are read by BE's native parquet reader. Declared explicitly because hudi
+        // tables live in an hms catalog: once governance follows the serving connector rather than the
+        // catalog type name, not declaring it here would silently drop hudi out of admission control.
+        return true;
+    }
+
+    @Override
     public List<ConnectorScanRange> planScan(
             ConnectorSession session,
             ConnectorTableHandle handle,

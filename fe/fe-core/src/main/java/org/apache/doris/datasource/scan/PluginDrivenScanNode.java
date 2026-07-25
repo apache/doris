@@ -1764,6 +1764,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
 
     @Override
+    protected boolean isFileCacheAdmissionApplicable() {
+        // Answered by the connector that will actually serve this scan — for a heterogeneous catalog that is
+        // the sibling picked from the table handle, not the catalog's own type. A connector that has not
+        // resolved (system tables, an unavailable plugin) stays out of the governance, as before.
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        return scanProvider != null && onPluginClassLoader(scanProvider, scanProvider::supportsFileCache);
+    }
+
+    @Override
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
         // Delegate scan-level Thrift params to the connector SPI

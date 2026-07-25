@@ -78,7 +78,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -112,12 +111,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
-
-    // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
-    // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
-    private static final Set<String> CACHEABLE_CATALOGS = new HashSet<>(
-            Arrays.asList("hms", "iceberg", "paimon")
-    );
 
     /**
      * External file scan node for Query hms table
@@ -736,6 +729,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return this.scanParams;
     }
 
+    /**
+     * Whether BE's file cache applies to what this node scans, and therefore whether the engine's file-cache
+     * admission governance is meaningful for it. The data this node reads must go through BE's native file
+     * readers; JNI-read and remote-protocol scans never populate that cache, so evaluating an admission rule
+     * for them only costs the lookup.
+     *
+     * <p>Defaults to false, which keeps the table-valued-function and remote-Doris scan nodes out of the
+     * governance exactly as before. The plugin-driven node answers from the serving connector.</p>
+     */
+    protected boolean isFileCacheAdmissionApplicable() {
+        return false;
+    }
+
     protected boolean fileCacheAdmissionCheck() throws UserException {
         boolean admissionResultAtTableLevel = true;
         TableIf tableIf = getTargetTable();
@@ -746,7 +752,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             String database = tableIf.getDatabase().getFullName();
             String catalog = externalTableIf.getCatalog().getName();
 
-            if (CACHEABLE_CATALOGS.contains(externalTableIf.getCatalog().getType())) {
+            if (isFileCacheAdmissionApplicable()) {
                 UserIdentity currentUser = ConnectContext.get().getCurrentUserIdentity();
                 String userIdentity = currentUser.getQualifiedUser() + "@" + currentUser.getHost();
 

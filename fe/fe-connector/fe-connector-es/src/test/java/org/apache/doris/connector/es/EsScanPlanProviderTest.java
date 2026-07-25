@@ -355,4 +355,14 @@ class EsScanPlanProviderTest {
 
         Assertions.assertFalse(output.toString().contains("ES index:"));
     }
+
+    @Test
+    public void beFileCacheAdmissionDoesNotApplyToEs() {
+        // ES is read over HTTP, never through BE's file readers, so it must stay out of file-cache admission
+        // governance exactly as it was while a catalog-type allow-list decided this.
+        Assertions.assertFalse(new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .supportsFileCache());
+    }
+
+
 }

@@ -397,6 +397,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public boolean supportsFileCache() {
+        // iceberg data files are read by BE's native parquet/orc readers, so the BE file cache applies.
+        return true;
+    }
+
+    @Override
     public List<ConnectorScanRange> planScan(
             ConnectorSession session,
             ConnectorTableHandle handle,

@@ -316,6 +316,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public boolean supportsFileCache() {
+        // paimon reads native parquet/orc sub-splits where it can (see isNativeReadRange), so the BE file cache
+        // applies; this preserves the governance paimon catalogs already had.
+        return true;
+    }
+
+    @Override
     public List<ConnectorScanRange> planScan(
             ConnectorSession session,
             ConnectorTableHandle handle,

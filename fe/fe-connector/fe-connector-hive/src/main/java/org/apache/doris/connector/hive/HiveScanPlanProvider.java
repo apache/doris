@@ -110,6 +110,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
+    public boolean supportsFileCache() {
+        // hive tables are read by BE's native parquet/orc/text readers, so the BE file cache applies.
+        return true;
+    }
+
+    @Override
     public List<ConnectorScanRange> planScan(
             ConnectorSession session,
             ConnectorTableHandle handle,

@@ -257,6 +257,23 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether the ranges this connector plans are read by BE's NATIVE file readers, so BE's file cache
+     * applies to them and the engine should run its file-cache admission governance for these tables.
+     *
+     * <p>{@code false} (the default) keeps a connector out of that governance, which is right for anything
+     * read through JNI or over a remote protocol: it never populates the BE file cache, so evaluating an
+     * admission rule for it only spends the lookup. A connector whose ranges BE reads natively (the lake
+     * formats reading parquet/orc off object storage) returns {@code true}, and does so regardless of which
+     * catalog type its tables live under — that is the point of asking the connector rather than matching a
+     * catalog type name. Mirrors {@link #supportsTableSample}'s opt-in shape.</p>
+     *
+     * @return whether BE file-cache admission governance applies to this connector's scans (default: false)
+     */
+    default boolean supportsFileCache() {
+        return false;
+    }
+
+    /**
      * The number of DISTINCT native partitions among the just-planned scan ranges — the count the
      * connector's SDK actually resolved after ITS full manifest/residual/transform/bucket pruning.
      * Feeds the scan node's {@code selectedPartitionNum} (EXPLAIN {@code partition=N/M} and the

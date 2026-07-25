@@ -201,4 +201,14 @@ public class HudiBackendDescriptorTest {
             }
         };
     }
+
+    @Test
+    public void beFileCacheAdmissionAppliesToHudiTables() {
+        // Hudi tables live in an HMS catalog, so they used to inherit BE file-cache admission governance from
+        // the catalog type name "hms". Now the serving connector declares it, and the heterogeneous gateway
+        // routes a hudi table to THIS provider — so without this declaration hudi tables would silently drop
+        // out of the user's admission rules. MUTATION: return false here -> red.
+        Assertions.assertTrue(new HudiScanPlanProvider(new HashMap<>(), null).supportsFileCache());
+    }
+
 }
