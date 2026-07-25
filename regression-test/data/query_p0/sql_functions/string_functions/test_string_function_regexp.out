@@ -511,3 +511,21 @@ Ben
 -- !sql_field5 --
 2
 
+-- !sql_regexp_extract_all_group0 --
+['x=18abc','x=17bcd']
+
+-- !sql_regexp_extract_all_group2 --
+['abc','bcd']
+
+-- !sql_regexp_extract_all_group_negative --
+\N
+
+-- !sql_regexp_extract_all_array_group0 --
+["x=18abc", "x=17bcd"]
+
+-- !sql_regexp_extract_all_array_group2 --
+["abc", "bcd"]
+
+-- !sql_regexp_extract_all_array_group_out_of_range --
+[]
+

@@ -136,13 +136,17 @@ struct RegexpExtractEngine {
         return false;
     }
 
-    // Match all occurrences and extract the first capturing group
-    void match_all_and_extract(const char* data, size_t size,
+    // Match all occurrences and extract the capturing group with the given index.
+    // index 0 means the whole match, 1 means the first capturing group (the default), and so on.
+    void match_all_and_extract(const char* data, size_t size, int index,
                                std::vector<std::string>& results) const {
+        if (index < 0) {
+            return;
+        }
         if (is_re2()) {
             int max_matches = 1 + re2_regex->NumberOfCapturingGroups();
-            if (max_matches < 2) {
-                return; // No capturing groups
+            if (index >= max_matches) {
+                return;
             }
 
             size_t pos = 0;
@@ -159,9 +163,9 @@ struct RegexpExtractEngine {
                     pos += 1;
                     continue;
                 }
-                // Extract first capturing group
-                if (matches.size() > 1 && !matches[1].empty()) {
-                    results.emplace_back(matches[1].data(), matches[1].size());
+                // Extract the capturing group with the given index
+                if (static_cast<size_t>(index) < matches.size() && !matches[index].empty()) {
+                    results.emplace_back(matches[index].data(), matches[index].size());
                 }
                 // Move position forward
                 auto offset = std::string(str_pos, str_size)
@@ -174,8 +178,8 @@ struct RegexpExtractEngine {
             boost::match_results<const char*> matches;
 
             while (boost::regex_search(search_start, search_end, matches, *boost_regex)) {
-                if (matches.size() > 1 && matches[1].matched) {
-                    results.emplace_back(matches[1].str());
+                if (static_cast<size_t>(index) < matches.size() && matches[index].matched) {
+                    results.emplace_back(matches[index].str());
                 }
                 if (matches[0].length() == 0) {
                     if (search_start == search_end) {
@@ -716,16 +720,16 @@ struct RegexpExtractAllArrayOutput {
 template <typename Handler>
 struct RegexpExtractAllImpl {
     static constexpr auto name = Handler::func_name;
-    static constexpr size_t num_args = 2;
+    static constexpr size_t num_args = 3;
     static constexpr size_t PATTERN_ARG_IDX = 1;
 
     static DataTypePtr return_type() { return Handler::return_type(); }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        bool col_const[2];
-        ColumnPtr argument_columns[2];
-        for (int i = 0; i < 2; ++i) {
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
         }
         argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
@@ -733,10 +737,11 @@ struct RegexpExtractAllImpl {
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[0]).column;
 
-        default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
 
         auto outer_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = outer_null_map->get_data();
@@ -751,11 +756,13 @@ struct RegexpExtractAllImpl {
                             handler.push_null(i, null_map_data);
                             continue;
                         }
+                        const auto index_data = index_col->get_int(index_check_const(i, is_const));
                         regexp_extract_all_inner_loop<is_const>(context, str_col, pattern_col,
-                                                                handler, null_map_data, i);
+                                                                index_data, handler, null_map_data,
+                                                                i);
                     }
                 },
-                make_bool_variant(col_const[1]));
+                make_bool_variant(col_const[1] && col_const[2]));
 
         block.get_by_position(result).column = state.finalize(std::move(outer_null_map));
         return Status::OK();
@@ -764,8 +771,14 @@ struct RegexpExtractAllImpl {
 private:
     template <bool is_const>
     static void regexp_extract_all_inner_loop(FunctionContext* context, const ColumnString* str_col,
-                                              const ColumnString* pattern_col, Handler& handler,
+                                              const ColumnString* pattern_col,
+                                              const Int64 index_data, Handler& handler,
                                               NullMap& null_map, const size_t index_now) {
+        if (index_data < 0) {
+            handler.push_null(index_now, null_map);
+            return;
+        }
+
         auto* engine = reinterpret_cast<RegexpExtractEngine*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<RegexpExtractEngine> scoped_engine;
@@ -784,13 +797,16 @@ private:
             engine = scoped_engine.get();
         }
 
-        if (engine->number_of_capturing_groups() == 0) {
+        // index 0 extracts the whole match, so patterns without capturing groups are
+        // only rejected when a positive group index is requested.
+        if (index_data > engine->number_of_capturing_groups()) {
             handler.push_empty(index_now);
             return;
         }
         const auto& str = str_col->get_data_at(index_now);
         std::vector<std::string> res_matches;
-        engine->match_all_and_extract(str.data, str.size, res_matches);
+        engine->match_all_and_extract(str.data, str.size, static_cast<int>(index_data),
+                                      res_matches);
 
         if (res_matches.empty()) {
             handler.push_empty(index_now);
