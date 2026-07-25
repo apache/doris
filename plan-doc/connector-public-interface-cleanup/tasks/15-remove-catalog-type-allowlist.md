@@ -233,3 +233,45 @@ default boolean isStandaloneCatalogType() {
 - `fe/fe-connector/fe-connector-api/src/main/java/org/apache/doris/connector/api/ConnectorStatementScopes.java:22-51`：类型名唯一性契约的下游消费者，本任务第（4）条冲突检测要保护的正是它的前提。
 - `fe/fe-connector/fe-connector-hudi/src/main/java/org/apache/doris/connector/hudi/HudiConnectorProvider.java:25-39`：hudi 为什么没有独立目录概念，写得比本文更细，改注释前先读它。
 - 相邻但不在本任务范围内的同类问题（都在审计报告里各有条目）：`CreateTableInfo` 里建表能力的四处协同硬编码、`PluginDrivenExternalTable` 里两份重复的 engine 展示名 `switch`、`FileQueryScanNode` 的文件缓存准入类型白名单。它们和本任务是同一个病根的不同发作点，但各自独立可做。
+
+---
+
+## 九、落地记录（2026-07-25，两个提交）
+
+**提交**：`[refactor](catalog) remove the catalog type allow-list so a registered connector is reachable`（生产改动 + 测试）、`[doc](catalog) stop pointing at the deleted catalog type allow-list`（纯注释）。
+
+### 动手前按符号复核的结论
+
+任务文档的核心事实全部成立：8 个 provider（`hms` `iceberg` `paimon` `jdbc` `es` `max_compute` `trino-connector` `hudi`）、白名单 = 8 减 hudi、兄弟查找不经白名单、插件目录批次已按名字判重而类路径批次与跨批次都不判重、全仓（含 `regression-test/`）无任何测试断言 `Unknown catalog type` 或 `No connector plugin loaded` 两条文案。
+
+**六处需要修正或补充**：
+
+1. **文案变化面比文档写的大。** 不只是「引擎不认识的类型」——原白名单内 7 个类型在**插件缺失**时的报错文案也变了（旧文案专门提到 `connector_plugin_root`）。已核实无测试依赖，写进了提交信息。
+2. **删字段留下 20 处悬空注释**（分布 15 个文件），文档只点了必须改的 4 处。已按第二个提交处理。其中 **6 处在本轮之前就已经是错的**（iceberg 那批仍写着「iceberg 还没进白名单、所以代码不可达」，有一处甚至说「没有 iceberg 分片到达 BE」），这些直接删除而不是改写。
+3. **删字段后 `ImmutableSet` / `Set` 两个 import 会孤立**，`test-compile` 不报、`checkstyle` 报。本轮因为保留了 `BUILTIN_CATALOG_TYPES` 仍在用，未触发。
+4. **三段式不需要新增数据结构**：把原 `switch` 的 `default` 分支改写成第三段即可，文档描述得像要再维护一个集合。
+5. **`CREATE CATALOG` 是目录级 CREATE 权限、不是管理员权限**，所以「报错列出已注册类型」确实是对非管理员暴露插件清单。已拍板列出（对齐 Trino 同类报错），并**过滤掉非独立类型**——把一个建不出来的名字列给用户会误导。
+6. **文档把「插件可遮蔽内建类型名」当固有代价接受，实际有更好解法**：Trino 的做法是单一注册表 + 重名直接拒绝。本轮借了后半段——`doris` / `test` / `lakesoul` 成为保留字，在**注册期**拒绝，于是「遮蔽」这个风险不存在，路由顺序也不再影响正确性。
+
+### 与文档方案的差异
+
+- 新增 `CatalogFactory.BUILTIN_CATALOG_TYPES`（包内可见）+ `isBuiltinCatalogType()`，`ConnectorPluginManager` 用它做保留字判定。这是文档没有的一项。
+- 类型名检查统一到一个包内可见的 `registerDiscovered(provider, failFast)`，两个加载批次都过它（文档建议如此），顺带覆盖了文档未提的「空白类型名」与「跨批次重名」。
+- `registerProvider`（测试插队）不参与检查，注释写清了原因。
+
+### 验证结果
+
+- 全反应堆**含测试源** `test-compile` + `checkstyle` 通过（两个提交各跑一次）。
+- 52 个单测通过：`ConnectorPluginManagerTest`（13，新增 8）、`CatalogFactoryPluginRoutingTest`（5，新建）、`HudiConnectorProviderTest`（1，新建）、`ExternalCatalogTest`（3，含刻意走重放降级那条）、`DefaultConnectorContextSiblingTest` / `StoragePropsTest`（各 3）、`PluginDrivenExternalTableEngineTest`（16）、`CreateTableInfoEngineCatalogTest`（9）。
+- **做了三次变异验证**（文档原说不需要，但把开关放错入口是本任务唯一高危错误，值得实证）：
+  1. 把独立过滤搬到兄弟查找入口（两个入口对调）→ **两个方向同时变红**：兄弟查找返回 null，且非独立类型能建出目录。
+  2. 把 hudi 的声明改成 `true` → `HudiConnectorProviderTest` 变红。
+  3. 删掉保留字检查 → `providerClaimingAnEngineBuiltinCatalogTypeIsRefused` 变红。
+- **未执行**：端到端（需真集群）。7 个类型各一次建目录+查询、以及**一次 hudi 读取**仍待有集群时跑——单测只能证明路由，证不了整条读取链。
+
+### 本轮踩到的坑（供后续批次复用）
+
+- **`-pl <单模块>` 会从本地仓库解析兄弟模块的旧 jar**。给 `fe-connector-spi` 加了方法后，用 `-pl fe-connector/fe-connector-hudi` 跑测试会报「method does not override」——那是旧 jar，不是代码错。跑连接器模块的测试一律走全反应堆 + `-Dtest=` 过滤。
+- **checkstyle 的方法名正则是 `^[a-z][a-z0-9][a-zA-Z0-9_]*$`**：第二个字符也必须小写，`aTypeThatIsCreatable` 这种测试名会红。
+- **`PluginDrivenExternalCatalog.getConnector()` 会触发 `makeSureInitialized()`**，纯单测里用不了（需要真 Env）。判断「目录是插件建出来的还是降级注册的」改用「假 provider 记录自己被问了几次」，而且这样断言的正是「引擎真的问了插件」这个不变量。
+- **`ConnectorMetadata` 的冻结基线没有被牵动**：本轮加的方法在 `ConnectorProvider`（`fe-connector-spi`），不在那份基线的覆盖范围内，无需重新生成。
