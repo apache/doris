@@ -138,14 +138,14 @@ public final class CreateTableInfoToConnectorRequestConverter {
         // PartitionDefinition is a sealed family (InPartition/LessThanPartition/
         // FixedRangePartition/StepPartition) carrying nereids Expressions that
         // require full analysis to flatten into List<List<String>>. Connectors
-        // that need the initial values today read the Doris PartitionDesc
-        // directly; this converter passes an empty list and leaves richer
-        // lowering for a follow-up. The presence flag is still threaded so a
-        // connector that rejects explicit partition values (Hive external tables
-        // discover partitions from the data layout) can fail loud (legacy parity).
+        // that need the values themselves read the Doris PartitionDesc directly,
+        // so nothing but their PRESENCE crosses the SPI boundary. That flag is
+        // still threaded so a connector that rejects explicit partition values
+        // (Hive external tables discover partitions from the data layout) can
+        // fail loud (legacy parity).
         boolean hasExplicitValues = info.getPartitionDefs() != null
                 && !info.getPartitionDefs().isEmpty();
-        return new ConnectorPartitionSpec(style, fields, Collections.emptyList(), hasExplicitValues);
+        return new ConnectorPartitionSpec(style, fields, hasExplicitValues);
     }
 
     private static boolean hasAnyTransform(List<Expression> exprs) {

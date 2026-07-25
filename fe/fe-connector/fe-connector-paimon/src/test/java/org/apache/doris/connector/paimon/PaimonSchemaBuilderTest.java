@@ -102,8 +102,7 @@ public class PaimonSchemaBuilderTest {
                 ConnectorPartitionSpec.Style.IDENTITY,
                 Arrays.asList(
                         new ConnectorPartitionField("name", "identity", Collections.emptyList()),
-                        new ConnectorPartitionField("id", "IDENTITY", Collections.emptyList())),
-                Collections.emptyList());
+                        new ConnectorPartitionField("id", "IDENTITY", Collections.emptyList())));
         Schema schema = PaimonSchemaBuilder.build(baseRequest().partitionSpec(spec).build());
 
         // WHY: identity partition fields map to partition keys by column name, in order, and the
@@ -141,8 +140,7 @@ public class PaimonSchemaBuilderTest {
                         col("Pt", ConnectorType.of("STRING"), false)));
         ConnectorPartitionSpec spec = new ConnectorPartitionSpec(
                 ConnectorPartitionSpec.Style.IDENTITY,
-                Collections.singletonList(new ConnectorPartitionField("pt", "identity", Collections.emptyList())),
-                Collections.emptyList());
+                Collections.singletonList(new ConnectorPartitionField("pt", "identity", Collections.emptyList())));
         Schema schema = PaimonSchemaBuilder.build(req.partitionSpec(spec).build());
         Assertions.assertEquals(Collections.singletonList("Pt"), schema.partitionKeys());
     }
@@ -160,8 +158,7 @@ public class PaimonSchemaBuilderTest {
         ConnectorPartitionSpec spec = new ConnectorPartitionSpec(
                 ConnectorPartitionSpec.Style.TRANSFORM,
                 Collections.singletonList(
-                        new ConnectorPartitionField("id", "bucket", Collections.singletonList(16))),
-                Collections.emptyList());
+                        new ConnectorPartitionField("id", "bucket", Collections.singletonList(16))));
         // WHY: Paimon legacy only supported plain partition columns; a transform (bucket/year/...)
         // must fail-fast rather than be silently dropped (which would create a differently
         // partitioned table than the user asked for). MUTATION: ignoring the transform and adding

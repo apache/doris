@@ -212,7 +212,7 @@ public class IcebergSchemaBuilderTest {
 
     private static ConnectorPartitionSpec spec(ConnectorPartitionField... fields) {
         return new ConnectorPartitionSpec(
-                ConnectorPartitionSpec.Style.TRANSFORM, Arrays.asList(fields), Collections.emptyList());
+                ConnectorPartitionSpec.Style.TRANSFORM, Arrays.asList(fields));
     }
 
     @Test
@@ -235,8 +235,7 @@ public class IcebergSchemaBuilderTest {
         PartitionSpec result = IcebergSchemaBuilder.buildPartitionSpec(
                 new ConnectorPartitionSpec(ConnectorPartitionSpec.Style.IDENTITY,
                         Collections.singletonList(new ConnectorPartitionField("name", "identity",
-                                Collections.emptyList())),
-                        Collections.emptyList()),
+                                Collections.emptyList()))),
                 schema);
         Assertions.assertEquals(1, result.fields().size());
         Assertions.assertEquals("identity", result.fields().get(0).transform().toString());

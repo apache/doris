@@ -183,8 +183,7 @@ public class HiveConnectorMetadataDdlTest {
         ConnectorPartitionSpec range = new ConnectorPartitionSpec(
                 ConnectorPartitionSpec.Style.RANGE,
                 Collections.singletonList(new ConnectorPartitionField("dt", "identity",
-                        Collections.emptyList())),
-                Collections.emptyList());
+                        Collections.emptyList())));
         // WHY: hive supports only LIST-style partitioning (legacy rejected RANGE). MUTATION: accepting RANGE
         // would build an invalid hive partition spec.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
@@ -200,7 +199,6 @@ public class HiveConnectorMetadataDdlTest {
                 ConnectorPartitionSpec.Style.LIST,
                 Collections.singletonList(new ConnectorPartitionField("dt", "identity",
                         Collections.emptyList())),
-                Collections.emptyList(),
                 true /* hasExplicitPartitionValues */);
         // WHY: a hive external table discovers partitions from the data layout, so explicit partition value
         // definitions are rejected (legacy parity). The neutral converter drops the value expressions but
@@ -219,8 +217,7 @@ public class HiveConnectorMetadataDdlTest {
                 ConnectorPartitionSpec.Style.LIST,
                 Arrays.asList(
                         new ConnectorPartitionField("dt", "identity", Collections.emptyList()),
-                        new ConnectorPartitionField("region", "identity", Collections.emptyList())),
-                Collections.emptyList());
+                        new ConnectorPartitionField("region", "identity", Collections.emptyList())));
         // WHY: the LIST partition columns become the metastore partition keys (order preserved). MUTATION:
         // dropping the field-name threading yields a non-partitioned table.
         metadata(client, Collections.emptyMap(), Collections.emptyMap())
