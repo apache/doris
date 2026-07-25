@@ -70,12 +70,13 @@ public class HiveConnector implements Connector {
 
     // The sibling connector type a flipped hms gateway delegates iceberg-on-HMS tables to. A string literal
     // (not the iceberg plugin's own type constant, which is child-first and invisible from the hive loader);
-    // matches the "iceberg" entry in CatalogFactory.SPI_READY_TYPES.
+    // matches the type name IcebergConnectorProvider registers.
     private static final String ICEBERG_CONNECTOR_TYPE = "iceberg";
 
     // The sibling connector type a flipped hms gateway delegates hudi-on-HMS tables to. A string literal (hudi
     // has NO user-facing catalog type — it is served only via createSiblingConnector); matches the "hudi" type
-    // string HudiConnectorProvider registers. NEVER add "hudi" to CatalogFactory.SPI_READY_TYPES.
+    // string HudiConnectorProvider registers, which declares isStandaloneCatalogType() == false so that the
+    // engine can never build a hudi catalog. Sibling lookup does not consult that flag, so this stays valid.
     private static final String HUDI_CONNECTOR_TYPE = "hudi";
 
     private final Map<String, String> properties;

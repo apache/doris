@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.datasource.CatalogFactory;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,10 +32,12 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Tests for {@link ConnectorPluginManager}, focusing on API version
- * compatibility checking (P1-9).
+ * Tests for {@link ConnectorPluginManager}: API version compatibility, the type-name contract enforced when a
+ * provider is discovered, and the split between sibling lookup and building a standalone catalog.
  */
 public class ConnectorPluginManagerTest {
+
+    private static final int CURRENT = ConnectorPluginManager.CURRENT_API_VERSION;
 
     private ConnectorPluginManager manager;
     private ConnectorContext testContext;
@@ -113,7 +116,121 @@ public class ConnectorPluginManagerTest {
                 "No matching provider should return null");
     }
 
+    @Test
+    void siblingOnlyTypeIsReachableForSiblingLookupButNeverAsACatalog() {
+        // A sibling-only connector serves a table format parasitic on another connector's metastore (hudi on an
+        // HMS catalog): the gateway builds it through createConnector, and that is its ONLY way in. If the
+        // standalone filter leaked into createConnector, every such table would stop being readable; if the
+        // filter were missing from createStandaloneCatalogConnector, CREATE CATALOG could build a catalog with
+        // no engine-side semantics behind it. Both directions must hold at once.
+        manager.registerProvider(createProvider("sibling_only", CURRENT, false, "sib"));
+
+        Assertions.assertNotNull(manager.createConnector("sibling_only", Collections.emptyMap(), testContext),
+                "sibling lookup must still reach a sibling-only connector — it has no other entry point");
+        Assertions.assertNull(
+                manager.createStandaloneCatalogConnector("sibling_only", Collections.emptyMap(), testContext),
+                "a sibling-only connector must never back a standalone catalog");
+    }
+
+    @Test
+    void anyRegisteredTypeCanBackACatalog_noEngineSideList() {
+        // The point of removing the catalog type allow-list: a type name the engine has never heard of becomes
+        // usable purely by registering a provider for it. This cannot pass while an engine-side list of
+        // accepted types exists.
+        manager.registerProvider(createProvider("acme-lake", CURRENT, true, "acme"));
+
+        Assertions.assertNotNull(
+                manager.createStandaloneCatalogConnector("acme-lake", Collections.emptyMap(), testContext),
+                "a third-party type must be routed to its provider without any engine-side registration");
+        Assertions.assertEquals(Collections.singletonList("acme-lake"), manager.getStandaloneCatalogTypes(),
+                "a standalone type must be listed as creatable");
+    }
+
+    @Test
+    void siblingOnlyTypeIsNotListedAsCreatable() {
+        // The list feeds the CREATE CATALOG diagnostic; naming a type that can never be created would send the
+        // user chasing a value the engine will always reject.
+        manager.registerProvider(createProvider("sibling_only", CURRENT, false, "sib"));
+
+        Assertions.assertTrue(manager.getStandaloneCatalogTypes().isEmpty(),
+                "sibling-only types must not appear among the creatable catalog types");
+        Assertions.assertEquals(Collections.singletonList("sibling_only"), manager.getRegisteredTypes(),
+                "it is still a registered provider — only its eligibility for a catalog differs");
+    }
+
+    @Test
+    void duplicateTypeNameOnClasspathFailsLoud() {
+        // Type names are the identity CREATE CATALOG routes on and the anchor of source-prefixed namespaces.
+        // Two providers claiming one name on the classpath is a build error, and the winner would be decided by
+        // ServiceLoader order — silently, differently per build.
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", CURRENT, true, "first"), true));
+
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> manager.registerDiscovered(createProvider("DUP", CURRENT, true, "second"), true),
+                "a classpath duplicate must fail loud, and case must not be a way around it");
+        Assertions.assertTrue(e.getMessage().contains("already claimed"), e.getMessage());
+    }
+
+    @Test
+    void duplicateTypeNameInPluginDirectoryIsSkippedButDoesNotStopFe() {
+        // Same conflict, different blame: two plugin directories shipping one type name is a deployment
+        // accident. loadPlugins promises partial success — one bad plugin dir must not keep FE from starting —
+        // so the offender is skipped and the incumbent keeps serving.
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", CURRENT, true, "first"), false));
+        Assertions.assertFalse(manager.registerDiscovered(createProvider("dup", CURRENT, true, "second"), false),
+                "the second claimant must be refused, not silently appended");
+
+        Assertions.assertEquals(Collections.singletonList("dup"), manager.getRegisteredTypes(),
+                "the type must be claimed exactly once");
+        Connector connector = manager.createConnector("dup", Collections.emptyMap(), testContext);
+        Assertions.assertEquals("first", ((TaggedConnector) connector).tag,
+                "the provider that claimed the name first must keep serving it");
+    }
+
+    @Test
+    void providerClaimingAnEngineBuiltinCatalogTypeIsRefused() {
+        // Reserving the engine's own catalog type names is what makes the plugin-first routing order safe: a
+        // plugin declaring itself "doris" could otherwise quietly take over every remote-Doris catalog a user
+        // creates. Refusing it at registration means the shadowing case cannot arise at all.
+        for (String builtin : new String[] {"doris", "test", "lakesoul"}) {
+            Assertions.assertTrue(CatalogFactory.isBuiltinCatalogType(builtin), builtin);
+            Assertions.assertFalse(manager.registerDiscovered(createProvider(builtin, CURRENT, true, "x"), false),
+                    "a plugin must not be allowed to claim engine built-in type '" + builtin + "'");
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.registerDiscovered(createProvider(builtin.toUpperCase(), CURRENT, true, "x"),
+                            true),
+                    "on the classpath the same violation must fail loud, case-insensitively");
+        }
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(),
+                "no refused provider may end up in the registry");
+    }
+
+    @Test
+    void blankTypeNameIsRefused() {
+        // getType() is now the sole admission ticket for third-party code; a blank name would otherwise sit in
+        // the registry and match nothing, or match everything the moment someone compares loosely.
+        Assertions.assertFalse(manager.registerDiscovered(createProvider("  ", CURRENT, true, "x"), false),
+                "a blank type name must be refused");
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty());
+    }
+
+    @Test
+    void registerProviderStillShadowsADiscoveredType() {
+        // registerProvider exists to stand in for a real plugin in tests (several rely on shadowing a real
+        // type name). The uniqueness check must not reach it, or those tests lose their only seam.
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("iceberg", CURRENT, true, "real"), false));
+        manager.registerProvider(createProvider("iceberg", CURRENT, true, "override"));
+
+        Connector connector = manager.createConnector("iceberg", Collections.emptyMap(), testContext);
+        Assertions.assertEquals("override", ((TaggedConnector) connector).tag,
+                "the explicitly registered provider must win over the discovered one");
+    }
+
     private static ConnectorProvider createProvider(String type, int apiVersion) {
+        return createProvider(type, apiVersion, true, "");
+    }
+
+    private static ConnectorProvider createProvider(String type, int apiVersion, boolean standalone, String tag) {
         return new ConnectorProvider() {
             @Override
             public String getType() {
@@ -126,18 +243,32 @@ public class ConnectorPluginManagerTest {
             }
 
             @Override
-            public Connector create(Map<String, String> properties, ConnectorContext context) {
-                return new Connector() {
-                    @Override
-                    public ConnectorMetadata getMetadata(ConnectorSession session) {
-                        return null;
-                    }
+            public boolean isStandaloneCatalogType() {
+                return standalone;
+            }
 
-                    @Override
-                    public void close() {
-                    }
-                };
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return new TaggedConnector(tag);
             }
         };
+    }
+
+    /** A connector that remembers which provider made it, so selection can be asserted. */
+    private static final class TaggedConnector implements Connector {
+        private final String tag;
+
+        private TaggedConnector(String tag) {
+            this.tag = tag;
+        }
+
+        @Override
+        public ConnectorMetadata getMetadata(ConnectorSession session) {
+            return null;
+        }
+
+        @Override
+        public void close() {
+        }
     }
 }

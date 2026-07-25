@@ -74,6 +74,24 @@ public final class ConnectorFactory {
         return mgr.createConnector(catalogType, properties, context);
     }
 
+    /**
+     * Creates a connector to back a standalone catalog. Same as {@link #createConnector} except that a
+     * sibling-only connector (one declaring {@code isStandaloneCatalogType() == false}) is not eligible.
+     * Use this on every path that builds a catalog; use {@link #createConnector} for sibling lookup.
+     *
+     * @return a ready-to-use Connector, or {@code null} if no provider claims the type as a standalone catalog
+     */
+    public static Connector createStandaloneCatalogConnector(
+            String catalogType, Map<String, String> properties, ConnectorContext context) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            LOG.debug("ConnectorPluginManager not initialized, returning null for type: {}",
+                    catalogType);
+            return null;
+        }
+        return mgr.createStandaloneCatalogConnector(catalogType, properties, context);
+    }
+
     /** Returns true if the plugin manager has been initialized. */
     public static boolean isInitialized() {
         return pluginManager != null;
@@ -86,6 +104,15 @@ public final class ConnectorFactory {
             return java.util.Collections.emptyList();
         }
         return mgr.getRegisteredTypes();
+    }
+
+    /** Returns the registered types that can be named by {@code CREATE CATALOG}, sorted. */
+    public static java.util.List<String> getStandaloneCatalogTypes() {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            return java.util.Collections.emptyList();
+        }
+        return mgr.getStandaloneCatalogTypes();
     }
 
     /**

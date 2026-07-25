@@ -201,7 +201,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 () -> catalogProperty.getStoragePropertiesMap(),
                 catalogProperty::getEffectiveRawStorageProperties);
         this.connectorContext = context;
-        return ConnectorFactory.createConnector(catalogType, catalogProperty.getProperties(), context);
+        // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
+        // lazy build after image deserialization), and both doors must agree on what may become a catalog.
+        return ConnectorFactory.createStandaloneCatalogConnector(
+                catalogType, catalogProperty.getProperties(), context);
     }
 
     @Override
