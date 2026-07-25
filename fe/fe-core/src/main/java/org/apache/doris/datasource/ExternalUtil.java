@@ -162,23 +162,33 @@ public class ExternalUtil {
     public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
             List<Column> columns, Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
             Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds) {
+        initSchemaInfoForAllColumn(params, schemaId, columns, nameMapping, hasNameMapping,
+                initialDefaults, binaryLikeFieldIds, Collections.emptySet());
+    }
+
+    public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
+            List<Column> columns, Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         params.setCurrentSchemaId(schemaId);
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(schemaId);
         tSchema.setRootField(getExternalSchemaForAllColumn(
-                columns, nameMapping, hasNameMapping, initialDefaults, binaryLikeFieldIds));
+                columns, nameMapping, hasNameMapping, initialDefaults, binaryLikeFieldIds,
+                requiredFieldIds));
         params.addToHistorySchemaInfo(tSchema);
     }
 
     private static TStructField getExternalSchemaForAllColumn(List<Column> columns,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
-            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds) {
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         TStructField structField = new TStructField();
         for (Column child : columns) {
             TFieldPtr fieldPtr = new TFieldPtr();
             fieldPtr.setFieldPtr(getExternalSchema(
                     child.getType(), child, nameMapping, hasNameMapping, initialDefaults,
-                    binaryLikeFieldIds));
+                    binaryLikeFieldIds, requiredFieldIds));
             structField.addToFields(fieldPtr);
         }
         return structField;
@@ -200,10 +210,19 @@ public class ExternalUtil {
     private static TField getExternalSchema(Type columnType, Column dorisColumn,
             Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
             Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds) {
+        return getExternalSchema(columnType, dorisColumn, nameMapping, hasNameMapping,
+                initialDefaults, binaryLikeFieldIds, Collections.emptySet());
+    }
+
+    private static TField getExternalSchema(Type columnType, Column dorisColumn,
+            Map<Integer, List<String>> nameMapping, boolean hasNameMapping,
+            Map<Integer, String> initialDefaults, Set<Integer> binaryLikeFieldIds,
+            Set<Integer> requiredFieldIds) {
         TField root = new TField();
         root.setName(dorisColumn.getName());
         root.setId(dorisColumn.getUniqueId());
-        root.setIsOptional(dorisColumn.isAllowNull());
+        root.setIsOptional(dorisColumn.isAllowNull()
+                && !requiredFieldIds.contains(dorisColumn.getUniqueId()));
         root.setType(dorisColumn.getType().toColumnTypeThrift());
         if (binaryLikeFieldIds.contains(dorisColumn.getUniqueId())) {
             // For a direct primitive default this marks Base64 transport. For a binary value
@@ -242,7 +261,7 @@ public class ExternalUtil {
                 Column subColumn = subNameToSubColumn.get(subField.getName());
                 fieldPtr.setFieldPtr(getExternalSchema(
                         subField.getType(), subColumn, nameMapping, hasNameMapping,
-                        initialDefaults, binaryLikeFieldIds));
+                        initialDefaults, binaryLikeFieldIds, requiredFieldIds));
                 structField.addToFields(fieldPtr);
             }
 
@@ -255,7 +274,7 @@ public class ExternalUtil {
             TFieldPtr fieldPtr = new TFieldPtr();
             fieldPtr.setFieldPtr(getExternalSchema(
                     dorisArrayType.getItemType(), dorisColumn.getChildren().get(0), nameMapping,
-                    hasNameMapping, initialDefaults, binaryLikeFieldIds));
+                    hasNameMapping, initialDefaults, binaryLikeFieldIds, requiredFieldIds));
             listField.setItemField(fieldPtr);
             nestedField.setArrayField(listField);
             root.setNestedField(nestedField);
@@ -266,13 +285,13 @@ public class ExternalUtil {
             TFieldPtr keyPtr = new TFieldPtr();
             keyPtr.setFieldPtr(getExternalSchema(
                     dorisMapType.getKeyType(), dorisColumn.getChildren().get(0), nameMapping,
-                    hasNameMapping, initialDefaults, binaryLikeFieldIds));
+                    hasNameMapping, initialDefaults, binaryLikeFieldIds, requiredFieldIds));
             mapField.setKeyField(keyPtr);
 
             TFieldPtr valuePtr = new TFieldPtr();
             valuePtr.setFieldPtr(getExternalSchema(
                     dorisMapType.getValueType(), dorisColumn.getChildren().get(1), nameMapping,
-                    hasNameMapping, initialDefaults, binaryLikeFieldIds));
+                    hasNameMapping, initialDefaults, binaryLikeFieldIds, requiredFieldIds));
             mapField.setValueField(valuePtr);
             nestedField.setMapField(mapField);
             root.setNestedField(nestedField);

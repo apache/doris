@@ -1125,7 +1125,6 @@ public class IcebergUtils {
 
     private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField) {
         column.setUniqueId(icebergField.fieldId());
-        column.setIsAllowNull(icebergField.isOptional());
         List<NestedField> icebergFields = Lists.newArrayList();
         switch (icebergField.type().typeId()) {
             case LIST:
@@ -1306,6 +1305,19 @@ public class IcebergUtils {
         for (Types.NestedField root : fields) {
             for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
                 if (isBinaryLike(field.type())) {
+                    result.add(field.fieldId());
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Return every required field id without exposing Iceberg nullability through generic Columns. */
+    public static Set<Integer> getRequiredFieldIds(Iterable<Types.NestedField> fields) {
+        Set<Integer> result = Sets.newHashSet();
+        for (Types.NestedField root : fields) {
+            for (Types.NestedField field : TypeUtil.indexById(Types.StructType.of(root)).values()) {
+                if (field.isRequired()) {
                     result.add(field.fieldId());
                 }
             }

@@ -394,10 +394,11 @@ public class IcebergUtilsTest {
                 .build());
 
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
-        Assert.assertFalse(columns.get(0).isAllowNull());
-        Assert.assertFalse(columns.get(0).getChildren().get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getChildren().get(0).isAllowNull());
         Assert.assertTrue(columns.get(0).getChildren().get(1).isAllowNull());
         Assert.assertTrue(columns.get(0).getChildren().get(2).isAllowNull());
+        Assert.assertEquals(ImmutableSet.of(1, 2), IcebergUtils.getRequiredFieldIds(schema.columns()));
 
         Map<Integer, String> defaults = IcebergUtils.getSerializedInitialDefaults(schema, false);
         Assert.assertEquals("17", defaults.get(2));

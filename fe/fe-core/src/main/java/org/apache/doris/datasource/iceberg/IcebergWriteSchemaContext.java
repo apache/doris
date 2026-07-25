@@ -179,7 +179,7 @@ public final class IcebergWriteSchemaContext {
         }
         SnapshotRef ref = table.refs().get(branchName.get());
         if (ref == null) {
-            throw new AnalysisException("Table " + tableName + " does not have branch named " + branchName.get());
+            throw new AnalysisException(branchName.get() + " is not founded in " + tableName);
         }
         if (!ref.isBranch()) {
             throw new AnalysisException(branchName.get()

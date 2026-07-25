@@ -551,7 +551,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
                 IcebergUtils.getSerializedInitialDefaults(
                         schemaFields, getEnableMappingTimestampTz()),
-                IcebergUtils.getBinaryLikeFieldIds(schemaFields));
+                IcebergUtils.getBinaryLikeFieldIds(schemaFields),
+                IcebergUtils.getRequiredFieldIds(schemaFields));
     }
 
     @VisibleForTesting

@@ -39,6 +39,7 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -301,6 +302,31 @@ public class ExternalUtilTest {
         Assert.assertTrue(nestedBinary.isIsOptional());
         Assert.assertEquals(3, nestedBinary.getId());
         Assert.assertTrue(nestedBinary.isInitialDefaultValueIsBase64());
+    }
+
+    @Test
+    public void testInitSchemaInfoForAllColumnCarriesIcebergRequirednessSeparately() {
+        StructType structType = new StructType(
+                new StructField("required_child", Type.INT, null, true),
+                new StructField("optional_child", Type.INT, null, true));
+        Column payload = new Column("payload", structType, true);
+        payload.setUniqueId(1);
+        payload.getChildren().get(0).setUniqueId(2);
+        payload.getChildren().get(1).setUniqueId(3);
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        ExternalUtil.initSchemaInfoForAllColumn(params, 11L, Collections.singletonList(payload),
+                Collections.emptyMap(), false, Collections.emptyMap(), Collections.emptySet(),
+                new HashSet<>(Arrays.asList(1, 2)));
+
+        TField payloadField = params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr();
+        Assert.assertFalse(payloadField.isIsOptional());
+        TStructField nestedStruct = payloadField.getNestedField().getStructField();
+        Assert.assertFalse(nestedStruct.getFields().get(0).getFieldPtr().isIsOptional());
+        Assert.assertTrue(nestedStruct.getFields().get(1).getFieldPtr().isIsOptional());
+        Assert.assertTrue(payload.isAllowNull());
+        Assert.assertTrue(payload.getChildren().get(0).isAllowNull());
     }
 
     @Test

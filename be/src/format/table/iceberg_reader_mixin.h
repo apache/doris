@@ -200,8 +200,9 @@ protected:
                 default_value =
                         _missing_initial_default_values.emplace(col_name, std::move(value)).first;
             }
-            block->get_by_position(position->second).column =
-                    iceberg::repeat_initial_default_column(default_value->second, rows);
+            auto column_guard = block->mutate_column_scoped(position->second);
+            auto& mutable_column = column_guard.mutable_column();
+            mutable_column->insert_many_from(*default_value->second, 0, rows);
         }
         return BaseReader::on_fill_missing_columns(block, rows, base_reader_columns);
     }

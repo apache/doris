@@ -69,9 +69,13 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external") {
     sql """ alter table ${table_name} modify column id bigint """
     qt_b3_new_type """ select * from ${table_name}@branch(b3_schema) where id = 1 """ // Should use new type
 
-    // Test 3.1.4: Branch write with new schema
+    // Test 3.1.4: Branch writes use the schema pinned to the branch snapshot
     sql """ alter table ${table_name} add column new_col string """
-    sql """ insert into ${table_name}@branch(b3_schema)(id, value, new_col) values (3, 30, 'test') """
+    test {
+        sql """ insert into ${table_name}@branch(b3_schema)(id, value, new_col) values (3, 30, 'test') """
+        exception "Unknown column 'new_col' in target table"
+    }
+    sql """ insert into ${table_name}@branch(b3_schema)(id, value) values (3, 30) """
     qt_b3_with_new_col """ select * from ${table_name}@branch(b3_schema) where id = 3 """
 
     // Test 3.2.1: Add column after tag query
@@ -134,4 +138,3 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external") {
 
     qt_b4_new_schema """ select * from ${table_name}@branch(b4_schema) where id = 1 """ // Should have new_col
 }
-

@@ -783,16 +783,19 @@ public class BindSink implements AnalysisRuleFactory {
             }
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
+                if (writeSchemaContext.isPresent()
+                        && writeSchemaContext.get().getFormatVersion()
+                                >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                        && IcebergUtils.isIcebergRowLineageColumn(cn)) {
+                    throw new AnalysisException(String.format(
+                            "Cannot specify row lineage column '%s' in INSERT statement", cn));
+                }
                 Column column = pinnedColumns.stream()
                         .filter(candidate -> candidate.nameEquals(cn, false))
                         .findFirst().orElse(null);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
-                }
-                if (IcebergUtils.isIcebergRowLineageColumn(column)) {
-                    throw new AnalysisException(String.format(
-                            "Cannot specify row lineage column '%s' in INSERT statement", cn));
                 }
                 return column;
             }).collect(ImmutableList.toImmutableList());

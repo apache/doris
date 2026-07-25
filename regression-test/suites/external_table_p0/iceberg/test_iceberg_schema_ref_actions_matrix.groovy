@@ -191,6 +191,7 @@ suite("test_iceberg_schema_ref_actions_matrix",
         """
         sql """insert into ${fastForwardTable} values (1, 'old-1', 10)"""
         sql """alter table ${fastForwardTable} create branch pre_rename_branch"""
+        sql """alter table ${fastForwardTable} create branch pre_rename_write_branch"""
         sql """alter table ${fastForwardTable} create tag pre_rename_tag"""
         sql """alter table ${fastForwardTable} rename column old_name new_name"""
         sql """alter table ${fastForwardTable} modify column metric bigint"""
@@ -211,14 +212,16 @@ suite("test_iceberg_schema_ref_actions_matrix",
             order by id
         """))
 
-        // Scenario T09 negative contract: a pre-rename branch write uses main's latest schema.
-        test {
-            sql """
-                insert into ${fastForwardTable}@branch(pre_rename_branch)
-                (id, old_name, metric) values (3, 'branch-3', 30)
-            """
-            exception "Unknown column 'old_name'"
-        }
+        // Scenario T09: a pre-rename branch write uses the branch snapshot's schema.
+        sql """
+            insert into ${fastForwardTable}@branch(pre_rename_write_branch)
+            (id, old_name, metric) values (3, 'branch-3', 30)
+        """
+        order_qt_t09_pre_rename_branch_write """
+            select id, new_name, metric
+            from ${fastForwardTable}@branch(pre_rename_write_branch)
+            order by id
+        """
 
         sql """
             alter table ${fastForwardTable}

@@ -2069,10 +2069,14 @@ TEST_F(IcebergReaderTest, v1_top_level_missing_binary_prefers_iceberg_initial_de
     reader._fill_col_name_to_block_idx = &positions;
 
     ASSERT_TRUE(reader.on_fill_missing_columns(&block, 2, {"added_uuid"}).ok());
+    ASSERT_TRUE(reader.on_fill_missing_columns(&block, 1, {"added_uuid"}).ok());
 
-    ASSERT_EQ(block.rows(), 2);
-    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(0).column, 0),
-              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+    ASSERT_EQ(block.rows(), 3);
+    for (size_t row = 0; row < block.rows(); ++row) {
+        EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(0).column, row),
+                  std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00",
+                              16));
+    }
 }
 
 TEST_F(IcebergReaderTest, v1_legacy_plan_keeps_missing_binary_null) {

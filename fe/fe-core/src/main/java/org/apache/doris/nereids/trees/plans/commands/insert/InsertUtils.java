@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
@@ -486,19 +487,27 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < values.size(); i++) {
+                        String targetColumnName = unboundLogicalSink.getColNames().get(i);
+                        if (icebergWriteSchemaContext.isPresent()
+                                && icebergWriteSchemaContext.get().getFormatVersion()
+                                        >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                                && IcebergUtils.isIcebergRowLineageColumn(targetColumnName)) {
+                            throw new AnalysisException("Cannot specify row lineage column '"
+                                    + targetColumnName + "' in INSERT statement");
+                        }
                         Column sameNameColumn = null;
                         List<Column> targetColumns = icebergWriteSchemaContext
                                 .map(IcebergWriteSchemaContext::getColumns)
                                 .orElseGet(() -> table.getBaseSchema(true));
                         for (Column column : targetColumns) {
-                            if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
+                            if (targetColumnName.equalsIgnoreCase(column.getName())) {
                                 sameNameColumn = column;
                                 break;
                             }
                         }
                         if (sameNameColumn == null) {
                             throw new AnalysisException("Unknown column '"
-                                    + unboundLogicalSink.getColNames().get(i) + "' in target table.");
+                                    + targetColumnName + "' in target table.");
                         }
                         if (sameNameColumn.getGeneratedColumnInfo() != null
                                 && !(values.get(i) instanceof DefaultValueSlot)) {
