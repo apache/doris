@@ -118,6 +118,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
 
+    /**
+     * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
+     * of the same name on every commit).
+     */
+    private static final String ICEBERG_TABLE_COMMENT_PARAM = "comment";
+
     // FE-internal schema-control property key: a CSV of the RAW remote partition-column names. The generic
     // fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) reads it to derive which of the emitted
     // columns are partition columns; it is the same key the paimon/iceberg/maxcompute connectors emit and is
@@ -709,6 +715,41 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         } catch (HmsClientException e) {
             throw new DorisConnectorException("Failed to drop Hive view "
                     + dbName + "." + viewName + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Returns the table comment. Overridden here for one reason: an iceberg-on-HMS table would otherwise report
+     * no comment at all.
+     *
+     * <p>Every other foreign-table operation is diverted to the embedded iceberg sibling by the concrete handle
+     * type, but this method addresses a table by NAME and never receives a handle, so there is nothing to
+     * discriminate on. It is answered directly instead: iceberg's HMS catalog mirrors the table's iceberg
+     * properties into the HMS table parameters on every commit, {@code comment} included &mdash; the same
+     * parameter {@code HiveShowCreateTableRenderer} lifts into the {@code COMMENT} clause &mdash; so the single
+     * (cached) {@code getTable} this connector already performs carries it, with no sibling build and no
+     * iceberg metadata load. Without this, the same table shows its comment through a dedicated iceberg catalog
+     * and shows nothing through an HMS gateway catalog, in {@code SHOW CREATE TABLE},
+     * {@code information_schema.tables.TABLE_COMMENT} and {@code SHOW TABLE STATUS}.</p>
+     *
+     * <p>Deliberately restricted to iceberg tables: a plain hive table keeps the empty comment that legacy
+     * {@code HMSExternalTable.getComment} returned, so nothing about plain hive changes. A missing or
+     * unreadable table degrades to the empty comment rather than failing the caller, matching
+     * {@link #viewExists} &mdash; this is an opportunistic display value, not a user-requested operation.</p>
+     */
+    @Override
+    public String getTableComment(ConnectorSession session, String dbName, String tableName) {
+        try {
+            HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
+            if (HiveTableFormatDetector.detect(tableInfo) != HiveTableType.ICEBERG) {
+                return "";
+            }
+            Map<String, String> params = tableInfo.getParameters();
+            String comment = params == null ? null : params.get(ICEBERG_TABLE_COMMENT_PARAM);
+            return comment == null ? "" : comment;
+        } catch (HmsClientException e) {
+            LOG.debug("Table comment lookup: '{}.{}' not readable: {}", dbName, tableName, e.getMessage());
+            return "";
         }
     }
 
