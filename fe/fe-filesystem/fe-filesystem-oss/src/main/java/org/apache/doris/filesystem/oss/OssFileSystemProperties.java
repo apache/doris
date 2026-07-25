@@ -237,6 +237,7 @@ public final class OssFileSystemProperties
 
     private Map<String, String> toBackendKv() {
         Map<String, String> kv = new HashMap<>();
+        kv.put("provider", "OSS");
         putIfNotBlank(kv, "AWS_ENDPOINT", endpoint);
         putIfNotBlank(kv, "AWS_REGION", region);
         putIfNotBlank(kv, "AWS_ACCESS_KEY", accessKey);

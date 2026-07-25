@@ -121,4 +121,56 @@ TEST_F(S3UTILTest, check_s3_rate_limiter_config_changed_rebuilds_limiter) {
     check_s3_rate_limiter_config_changed();
 }
 
+#ifdef USE_OSS
+// Tests for OSS provider detection and credential type mapping.
+// These run without any real OSS credentials — pure logic tests.
+
+TEST_F(S3UTILTest, convert_properties_sets_oss_provider) {
+    // When FE sends "provider"="OSS", BE must set ObjStorageType::OSS
+    // so _create_oss_client() is reached when enable_oss_native_sdk=true.
+    std::map<std::string, std::string> props;
+    props["AWS_ENDPOINT"] = "oss-cn-hangzhou.aliyuncs.com";
+    props["AWS_REGION"] = "cn-hangzhou";
+    props["AWS_ACCESS_KEY"] = "ak";
+    props["AWS_SECRET_KEY"] = "sk";
+    props["provider"] = "OSS";
+
+    S3Conf s3_conf;
+    S3URI uri("oss://my-bucket/prefix");
+    auto st = S3ClientFactory::convert_properties_to_s3_conf(props, uri, &s3_conf);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(io::ObjStorageType::OSS, s3_conf.client_conf.provider);
+}
+
+TEST_F(S3UTILTest, convert_properties_oss_provider_case_insensitive) {
+    std::map<std::string, std::string> props;
+    props["AWS_ENDPOINT"] = "oss-cn-hangzhou.aliyuncs.com";
+    props["AWS_REGION"] = "cn-hangzhou";
+    props["AWS_ACCESS_KEY"] = "ak";
+    props["AWS_SECRET_KEY"] = "sk";
+    props["provider"] = "oss"; // lowercase
+
+    S3Conf s3_conf;
+    S3URI uri("oss://my-bucket/prefix");
+    auto st = S3ClientFactory::convert_properties_to_s3_conf(props, uri, &s3_conf);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(io::ObjStorageType::OSS, s3_conf.client_conf.provider);
+}
+
+TEST_F(S3UTILTest, convert_properties_missing_provider_defaults_to_aws) {
+    // Without provider key, defaults remain AWS (S3-compat path unchanged).
+    std::map<std::string, std::string> props;
+    props["AWS_ENDPOINT"] = "oss-cn-hangzhou.aliyuncs.com";
+    props["AWS_REGION"] = "cn-hangzhou";
+    props["AWS_ACCESS_KEY"] = "ak";
+    props["AWS_SECRET_KEY"] = "sk";
+
+    S3Conf s3_conf;
+    S3URI uri("oss://my-bucket/prefix");
+    auto st = S3ClientFactory::convert_properties_to_s3_conf(props, uri, &s3_conf);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(io::ObjStorageType::AWS, s3_conf.client_conf.provider);
+}
+#endif // USE_OSS
+
 } // end namespace doris

@@ -17,6 +17,11 @@
 
 #include "util/s3_util.h"
 
+#ifdef USE_OSS
+#include "io/fs/oss_v2_obj_storage_client.h"
+#include "util/oss_util.h"
+#endif
+
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
@@ -309,9 +314,17 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
         }
     }
 
-    auto obj_client = (s3_conf.provider == io::ObjStorageType::AZURE)
-                              ? _create_azure_client(s3_conf)
-                              : _create_s3_client(s3_conf);
+    std::shared_ptr<io::ObjStorageClient> obj_client;
+#ifdef USE_OSS
+    if (s3_conf.provider == io::ObjStorageType::OSS && config::enable_oss_native_sdk) {
+        obj_client = _create_oss_client(s3_conf);
+    } else
+#endif
+            if (s3_conf.provider == io::ObjStorageType::AZURE) {
+        obj_client = _create_azure_client(s3_conf);
+    } else {
+        obj_client = _create_s3_client(s3_conf);
+    }
 
     {
         uint64_t hash = s3_conf.get_hash();
@@ -578,6 +591,10 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
+#ifdef USE_OSS
+        } else if (0 == strcasecmp(it->second.c_str(), "OSS")) {
+            s3_conf->client_conf.provider = io::ObjStorageType::OSS;
+#endif
         }
     }
 
@@ -792,5 +809,58 @@ std::string hide_access_key(const std::string& ak) {
     }
     return key;
 }
+
+#ifdef USE_OSS
+// Maps S3/AWS CredProviderType to OSSCredProviderType
+static OSSCredProviderType s3_cred_to_oss_cred(CredProviderType type) {
+    switch (type) {
+    case CredProviderType::InstanceProfile:
+        return OSSCredProviderType::INSTANCE_PROFILE;
+    case CredProviderType::Simple:
+        return OSSCredProviderType::SIMPLE;
+    case CredProviderType::Env:
+        return OSSCredProviderType::ENV;
+    case CredProviderType::Anonymous:
+        return OSSCredProviderType::ANONYMOUS;
+    // WebIdentity (AWS IRSA) and Container (ECS task role) have no direct OSS equivalent;
+    // fall through to DEFAULT which will use the Alibaba Cloud credential chain.
+    // SystemProperties is also AWS-specific.
+    default:
+        return OSSCredProviderType::DEFAULT;
+    }
+}
+
+std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_oss_client(
+        const S3ClientConf& s3_conf) {
+    OSSClientConf oss_conf;
+    oss_conf.endpoint = normalize_oss_endpoint(s3_conf.endpoint);
+    oss_conf.region = s3_conf.region;
+    oss_conf.ak = s3_conf.ak;
+    oss_conf.sk = s3_conf.sk;
+    oss_conf.token = s3_conf.token;
+    oss_conf.bucket = s3_conf.bucket;
+    oss_conf.role_arn = s3_conf.role_arn;
+    oss_conf.external_id = s3_conf.external_id;
+    oss_conf.max_connections = s3_conf.max_connections > 0 ? s3_conf.max_connections : 100;
+    oss_conf.request_timeout_ms =
+            s3_conf.request_timeout_ms > 0 ? s3_conf.request_timeout_ms : 30000;
+    oss_conf.connect_timeout_ms =
+            s3_conf.connect_timeout_ms > 0 ? s3_conf.connect_timeout_ms : 10000;
+    oss_conf.cred_provider_type = s3_cred_to_oss_cred(s3_conf.cred_provider_type);
+    // role_arn alone triggers STS AssumeRole; no explicit INSTANCE_PROFILE required.
+    if (!oss_conf.role_arn.empty() && oss_conf.cred_provider_type == OSSCredProviderType::DEFAULT) {
+        oss_conf.cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
+    }
+
+    auto native_client = OSSClientFactory::instance().create(oss_conf);
+    if (!native_client) {
+        LOG(WARNING) << "failed to create native OSS client with conf " << s3_conf.to_string();
+        return nullptr;
+    }
+
+    LOG(INFO) << "created native OSS client with " << s3_conf.to_string();
+    return std::make_shared<io::OSSv2ObjStorageClient>(std::move(native_client), s3_conf.bucket);
+}
+#endif
 
 } // end namespace doris

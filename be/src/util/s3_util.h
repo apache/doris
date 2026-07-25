@@ -173,6 +173,9 @@ public:
 private:
     std::shared_ptr<io::ObjStorageClient> _create_s3_client(const S3ClientConf& s3_conf);
     std::shared_ptr<io::ObjStorageClient> _create_azure_client(const S3ClientConf& s3_conf);
+#ifdef USE_OSS
+    std::shared_ptr<io::ObjStorageClient> _create_oss_client(const S3ClientConf& s3_conf);
+#endif
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v1(
             const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v2(
