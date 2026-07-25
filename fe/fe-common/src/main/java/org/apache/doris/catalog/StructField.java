@@ -75,7 +75,8 @@ public class StructField {
     }
 
     public boolean isCommentSpecified() {
-        return commentSpecified || !Strings.isNullOrEmpty(comment);
+        // branch-4.1 does not track empty-comment DDL intent, so preserve its non-empty contract.
+        return !Strings.isNullOrEmpty(comment);
     }
 
     public String getName() {
