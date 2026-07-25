@@ -198,6 +198,14 @@ Status JniTableReader::finalize_jni_block(Block* jni_block, Block* output_block,
 Status JniTableReader::_get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
     DORIS_CHECK(result != nullptr);
     result->clear();
+    // JNI exceptions are sticky per-thread until explicitly cleared. A stale exception left by
+    // an earlier JNI call on this pooled scan thread would make the JNI call below run under a
+    // pending exception (UB) and be misattributed here. The real scan error is already carried by
+    // the scan status, so discard any residual exception before touching the JVM again.
+    if (env->ExceptionCheck()) [[unlikely]] {
+        LOG(WARNING) << "discard stale pending JNI exception before collecting JNI scanner "
+                     << "statistics: " << Jni::Env::GetJniExceptionMsg(env, false).to_string();
+    }
     Jni::LocalObject metrics;
     RETURN_IF_ERROR(
             _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));

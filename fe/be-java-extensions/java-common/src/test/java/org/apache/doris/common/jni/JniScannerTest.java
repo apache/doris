@@ -103,4 +103,45 @@ public class JniScannerTest {
         scanner.releaseTable();
         scanner.close();
     }
+
+    @Test
+    public void testGetNextBatchMetaReleasesTableWhenGetNextThrowsUnchecked() throws IOException {
+        OffHeap.setTesting();
+        MockJniScanner scanner = new MockJniScanner(32, new HashMap<String, String>() {
+            {
+                put("mock_rows", "128");
+                put("required_fields", "int");
+                put("columns_types", "int");
+                put("mock_throw_type", "unchecked");
+            }
+        });
+        scanner.open();
+        IOException thrown = Assert.assertThrows(IOException.class, scanner::getNextBatchMeta);
+        Assert.assertTrue("unchecked exception must be normalized to IOException with the original as cause",
+                thrown.getCause() instanceof IllegalStateException);
+        Assert.assertNull("off-heap vector table must be released (not leaked) when getNext throws",
+                scanner.getTable());
+        scanner.close();
+    }
+
+    @Test
+    public void testGetNextBatchMetaPreservesIOExceptionAndReleasesTable() throws IOException {
+        OffHeap.setTesting();
+        MockJniScanner scanner = new MockJniScanner(32, new HashMap<String, String>() {
+            {
+                put("mock_rows", "128");
+                put("required_fields", "int");
+                put("columns_types", "int");
+                put("mock_throw_type", "io");
+            }
+        });
+        scanner.open();
+        IOException thrown = Assert.assertThrows(IOException.class, scanner::getNextBatchMeta);
+        Assert.assertEquals("original IOException must be propagated, not re-wrapped",
+                "mock IO failure from getNext", thrown.getMessage());
+        Assert.assertNull("IOException must not be double-wrapped", thrown.getCause());
+        Assert.assertNull("off-heap vector table must be released (not leaked) when getNext throws",
+                scanner.getTable());
+        scanner.close();
+    }
 }
