@@ -104,6 +104,14 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
+    if (!_is_jni_split(options.current_range)) {
+        auto native_options = options;
+        // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
+        // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
+        RETURN_IF_ERROR(_to_file_format(options.current_range,
+                                        &native_options.current_split_format));
+        return _current_split_reader->prepare_split(native_options);
+    }
     return _current_split_reader->prepare_split(options);
 }
 

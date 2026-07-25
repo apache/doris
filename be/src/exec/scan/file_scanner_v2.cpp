@@ -118,12 +118,9 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
             if (params.reader_type == TPaimonReaderType::PAIMON_JNI) {
                 return params.__isset.paimon_split;
             }
-            // Paimon's C++ path is a native Parquet/ORC child of the V2 hybrid reader. Requiring
-            // its physical format here prevents an ambiguous FORMAT_JNI split from being routed
-            // to a reader whose file semantics cannot be determined.
-            return params.reader_type == TPaimonReaderType::PAIMON_CPP &&
-                   params.__isset.file_format &&
-                   (params.file_format == "parquet" || params.file_format == "orc");
+            // V2 cannot pass a logical DataSplit through a raw native child without silently
+            // dropping its multi-file semantics, so PAIMON_CPP must remain on the V1 fallback.
+            return false;
         }
         if (params.__isset.paimon_split) {
             // Before reader_type was added, an encoded split unambiguously selected the Java

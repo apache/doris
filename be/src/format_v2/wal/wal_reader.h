@@ -54,7 +54,7 @@ private:
     Status _ensure_schema_loaded() const;
     Status _validate_block_version(const PBlock& pblock) const;
     Status _init_schema_from_block(const PBlock* pblock) const;
-    Status _materialize_requested_columns(const Block& source_block, Block* file_block) const;
+    Status _materialize_requested_columns(Block* source_block, Block* file_block) const;
 
     const std::vector<ColumnDefinition> _projected_columns;
     std::shared_ptr<doris::WalFileReader> _wal_reader;

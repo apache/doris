@@ -452,7 +452,10 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_TRUE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+    const auto cpp_range = paimon_cpp_jni_range();
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
+    const auto cpp_status = FileScannerV2::TEST_validate_scan_range(params, cpp_range);
+    EXPECT_TRUE(cpp_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 
     // Older FE plans without reader_type used Java whenever the C++ option was disabled.
     query_options.__set_enable_paimon_cpp_reader(false);

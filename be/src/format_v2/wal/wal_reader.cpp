@@ -68,6 +68,19 @@ protected:
     bool force_full_complex_scan_projection() const override { return true; }
 };
 
+ColumnDefinition build_wal_column_definition(const PColumnMeta& meta, int32_t local_id) {
+    ColumnDefinition field;
+    field.local_id = local_id;
+    field.name = meta.name();
+    field.type = make_nullable(DataTypeFactory::instance().create_data_type(meta));
+    field.children.reserve(meta.children_size());
+    for (int child_idx = 0; child_idx < meta.children_size(); ++child_idx) {
+        field.children.push_back(
+                build_wal_column_definition(meta.children(child_idx), child_idx));
+    }
+    return field;
+}
+
 } // namespace
 
 Status parse_wal_column_ids(const std::string& encoded, std::vector<int32_t>* column_ids) {
@@ -158,8 +171,11 @@ Status WalReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     PBlock pblock;
     if (_first_block_loaded && !_first_block_consumed) {
-        pblock = _first_block;
+        // Schema discovery owns the first payload temporarily; transfer it into the read path so
+        // the reader neither retains a second PBlock nor forces protobuf to clone its buffers.
+        pblock.Swap(&_first_block);
         _first_block_consumed = true;
+        _first_block_loaded = false;
     } else {
         auto status = _wal_reader->read_block(pblock);
         if (status.is<ErrorCode::END_OF_FILE>()) {
@@ -180,7 +196,7 @@ Status WalReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Corruption("WAL block has {} columns but header declares {}",
                                   source_block.columns(), _column_ids.size());
     }
-    RETURN_IF_ERROR(_materialize_requested_columns(source_block, file_block));
+    RETURN_IF_ERROR(_materialize_requested_columns(&source_block, file_block));
     *rows = file_block->rows();
     _record_scan_rows(cast_set<int64_t>(*rows));
     RETURN_IF_ERROR(
@@ -240,8 +256,10 @@ Status WalReader::_init_schema_from_block(const PBlock* pblock) const {
         field.local_id = cast_set<int32_t>(idx);
         if (pblock != nullptr) {
             const auto& meta = pblock->column_metas(cast_set<int>(idx));
-            field.name = meta.name();
-            field.type = make_nullable(DataTypeFactory::instance().create_data_type(meta));
+            // WAL metadata is the file-local schema; preserve its complete nested shape so the
+            // mapper can validate ARRAY/MAP/STRUCT projections instead of seeing an empty shell.
+            field = build_wal_column_definition(meta, cast_set<int32_t>(idx));
+            field.identifier = Field::create_field<TYPE_INT>(_column_ids[idx]);
         } else {
             const auto projected =
                     std::ranges::find_if(_projected_columns, [&](const auto& candidate) {
@@ -260,11 +278,12 @@ Status WalReader::_init_schema_from_block(const PBlock* pblock) const {
     return Status::OK();
 }
 
-Status WalReader::_materialize_requested_columns(const Block& source_block,
+Status WalReader::_materialize_requested_columns(Block* source_block,
                                                  Block* file_block) const {
+    DORIS_CHECK(source_block != nullptr);
     for (const auto& [file_column_id, block_position] : _request->local_positions) {
         const auto source_idx = file_column_id.value();
-        if (source_idx < 0 || cast_set<size_t>(source_idx) >= source_block.columns()) {
+        if (source_idx < 0 || cast_set<size_t>(source_idx) >= source_block->columns()) {
             return Status::Corruption("WAL request refers to invalid local column {}", source_idx);
         }
         if (block_position.value() >= file_block->columns()) {
@@ -272,7 +291,9 @@ Status WalReader::_materialize_requested_columns(const Block& source_block,
                                          block_position.value());
         }
         const auto& target = file_block->get_by_position(block_position.value());
-        auto column = source_block.get_by_position(source_idx).column;
+        // Deserialized WAL columns have a single owner. Move that ownership into the output block
+        // before mutate() so wide payloads do not trigger copy-on-write deep clones.
+        auto column = std::move(source_block->get_by_position(source_idx).column);
         column = make_column_nullable_if_needed(std::move(column), target.type);
         file_block->replace_by_position(block_position.value(), IColumn::mutate(std::move(column)));
     }
