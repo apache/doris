@@ -37,6 +37,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -250,6 +251,26 @@ public class ConnectorPluginManager {
         LOG.debug("No ConnectorProvider supports catalogType='{}' (standaloneOnly={}). Registered: {}",
                 catalogType, standaloneOnly, providerNames());
         return null;
+    }
+
+    /**
+     * Finds the provider that would back a catalog of this type, without creating a connector. For engine
+     * decisions that must be answered for a catalog that may not be initialized yet — asking the connector
+     * would force-initialize it. Same selection as {@link #createConnector}: first provider that supports the
+     * type with a compatible API version.
+     *
+     * @return the matching provider, or empty if none matches
+     */
+    public Optional<ConnectorProvider> findProvider(String catalogType, Map<String, String> properties) {
+        for (ConnectorProvider provider : providers) {
+            if (provider.supports(catalogType, properties)) {
+                if (provider.apiVersion() != CURRENT_API_VERSION) {
+                    continue;
+                }
+                return Optional.of(provider);
+            }
+        }
+        return Optional.empty();
     }
 
     /** Returns the type names of all registered providers. */

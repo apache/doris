@@ -22,6 +22,7 @@ import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * SPI interface for connector provider discovery via Java ServiceLoader.
@@ -100,6 +101,37 @@ public interface ConnectorProvider extends PluginFactory {
      */
     default void validateProperties(Map<String, String> properties) {
         // no-op by default
+    }
+
+    /**
+     * Whether connectors of this type expose an incremental metadata-change source through
+     * {@code Connector#getEventSource()}.
+     *
+     * <p>The engine's event driver uses this to decide whether an <b>uninitialized</b> catalog is worth
+     * force-initializing once, so that a catalog nobody has queried on this FE still seeds its event cursor
+     * (each FE keeps its own cursor, and a follower normally receives no queries). It is declared here rather
+     * than on {@code Connector} precisely because that decision is made before the connector exists: asking
+     * the connector would force-initialize every idle catalog, which is what this flag exists to avoid.</p>
+     *
+     * <p>Must agree with whether {@code Connector#getEventSource()} returns non-null — that method stays the
+     * single source of truth, and the engine still skips a connector whose source turns out to be null, so a
+     * {@code true} here costs at most one wasted initialization. Default {@code false}: a connector without
+     * an event source is never force-initialized.</p>
+     */
+    default boolean providesEventSource() {
+        return false;
+    }
+
+    /**
+     * The database a session should land in when it switches to a catalog of this type, or empty (the default)
+     * to leave the session's database alone.
+     *
+     * <p>For data sources whose metadata model has no database layer, where Doris invents a single fixed
+     * database name. Answered from the provider because the switch may happen before anything has touched the
+     * connector.</p>
+     */
+    default Optional<String> defaultDatabaseOnUse() {
+        return Optional.empty();
     }
 
     /** API version for compatibility checking. Major version change = incompatible. */

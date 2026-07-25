@@ -44,6 +44,13 @@ public class HiveConnectorProvider implements ConnectorProvider {
     }
 
     @Override
+    public boolean providesEventSource() {
+        // HiveConnector returns an HmsEventSource, and an HMS catalog must seed its event cursor even on an
+        // FE that never queries it (see MetastoreEventSyncDriver).
+        return true;
+    }
+
+    @Override
     public void validateProperties(Map<String, String> properties) {
         // Reject removed metastore types at CREATE/ALTER CATALOG. This runs only for a user-issued statement,
         // never during edit-log replay, so an already-created glue catalog cannot block FE startup here; it is

@@ -93,6 +93,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
@@ -6506,9 +6507,16 @@ public class Env {
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
-        if ("es".equalsIgnoreCase(
-                        (String) catalogIf.getProperties().get(CatalogMgr.CATALOG_TYPE_PROP))) {
-            ctx.setDatabase("default_db");
+        // A data source whose metadata model has no database layer can name the single database Doris
+        // presents for it; the connector owns that name. Asked of the provider, not the connector, because
+        // switching to a catalog must not force it to initialize. Applied after the remembered database on
+        // purpose: such a catalog has exactly one database, so there is nothing else to return to.
+        Map<String, String> catalogProps = catalogIf.getProperties();
+        String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
+        if (catalogType != null) {
+            ConnectorFactory.findProvider(catalogType, catalogProps)
+                    .flatMap(ConnectorProvider::defaultDatabaseOnUse)
+                    .ifPresent(ctx::setDatabase);
         }
     }
 

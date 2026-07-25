@@ -19,11 +19,13 @@ package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Static factory providing access to the {@link ConnectorPluginManager}.
@@ -90,6 +92,21 @@ public final class ConnectorFactory {
             return null;
         }
         return mgr.createStandaloneCatalogConnector(catalogType, properties, context);
+    }
+
+    /**
+     * Finds the provider that would back a catalog of this type, without creating (and therefore without
+     * initializing) a connector. Empty when the plugin manager is not initialized yet or no provider matches.
+     *
+     * @see ConnectorPluginManager#findProvider
+     */
+    public static Optional<ConnectorProvider> findProvider(
+            String catalogType, Map<String, String> properties) {
+        ConnectorPluginManager mgr = pluginManager;
+        if (mgr == null) {
+            return Optional.empty();
+        }
+        return mgr.findProvider(catalogType, properties);
     }
 
     /** Returns true if the plugin manager has been initialized. */
