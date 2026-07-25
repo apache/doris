@@ -91,6 +91,9 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
             nullptr; // expression/residual rewrite time (ns)
@@ -207,6 +210,9 @@ struct ParquetProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;

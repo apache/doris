@@ -181,6 +181,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "FixedWidthPredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
     fixed_width_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "FixedWidthPredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
+    dictionary_predicate_direct_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictionaryPredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
+    dictionary_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictionaryPredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
+    dictionary_predicate_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictionaryPredicateProjectedRows", TUnit::UNIT, parquet_profile, 1);
     dict_filter_rewrite_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterRewriteTime", parquet_profile, 1);
     dict_filter_expr_rewrite_time =
@@ -321,6 +327,9 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .predicate_alignment_columns = predicate_alignment_columns,
             .fixed_width_predicate_direct_batches = fixed_width_predicate_direct_batches,
             .fixed_width_predicate_direct_rows = fixed_width_predicate_direct_rows,
+            .dictionary_predicate_direct_batches = dictionary_predicate_direct_batches,
+            .dictionary_predicate_direct_rows = dictionary_predicate_direct_rows,
+            .dictionary_predicate_projected_rows = dictionary_predicate_projected_rows,
             .dict_filter_rewrite_time = dict_filter_rewrite_time,
             .dict_filter_expr_rewrite_time = dict_filter_expr_rewrite_time,
             .dict_filter_read_dict_time = dict_filter_read_dict_time,

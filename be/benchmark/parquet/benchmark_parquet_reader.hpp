@@ -384,8 +384,18 @@ inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& p
                     request_builder.add_non_predicate_column(format::LocalColumnId(payload)));
         }
         const auto predicate_position = session->request->local_positions.at(predicate_id).value();
-        session->request->conjuncts.push_back(
-                make_predicate(static_cast<int>(predicate_position), scenario.selectivity_percent));
+        auto context = VExprContext::create_shared(make_int32_comparison(
+                "lt", TExprOpcode::LT,
+                VSlotRef::create_shared(static_cast<int>(predicate_position),
+                                        static_cast<int>(predicate_position), -1,
+                                        session->schema[scenario.predicate_position].type, "c0"),
+                VLiteral::create_shared(
+                        remove_nullable(session->schema[scenario.predicate_position].type),
+                        Field::create_field<TYPE_INT>(scenario.selectivity_percent))));
+        throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
+        throw_if_error(context->open(&session->runtime_state));
+        session->request->conjuncts.push_back(context);
+        session->opened_conjuncts.push_back(std::move(context));
     } else if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
         DORIS_CHECK(scenario.schema_width >= 5);
         std::array<int, 3> predicate_columns {0, 2, 3};

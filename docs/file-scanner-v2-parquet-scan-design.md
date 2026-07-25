@@ -333,11 +333,17 @@ flowchart LR
   B -- "Yes" --> C[Read Dictionary Page]
   C --> D[Evaluate Predicate on Dictionary Values<br>Build Dictionary-ID Bitmap]
   D --> E[Decode Data-page Dictionary IDs<br>Update SelectionVector Directly]
-  E --> G[Materialize Only Survivors]
+  E --> G{Predicate Column Projected?}
+  G -- "No" --> H[Keep Row Shape Without Typed Values]
+  G -- "Yes" --> I[Gather Survivors Directly Into Target Column]
 ```
 
-- Applies to non-repeated primitive, string-like BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY columns whose
-  complete Column Chunk uses dictionary data encoding.
+- Applies to compatible equality and range predicates on non-repeated primitive columns whose
+  complete Column Chunk uses `RLE_DICTIONARY` or legacy `PLAIN_DICTIONARY` data encoding.
+- Predicate-only batches decode selected IDs straight from the page decoder and never convert the
+  dictionary to a Doris value column. When projection is required, the typed dictionary is cached
+  once per generation: INT survivors are written by the filtering loop itself, other fixed-width
+  types use a compact gather, and variable-width types use typed indexed insert.
 - Safe AND subexpressions may remove components exactly covered by dictionary evaluation. OR or
   non-equivalent expressions are not rewritten aggressively.
 - Stateful, potentially throwing, or whole-batch-sensitive expressions disable staged
@@ -593,7 +599,9 @@ a dictionary encoding. The predicate is evaluated against the current dictionary
 entry bitmap; decoded IDs are checked against both dictionary length and bitmap length. A mixed
 dictionary/plain transition falls back before consuming data. Once selected dictionary reading has
 advanced a page cursor, loss of dictionary output is corruption rather than a retry through another
-path with shifted state.
+path with shifted state. Predicate-only slots stop after decoder-level ID filtering and retain only
+the output row shape. Projected slots write INT survivors in the filtering loop or gather compact
+survivor IDs directly into the target column for other logical types.
 
 Missing optional indexes or unsupported predicate/type combinations retain rows. Malformed
 offsets, inconsistent page counts, out-of-range dictionary IDs, overlapping/unsorted invalid ranges,
@@ -608,11 +616,11 @@ storage indexes for external Parquet files.
 | Capability | Granularity | Suitable predicates | Result property | Main limitations |
 | --- | --- | --- | --- | --- |
 | Footer Statistics / ZoneMap | Row Group | Ranges, comparisons, IS NULL/IS NOT NULL, and expressions safely convertible to ZoneMap | Can prove the entire group cannot match | Requires valid min/max/null_count and safe type conversion |
-| Dictionary Pruning | Row Group | Single-column predicates exactly evaluable over the dictionary domain | Can prove the entire group cannot match | Low-cardinality string-like primitive with complete dictionary encoding |
+| Dictionary Pruning | Row Group | Single-column predicates exactly evaluable over the dictionary domain | Can prove the entire group cannot match | Compatible primitive with complete dictionary encoding |
 | Parquet Bloom Filter | Row Group / Column Chunk | Equality and IN membership-negation predicates | Negative result can prune; positive result requires verification | Controlled by configuration; file must contain Bloom data; false positives are possible |
 | ColumnIndex | Page | Predicates evaluable from min/max/null | Produces candidate pages and row ranges | Requires an index and decodable compatible types |
 | OffsetIndex | Page → Row Range | Does not evaluate predicates directly | Maps page results to row numbers and physical skip plans | Normally used with ColumnIndex |
-| Dictionary-ID Filter | Row / Batch | Safe single-column string-like predicates | Exact filtering of actual rows | Complete dictionary encoding and non-repeated primitive only |
+| Dictionary-ID Filter | Row / Batch | Safe typed equality and range predicates | Exact filtering of actual rows without a full predicate value column | Complete dictionary encoding and non-repeated primitive only |
 | Condition Cache Bitmap | File-global granule | Stable cacheable conditions | Reuses previous filtering to reduce row ranges | Not a native Parquet index; uncovered ranges remain candidates |
 
 ### Index-selection overview
@@ -867,6 +875,7 @@ flowchart TD
 | Row Group pruning | How many total Row Groups were pruned by Statistics/Dictionary/Bloom, and how much time did each stage take? |
 | Page index pruning | How many indexes were checked, pages/rows were pruned, ranges selected, and pages skipped? |
 | Dictionary row filter | How often were predicates rewritten, dictionaries read, bitmaps built, and attempts successful or rejected? |
+| Dictionary direct predicate | How many batches and input rows filtered through dictionary IDs, and how many survivor values were projected? Inspect `DictionaryPredicateDirectBatches/Rows` and `DictionaryPredicateProjectedRows`. |
 | Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
 | Predicate compaction | Did selection-first evaluation avoid repeated movement? Inspect `PredicateCompactionTime/Bytes/Count`; single-column rounds retain row mappings and compact at multi-column/delete/output boundaries. |
 | PLAIN direct predicate | How many eligible predicate-only physical batches and input rows bypassed Doris-column materialization? Inspect `PlainPredicateDirectBatches/Rows`. |

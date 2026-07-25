@@ -193,6 +193,17 @@ inline std::vector<ReaderScenario> reader_scenarios() {
             }
         }
     }
+    for (const int selectivity : {1, 10, 50, 90}) {
+        for (const auto projection :
+             {Projection::PREDICATE_ONLY, Projection::PREDICATE_PROJECTED}) {
+            auto scenario = baseline;
+            scenario.operation = ReaderOperation::PREDICATE_SCAN;
+            scenario.encoding = Encoding::DICTIONARY;
+            scenario.selectivity_percent = selectivity;
+            scenario.projection = projection;
+            add(scenario);
+        }
+    }
     for (const int width : {4, 32, 128, 512}) {
         for (const int predicate_position : {0, width - 1}) {
             auto scenario = baseline;

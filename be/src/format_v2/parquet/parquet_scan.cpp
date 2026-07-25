@@ -1659,12 +1659,23 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             const uint16_t selected_rows_before = *selected_rows;
             IColumn::Filter compact_filter;
             bool used_filter = false;
+            const bool predicate_only = request.is_predicate_only(local_id);
+            // Dictionary ids are sufficient for predicate-only slots; skipping typed survivor
+            // gathers preserves the block row shape without materializing an unobservable payload.
+            IColumn* projected_column = predicate_only ? nullptr : column.get();
             RETURN_IF_ERROR(column_reader->select_with_dictionary_filter(
-                    *selection, *selected_rows, batch_rows, dictionary_filter_it->second, column,
-                    &compact_filter, &used_filter));
+                    *selection, *selected_rows, batch_rows, dictionary_filter_it->second,
+                    projected_column, &compact_filter, &used_filter));
             if (used_filter) {
                 DORIS_CHECK(compact_filter.size() == selected_rows_before);
+                update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_batches, 1);
+                update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_rows,
+                                           selected_rows_before);
                 const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                if (!predicate_only) {
+                    update_counter_if_not_null(_scan_profile.dictionary_predicate_projected_rows,
+                                               new_selected_rows);
+                }
                 const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
                                            static_cast<int64_t>(new_selected_rows);
                 if (conjunct_filtered_rows != nullptr) {
@@ -1679,7 +1690,13 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                     *selected_rows = apply_compact_filter_to_selection(compact_filter, selection,
                                                                        selected_rows_before);
                 }
-                file_block->replace_by_position(block_position, std::move(column));
+                if (predicate_only) {
+                    auto placeholder = column->clone_empty();
+                    placeholder->insert_many_defaults(*selected_rows);
+                    file_block->replace_by_position(block_position, std::move(placeholder));
+                } else {
+                    file_block->replace_by_position(block_position, std::move(column));
+                }
                 read_column_positions.push_back(cast_set<uint32_t>(block_position));
                 remember_column_selection(cast_set<uint32_t>(block_position));
                 *used_dictionary_filter = true;
