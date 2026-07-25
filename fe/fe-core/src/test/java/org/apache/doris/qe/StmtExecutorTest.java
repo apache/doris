@@ -486,6 +486,31 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testEmptyOriginStmtSkipsAuditMaskingReparse() throws Exception {
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = Mockito.mock(
+                org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class,
+                Mockito.withSettings().extraInterfaces(
+                        org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption.class));
+        Mockito.doThrow(new AssertionError("empty SQL should not trigger audit masking reparse"))
+                .when((org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption) logicalPlan)
+                .geneEncryptionSQL("");
+
+        org.apache.doris.analysis.StatementBase parsedStmt = new org.apache.doris.nereids.glue.LogicalPlanAdapter(
+                logicalPlan, new org.apache.doris.nereids.StatementContext());
+        parsedStmt.setOrigStmt(new OriginStatement("", 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        // Empty internal SQL must bypass audit masking reparsing in both logging paths.
+        Method getStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging", String.class);
+        getStmtForLogging.setAccessible(true);
+        Assertions.assertEquals("", getStmtForLogging.invoke(executor, ""));
+
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        getStmtForLoggingBeforeParse.setAccessible(true);
+        Assertions.assertEquals("", getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
     public void testNeedAuditEncryptionStatementLogsMaskedSql() throws Exception {
         boolean originalPrintRequest = Config.enable_print_request_before_execution;
         Config.enable_print_request_before_execution = true;

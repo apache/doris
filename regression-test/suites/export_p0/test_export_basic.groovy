@@ -133,10 +133,7 @@ suite("test_export_basic", "p0") {
             if (res[0][2] == "FINISHED") {
                 throw new IllegalStateException("""export finished, do not contains exception: ${exception_msg}""")
             } else if (res[0][2] == "CANCELLED") {
-                // Accept either the original detailed column error or the wrapped command failure variants.
-                assertTrue(
-                        res[0][10].contains("${exception_msg}")
-                                || (res[0][10] =~ /Command.*process failed\.?/).find())
+                assertTrue(res[0][10].contains("${exception_msg}"))
                 break;
             } else {
                 sleep(5000)

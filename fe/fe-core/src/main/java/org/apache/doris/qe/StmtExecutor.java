@@ -2398,6 +2398,10 @@ public class StmtExecutor {
         if (stmt == null || !(parsedStmt instanceof LogicalPlanAdapter)) {
             return stmt;
         }
+        // Internal export outfile tasks use an empty origin SQL, so audit masking must skip reparsing here.
+        if (stmt.isEmpty()) {
+            return stmt;
+        }
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         if (!(logicalPlan instanceof NeedAuditEncryption)) {
             return stmt;
@@ -2408,6 +2412,10 @@ public class StmtExecutor {
     private String getStmtForLoggingBeforeParse() {
         if (originStmt == null || originStmt.originStmt == null) {
             return null;
+        }
+        // Empty SQL cannot produce a valid parse tree for audit masking, so keep the original text.
+        if (originStmt.originStmt.isEmpty()) {
+            return originStmt.originStmt;
         }
         try {
             LogicalPlan logicalPlan = new NereidsParser().parseSingle(originStmt.originStmt);
