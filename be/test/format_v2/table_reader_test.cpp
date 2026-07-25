@@ -2149,9 +2149,12 @@ TEST(TableReaderTest, PushDownCountFallsBackForNullableToRequiredMapping) {
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
-    // The normal scan rejects the nullable physical column because it cannot satisfy the required
-    // table contract. Footer COUNT would bypass that validation and incorrectly return 3.
-    EXPECT_FALSE(reader.get_block(&block, &eos).ok());
+    // Keep footer COUNT disabled so the normal scan observes every value and enforces the required
+    // table contract from the actual null map. This batch contains no NULL and therefore
+    // materializes successfully instead of returning the injected footer count of 3.
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 2);
     EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
 }
 
@@ -2824,6 +2827,103 @@ TEST(TableReaderTest, ScalarCastPromotesRequiredTargetForNullableRuntimeColumn) 
             assert_cast<const ColumnInt64&>(nullable_result.get_nested_column());
     EXPECT_EQ(nested_result.get_element(0), 10);
     EXPECT_EQ(nested_result.get_element(1), 20);
+}
+
+TEST(TableReaderTest, ScalarProjectionMaterializesNullableFileColumnAsRequiredTableColumn) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeInt64>());
+    const auto table_type = std::make_shared<DataTypeInt64>();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto values = ColumnInt64::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    Block block;
+    block.insert({ColumnNullable::create(std::move(values), ColumnUInt8::create(2, 0)), file_type,
+                  "required_value"});
+
+    auto cast_expr = Cast::create_shared(table_type);
+    cast_expr->add_child(VSlotRef::create_shared(0, 0, -1, file_type, "required_value"));
+    ColumnMapping mapping;
+    mapping.global_index = GlobalIndex(0);
+    mapping.table_column_name = "required_value";
+    mapping.file_local_id = 0;
+    mapping.file_column_name = "required_value";
+    mapping.file_type = file_type;
+    mapping.table_type = table_type;
+    mapping.projection = VExprContext::create_shared(std::move(cast_expr));
+    mapping.is_trivial = false;
+    RowDescriptor row_desc;
+    ASSERT_TRUE(mapping.projection->prepare(&state, row_desc).ok());
+    ASSERT_TRUE(mapping.projection->open(&state).ok());
+
+    ColumnPtr result;
+    const auto status = reader._materialize_mapping_column(mapping, &block, 2, &result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(result.get(), nullptr);
+    EXPECT_FALSE(result->is_nullable());
+    const auto& required_result = assert_cast<const ColumnInt64&>(*result);
+    EXPECT_EQ(required_result.get_element(0), 10);
+    EXPECT_EQ(required_result.get_element(1), 20);
+}
+
+TEST(TableReaderTest, ScalarProjectionRejectsNullInRequiredTableColumn) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeInt64>());
+    const auto table_type = std::make_shared<DataTypeInt64>();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto values = ColumnInt64::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+    Block block;
+    block.insert({ColumnNullable::create(std::move(values), std::move(null_map)), file_type,
+                  "required_value"});
+
+    auto cast_expr = Cast::create_shared(table_type);
+    cast_expr->add_child(VSlotRef::create_shared(0, 0, -1, file_type, "required_value"));
+    ColumnMapping mapping;
+    mapping.global_index = GlobalIndex(0);
+    mapping.table_column_name = "required_value";
+    mapping.file_local_id = 0;
+    mapping.file_column_name = "required_value";
+    mapping.file_type = file_type;
+    mapping.table_type = table_type;
+    mapping.projection = VExprContext::create_shared(std::move(cast_expr));
+    mapping.is_trivial = false;
+    RowDescriptor row_desc;
+    ASSERT_TRUE(mapping.projection->prepare(&state, row_desc).ok());
+    ASSERT_TRUE(mapping.projection->open(&state).ok());
+
+    ColumnPtr result;
+    const auto status = reader._materialize_mapping_column(mapping, &block, 2, &result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "Default expression produced NULL for non-nullable table column"),
+              std::string::npos);
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {

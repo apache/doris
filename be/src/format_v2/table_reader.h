@@ -1310,16 +1310,18 @@ protected:
         DORIS_CHECK(mapping.table_type != nullptr);
         const bool runtime_input_mismatch =
                 source.column->is_nullable() != slot->data_type()->is_nullable();
-        if (!runtime_input_mismatch) {
+        const bool nullable_input_to_required_table =
+                source.column->is_nullable() && !mapping.table_type->is_nullable();
+        if (!runtime_input_mismatch && !nullable_input_to_required_table) {
             return Status::OK();
         }
 
         // File readers can return a nullable runtime column even when the physical schema marks the
         // leaf required. A pre-built Cast binds to the declared file type and can therefore pass a
         // ColumnNullable to a non-nullable CastToImpl. Rebuild only when that runtime shape differs
-        // from the declared input. A physically optional field mapped to a required table field
-        // must keep the normal validation path and fail even when this particular batch has no
-        // NULLs.
+        // from the declared input, or when a declared nullable file field maps to a required table
+        // field. Keep the cast target nullable while converting values, then let
+        // _align_column_nullability() reject an actual NULL before removing the wrapper.
         ColumnPtr result_column = source.column;
         RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
                                              mapping.file_column_name));
