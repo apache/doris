@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -147,15 +148,6 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public Map<String, String> getScanNodeProperties(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return buildScanNodeProperties(session, handle, columns, filter).getProperties();
-    }
-
-    @Override
     public ScanNodePropertiesResult getScanNodePropertiesResult(
             ConnectorSession session,
             ConnectorTableHandle handle,
@@ -175,7 +167,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> nodeProps = new HashMap<>();
 
         // File format type for PluginDrivenScanNode.getFileFormatType()
-        nodeProps.put("file_format_type", "es_http");
+        nodeProps.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "es_http");
 
         // Table/index metadata for EXPLAIN
         nodeProps.put("_table_name", esHandle.getIndexName());
@@ -211,7 +203,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         // Build not-pushed conjunct indices set for structured reporting
         Set<Integer> notPushedSet = new HashSet<>(dslResult.getNotPushedIndices());
 
-        return new ScanNodePropertiesResult(nodeProps, notPushedSet);
+        return ScanNodePropertiesResult.withPushdownTracking(nodeProps, notPushedSet);
     }
 
     private void serializeFieldContexts(EsMetadataState state, Map<String, String> nodeProps) {

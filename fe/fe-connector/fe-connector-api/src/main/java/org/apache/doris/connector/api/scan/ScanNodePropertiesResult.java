@@ -47,29 +47,37 @@ public class ScanNodePropertiesResult {
     private final Set<Integer> notPushedConjunctIndices;
     private final boolean hasConjunctTracking;
 
-    /**
-     * Creates a result where no fine-grained conjunct tracking is provided.
-     * The engine will NOT prune any conjuncts.
-     */
-    public ScanNodePropertiesResult(Map<String, String> properties) {
+    private ScanNodePropertiesResult(Map<String, String> properties,
+            Set<Integer> notPushedConjunctIndices, boolean hasConjunctTracking) {
         this.properties = properties;
-        this.notPushedConjunctIndices = null;
-        this.hasConjunctTracking = false;
+        this.notPushedConjunctIndices = notPushedConjunctIndices;
+        this.hasConjunctTracking = hasConjunctTracking;
     }
 
     /**
-     * Creates a result with explicit not-pushed conjunct tracking.
-     * An empty set means ALL conjuncts were pushed down and should be pruned.
+     * Creates a result WITHOUT fine-grained conjunct tracking: the engine prunes nothing and every conjunct
+     * is still evaluated on BE. This is the safe choice, and the right one unless the connector really did
+     * translate individual conjuncts exactly.
      *
-     * @param properties              scan-node-level properties
-     * @param notPushedConjunctIndices indices of conjuncts that were NOT pushed down;
-     *                                 empty set means all were pushed
+     * @param properties scan-node-level properties, keyed per {@link ScanNodePropertyKeys}
      */
-    public ScanNodePropertiesResult(Map<String, String> properties,
+    public static ScanNodePropertiesResult of(Map<String, String> properties) {
+        return new ScanNodePropertiesResult(properties, null, false);
+    }
+
+    /**
+     * Creates a result WITH explicit not-pushed conjunct tracking: every conjunct whose index is absent from
+     * {@code notPushedConjunctIndices} is pruned from the scan node and never re-evaluated, so an empty set
+     * claims "all conjuncts were pushed exactly". Only report an index as pushed when the translation was
+     * exact — a widened pushdown returns extra rows here.
+     *
+     * @param properties               scan-node-level properties, keyed per {@link ScanNodePropertyKeys}
+     * @param notPushedConjunctIndices indices of conjuncts that were NOT pushed down; empty set means all
+     *                                 were pushed
+     */
+    public static ScanNodePropertiesResult withPushdownTracking(Map<String, String> properties,
             Set<Integer> notPushedConjunctIndices) {
-        this.properties = properties;
-        this.notPushedConjunctIndices = notPushedConjunctIndices;
-        this.hasConjunctTracking = true;
+        return new ScanNodePropertiesResult(properties, notPushedConjunctIndices, true);
     }
 
     public Map<String, String> getProperties() {

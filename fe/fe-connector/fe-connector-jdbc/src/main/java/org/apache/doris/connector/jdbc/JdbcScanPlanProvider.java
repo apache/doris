@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -176,7 +177,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
                     columns, filter, -1);
         }
         Map<String, String> props = new HashMap<>();
-        props.put("query", querySql);
+        props.put(ScanNodePropertyKeys.REMOTE_QUERY, querySql);
         return props;
     }
 }

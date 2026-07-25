@@ -85,7 +85,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -335,11 +334,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
     }
 
-    // Serialize the table to be scanned to BE's jni reader
-    protected Optional<String> getSerializedTable() {
-        return Optional.empty();
-    }
-
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -468,8 +462,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             selectedFileNum = distinctFilePaths.size();
         }
-
-        getSerializedTable().ifPresent(params::setSerializedTable);
 
         if (executor != null) {
             executor.getSummaryProfile().setCreateScanRangeFinishTime();

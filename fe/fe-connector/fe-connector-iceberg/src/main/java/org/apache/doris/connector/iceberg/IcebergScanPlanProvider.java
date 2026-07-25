@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -1548,7 +1549,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // PERF-03: the non-system format resolution falls back to an unfiltered whole-table planFiles() when the
         // table sets neither write-format nor write.format.default; memoize that inference per (table, snapshot)
         // across queries via formatCache (pure metadata, no credential gate). Null cache (offline) resolves live.
-        props.put("file_format_type",
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE,
                 systemTable ? "jni"
                         : IcebergWriterHelper.getFileFormat(table,
                                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), formatCache)
@@ -1566,7 +1567,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!systemTable) {
             List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
             if (!partitionKeys.isEmpty()) {
-                props.put("path_partition_keys", String.join(",", partitionKeys));
+                props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
             }
         }
         // Static storage credentials (T09, all flavors): the catalog's bound fe-filesystem StorageProperties,
@@ -1582,7 +1583,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             for (StorageProperties sp : context.getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
-            backendStorageProps.forEach((k, v) -> props.put("location." + k, v));
+            backendStorageProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Vended-credential overlay (T09, REST per-table token): the raw token is extracted from the live,
         // snapshot-pinned table's FileIO (gated on the catalog flag iceberg.rest.vended-credentials-enabled,
@@ -1593,7 +1594,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (context != null) {
             Map<String, String> vendedBeProps =
                     context.vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
-            vendedBeProps.forEach((k, v) -> props.put("location." + k, v));
+            vendedBeProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the
         // PINNED schema's names, but the generic node builds the column handles from the LATEST schema (the pin

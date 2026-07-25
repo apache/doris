@@ -2091,6 +2091,34 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void serializedTableReachesScanLevelParams() {
+        // WHY: BE's paimon JNI reader aborts the scan when serialized_table is unset ("missing
+        // serialized_table ... possibly caused by FE/BE version mismatch"), so losing this field fails
+        // every paimon query outright rather than degrading it. The value used to travel through a
+        // generically named SPI method the engine called back into (getSerializedTable(props), which just
+        // read the key this provider had written itself); it is now put on the thrift here, inside the
+        // scan-level params hook this provider already owns. MUTATION: drop the params.setSerializedTable
+        // call in populateScanLevelParams -> isSetSerializedTable() false -> red.
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps(),
+                scanContext(Collections.emptyMap(), Collections.emptyMap()));
+
+        Map<String, String> scanProps = provider.getScanNodeProperties(
+                null, handle, Collections.emptyList(), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, scanProps);
+
+        Assertions.assertTrue(params.isSetSerializedTable(),
+                "the serialized paimon table must reach the scan-level thrift params");
+        Assertions.assertEquals(scanProps.get("paimon.serialized_table"), params.getSerializedTable());
+    }
+
+    @Test
     public void buildSchemaInfoLowercasesTopLevelButPreservesNestedNames() {
         // WHY (BLOCKER): the -1/current entry is the BE table-side StructNode key; BE keys it VERBATIM and
         // the native reader looks up the LOWERCASE Doris slot name, so a mixed-case column ("MyCol") must

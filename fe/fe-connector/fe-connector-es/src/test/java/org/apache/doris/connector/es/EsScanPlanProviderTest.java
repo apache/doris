@@ -163,9 +163,9 @@ class EsScanPlanProviderTest {
         EsTableHandle handle = new EsTableHandle("test_index");
 
         provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
-        provider.getScanNodeProperties(EMPTY_SESSION, handle, Collections.emptyList(),
+        provider.getScanNodePropertiesResult(EMPTY_SESSION, handle, Collections.emptyList(),
                 java.util.Optional.empty());
-        // ES-F1: planScan and getScanNodeProperties of one scan node run on the SAME per-scan-node
+        // ES-F1: planScan and getScanNodePropertiesResult of one scan node run on the SAME per-scan-node
         // provider instance, so the metadata state (mapping + shard routing + node topology) is
         // fetched once and shared -- not twice. MUTATION: removing the memoizedState guard makes
         // each call refetch -> these go back to 2 -> red.
@@ -338,8 +338,8 @@ class EsScanPlanProviderTest {
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("my_test_index");
 
-        Map<String, String> props = provider.getScanNodeProperties(
-                EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+        Map<String, String> props = provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty()).getProperties();
         StringBuilder output = new StringBuilder();
         provider.appendExplainInfo(output, "", props);
 

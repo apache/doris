@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -190,19 +191,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // also pushed into history_schema_info under this key (PaimonScanNode.doInitialize -> -1L).
     private static final long CURRENT_SCHEMA_ID = -1L;
 
-    // FIX-E (explain gap): synthetic node-property keys the generic PluginDrivenScanNode injects into
-    // the props map it passes to appendExplainInfo, carrying the per-scan native/total split counts it
-    // accumulated from ConnectorScanRange.isNativeReadRange(). They are NOT real connector properties
-    // (never sent to BE) — only this provider's appendExplainInfo reads them, to re-emit the legacy
-    // PaimonScanNode "paimonNativeReadSplits=<raw>/<total>" line. Keys are byte-identical to the
-    // PluginDrivenScanNode constants so the inject/consume sides stay in lockstep.
-    private static final String NATIVE_READ_SPLITS_KEY = "__native_read_splits";
-    private static final String TOTAL_READ_SPLITS_KEY = "__total_read_splits";
-    // FIX-E (explain gap): present (="true") only when the generic PluginDrivenScanNode renders a VERBOSE
-    // EXPLAIN. Gates the per-split "PaimonSplitStats:" block below to VERBOSE, mirroring the legacy
-    // PaimonScanNode (which emitted the block only under TExplainLevel.VERBOSE). Byte-identical to the
-    // PluginDrivenScanNode constant so the inject/consume sides stay in lockstep.
-    private static final String VERBOSE_EXPLAIN_KEY = "__explain_verbose";
+    // Connector-private scan node property key (the engine never reads it): carries the base64-serialized
+    // paimon Table from getScanNodeProperties to populateScanLevelParams, which puts it on the thrift.
+    private static final String PROP_SERIALIZED_TABLE = "paimon.serialized_table";
 
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
@@ -727,7 +718,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> props = new LinkedHashMap<>();
 
         // File format type (default)
-        props.put("file_format_type", "jni");
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "jni");
         props.put("table_format_type", "paimon");
 
         // Path partition keys: declare the partition columns at the scan-node level so
@@ -741,12 +732,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // parity (and mirrors the hive connector). PluginDrivenScanNode.getPathPartitionKeys reads this.
         List<String> partitionKeys = table.partitionKeys();
         if (partitionKeys != null && !partitionKeys.isEmpty()) {
-            props.put("path_partition_keys", String.join(",", partitionKeys));
+            props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
         }
 
         // Serialized table for BE's JNI reader
         String serializedTable = encodeObjectToString(table);
-        props.put("paimon.serialized_table", serializedTable);
+        props.put(PROP_SERIALIZED_TABLE, serializedTable);
 
         // Serialized predicates for BE's JNI scanner. ALWAYS emit, even for the no-filter / empty-predicate
         // case: an empty list still serializes to a non-null base64 string, and PaimonJniScanner.getPredicates()
@@ -803,7 +794,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
             for (Map.Entry<String, String> e : backendStorageProps.entrySet()) {
-                props.put("location." + e.getKey(), e.getValue());
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + e.getKey(), e.getValue());
             }
         }
 
@@ -815,7 +806,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (context != null) {
             Map<String, String> vendedBeProps = context.vendStorageCredentials(extractVendedToken(table));
             for (Map.Entry<String, String> e : vendedBeProps.entrySet()) {
-                props.put("location." + e.getKey(), e.getValue());
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + e.getKey(), e.getValue());
             }
         }
 
@@ -1318,6 +1309,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public void populateScanLevelParams(TFileScanRangeParams params,
             Map<String, String> properties) {
+        // The paimon Table the BE JNI reader deserializes. Set here rather than through a dedicated SPI
+        // method: this hook already receives the very TFileScanRangeParams the engine sends, and it runs
+        // after the generic scan-range construction, so a plain set is enough. BE fails the scan outright
+        // when the field is missing ("missing serialized_table"), so it must be emitted for every scan.
+        String serializedTable = properties.get(PROP_SERIALIZED_TABLE);
+        if (serializedTable != null) {
+            params.setSerializedTable(serializedTable);
+        }
+
         String predicate = properties.get("paimon.predicate");
         if (predicate != null) {
             params.setPaimonPredicate(predicate);
@@ -1348,7 +1348,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code paimonNativeReadSplits=<raw>/<total>} (native ORC/Parquet sub-splits over all splits).
      * The generic {@code PluginDrivenScanNode} accumulates the counts from
      * {@link ConnectorScanRange#isNativeReadRange()} in {@code getSplits} and injects them into the
-     * props map via the {@link #NATIVE_READ_SPLITS_KEY}/{@link #TOTAL_READ_SPLITS_KEY} synthetic keys,
+     * props map via the {@link ScanNodePropertyKeys#SYNTHETIC_NATIVE_READ_SPLITS} /
+     * {@link ScanNodePropertyKeys#SYNTHETIC_TOTAL_READ_SPLITS} synthetic keys,
      * so this connector owns the paimon-specific string without an SPI signature change. Skipped when
      * the keys are absent (e.g. EXPLAIN rendered before any split accounting, or another connector's
      * props map) so the line never prints {@code 0/0} spuriously.
@@ -1356,8 +1357,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix,
             Map<String, String> nodeProperties) {
-        String nativeSplits = nodeProperties.get(NATIVE_READ_SPLITS_KEY);
-        String totalSplits = nodeProperties.get(TOTAL_READ_SPLITS_KEY);
+        String nativeSplits = nodeProperties.get(ScanNodePropertyKeys.SYNTHETIC_NATIVE_READ_SPLITS);
+        String totalSplits = nodeProperties.get(ScanNodePropertyKeys.SYNTHETIC_TOTAL_READ_SPLITS);
         if (nativeSplits != null && totalSplits != null) {
             output.append(prefix).append("paimonNativeReadSplits=")
                     .append(nativeSplits).append("/").append(totalSplits).append("\n");
@@ -1373,7 +1374,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             if (encodedPredicates != null) {
                 appendPredicatesFromPaimon(output, prefix, encodedPredicates);
             }
-            if (nodeProperties.containsKey(VERBOSE_EXPLAIN_KEY)) {
+            if (nodeProperties.containsKey(ScanNodePropertyKeys.SYNTHETIC_EXPLAIN_VERBOSE)) {
                 appendSplitStats(output, prefix,
                         Integer.parseInt(nativeSplits), Integer.parseInt(totalSplits));
             }
@@ -1721,11 +1722,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         field.setType(columnType);
         return field;
-    }
-
-    @Override
-    public String getSerializedTable(Map<String, String> properties) {
-        return properties.get("paimon.serialized_table");
     }
 
     /**

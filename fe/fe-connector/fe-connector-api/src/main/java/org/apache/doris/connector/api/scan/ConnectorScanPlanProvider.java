@@ -395,6 +395,15 @@ public interface ConnectorScanPlanProvider {
      * return the query DSL, authentication info, and field context mappings here,
      * since they are shared across all shard scan ranges.</p>
      *
+     * <p>The keys the engine reads are declared in {@link ScanNodePropertyKeys}; use those constants rather
+     * than string literals. Any other key is connector-private (the engine passes the map back to
+     * {@link #populateScanLevelParams} and {@link #appendExplainInfo}, so a connector can carry its own
+     * information through it) and should be namespaced with the connector's own name.</p>
+     *
+     * <p><b>Override this face OR {@link #getScanNodePropertiesResult}, not both.</b> The engine only ever
+     * calls the result face, whose default implementation delegates here; a connector that overrides both
+     * with different content has the map returned by this method silently discarded.</p>
+     *
      * @param session the current session
      * @param handle  the table handle (may have been updated by applyFilter)
      * @param columns the columns to read
@@ -440,8 +449,12 @@ public interface ConnectorScanPlanProvider {
      * <p>The default wraps {@link #getScanNodeProperties} in a result WITHOUT conjunct tracking, which makes
      * {@code PluginDrivenScanNode.pruneConjunctsFromNodeProperties} remove nothing: every conjunct is still
      * evaluated on BE. That is the safe default — it is NOT "all conjuncts are assumed pushed". Reporting an
-     * empty not-pushed set through the two-argument {@link ScanNodePropertiesResult} constructor is the
-     * opposite claim (everything was pushed, prune them all), so use it only when the pushdown was exact.</p>
+     * empty not-pushed set through {@link ScanNodePropertiesResult#withPushdownTracking} is the opposite
+     * claim (everything was pushed, prune them all), so use it only when the pushdown was exact.</p>
+     *
+     * <p><b>This is the face the engine calls.</b> A connector that needs conjunct tracking overrides this
+     * one and leaves {@link #getScanNodeProperties} alone — overriding both is how the {@code Map} face's
+     * result gets silently discarded.</p>
      *
      * @param session the current session
      * @param handle  the table handle (may have been updated by applyFilter)
@@ -454,7 +467,7 @@ public interface ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        return new ScanNodePropertiesResult(
+        return ScanNodePropertiesResult.of(
                 getScanNodeProperties(session, handle, columns, filter));
     }
 
@@ -502,20 +515,6 @@ public interface ConnectorScanPlanProvider {
      */
     default List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
         return Collections.emptyList();
-    }
-
-    /**
-     * Returns the serialized table representation for this connector,
-     * or {@code null} if not applicable.
-     *
-     * <p>Currently used by Paimon to pass the serialized Paimon Table
-     * object to BE for JNI-based reading.</p>
-     *
-     * @param nodeProperties the scan node properties
-     * @return serialized table string, or null
-     */
-    default String getSerializedTable(Map<String, String> nodeProperties) {
-        return null;
     }
 
     /**

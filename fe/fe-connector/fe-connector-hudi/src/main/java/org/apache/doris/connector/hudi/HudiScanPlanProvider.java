@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -318,13 +319,13 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> props = new LinkedHashMap<>();
         // For COW tables, we default to parquet (may be overridden per-split).
         // For MOR tables, default is JNI.
-        props.put("file_format_type", isCow ? "parquet" : "jni");
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, isCow ? "parquet" : "jni");
         props.put("table_format_type", "hudi");
 
         // Partition keys
         List<String> partKeys = hudiHandle.getPartitionKeyNames();
         if (partKeys != null && !partKeys.isEmpty()) {
-            props.put("path_partition_keys", String.join(",", partKeys));
+            props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partKeys));
         }
 
         // BE-facing storage for the native + JNI readers, mirroring legacy getLocationProperties' dual merge.
@@ -333,7 +334,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         //      403s (the raw catalog aliases s3.access_key/... are useless to it). Sourced from the context's
         //      single normalization hook. Empty for no context (offline tests) or a credential-less warehouse.
         if (context != null) {
-            context.getBackendStorageProperties().forEach((k, v) -> props.put("location." + k, v));
+            context.getBackendStorageProperties()
+                    .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         //  (1b) Hadoop-canonical object-store config (fs.s3a.* / fs.oss.* / resolved hadoop.*/dfs.*) TRANSLATED
         //      from the catalog's typed StorageProperties, for the Hudi JNI reader's own Hadoop FileSystem.
@@ -343,7 +345,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         //      getLocationProperties' merge that the raw passthrough (2) alone does not reconstruct (the catalog
         //      carries s3. aliases, not fs.s3a. keys). Emitted BEFORE (2) so a user-inline fs./hadoop. key still
         //      wins (mirrors buildHadoopConf precedence); null context yields an empty map (offline / HDFS-only).
-        storageHadoopConfig(context).forEach((k, v) -> props.put("location." + k, v));
+        storageHadoopConfig(context).forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         //  (2) Hadoop-format passthrough for the Hudi JNI reader (its own Hadoop FileSystem: fs.s3a.* etc).
         //      Emitted AFTER the canonical set so an overlapping hadoop key resolves to the catalog's explicit
         //      value (legacy putAll order: backendStorageProperties then hadoopProperties). The s3./oss./cos./obs.
@@ -354,7 +356,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     || key.startsWith("dfs.") || key.startsWith("hive.")
                     || key.startsWith("s3.") || key.startsWith("cos.")
                     || key.startsWith("oss.") || key.startsWith("obs.")) {
-                props.put("location." + key, entry.getValue());
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, entry.getValue());
             }
         }
 

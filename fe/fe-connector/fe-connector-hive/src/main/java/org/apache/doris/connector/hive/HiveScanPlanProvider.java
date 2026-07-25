@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -77,10 +78,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /** Maximum number of partitions to list from HMS. */
     private static final int MAX_PARTITIONS = 100000;
 
-    /** Scan node property keys. */
-    public static final String PROP_FILE_FORMAT_TYPE = "file_format_type";
-    public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
-    public static final String PROP_LOCATION_PREFIX = "location.";
     /**
      * Connector-internal signal (consumed by {@link #populateScanLevelParams}) marking a full-ACID
      * (transactional) Hive scan; drives the scan-level {@code table_format_type} stamp. Not a BE-facing key.
@@ -380,12 +377,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        props.put(PROP_FILE_FORMAT_TYPE, fileFormat.getFormatName());
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, fileFormat.getFormatName());
 
         // Partition key column names
         List<String> partKeys = hiveHandle.getPartitionKeyNames();
         if (partKeys != null && !partKeys.isEmpty()) {
-            props.put(PROP_PATH_PARTITION_KEYS, String.join(",", partKeys));
+            props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partKeys));
         }
 
         // Location properties (Hadoop/S3 config for BE file access).
@@ -396,7 +393,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         //      (hmsTable.getBackendStorageProperties()); the new path had dropped it. Empty for a null context
         //      (offline tests) or a credential-less warehouse.
         if (context != null) {
-            context.getBackendStorageProperties().forEach((k, v) -> props.put(PROP_LOCATION_PREFIX + k, v));
+            context.getBackendStorageProperties()
+                    .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         //  (2) Raw catalog aliases + inline fs./hadoop./dfs. keys. Emitted AFTER the canonical set so a user-inline
         //      fs./hadoop. key wins; the s3./oss./cos./obs. aliases are harmless to BE (ignored by the native
@@ -404,7 +402,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             String key = entry.getKey();
             if (isLocationProperty(key)) {
-                props.put(PROP_LOCATION_PREFIX + key, entry.getValue());
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, entry.getValue());
             }
         }
 
