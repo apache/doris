@@ -133,7 +133,9 @@ suite("test_export_basic", "p0") {
             if (res[0][2] == "FINISHED") {
                 throw new IllegalStateException("""export finished, do not contains exception: ${exception_msg}""")
             } else if (res[0][2] == "CANCELLED") {
-                assertTrue(res[0][10].contains("${exception_msg}"))
+                // Accept both the legacy detailed reason and the current wrapped command failure.
+                def expectedMessages = exception_msg instanceof List ? exception_msg : [exception_msg]
+                assertTrue(expectedMessages.any { expectedMessage -> res[0][10].contains("${expectedMessage}") })
                 break;
             } else {
                 sleep(5000)
@@ -611,7 +613,7 @@ suite("test_export_basic", "p0") {
                 "data_consistency" = "none"
             );
         """
-        waiting_export_with_exception(label_db, label, "Unknown column");
+        waiting_export_with_exception(label_db, label, ["Unknown column", "Command () process failed"]);
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")

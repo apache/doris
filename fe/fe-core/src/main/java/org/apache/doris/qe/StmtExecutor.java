@@ -691,9 +691,7 @@ public class StmtExecutor {
                     throw new UserException(e.getMessage());
                 }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                // Preserve the original analysis error when inner execution already exposed
-                // a more specific message to the query state.
-                preserveDetailedErrorMessage(e.getMessage());
+                context.getState().setError(e.getMessage());
                 return;
             } catch (Exception e) {
                 LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
@@ -2394,18 +2392,6 @@ public class StmtExecutor {
             return originStmt.originStmt;
         }
         return "";
-    }
-
-    // Keep the original query-state error when command execution has already produced
-    // a more actionable message than the outer wrapper exception.
-    private void preserveDetailedErrorMessage(String fallbackMessage) {
-        String currentError = context.getState().getErrorMessage();
-        if (context.getState().getStateType() == MysqlStateType.ERR
-                && currentError != null
-                && !currentError.isEmpty()) {
-            return;
-        }
-        context.getState().setError(fallbackMessage);
     }
 
     private String getStmtForLogging(String stmt) {
