@@ -180,4 +180,129 @@ class OssFileSystemPropertiesTest {
             Assertions.assertNotEquals("toS3Props", method.getName());
         }
     }
+
+    @Test
+    void bind_roleArnAndRoleSessionName() {
+        OssFileSystemProperties p = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk",
+                "oss.role_arn", "acs:ram::123:role/r",
+                "oss.role_session_name", "my-session",
+                "oss.external_id", "ext-id"));
+
+        Assertions.assertEquals("acs:ram::123:role/r", p.getRoleArn());
+        Assertions.assertEquals("my-session", p.getRoleSessionName());
+        Assertions.assertEquals("ext-id", p.getExternalId());
+    }
+
+    @Test
+    void bind_roleSessionName_defaultsToDorisSession() {
+        OssFileSystemProperties p = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk",
+                "oss.role_arn", "acs:ram::123:role/r"));
+
+        Assertions.assertEquals("doris-session", p.getRoleSessionName());
+    }
+
+    @Test
+    void bind_ecsRamRoleName() {
+        OssFileSystemProperties p = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.ecs_ram_role_name", "my-ecs-role"));
+
+        Assertions.assertEquals("my-ecs-role", p.getEcsRamRoleName());
+        Assertions.assertEquals("", p.getAccessKey());
+    }
+
+    @Test
+    void validate_roleArnAndEcsRamRoleAreMutuallyExclusive() {
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                OssFileSystemProperties.of(Map.of(
+                        "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                        "oss.access_key", "ak",
+                        "oss.secret_key", "sk",
+                        "oss.role_arn", "acs:ram::123:role/r",
+                        "oss.ecs_ram_role_name", "my-role")));
+    }
+
+    @Test
+    void validate_legacyRoleArnAliasesResolved() {
+        OssFileSystemProperties p = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.access_key", "ak",
+                "oss.secret_key", "sk",
+                "OSS_ROLE_ARN", "acs:ram::123:role/legacy"));
+
+        Assertions.assertEquals("acs:ram::123:role/legacy", p.getRoleArn());
+    }
+
+    @Test
+    void bind_oidcRrsaProperties() {
+        OssFileSystemProperties p = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "OSS_ROLE_ARN", "acs:ram::123:role/r",
+                "oss.oidc_provider_arn", "acs:ram::123:oidc-provider/p",
+                "oss.oidc_token_file", "/var/run/secrets/token",
+                "oss.role_session_name", "doris-k8s"));
+
+        Assertions.assertEquals("acs:ram::123:role/r", p.getRoleArn());
+        Assertions.assertEquals("acs:ram::123:oidc-provider/p", p.getOidcProviderArn());
+        Assertions.assertEquals("/var/run/secrets/token", p.getOidcTokenFile());
+        Assertions.assertEquals("doris-k8s", p.getRoleSessionName());
+    }
+
+    @Test
+    void validate_oidcProviderArnRequiresTokenFileTogether() {
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                OssFileSystemProperties.of(Map.of(
+                        "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                        "oss.oidc_provider_arn", "acs:ram::123:oidc-provider/p"
+                        // oss.oidc_token_file missing — must be set together
+                )));
+    }
+
+    @Test
+    void validate_ecsRamRoleAndOidcAreMutuallyExclusive() {
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                OssFileSystemProperties.of(Map.of(
+                        "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                        "oss.ecs_ram_role_name", "my-role",
+                        "oss.oidc_provider_arn", "acs:ram::123:oidc-provider/p",
+                        "oss.oidc_token_file", "/var/run/secrets/token")));
+    }
+
+    @Test
+    void bind_credentialsProviderType_instanceProfile() {
+        OssFileSystemProperties p = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss.credentials_provider", "instance_profile"));
+
+        Assertions.assertEquals(OssCredentialsProviderType.INSTANCE_PROFILE,
+                p.getCredentialsProviderType());
+    }
+
+    @Test
+    void bind_credentialsProviderType_aliases() {
+        Assertions.assertEquals(OssCredentialsProviderType.INSTANCE_PROFILE,
+                OssCredentialsProviderType.fromString("ecs"));
+        Assertions.assertEquals(OssCredentialsProviderType.OIDC,
+                OssCredentialsProviderType.fromString("rrsa"));
+        Assertions.assertEquals(OssCredentialsProviderType.OIDC,
+                OssCredentialsProviderType.fromString("WEB_IDENTITY"));
+        Assertions.assertEquals(OssCredentialsProviderType.DEFAULT,
+                OssCredentialsProviderType.fromString(""));
+        Assertions.assertEquals(OssCredentialsProviderType.DEFAULT,
+                OssCredentialsProviderType.fromString(null));
+    }
+
+    @Test
+    void validate_unsupportedCredentialsProvider() {
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                OssFileSystemProperties.of(Map.of(
+                        "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
+                        "oss.credentials_provider", "INVALID_TYPE")));
+    }
 }
