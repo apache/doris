@@ -77,7 +77,7 @@ VariantField encode_json(std::string_view json) {
                                         .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
-    return VariantField::encode(block.value_at(0));
+    return VariantField::from_ref(block.value_at(0));
 }
 
 void append_unsigned(std::string& output, unsigned __int128 value, uint8_t width) {
@@ -100,7 +100,7 @@ VariantField encoded_field(std::string metadata, std::string value) {
     append_unsigned(field, metadata.size(), sizeof(uint32_t));
     field.append(metadata);
     field.append(value);
-    return VariantField::decode({field.data(), field.size()});
+    return VariantField::from_bytes({field.data(), field.size()});
 }
 
 std::string integer_value_bytes(int64_t value, uint8_t width) {
@@ -295,7 +295,7 @@ void fill_equivalent_columns(ColumnVariantV2& canonical, ColumnVariantV2& extern
 
     insert_encoded_field(external, encoded_integer(42, sizeof(int64_t)));
     const std::string object = noncanonical_object_field_bytes();
-    insert_encoded_field(external, VariantField::decode({object.data(), object.size()}));
+    insert_encoded_field(external, VariantField::from_bytes({object.data(), object.size()}));
     insert_encoded_field(external, encoded_integer_array(42, sizeof(int64_t)));
     insert_encoded_field(external, encoded_decimal(42, 0));
     insert_encoded_field(external, encoded_double(42.0));
@@ -783,12 +783,12 @@ TEST(ColumnVariantV2Test, EncodedScalarObjectAndArray) {
 
 TEST(ColumnVariantV2Test, PreservesLegalNoncanonicalBytes) {
     const std::string raw = noncanonical_object_field_bytes();
-    const VariantField noncanonical = VariantField::decode({raw.data(), raw.size()});
+    const VariantField noncanonical = VariantField::from_bytes({raw.data(), raw.size()});
     auto column = ColumnVariantV2::create();
     insert_encoded_field(*column, noncanonical);
     insert_encoded_field(*column, noncanonical);
 
-    VariantField round_trip = VariantField::encode(column->get_value_ref(0));
+    VariantField round_trip = VariantField::from_ref(column->get_value_ref(0));
     EXPECT_EQ(as_view(round_trip.bytes()), raw);
     VariantRef a;
     VariantRef b;

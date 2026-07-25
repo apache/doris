@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace doris {
 
@@ -29,6 +31,36 @@ inline constexpr size_t VARIANT_MAX_SHORT_STRING_SIZE = 63;
 inline constexpr uint8_t VARIANT_MAX_PRIMITIVE_ID = 20;
 inline constexpr uint32_t VARIANT_MAX_NESTING_DEPTH = 128;
 
+inline constexpr unsigned __int128 variant_decimal_max_unscaled(uint8_t precision) noexcept {
+    unsigned __int128 value = 1;
+    for (uint8_t digit = 0; digit < precision; ++digit) {
+        value *= 10;
+    }
+    return value - 1;
+}
+
+inline constexpr unsigned __int128 VARIANT_DECIMAL4_MAX = variant_decimal_max_unscaled(9);
+inline constexpr unsigned __int128 VARIANT_DECIMAL8_MAX = variant_decimal_max_unscaled(18);
+inline constexpr unsigned __int128 VARIANT_DECIMAL16_MAX = variant_decimal_max_unscaled(38);
+
+inline constexpr unsigned __int128 variant_unsigned_magnitude(__int128 value) noexcept {
+    const auto unsigned_value = static_cast<unsigned __int128>(value);
+    return value < 0 ? ~unsigned_value + 1 : unsigned_value;
+}
+
+inline constexpr uint8_t variant_minimum_unsigned_width(uint64_t value) noexcept {
+    if (value <= std::numeric_limits<uint8_t>::max()) {
+        return 1;
+    }
+    if (value <= std::numeric_limits<uint16_t>::max()) {
+        return 2;
+    }
+    if (value <= 0xFFFFFFU) {
+        return 3;
+    }
+    return 4;
+}
+
 inline constexpr uint8_t VARIANT_BASIC_TYPE_MASK = 0x03;
 inline constexpr uint8_t VARIANT_VALUE_HEADER_SHIFT = 2;
 
@@ -36,6 +68,10 @@ inline constexpr uint8_t VARIANT_METADATA_VERSION_MASK = 0x0F;
 inline constexpr uint8_t VARIANT_METADATA_SORTED_STRINGS_MASK = 0x10;
 inline constexpr uint8_t VARIANT_METADATA_OFFSET_SIZE_SHIFT = 6;
 inline constexpr uint8_t VARIANT_METADATA_OFFSET_SIZE_MASK = 0x03;
+
+// Parquet Variant v1 metadata for a sorted dictionary with zero keys.
+inline constexpr std::array<char, 3> VARIANT_EMPTY_METADATA {
+        static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK), 0, 0};
 
 // Container positions are relative to the six-bit value_header, after removing basic_type.
 inline constexpr uint8_t VARIANT_OBJECT_OFFSET_SIZE_SHIFT = 0;

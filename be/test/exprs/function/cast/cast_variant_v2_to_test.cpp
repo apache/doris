@@ -27,6 +27,8 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_ipv4.h"
+#include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nothing.h"
@@ -133,6 +135,34 @@ TEST(CastVariantV2ToTest, ScalarCreatesTypedStateAndSharesSourceColumn) {
     EXPECT_EQ(source->size(), 2);
     EXPECT_EQ(source->get_data()[0], 7);
     EXPECT_EQ(source->get_data()[1], 99);
+}
+
+TEST(CastVariantV2ToTest, IpScalarSourcesUseTypedIdentityWhitelist) {
+    IPv4 ipv4 {};
+    ASSERT_TRUE(IPv4Value::from_string(ipv4, "192.0.2.1"));
+    auto ipv4_source = ColumnIPv4::create();
+    ipv4_source->insert_value(ipv4);
+    CastResult ipv4_cast =
+            execute_to_variant(ipv4_source->get_ptr(), std::make_shared<DataTypeIPv4>());
+    ASSERT_TRUE(ipv4_cast.status.ok()) << ipv4_cast.status;
+    const auto& ipv4_variant = assert_cast<const ColumnVariantV2&>(*ipv4_cast.column);
+    ASSERT_TRUE(ipv4_variant.is_typed());
+    EXPECT_EQ(ipv4_variant.typed_type()->get_primitive_type(), TYPE_IPV4);
+    EXPECT_EQ(&assert_cast<const ColumnNullable&>(ipv4_variant.typed_column()).get_nested_column(),
+              ipv4_source.get());
+
+    IPv6 ipv6 {};
+    ASSERT_TRUE(IPv6Value::from_string(ipv6, "2001:db8::1"));
+    auto ipv6_source = ColumnIPv6::create();
+    ipv6_source->insert_value(ipv6);
+    CastResult ipv6_cast =
+            execute_to_variant(ipv6_source->get_ptr(), std::make_shared<DataTypeIPv6>());
+    ASSERT_TRUE(ipv6_cast.status.ok()) << ipv6_cast.status;
+    const auto& ipv6_variant = assert_cast<const ColumnVariantV2&>(*ipv6_cast.column);
+    ASSERT_TRUE(ipv6_variant.is_typed());
+    EXPECT_EQ(ipv6_variant.typed_type()->get_primitive_type(), TYPE_IPV6);
+    EXPECT_EQ(&assert_cast<const ColumnNullable&>(ipv6_variant.typed_column()).get_nested_column(),
+              ipv6_source.get());
 }
 
 TEST(CastVariantV2ToTest, StringIsAStringScalarAndIsNotParsed) {

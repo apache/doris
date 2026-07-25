@@ -45,10 +45,13 @@ public:
     VariantField& operator=(const VariantField& other);
     VariantField& operator=(VariantField&& other) noexcept;
 
-    // Both entry points validate the complete row once, then own a byte-for-byte copy;
-    // decode never borrows the input buffer.
-    static VariantField encode(VariantRef value);
-    static VariantField decode(StringRef bytes);
+    // Validate an already encoded Variant view, add the VariantField framing, and copy the
+    // metadata and value bytes without canonicalizing them.
+    static VariantField from_ref(VariantRef value);
+
+    // Validate one complete serialized VariantField and own an exact byte-for-byte copy. The
+    // returned field never borrows from bytes and preserves legal non-canonical encodings.
+    static VariantField from_bytes(StringRef bytes);
 
     // The returned view borrows this field and is invalidated by assignment or destruction. It is
     // O(1) and does not revalidate. Default and moved-from fields have empty bytes(), and ref()

@@ -34,6 +34,7 @@
 #include "core/data_type/data_type.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/format_ip.h"
 
 namespace doris::column_variant_v2_internal {
@@ -44,22 +45,8 @@ void validate_typed_decimal_scale(const IColumn& nested, PrimitiveType type, uin
 
 namespace detail {
 
-constexpr unsigned __int128 max_decimal38() {
-    unsigned __int128 value = 1;
-    for (uint8_t digit = 0; digit < 38; ++digit) {
-        value *= 10;
-    }
-    return value - 1;
-}
-
-constexpr unsigned __int128 MAX_DECIMAL38 = max_decimal38();
 constexpr int64_t MICROS_PER_SECOND = 1'000'000;
 constexpr int64_t SECONDS_PER_DAY = 86'400;
-
-inline unsigned __int128 unsigned_magnitude(__int128 value) noexcept {
-    const auto unsigned_value = static_cast<unsigned __int128>(value);
-    return value < 0 ? ~unsigned_value + 1 : unsigned_value;
-}
 
 size_t format_int128(__int128 value, char* output) noexcept;
 
@@ -99,7 +86,7 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
                  [value] { return VariantCanonicalScalarRef::exact_integer(value); });
     } else if constexpr (Type == TYPE_LARGEINT) {
         const __int128 value = column.get_data()[row];
-        if (detail::unsigned_magnitude(value) <= detail::MAX_DECIMAL38) {
+        if (variant_unsigned_magnitude(value) <= VARIANT_DECIMAL16_MAX) {
             callback([value] { return VariantScalarEncodingPlan::largeint(value); },
                      [value] { return VariantCanonicalScalarRef::exact_integer(value); });
         } else {
@@ -295,6 +282,15 @@ template <typename Callback>
 void dispatch_typed_column(const ColumnNullable& nullable, PrimitiveType type,
                            Callback&& callback) {
     dispatch_scalar_column(nullable.get_nested_column(), type, std::forward<Callback>(callback));
+}
+
+template <typename Callback>
+void visit_typed_canonical_column(const ColumnNullable& nullable, PrimitiveType type,
+                                  uint32_t scale, size_t start, size_t end, Callback&& callback) {
+    dispatch_typed_column(nullable, type, [&]<PrimitiveType Type>(const auto& column) {
+        visit_typed_canonical_rows<Type>(nullable, column, scale, start, end,
+                                         std::forward<Callback>(callback));
+    });
 }
 
 } // namespace doris::column_variant_v2_internal

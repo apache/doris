@@ -26,18 +26,9 @@
 #include "core/string_buffer.hpp"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function/parse/variant_string_parse.h"
-#include "exprs/function_context.h"
-#include "runtime/runtime_state.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
-
-VariantJsonFormatOptions json_options(FunctionContext* context) {
-    if (context == nullptr || context->state() == nullptr) {
-        return {};
-    }
-    return {.timezone = &context->state()->timezone_obj()};
-}
 
 bool uses_concrete_string_cast(VariantRef value) {
     if (value.basic_type() == VariantBasicType::SHORT_STRING) {
@@ -147,7 +138,7 @@ Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls 
     auto fallback_strings = ColumnString::create();
     auto fallback_nulls = ColumnUInt8::create();
     VectorBufferWriter writer(*fallback_strings);
-    const VariantJsonFormatOptions options = json_options(context);
+    const VariantJsonFormatOptions options = variant_json_options(context);
     for (size_t row : fallback_rows) {
         const bool forced = !forced_nulls.empty() && forced_nulls[row] != 0;
         append_fallback_string(forced ? VariantRef {} : value_at(row), forced, options, &writer,

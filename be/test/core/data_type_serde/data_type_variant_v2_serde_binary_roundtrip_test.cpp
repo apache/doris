@@ -68,7 +68,7 @@ VariantField encode_json(std::string_view json) {
                                         .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
-    return VariantField::encode(block.value_at(0));
+    return VariantField::from_ref(block.value_at(0));
 }
 
 ColumnVariantV2::MutablePtr encoded(std::string_view json) {
@@ -110,7 +110,7 @@ VariantField noncanonical_object() {
     append_unsigned(field, metadata.size(), sizeof(uint32_t));
     field.append(metadata);
     field.append(value);
-    return VariantField::decode({field.data(), field.size()});
+    return VariantField::from_bytes({field.data(), field.size()});
 }
 
 std::vector<char> serialize(const IColumn& source) {
@@ -297,8 +297,8 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedRowsPreserveStateOrderAnd
     ASSERT_FALSE(destination->is_typed());
     ASSERT_EQ(destination->size(), source->size());
     for (size_t row = 0; row < source->size(); ++row) {
-        const VariantField expected = VariantField::encode(source->read_view().value_at(row));
-        const VariantField actual = VariantField::encode(destination->read_view().value_at(row));
+        const VariantField expected = VariantField::from_ref(source->read_view().value_at(row));
+        const VariantField actual = VariantField::from_ref(destination->read_view().value_at(row));
         EXPECT_EQ(std::string_view(actual.bytes().data, actual.bytes().size),
                   std::string_view(expected.bytes().data, expected.bytes().size))
                 << row;
@@ -476,8 +476,8 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EmptyAndConstColumnsPreserveWhol
     ASSERT_EQ(decoded_encoded_const.column->size(), 4);
     ASSERT_FALSE(decoded_encoded_const->is_typed());
     ASSERT_EQ(decoded_encoded_const->size(), 1);
-    EXPECT_EQ(VariantField::encode(decoded_encoded_const->read_view().value_at(0)).bytes(),
-              VariantField::encode(one_encoded_ref.read_view().value_at(0)).bytes());
+    EXPECT_EQ(VariantField::from_ref(decoded_encoded_const->read_view().value_at(0)).bytes(),
+              VariantField::from_ref(one_encoded_ref.read_view().value_at(0)).bytes());
 
     constexpr std::array<uint8_t, 1> NOT_NULL {0};
     auto one_typed = typed(fixed_column<ColumnInt32, Int32>({0x12345678}),

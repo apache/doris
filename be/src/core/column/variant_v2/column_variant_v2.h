@@ -246,15 +246,12 @@ void visit_variant_values(const IColumn& source, size_t start, size_t end, Force
     const uint32_t scale = view.typed_type()->get_scale();
     DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
     const auto& inner_nulls = nullable.get_null_map_data();
-    static constexpr std::array<char, 3> EMPTY_METADATA {
-            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK), 0,
-            0};
     DorisVector<char> scratch;
     auto emit = [&](size_t row, VariantScalarEncodingPlan plan) {
         scratch.resize(plan.size());
         plan.write(scratch.data(), scratch.size());
-        on_value(row, VariantRef {.metadata = {.data = EMPTY_METADATA.data(),
-                                               .size = EMPTY_METADATA.size()},
+        on_value(row, VariantRef {.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                                               .size = VARIANT_EMPTY_METADATA.size()},
                                   .value = {scratch.data(), scratch.size()}});
     };
     dispatch_typed_column(nullable, view.typed_type()->get_primitive_type(),

@@ -28,6 +28,20 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
+#include "exprs/function/parse/variant_string_parse.h"
+#include "exprs/function_context.h"
+#include "runtime/runtime_state.h"
+
+namespace doris::CastWrapper::variant_v2_internal {
+
+VariantJsonFormatOptions variant_json_options(FunctionContext* context) {
+    if (context == nullptr || context->state() == nullptr) {
+        return {};
+    }
+    return {.timezone = &context->state()->timezone_obj()};
+}
+
+} // namespace doris::CastWrapper::variant_v2_internal
 
 namespace doris::CastWrapper {
 namespace {

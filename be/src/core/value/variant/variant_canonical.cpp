@@ -40,10 +40,7 @@
 namespace doris {
 namespace {
 
-constexpr unsigned __int128 DECIMAL4_MAX = 999'999'999;
-constexpr unsigned __int128 DECIMAL8_MAX = 999'999'999'999'999'999;
 constexpr uint64_t CANONICAL_NAN_BITS = 0x7FF8000000000000ULL;
-constexpr size_t CANONICAL_SIZE_PREFIX = sizeof(uint32_t);
 
 uint32_t read_bounded_unsigned(StringRef bytes, size_t offset, uint8_t width, const char* field) {
     if (offset > bytes.size || width > bytes.size - offset) {
@@ -57,16 +54,6 @@ uint32_t read_bounded_unsigned(StringRef bytes, size_t offset, uint8_t width, co
     }
     return result;
 }
-
-constexpr unsigned __int128 max_decimal38() {
-    unsigned __int128 value = 1;
-    for (uint8_t digit = 0; digit < 38; ++digit) {
-        value *= 10;
-    }
-    return value - 1;
-}
-
-constexpr unsigned __int128 MAX_DECIMAL38 = max_decimal38();
 
 enum class CanonicalKind : uint8_t {
     NULL_VALUE = 0,
@@ -127,11 +114,6 @@ NormalizedValue normalized_bytes(CanonicalKind kind, StringRef bytes) {
     return result;
 }
 
-unsigned __int128 magnitude(__int128 value) {
-    const auto unsigned_value = static_cast<unsigned __int128>(value);
-    return value < 0 ? ~unsigned_value + 1 : unsigned_value;
-}
-
 void require_depth(uint32_t depth) {
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -160,7 +142,7 @@ NormalizedValue normalize_floating(double value) {
     if (std::isfinite(value) && std::trunc(value) == value && value >= -INT128_UPPER_EXCLUSIVE &&
         value < INT128_UPPER_EXCLUSIVE) {
         const auto integer = static_cast<__int128>(value);
-        if (magnitude(integer) <= MAX_DECIMAL38) {
+        if (variant_unsigned_magnitude(integer) <= VARIANT_DECIMAL16_MAX) {
             return normalized_integer(CanonicalKind::EXACT_INTEGER, integer);
         }
     }
@@ -198,7 +180,7 @@ NormalizedValue normalize_primitive(VariantRef value) {
     case VariantPrimitiveId::DECIMAL8:
     case VariantPrimitiveId::DECIMAL16: {
         VariantDecimal decimal = value.get_decimal();
-        if (magnitude(decimal.unscaled) > MAX_DECIMAL38) {
+        if (variant_unsigned_magnitude(decimal.unscaled) > VARIANT_DECIMAL16_MAX) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Variant decimal unscaled value exceeds precision 38");
         }
@@ -451,19 +433,6 @@ void hash_node(VariantRef value, Sink& sink, uint32_t depth) {
     }
 }
 
-uint8_t minimum_unsigned_width(uint64_t value) {
-    if (value <= std::numeric_limits<uint8_t>::max()) {
-        return 1;
-    }
-    if (value <= std::numeric_limits<uint16_t>::max()) {
-        return 2;
-    }
-    if (value <= 0xFFFFFFU) {
-        return 3;
-    }
-    return 4;
-}
-
 uint8_t minimum_integer_width(__int128 value) {
     if (value >= std::numeric_limits<int8_t>::min() &&
         value <= std::numeric_limits<int8_t>::max()) {
@@ -481,11 +450,11 @@ uint8_t minimum_integer_width(__int128 value) {
 }
 
 uint8_t minimum_decimal_width(__int128 value) {
-    const unsigned __int128 absolute = magnitude(value);
-    if (absolute <= DECIMAL4_MAX) {
+    const unsigned __int128 absolute = variant_unsigned_magnitude(value);
+    if (absolute <= VARIANT_DECIMAL4_MAX) {
         return 4;
     }
-    if (absolute <= DECIMAL8_MAX) {
+    if (absolute <= VARIANT_DECIMAL8_MAX) {
         return 8;
     }
     return 16;
@@ -652,13 +621,13 @@ void finish_plan(SerializePlan& plan) {
             values_size += static_cast<uint32_t>(child_size);
         }
         node.values_size = values_size;
-        node.offset_width = minimum_unsigned_width(values_size);
+        node.offset_width = variant_minimum_unsigned_width(values_size);
         if (node.normalized.kind == CanonicalKind::OBJECT) {
             const uint32_t maximum_id =
                     node.child_count == 0
                             ? 0
                             : plan.children[node.children_begin + node.child_count - 1].field_id;
-            node.id_width = minimum_unsigned_width(maximum_id);
+            node.id_width = variant_minimum_unsigned_width(maximum_id);
         }
 
         uint64_t encoded_size = 1 + node.count_width + values_size;
@@ -868,7 +837,8 @@ size_t metadata_encoded_size(const std::vector<StringRef>& keys, uint8_t* width_
                             "Variant canonical metadata strings exceed uint32 byte limit");
         }
     }
-    const uint8_t width = minimum_unsigned_width(std::max<uint64_t>(keys.size(), strings_size));
+    const uint8_t width =
+            variant_minimum_unsigned_width(std::max<uint64_t>(keys.size(), strings_size));
     const uint64_t encoded_size = 1 + width + (keys.size() + 1) * width + strings_size;
     if (encoded_size > std::numeric_limits<size_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -1036,7 +1006,7 @@ VariantCanonicalScalarRef VariantCanonicalScalarRef::boolean(bool value) noexcep
 }
 
 VariantCanonicalScalarRef VariantCanonicalScalarRef::exact_integer(__int128 value) {
-    if (magnitude(value) > MAX_DECIMAL38) {
+    if (variant_unsigned_magnitude(value) > VARIANT_DECIMAL16_MAX) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant exact integer exceeds the decimal38 canonical domain");
     }
@@ -1050,7 +1020,7 @@ VariantCanonicalScalarRef VariantCanonicalScalarRef::decimal(__int128 unscaled, 
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant decimal scale {} is outside [0, 38]",
                         scale);
     }
-    if (magnitude(unscaled) > MAX_DECIMAL38) {
+    if (variant_unsigned_magnitude(unscaled) > VARIANT_DECIMAL16_MAX) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant decimal unscaled value exceeds precision 38");
     }
@@ -1169,27 +1139,24 @@ void CanonicalScalarSerializationPlan::write(char* destination, size_t capacity)
     }
     const NormalizedValue normalized = VariantCanonicalScalarAdapter::normalize(_value);
     const size_t value_size = scalar_encoded_size(normalized);
-    constexpr size_t EMPTY_METADATA_SIZE = 3;
-    DCHECK_EQ(_cell_size, CANONICAL_SIZE_PREFIX + EMPTY_METADATA_SIZE + value_size);
+    DCHECK_EQ(_cell_size,
+              VARIANT_CANONICAL_SIZE_PREFIX + VARIANT_EMPTY_METADATA.size() + value_size);
 
     char* output = destination;
-    write_unsigned(output, EMPTY_METADATA_SIZE + value_size, sizeof(uint32_t));
-    *output++ = static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK);
-    *output++ = 0;
-    *output++ = 0;
+    write_unsigned(output, VARIANT_EMPTY_METADATA.size() + value_size, sizeof(uint32_t));
+    output = std::copy(VARIANT_EMPTY_METADATA.begin(), VARIANT_EMPTY_METADATA.end(), output);
     write_scalar(normalized, output);
     DCHECK_EQ(output, destination + _cell_size);
 }
 
 CanonicalScalarSerializationPlan prepare_canonical_serialize(VariantCanonicalScalarRef value) {
     const NormalizedValue normalized = VariantCanonicalScalarAdapter::normalize(value);
-    constexpr size_t EMPTY_METADATA_SIZE = 3;
     const size_t value_size = scalar_encoded_size(normalized);
-    if (value_size > std::numeric_limits<uint32_t>::max() - EMPTY_METADATA_SIZE) {
+    if (value_size > std::numeric_limits<uint32_t>::max() - VARIANT_EMPTY_METADATA.size()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant canonical arena payload exceeds uint32 byte limit");
     }
-    return {value, CANONICAL_SIZE_PREFIX + EMPTY_METADATA_SIZE + value_size};
+    return {value, VARIANT_CANONICAL_SIZE_PREFIX + VARIANT_EMPTY_METADATA.size() + value_size};
 }
 
 CanonicalSerializationPlan prepare_canonical_serialize(VariantRef value) {
@@ -1208,8 +1175,7 @@ CanonicalSerializationPlan prepare_canonical_serialize(VariantRef value) {
     }
     implementation->payload_size = static_cast<uint32_t>(metadata_size + value_size);
     implementation->metadata_width = metadata_width;
-    constexpr size_t PREFIX_SIZE = sizeof(uint32_t);
-    implementation->cell_size = PREFIX_SIZE + implementation->payload_size;
+    implementation->cell_size = VARIANT_CANONICAL_SIZE_PREFIX + implementation->payload_size;
     return CanonicalSerializationPlan(std::move(implementation));
 }
 
@@ -1232,21 +1198,21 @@ VariantRef parse_canonical_serialized(StringRef serialized) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant canonical cell has a null pointer for {} bytes", serialized.size);
     }
-    if (serialized.size < CANONICAL_SIZE_PREFIX) {
+    if (serialized.size < VARIANT_CANONICAL_SIZE_PREFIX) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Truncated Variant canonical cell size prefix: need {} bytes, have {}",
-                        CANONICAL_SIZE_PREFIX, serialized.size);
+                        VARIANT_CANONICAL_SIZE_PREFIX, serialized.size);
     }
 
     const uint32_t payload_size =
-            read_bounded_unsigned(serialized, 0, CANONICAL_SIZE_PREFIX, "payload size");
-    if (payload_size != serialized.size - CANONICAL_SIZE_PREFIX) {
+            read_bounded_unsigned(serialized, 0, VARIANT_CANONICAL_SIZE_PREFIX, "payload size");
+    if (payload_size != serialized.size - VARIANT_CANONICAL_SIZE_PREFIX) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Variant canonical payload size {} does not match {} available bytes",
-                        payload_size, serialized.size - CANONICAL_SIZE_PREFIX);
+                        payload_size, serialized.size - VARIANT_CANONICAL_SIZE_PREFIX);
     }
 
-    const StringRef payload(serialized.data + CANONICAL_SIZE_PREFIX, payload_size);
+    const StringRef payload(serialized.data + VARIANT_CANONICAL_SIZE_PREFIX, payload_size);
     constexpr size_t METADATA_HEADER_SIZE = 1;
     if (payload.size < METADATA_HEADER_SIZE) {
         throw Exception(ErrorCode::CORRUPTION, "Truncated Variant canonical metadata header");

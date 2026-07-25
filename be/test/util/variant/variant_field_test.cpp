@@ -198,17 +198,17 @@ std::string_view as_view(StringRef bytes) {
 
 void expect_encode_and_decode_failure(const std::string& metadata_bytes,
                                       const std::string& value_bytes) {
-    EXPECT_THROW(VariantField::encode(value_ref(metadata_bytes, value_bytes)), Exception);
+    EXPECT_THROW(VariantField::from_ref(value_ref(metadata_bytes, value_bytes)), Exception);
     const std::string raw = raw_field(metadata_bytes, value_bytes);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 }
 
 void expect_encode_and_decode_preservation(const std::string& metadata_bytes,
                                            const std::string& value_bytes) {
     const std::string raw = raw_field(metadata_bytes, value_bytes);
-    VariantField encoded = VariantField::encode(value_ref(metadata_bytes, value_bytes));
+    VariantField encoded = VariantField::from_ref(value_ref(metadata_bytes, value_bytes));
     EXPECT_EQ(as_view(encoded.bytes()), raw);
-    VariantField decoded = VariantField::decode({raw.data(), raw.size()});
+    VariantField decoded = VariantField::from_bytes({raw.data(), raw.size()});
     EXPECT_EQ(as_view(decoded.bytes()), raw);
 }
 
@@ -218,7 +218,7 @@ VariantField encode_json(std::string_view json) {
                                         .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
-    return VariantField::encode(block.value_at(0));
+    return VariantField::from_ref(block.value_at(0));
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions are the matrix.
@@ -226,21 +226,21 @@ TEST(VariantFieldTest, ScalarObjectAndArrayRoundTrip) {
     const std::string empty_metadata = metadata({}, true);
     const std::string int_value = integer(-12345, VariantPrimitiveId::INT16, 2);
 
-    VariantField scalar = VariantField::encode(value_ref(empty_metadata, int_value));
+    VariantField scalar = VariantField::from_ref(value_ref(empty_metadata, int_value));
     ASSERT_EQ(scalar.bytes().size, sizeof(uint32_t) + empty_metadata.size() + int_value.size());
     EXPECT_EQ(read_u32(scalar.bytes().data), empty_metadata.size());
     EXPECT_EQ(scalar.ref().get_int(), -12345);
 
-    VariantField decoded = VariantField::decode(scalar.bytes());
+    VariantField decoded = VariantField::from_bytes(scalar.bytes());
     EXPECT_EQ(as_view(decoded.bytes()), as_view(scalar.bytes()));
-    EXPECT_EQ(as_view(VariantField::encode(decoded.ref()).bytes()), as_view(decoded.bytes()));
+    EXPECT_EQ(as_view(VariantField::from_ref(decoded.ref()).bytes()), as_view(decoded.bytes()));
 
     const std::string object_metadata = metadata({"a", "b"}, true);
     const std::string array_value =
             array({primitive(VariantPrimitiveId::NULL_VALUE), short_string("x")});
     const std::string object_value =
             object({0, 1}, {0, static_cast<uint32_t>(int_value.size())}, {int_value, array_value});
-    VariantField nested = VariantField::encode(value_ref(object_metadata, object_value));
+    VariantField nested = VariantField::from_ref(value_ref(object_metadata, object_value));
 
     VariantRef a;
     ASSERT_TRUE(nested.ref().object_find(StringRef("a"), &a));
@@ -255,7 +255,7 @@ TEST(VariantFieldTest, ScalarObjectAndArrayRoundTrip) {
 TEST(VariantFieldTest, CopyAndMoveOwnTheirBytes) {
     const std::string metadata_bytes = metadata({}, true);
     const std::string value_bytes = short_string("owned");
-    VariantField original = VariantField::encode(value_ref(metadata_bytes, value_bytes));
+    VariantField original = VariantField::from_ref(value_ref(metadata_bytes, value_bytes));
 
     VariantField copied(original);
     EXPECT_EQ(as_view(copied.bytes()), as_view(original.bytes()));
@@ -290,7 +290,7 @@ TEST(VariantFieldTest, CopyAndMoveOwnTheirBytes) {
     std::string decoded_snapshot;
     {
         std::string source = raw_field(metadata_bytes, value_bytes);
-        decoded = VariantField::decode({source.data(), source.size()});
+        decoded = VariantField::from_bytes({source.data(), source.size()});
         decoded_snapshot.assign(decoded.bytes().data, decoded.bytes().size);
         source.assign(source.size(), '\x7f');
         EXPECT_EQ(as_view(decoded.bytes()), decoded_snapshot);
@@ -307,9 +307,10 @@ TEST(VariantFieldTest, PreservesLegalNonCanonicalBytes) {
     const std::string nonmonotonic_object = object({1, 0}, {1, 0}, {null_value, true_value});
     const std::string expected = raw_field(unsorted_metadata, nonmonotonic_object);
 
-    VariantField encoded = VariantField::encode(value_ref(unsorted_metadata, nonmonotonic_object));
+    VariantField encoded =
+            VariantField::from_ref(value_ref(unsorted_metadata, nonmonotonic_object));
     EXPECT_EQ(as_view(encoded.bytes()), expected);
-    VariantField decoded = VariantField::decode({expected.data(), expected.size()});
+    VariantField decoded = VariantField::from_bytes({expected.data(), expected.size()});
     EXPECT_EQ(as_view(decoded.bytes()), expected);
 
     VariantRef a;
@@ -324,9 +325,9 @@ TEST(VariantFieldTest, PreservesLegalNonCanonicalBytes) {
             static_cast<char>(static_cast<uint8_t>(metadata_with_ignored_bit[0]) | 0x20U);
     const std::string ignored_bit_raw = raw_field(metadata_with_ignored_bit, null_value);
     VariantField ignored_bit =
-            VariantField::decode({ignored_bit_raw.data(), ignored_bit_raw.size()});
+            VariantField::from_bytes({ignored_bit_raw.data(), ignored_bit_raw.size()});
     EXPECT_EQ(as_view(ignored_bit.bytes()), ignored_bit_raw);
-    EXPECT_EQ(as_view(VariantField::encode(ignored_bit.ref()).bytes()), ignored_bit_raw);
+    EXPECT_EQ(as_view(VariantField::from_ref(ignored_bit.ref()).bytes()), ignored_bit_raw);
 
     const std::string empty_metadata = metadata({}, true);
     std::string reserved_array = array({});
@@ -356,9 +357,9 @@ TEST(VariantFieldTest, ValidatesUtf8BySemanticType) {
     expect_encode_and_decode_failure(empty_metadata, long_string(invalid_utf8));
 
     const std::string binary_value = binary(invalid_utf8);
-    VariantField encoded = VariantField::encode(value_ref(empty_metadata, binary_value));
+    VariantField encoded = VariantField::from_ref(value_ref(empty_metadata, binary_value));
     EXPECT_EQ(as_view(encoded.ref().get_binary()), invalid_utf8);
-    VariantField decoded = VariantField::decode(encoded.bytes());
+    VariantField decoded = VariantField::from_bytes(encoded.bytes());
     EXPECT_EQ(as_view(decoded.ref().get_binary()), invalid_utf8);
 }
 
@@ -381,9 +382,9 @@ TEST(VariantFieldTest, ValidatesDecimalPrecisionByPhysicalWidth) {
     for (const auto [id, width] : {std::pair {VariantPrimitiveId::DECIMAL8, uint8_t {8}},
                                    std::pair {VariantPrimitiveId::DECIMAL16, uint8_t {16}}}) {
         const std::string value = decimal(id, 1, 38, width);
-        VariantField encoded = VariantField::encode(value_ref(empty_metadata, value));
+        VariantField encoded = VariantField::from_ref(value_ref(empty_metadata, value));
         EXPECT_EQ(encoded.ref().get_decimal(), (VariantDecimal {1, 38, width}));
-        VariantField decoded = VariantField::decode(encoded.bytes());
+        VariantField decoded = VariantField::from_bytes(encoded.bytes());
         EXPECT_EQ(decoded.ref().get_decimal(), (VariantDecimal {1, 38, width}));
     }
 }
@@ -391,8 +392,8 @@ TEST(VariantFieldTest, ValidatesDecimalPrecisionByPhysicalWidth) {
 TEST(VariantFieldTest, ValidatesDepthAndActualObjectKeyOrder) {
     const std::string empty_metadata = metadata({}, true);
     const std::string maximum_depth = nested_single_element_arrays(VARIANT_MAX_NESTING_DEPTH);
-    VariantField encoded = VariantField::encode(value_ref(empty_metadata, maximum_depth));
-    VariantField decoded = VariantField::decode(encoded.bytes());
+    VariantField encoded = VariantField::from_ref(value_ref(empty_metadata, maximum_depth));
+    VariantField decoded = VariantField::from_bytes(encoded.bytes());
     EXPECT_EQ(as_view(decoded.bytes()), as_view(encoded.bytes()));
 
     expect_encode_and_decode_failure(empty_metadata,
@@ -431,73 +432,73 @@ TEST(VariantFieldTest, RejectsMalformedFramingMetadataAndValue) {
     VariantField empty;
     EXPECT_EQ(empty.bytes().size, 0);
     EXPECT_THROW(empty.ref(), Exception);
-    EXPECT_THROW(VariantField::decode({}), Exception);
-    EXPECT_THROW(VariantField::decode({static_cast<const char*>(nullptr), 1}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({static_cast<const char*>(nullptr), 1}), Exception);
 
     for (size_t size = 1; size < sizeof(uint32_t); ++size) {
         const std::string truncated(size, '\0');
-        EXPECT_THROW(VariantField::decode({truncated.data(), truncated.size()}), Exception);
+        EXPECT_THROW(VariantField::from_bytes({truncated.data(), truncated.size()}), Exception);
     }
 
     std::string bad_meta_size(sizeof(uint32_t), '\0');
     bad_meta_size[0] = 5;
-    EXPECT_THROW(VariantField::decode({bad_meta_size.data(), bad_meta_size.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({bad_meta_size.data(), bad_meta_size.size()}), Exception);
 
     std::string zero_metadata(sizeof(uint32_t), '\0');
     zero_metadata.push_back(primitive(VariantPrimitiveId::NULL_VALUE)[0]);
-    EXPECT_THROW(VariantField::decode({zero_metadata.data(), zero_metadata.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({zero_metadata.data(), zero_metadata.size()}), Exception);
 
     const std::string empty_metadata = metadata({}, true);
     std::string bad_version = empty_metadata;
     bad_version[0] = 2;
     const std::string null_value = primitive(VariantPrimitiveId::NULL_VALUE);
     std::string raw = raw_field(bad_version, null_value);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     std::string truncated_metadata = empty_metadata;
     truncated_metadata.pop_back();
     raw = raw_field(truncated_metadata, null_value);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     raw = raw_field(empty_metadata, {});
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     const std::string truncated_int64 = integer(1, VariantPrimitiveId::INT64, 1);
     raw = raw_field(empty_metadata, truncated_int64);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     const std::string unknown_id(
             1, static_cast<char>((VARIANT_MAX_PRIMITIVE_ID + 1) << VARIANT_VALUE_HEADER_SHIFT));
     raw = raw_field(empty_metadata, unknown_id);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     std::string trailing_value = null_value;
     trailing_value.push_back('\0');
     raw = raw_field(empty_metadata, trailing_value);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     const std::string truncated_array(1, static_cast<char>(VariantBasicType::ARRAY));
     raw = raw_field(empty_metadata, truncated_array);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     const std::string bad_object_id = object({0}, {0}, {null_value});
     raw = raw_field(empty_metadata, bad_object_id);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     const std::string nested_unknown = array({unknown_id});
     raw = raw_field(empty_metadata, nested_unknown);
-    EXPECT_THROW(VariantField::decode({raw.data(), raw.size()}), Exception);
+    EXPECT_THROW(VariantField::from_bytes({raw.data(), raw.size()}), Exception);
 
     const char one_byte = 0;
-    EXPECT_THROW(VariantField::encode({{nullptr, 1}, {&one_byte, 1}}), Exception);
-    EXPECT_THROW(VariantField::encode({{empty_metadata.data(), empty_metadata.size()},
-                                       {static_cast<const char*>(nullptr), 1}}),
+    EXPECT_THROW(VariantField::from_ref({{nullptr, 1}, {&one_byte, 1}}), Exception);
+    EXPECT_THROW(VariantField::from_ref({{empty_metadata.data(), empty_metadata.size()},
+                                         {static_cast<const char*>(nullptr), 1}}),
                  Exception);
-    EXPECT_THROW(VariantField::encode({{empty_metadata.data(), empty_metadata.size()},
-                                       {&one_byte, std::numeric_limits<size_t>::max()}}),
+    EXPECT_THROW(VariantField::from_ref({{empty_metadata.data(), empty_metadata.size()},
+                                         {&one_byte, std::numeric_limits<size_t>::max()}}),
                  Exception);
     if constexpr (sizeof(size_t) > sizeof(uint32_t)) {
-        EXPECT_THROW(VariantField::encode(
+        EXPECT_THROW(VariantField::from_ref(
                              {{empty_metadata.data(),
                                static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1},
                               {&one_byte, 1}}),
@@ -508,8 +509,8 @@ TEST(VariantFieldTest, RejectsMalformedFramingMetadataAndValue) {
 TEST(VariantFieldTest, AllComparisonsThrow) {
     const std::string metadata_bytes = metadata({}, true);
     const std::string value_bytes = primitive(VariantPrimitiveId::NULL_VALUE);
-    const VariantField left = VariantField::encode(value_ref(metadata_bytes, value_bytes));
-    const VariantField right = VariantField::encode(value_ref(metadata_bytes, value_bytes));
+    const VariantField left = VariantField::from_ref(value_ref(metadata_bytes, value_bytes));
+    const VariantField right = VariantField::from_ref(value_ref(metadata_bytes, value_bytes));
 
     EXPECT_THROW(static_cast<void>(left < right), Exception);
     EXPECT_THROW(static_cast<void>(left <= right), Exception);

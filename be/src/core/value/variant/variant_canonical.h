@@ -27,6 +27,8 @@
 
 namespace doris {
 
+inline constexpr size_t VARIANT_CANONICAL_SIZE_PREFIX = sizeof(uint32_t);
+
 class SipHash;
 class CanonicalScalarSerializationPlan;
 class VariantCanonicalScalarRef;

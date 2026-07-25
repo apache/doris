@@ -436,16 +436,11 @@ private:
             uint32_t field_id = 0;
             const VariantRef child = value.object_value_at(index, &field_id);
             const StringRef key = value.metadata.key_at(field_id);
-            variant_json_detail::require_valid_json_utf8(key, "Variant object key");
+            variant_json_detail::require_json_object_key(key, previous_key, index);
             if (key.size > std::numeric_limits<uint8_t>::max()) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Variant object key length {} exceeds JSONB maximum {}", key.size,
                                 std::numeric_limits<uint8_t>::max());
-            }
-            if (index != 0 && previous_key.compare(key) >= 0) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "Variant object keys are not strictly byte-sorted at field {}",
-                                index);
             }
             require_jsonb_write(_writer.writeKey(key.data, static_cast<uint8_t>(key.size)),
                                 "object key");

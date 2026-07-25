@@ -40,7 +40,7 @@ VariantField encode_json(std::string_view json) {
                                         .check_duplicate_json_path = false});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
-    return VariantField::encode(block.value_at(0));
+    return VariantField::from_ref(block.value_at(0));
 }
 
 void append_json(ColumnVariantV2& column, std::string_view json) {
@@ -108,7 +108,7 @@ VariantField legal_noncanonical_object() {
     append_unsigned(field, metadata.size(), sizeof(uint32_t));
     field.append(metadata);
     field.append(value);
-    return VariantField::decode({field.data(), field.size()});
+    return VariantField::from_bytes({field.data(), field.size()});
 }
 
 } // namespace
@@ -225,12 +225,12 @@ TEST(VariantElementV2EncodedTest, SourceCowBytesRemainUnchanged) {
     auto source = ColumnVariantV2::create();
     append_json(*source, R"({"a":{"b":42}})");
     ColumnPtr shared = source->get_ptr();
-    const VariantField before = VariantField::encode(source->get_value_ref(0));
+    const VariantField before = VariantField::from_ref(source->get_value_ref(0));
     auto path = resolve({Segment::object_key(StringRef("a")), Segment::object_key(StringRef("b"))});
 
     ColumnPtr result = extract(*source, *path);
     EXPECT_EQ(variant_result(result).get_value_ref(0).get_int(), 42);
-    const VariantField after = VariantField::encode(source->get_value_ref(0));
+    const VariantField after = VariantField::from_ref(source->get_value_ref(0));
     EXPECT_EQ(std::string_view(before.bytes().data, before.bytes().size),
               std::string_view(after.bytes().data, after.bytes().size));
     EXPECT_EQ(shared.get(), source.get());

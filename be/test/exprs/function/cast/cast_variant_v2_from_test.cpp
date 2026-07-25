@@ -178,6 +178,15 @@ TEST(CastVariantV2FromTest, TypedScalarDelegatesToConcreteNonStrictCast) {
     EXPECT_EQ(values.get_data()[2], -3);
     EXPECT_EQ(nullable.get_null_map_data()[2], 0);
     EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(*source).is_typed());
+
+    constexpr std::array<NullMap::value_type, 3> FORCED_NULLS {1, 0, 0};
+    CastResult masked =
+            execute_from_variant(source, std::make_shared<DataTypeInt64>(), FORCED_NULLS.data());
+    ASSERT_TRUE(masked.status.ok()) << masked.status;
+    const auto& merged_nulls = nullable_result(masked.column).get_null_map_data();
+    EXPECT_EQ(merged_nulls[0], 1);
+    EXPECT_EQ(merged_nulls[1], 1);
+    EXPECT_EQ(merged_nulls[2], 0);
 }
 
 TEST(CastVariantV2FromTest, StringUsesConcreteScalarsAndExplicitDocumentRules) {

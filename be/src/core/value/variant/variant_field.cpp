@@ -31,18 +31,6 @@ namespace doris {
 namespace {
 
 constexpr size_t METADATA_SIZE_PREFIX = sizeof(uint32_t);
-constexpr unsigned __int128 DECIMAL4_MAX = 999'999'999;
-constexpr unsigned __int128 DECIMAL8_MAX = 999'999'999'999'999'999;
-
-constexpr unsigned __int128 max_decimal38() {
-    unsigned __int128 value = 1;
-    for (uint8_t digit = 0; digit < 38; ++digit) {
-        value *= 10;
-    }
-    return value - 1;
-}
-
-constexpr unsigned __int128 MAX_DECIMAL38 = max_decimal38();
 
 uint32_t read_u32(const char* data) noexcept {
     uint32_t result = 0;
@@ -65,11 +53,6 @@ void require_non_null(StringRef bytes, const char* description) {
     }
 }
 
-unsigned __int128 magnitude(__int128 value) {
-    const auto unsigned_value = static_cast<unsigned __int128>(value);
-    return value < 0 ? ~unsigned_value + 1 : unsigned_value;
-}
-
 void require_valid_utf8(StringRef value, const char* description) {
     if (value.size != 0 && !validate_utf8(value.data, value.size)) {
         throw Exception(ErrorCode::CORRUPTION, "VariantField {} is not valid UTF-8", description);
@@ -77,13 +60,13 @@ void require_valid_utf8(StringRef value, const char* description) {
 }
 
 void require_decimal_in_range(const VariantDecimal& decimal) {
-    unsigned __int128 maximum = MAX_DECIMAL38;
+    unsigned __int128 maximum = VARIANT_DECIMAL16_MAX;
     if (decimal.width == 4) {
-        maximum = DECIMAL4_MAX;
+        maximum = VARIANT_DECIMAL4_MAX;
     } else if (decimal.width == 8) {
-        maximum = DECIMAL8_MAX;
+        maximum = VARIANT_DECIMAL8_MAX;
     }
-    if (magnitude(decimal.unscaled) > maximum) {
+    if (variant_unsigned_magnitude(decimal.unscaled) > maximum) {
         throw Exception(ErrorCode::CORRUPTION,
                         "VariantField decimal unscaled value exceeds precision for width {}",
                         decimal.width);
@@ -324,7 +307,7 @@ VariantField& VariantField::operator=(VariantField&& other) noexcept {
     return *this;
 }
 
-VariantField VariantField::encode(VariantRef value) {
+VariantField VariantField::from_ref(VariantRef value) {
     if (value.metadata.size > std::numeric_limits<uint32_t>::max()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "VariantField metadata size {} exceeds uint32 limit", value.metadata.size);
@@ -349,7 +332,7 @@ VariantField VariantField::encode(VariantRef value) {
     return {std::move(data), total_size};
 }
 
-VariantField VariantField::decode(StringRef bytes) {
+VariantField VariantField::from_bytes(StringRef bytes) {
     const RowSlices slices = split_untrusted(bytes);
     validate_variant_metadata(slices.metadata);
     validate_variant_payload(slices.value);

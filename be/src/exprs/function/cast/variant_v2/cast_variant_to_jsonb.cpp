@@ -22,19 +22,10 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
-#include "exprs/function_context.h"
-#include "runtime/runtime_state.h"
 #include "util/jsonb_writer.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
-
-VariantJsonFormatOptions json_options(FunctionContext* context) {
-    if (context == nullptr || context->state() == nullptr) {
-        return {};
-    }
-    return {.timezone = &context->state()->timezone_obj()};
-}
 
 void append_jsonb_value(VariantRef value, const VariantJsonFormatOptions& options,
                         JsonbWriter* writer, ColumnString* strings) {
@@ -75,7 +66,7 @@ Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& so
     auto nulls = ColumnUInt8::create(rows, 0);
     strings->reserve(rows);
     JsonbWriter writer;
-    const VariantJsonFormatOptions options = json_options(context);
+    const VariantJsonFormatOptions options = variant_json_options(context);
     column_variant_v2_internal::visit_variant_values(
             source, 0, rows, forced_nulls,
             [&](size_t row) {
@@ -99,7 +90,7 @@ Status cast_variant_refs_to_jsonb(FunctionContext* context, std::span<const Vari
     auto nulls = ColumnUInt8::create(values.size(), 0);
     strings->reserve(values.size());
     JsonbWriter writer;
-    const VariantJsonFormatOptions options = json_options(context);
+    const VariantJsonFormatOptions options = variant_json_options(context);
     for (size_t row = 0; row < values.size(); ++row) {
         if (!forced_nulls.empty() && forced_nulls[row] != 0) {
             strings->insert_default();

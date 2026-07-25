@@ -42,11 +42,6 @@ namespace {
 
 using variant_json_detail::FormattedScalar;
 
-unsigned __int128 magnitude(__int128 value) {
-    const auto unsigned_value = static_cast<unsigned __int128>(value);
-    return value < 0 ? ~unsigned_value + 1 : unsigned_value;
-}
-
 void append_char(FormattedScalar* result, char value) {
     result->bytes[result->size++] = value;
 }
@@ -287,7 +282,7 @@ FormattedScalar format_json_decimal(VariantDecimal value) {
     const bool negative = value.unscaled < 0;
     std::array<char, 39> reversed {};
     size_t digits = 0;
-    unsigned __int128 remaining = magnitude(value.unscaled);
+    unsigned __int128 remaining = variant_unsigned_magnitude(value.unscaled);
     do {
         reversed[digits++] = static_cast<char>('0' + remaining % 10);
         remaining /= 10;

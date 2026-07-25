@@ -25,7 +25,7 @@ namespace detail {
 size_t format_int128(__int128 value, char* const output) noexcept {
     std::array<char, 39> reversed {};
     size_t digits = 0;
-    unsigned __int128 remaining = unsigned_magnitude(value);
+    unsigned __int128 remaining = variant_unsigned_magnitude(value);
     do {
         reversed[digits++] = static_cast<char>('0' + remaining % 10);
         remaining /= 10;

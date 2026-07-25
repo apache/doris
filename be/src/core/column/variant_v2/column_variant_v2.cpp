@@ -40,6 +40,7 @@
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_field.h"
+#include "core/value/variant/variant_parquet_encoding.h"
 
 namespace doris {
 namespace {
@@ -49,24 +50,22 @@ using column_variant_v2_internal::dispatch_typed_column;
 using column_variant_v2_internal::exact_typed_identity;
 using column_variant_v2_internal::is_supported_typed_identity;
 using column_variant_v2_internal::validate_typed_decimal_scale;
-using column_variant_v2_internal::visit_typed_canonical_rows;
+using column_variant_v2_internal::visit_typed_canonical_column;
 using column_variant_v2_internal::visit_typed_rows;
 constexpr uint32_t UNMAPPED_METADATA_ID = std::numeric_limits<uint32_t>::max();
-constexpr size_t CANONICAL_SIZE_PREFIX = sizeof(uint32_t);
-constexpr std::array<char, 3> EMPTY_OBJECT_METADATA {static_cast<char>(0x11), 0, 0};
 constexpr std::array<char, 3> EMPTY_OBJECT_VALUE {static_cast<char>(0x02), 0, 0};
 
 uint32_t read_canonical_payload_size(const char* pos) {
     DCHECK(pos != nullptr);
     uint32_t payload_size = 0;
-    for (uint8_t byte = 0; byte < CANONICAL_SIZE_PREFIX; ++byte) {
+    for (uint8_t byte = 0; byte < VARIANT_CANONICAL_SIZE_PREFIX; ++byte) {
         payload_size |= static_cast<uint32_t>(static_cast<uint8_t>(pos[byte])) << (byte * 8);
     }
     return payload_size;
 }
 
 size_t trusted_canonical_cell_size(const char* pos) {
-    return CANONICAL_SIZE_PREFIX + read_canonical_payload_size(pos);
+    return VARIANT_CANONICAL_SIZE_PREFIX + read_canonical_payload_size(pos);
 }
 
 void check_hash_range(const ColumnVariantV2& column, size_t start, size_t end) {
@@ -145,18 +144,15 @@ size_t validate_selected_indices(const uint32_t* indices_begin, const uint32_t* 
 template <typename Sink, typename Hash>
 void update_typed_hashes(const ColumnNullable& nullable, PrimitiveType type, uint32_t scale,
                          Hash* __restrict hashes, const uint8_t* __restrict null_data) {
-    dispatch_typed_column(nullable, type, [&]<PrimitiveType Type>(const auto& column) {
-        visit_typed_canonical_rows<Type>(nullable, column, scale, 0, nullable.size(),
-                                         [&](size_t row, auto&& canonical_factory) {
-                                             if (null_data == nullptr || null_data[row] == 0) {
-                                                 VariantCanonicalScalarRef canonical =
-                                                         canonical_factory();
-                                                 Sink sink(hashes[row]);
-                                                 canonical_hash(canonical, sink);
-                                                 hashes[row] = sink.digest();
-                                             }
-                                         });
-    });
+    visit_typed_canonical_column(nullable, type, scale, 0, nullable.size(),
+                                 [&](size_t row, auto&& canonical_factory) {
+                                     if (null_data == nullptr || null_data[row] == 0) {
+                                         VariantCanonicalScalarRef canonical = canonical_factory();
+                                         Sink sink(hashes[row]);
+                                         canonical_hash(canonical, sink);
+                                         hashes[row] = sink.digest();
+                                     }
+                                 });
 }
 
 template <typename Sink, typename Hash>
@@ -164,15 +160,13 @@ void update_typed_hash_range(const ColumnNullable& nullable, PrimitiveType type,
                              size_t start, size_t end, Hash& hash,
                              const uint8_t* __restrict null_data) {
     Sink sink(hash);
-    dispatch_typed_column(nullable, type, [&]<PrimitiveType Type>(const auto& column) {
-        visit_typed_canonical_rows<Type>(
-                nullable, column, scale, start, end, [&](size_t row, auto&& canonical_factory) {
-                    if (null_data == nullptr || null_data[row] == 0) {
-                        VariantCanonicalScalarRef canonical = canonical_factory();
-                        canonical_hash(canonical, sink);
-                    }
-                });
-    });
+    visit_typed_canonical_column(nullable, type, scale, start, end,
+                                 [&](size_t row, auto&& canonical_factory) {
+                                     if (null_data == nullptr || null_data[row] == 0) {
+                                         VariantCanonicalScalarRef canonical = canonical_factory();
+                                         canonical_hash(canonical, sink);
+                                     }
+                                 });
     hash = sink.digest();
 }
 
@@ -190,7 +184,7 @@ TypedEncodingResult encode_typed_column(const ColumnNullable& nullable, const Co
     result.metadata_ids = MetaIdsColumn::create();
     result.values = ColumnString::create();
     if (!nullable.empty()) {
-        result.metadatas->insert_data(EMPTY_OBJECT_METADATA.data(), EMPTY_OBJECT_METADATA.size());
+        result.metadatas->insert_data(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
     }
     result.metadata_ids->get_data().resize(nullable.size());
     std::fill(result.metadata_ids->get_data().begin(), result.metadata_ids->get_data().end(), 0);
@@ -637,8 +631,8 @@ void ColumnVariantV2::insert_many_defaults(size_t length) {
             << "default value bytes overflow the destination";
     reserve_rows(values, metadata_ids, value_bytes, length);
 
-    const uint32_t metadata_id =
-            _find_or_insert_metadata({EMPTY_OBJECT_METADATA.data(), EMPTY_OBJECT_METADATA.size()});
+    const uint32_t metadata_id = _find_or_insert_metadata(
+            {VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size()});
     auto& chars = values.get_chars();
     auto& offsets = values.get_offsets();
     const size_t old_chars_size = chars.size();
@@ -864,19 +858,15 @@ StringRef ColumnVariantV2::serialize_value_into_arena(size_t row, Arena& arena,
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
         StringRef serialized;
-        dispatch_typed_column(
-                nullable, _typed_type->get_primitive_type(),
-                [&]<PrimitiveType Type>(const auto& column) {
-                    visit_typed_canonical_rows<Type>(
-                            nullable, column, _typed_type->get_scale(), row, row + 1,
-                            [&](size_t, auto&& canonical_factory) {
-                                const VariantCanonicalScalarRef canonical = canonical_factory();
-                                const CanonicalScalarSerializationPlan plan =
-                                        prepare_canonical_serialize(canonical);
-                                char* destination = arena.alloc_continue(plan.size(), begin);
-                                plan.write(destination, plan.size());
-                                serialized = {destination, plan.size()};
-                            });
+        visit_typed_canonical_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), row, row + 1,
+                [&](size_t, auto&& canonical_factory) {
+                    const VariantCanonicalScalarRef canonical = canonical_factory();
+                    const CanonicalScalarSerializationPlan plan =
+                            prepare_canonical_serialize(canonical);
+                    char* destination = arena.alloc_continue(plan.size(), begin);
+                    plan.write(destination, plan.size());
+                    serialized = {destination, plan.size()};
                 });
         return serialized;
     }
@@ -898,15 +888,11 @@ size_t ColumnVariantV2::serialize_size_at(size_t row) const {
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
         size_t serialized_size = 0;
-        dispatch_typed_column(
-                nullable, _typed_type->get_primitive_type(),
-                [&]<PrimitiveType Type>(const auto& column) {
-                    visit_typed_canonical_rows<Type>(
-                            nullable, column, _typed_type->get_scale(), row, row + 1,
-                            [&](size_t, auto&& canonical_factory) {
-                                const VariantCanonicalScalarRef canonical = canonical_factory();
-                                serialized_size = prepare_canonical_serialize(canonical).size();
-                            });
+        visit_typed_canonical_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), row, row + 1,
+                [&](size_t, auto&& canonical_factory) {
+                    const VariantCanonicalScalarRef canonical = canonical_factory();
+                    serialized_size = prepare_canonical_serialize(canonical).size();
                 });
         return serialized_size;
     }
@@ -919,19 +905,15 @@ size_t ColumnVariantV2::serialize_impl(char* pos, size_t row) const {
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
         size_t serialized_size = 0;
-        dispatch_typed_column(nullable, _typed_type->get_primitive_type(),
-                              [&]<PrimitiveType Type>(const auto& column) {
-                                  visit_typed_canonical_rows<Type>(
-                                          nullable, column, _typed_type->get_scale(), row, row + 1,
-                                          [&](size_t, auto&& canonical_factory) {
-                                              const VariantCanonicalScalarRef canonical =
-                                                      canonical_factory();
-                                              const CanonicalScalarSerializationPlan plan =
-                                                      prepare_canonical_serialize(canonical);
-                                              plan.write(pos, plan.size());
-                                              serialized_size = plan.size();
-                                          });
-                              });
+        visit_typed_canonical_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), row, row + 1,
+                [&](size_t, auto&& canonical_factory) {
+                    const VariantCanonicalScalarRef canonical = canonical_factory();
+                    const CanonicalScalarSerializationPlan plan =
+                            prepare_canonical_serialize(canonical);
+                    plan.write(pos, plan.size());
+                    serialized_size = plan.size();
+                });
         return serialized_size;
     }
     DCHECK(_typed_type == nullptr);
@@ -951,17 +933,12 @@ size_t ColumnVariantV2::get_max_row_byte_size() const {
     size_t maximum_size = 0;
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
-        dispatch_typed_column(
-                nullable, _typed_type->get_primitive_type(),
-                [&]<PrimitiveType Type>(const auto& column) {
-                    visit_typed_canonical_rows<Type>(
-                            nullable, column, _typed_type->get_scale(), 0, size(),
-                            [&](size_t, auto&& canonical_factory) {
-                                const VariantCanonicalScalarRef canonical = canonical_factory();
-                                maximum_size =
-                                        std::max(maximum_size,
-                                                 prepare_canonical_serialize(canonical).size());
-                            });
+        visit_typed_canonical_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), 0, size(),
+                [&](size_t, auto&& canonical_factory) {
+                    const VariantCanonicalScalarRef canonical = canonical_factory();
+                    maximum_size =
+                            std::max(maximum_size, prepare_canonical_serialize(canonical).size());
                 });
         return maximum_size;
     }
@@ -978,22 +955,16 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
     DCHECK_LE(num_rows, size());
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
-        dispatch_typed_column(
-                nullable, _typed_type->get_primitive_type(),
-                [&]<PrimitiveType Type>(const auto& column) {
-                    visit_typed_canonical_rows<Type>(
-                            nullable, column, _typed_type->get_scale(), 0, num_rows,
-                            [&](size_t row, auto&& canonical_factory) {
-                                const VariantCanonicalScalarRef canonical = canonical_factory();
-                                const CanonicalScalarSerializationPlan plan =
-                                        prepare_canonical_serialize(canonical);
-                                DCHECK(keys[row].data != nullptr);
-                                DCHECK_LE(plan.size(),
-                                          std::numeric_limits<size_t>::max() - keys[row].size);
-                                plan.write(const_cast<char*>(keys[row].data) + keys[row].size,
-                                           plan.size());
-                                keys[row].size += plan.size();
-                            });
+        visit_typed_canonical_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), 0, num_rows,
+                [&](size_t row, auto&& canonical_factory) {
+                    const VariantCanonicalScalarRef canonical = canonical_factory();
+                    const CanonicalScalarSerializationPlan plan =
+                            prepare_canonical_serialize(canonical);
+                    DCHECK(keys[row].data != nullptr);
+                    DCHECK_LE(plan.size(), std::numeric_limits<size_t>::max() - keys[row].size);
+                    plan.write(const_cast<char*>(keys[row].data) + keys[row].size, plan.size());
+                    keys[row].size += plan.size();
                 });
         return;
     }
@@ -1011,7 +982,7 @@ void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
 void ColumnVariantV2::deserialize(StringRef* keys, size_t num_rows) {
     DCHECK(keys != nullptr || num_rows == 0);
     for (size_t row = 0; row < num_rows; ++row) {
-        DCHECK_GE(keys[row].size, CANONICAL_SIZE_PREFIX);
+        DCHECK_GE(keys[row].size, VARIANT_CANONICAL_SIZE_PREFIX);
         DCHECK(keys[row].data != nullptr);
         const size_t cell_size = trusted_canonical_cell_size(keys[row].data);
         DCHECK_LE(cell_size, keys[row].size);
@@ -1025,16 +996,12 @@ void ColumnVariantV2::update_hash_with_value(size_t row, SipHash& hash) const {
     DCHECK_LT(row, size());
     if (_typed) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*_typed);
-        dispatch_typed_column(nullable, _typed_type->get_primitive_type(),
-                              [&]<PrimitiveType Type>(const auto& column) {
-                                  visit_typed_canonical_rows<Type>(
-                                          nullable, column, _typed_type->get_scale(), row, row + 1,
-                                          [&](size_t, auto&& canonical_factory) {
-                                              const VariantCanonicalScalarRef canonical =
-                                                      canonical_factory();
-                                              canonical_hash(canonical, hash);
-                                          });
-                              });
+        visit_typed_canonical_column(
+                nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), row, row + 1,
+                [&](size_t, auto&& canonical_factory) {
+                    const VariantCanonicalScalarRef canonical = canonical_factory();
+                    canonical_hash(canonical, hash);
+                });
         return;
     }
     DCHECK(_typed_type == nullptr);

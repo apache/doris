@@ -46,7 +46,7 @@
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
 
-constexpr size_t DECIMAL_SCALE_COUNT = 39;
+constexpr size_t DECIMAL_SCALE_COUNT = DataTypeDecimal128::max_precision() + 1;
 
 enum GroupIndex : size_t {
     INVALID_GROUP = 0,
@@ -150,7 +150,7 @@ void append_decimal(ScalarGroups& groups, size_t row, VariantDecimal value) {
     }
     const size_t index = DECIMAL_GROUP_BEGIN + value.scale;
     auto& group = initialize_group(groups, index, [scale = value.scale] {
-        return std::make_shared<DataTypeDecimal128>(38, scale);
+        return std::make_shared<DataTypeDecimal128>(DataTypeDecimal128::max_precision(), scale);
     });
     assert_cast<ColumnDecimal128V3&>(*group.values).insert_value(Decimal128V3 {value.unscaled});
     group.source_rows.push_back(row);
@@ -279,36 +279,36 @@ void classify_value(ScalarGroups& groups, size_t row, VariantRef value, bool for
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
 
-ColumnPtr as_nullable(ColumnPtr column, size_t rows) {
-    if (check_and_get_column<ColumnNullable>(column.get()) != nullptr) {
-        return column;
-    }
-    return ColumnNullable::create(column, ColumnUInt8::create(rows, 0));
-}
-
-Status execute_concrete_cast(FunctionContext* context, const ScalarGroup& group,
-                             const DataTypePtr& target_type, ColumnPtr* output) {
+Status execute_non_strict_scalar_cast(FunctionContext* context, const ColumnPtr& source,
+                                      const DataTypePtr& source_type,
+                                      const DataTypePtr& target_type, const char* source_name,
+                                      size_t rows, ColumnPtr* output) {
     if (context == nullptr) {
         return Status::InvalidArgument("Variant V2 scalar CAST requires a FunctionContext");
     }
     auto cast_context = context->clone();
     cast_context->set_enable_strict_mode(false);
     const DataTypePtr nullable_target = make_nullable(target_type);
-    Block temporary {{group.values->get_ptr(), group.type, "variant-v2-group"},
+    Block temporary {{source, source_type, source_name},
                      {nullable_target->create_column(), nullable_target, "variant-v2-result"}};
     WrapperType wrapper =
-            prepare_unpack_dictionaries(cast_context.get(), group.type, nullable_target);
-    Status status =
-            wrapper(cast_context.get(), temporary, {0}, 1, group.source_rows.size(), nullptr);
+            prepare_unpack_dictionaries(cast_context.get(), source_type, nullable_target);
+    Status status = wrapper(cast_context.get(), temporary, {0}, 1, rows, nullptr);
     if (!status.ok()) {
         if (status.is<ErrorCode::INVALID_ARGUMENT>()) {
-            *output = make_all_null_column(target_type, group.source_rows.size());
+            *output = make_all_null_column(target_type, rows);
             return Status::OK();
         }
         return status;
     }
-    *output = as_nullable(temporary.get_by_position(1).column, group.source_rows.size());
+    *output = make_nullable(temporary.get_by_position(1).column);
     return Status::OK();
+}
+
+Status execute_concrete_cast(FunctionContext* context, const ScalarGroup& group,
+                             const DataTypePtr& target_type, ColumnPtr* output) {
+    return execute_non_strict_scalar_cast(context, group.values->get_ptr(), group.type, target_type,
+                                          "variant-v2-group", group.source_rows.size(), output);
 }
 
 Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
@@ -371,57 +371,18 @@ Status assemble_groups(FunctionContext* context, const ScalarGroups& groups,
 Status execute_typed_cast(FunctionContext* context, const ColumnPtr& source,
                           const DataTypePtr& source_type, const DataTypePtr& target_type,
                           size_t rows, ColumnPtr* output) {
-    if (context == nullptr) {
-        return Status::InvalidArgument("Variant V2 scalar CAST requires a FunctionContext");
-    }
-    auto cast_context = context->clone();
-    cast_context->set_enable_strict_mode(false);
     const DataTypePtr nullable_source = make_nullable(source_type);
-    const DataTypePtr nullable_target = make_nullable(target_type);
-    Block temporary {{source, nullable_source, "variant-v2-typed"},
-                     {nullable_target->create_column(), nullable_target, "variant-v2-result"}};
-    WrapperType wrapper =
-            prepare_unpack_dictionaries(cast_context.get(), nullable_source, nullable_target);
-    Status status = wrapper(cast_context.get(), temporary, {0}, 1, rows, nullptr);
-    if (!status.ok()) {
-        if (status.is<ErrorCode::INVALID_ARGUMENT>()) {
-            *output = make_all_null_column(target_type, rows);
-            return Status::OK();
-        }
-        return status;
-    }
-    *output = as_nullable(temporary.get_by_position(1).column, rows);
-    return Status::OK();
+    return execute_non_strict_scalar_cast(context, source, nullable_source, target_type,
+                                          "variant-v2-typed", rows, output);
 }
 
 } // namespace
 
 bool is_supported_scalar_source(const DataTypePtr& type) {
-    switch (remove_nullable(type)->get_primitive_type()) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I:
-    case TYPE_DATE:
-    case TYPE_DATEV2:
-    case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMESTAMPTZ:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-        return true;
-    default:
-        return false;
-    }
+    // Every scalar admitted by the typed state has a Parquet Variant mapping in
+    // with_typed_scalar(), so CAST and the physical typed-state whitelist must stay identical.
+    return column_variant_v2_internal::is_supported_typed_identity(
+            remove_nullable(type)->get_primitive_type());
 }
 
 bool is_supported_scalar_target(const DataTypePtr& type) {
@@ -524,7 +485,7 @@ ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows) {
     const DataTypePtr concrete_type = remove_nullable(nested_type);
     MutableColumnPtr nested = concrete_type->create_column();
     nested->insert_many_defaults(rows);
-    return ColumnNullable::create(std::move(nested), ColumnUInt8::create(rows, 1));
+    return make_nullable(nested->get_ptr(), true);
 }
 
 Status apply_forced_nulls(ColumnPtr column, ForcedNulls forced_nulls, ColumnPtr* output) {
@@ -541,6 +502,9 @@ Status apply_forced_nulls(ColumnPtr column, ForcedNulls forced_nulls, ColumnPtr*
     }
     auto nulls = ColumnUInt8::create(column->size(), 0);
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
+        // Passing the nullable column directly to ColumnNullable::create() would also merge the
+        // maps, but its shared-column overload clones the supplied map first. Merge here to avoid
+        // an extra O(rows) allocation and copy on this cast path.
         const NullMap& existing = nullable->get_null_map_data();
         for (size_t row = 0; row < column->size(); ++row) {
             nulls->get_data()[row] = existing[row] | forced_nulls[row];

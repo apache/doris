@@ -28,10 +28,13 @@ namespace doris {
 
 class ColumnVariantV2;
 class FunctionContext;
+struct VariantJsonFormatOptions;
 
 namespace CastWrapper::variant_v2_internal {
 
 using ForcedNulls = std::span<const NullMap::value_type>;
+
+VariantJsonFormatOptions variant_json_options(FunctionContext* context);
 
 bool is_supported_scalar_source(const DataTypePtr& type);
 bool is_supported_scalar_target(const DataTypePtr& type);

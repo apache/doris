@@ -45,16 +45,6 @@ constexpr uint64_t ABORTED_ROW_GENERATION = FINISHED_ROW_GENERATION - 1;
 constexpr size_t INLINE_SCALAR_CAPACITY = sizeof(uint32_t);
 constexpr size_t SMALL_OBJECT_SORT_THRESHOLD = 16;
 
-constexpr unsigned __int128 max_decimal38() {
-    unsigned __int128 value = 1;
-    for (uint8_t digit = 0; digit < 38; ++digit) {
-        value *= 10;
-    }
-    return value - 1;
-}
-
-constexpr unsigned __int128 MAX_DECIMAL38 = max_decimal38();
-
 template <typename Container, typename Less>
 void sort_object_entries(Container& entries, size_t begin, size_t count, Less less) {
     if (count < 2) {
@@ -73,24 +63,6 @@ void sort_object_entries(Container& entries, size_t begin, size_t count, Less le
         return;
     }
     std::sort(entries.begin() + begin, entries.begin() + begin + count, less);
-}
-
-unsigned __int128 magnitude(__int128 value) {
-    const auto unsigned_value = static_cast<unsigned __int128>(value);
-    return value < 0 ? ~unsigned_value + 1 : unsigned_value;
-}
-
-uint8_t minimum_unsigned_width(uint64_t value) {
-    if (value <= std::numeric_limits<uint8_t>::max()) {
-        return 1;
-    }
-    if (value <= std::numeric_limits<uint16_t>::max()) {
-        return 2;
-    }
-    if (value <= 0xFFFFFFU) {
-        return 3;
-    }
-    return 4;
 }
 
 void write_unsigned(char*& output, uint64_t value, uint8_t width) noexcept {
@@ -143,9 +115,6 @@ void require_import_utf8(StringRef value, const char* description) {
                         description);
     }
 }
-
-constexpr unsigned __int128 DECIMAL4_MAX = 999'999'999;
-constexpr unsigned __int128 DECIMAL8_MAX = 999'999'999'999'999'999;
 
 constexpr uint8_t primitive_header(VariantPrimitiveId id) noexcept {
     return static_cast<uint8_t>(static_cast<uint8_t>(id) << VARIANT_VALUE_HEADER_SHIFT);
@@ -200,12 +169,6 @@ IntegerEncoding resolve_integer_encoding(int64_t value, uint8_t requested_width)
                         "Variant integer value does not fit requested width {}", width);
     }
     return {.id = id, .width = width};
-}
-
-void write_scalar_unsigned(char*& output, uint64_t value, uint8_t width) noexcept {
-    for (uint8_t byte = 0; byte < width; ++byte) {
-        *output++ = static_cast<char>(value >> (byte * 8));
-    }
 }
 
 void write_signed128(char*& output, __int128 value, uint8_t width) noexcept {
@@ -288,15 +251,15 @@ VariantScalarEncodingPlan VariantScalarEncodingPlan::decimal(__int128 unscaled, 
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant decimal scale {} is outside [0, 38]",
                         scale);
     }
-    const unsigned __int128 absolute = magnitude(unscaled);
-    if (absolute > MAX_DECIMAL38) {
+    const unsigned __int128 absolute = variant_unsigned_magnitude(unscaled);
+    if (absolute > VARIANT_DECIMAL16_MAX) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant decimal unscaled value exceeds precision 38");
     }
     if (width == 0) {
-        if (absolute <= DECIMAL4_MAX) {
+        if (absolute <= VARIANT_DECIMAL4_MAX) {
             width = 4;
-        } else if (absolute <= DECIMAL8_MAX) {
+        } else if (absolute <= VARIANT_DECIMAL8_MAX) {
             width = 8;
         } else {
             width = 16;
@@ -304,13 +267,13 @@ VariantScalarEncodingPlan VariantScalarEncodingPlan::decimal(__int128 unscaled, 
     }
 
     VariantPrimitiveId id = VariantPrimitiveId::DECIMAL16;
-    unsigned __int128 width_max = MAX_DECIMAL38;
+    unsigned __int128 width_max = VARIANT_DECIMAL16_MAX;
     if (width == 4) {
         id = VariantPrimitiveId::DECIMAL4;
-        width_max = DECIMAL4_MAX;
+        width_max = VARIANT_DECIMAL4_MAX;
     } else if (width == 8) {
         id = VariantPrimitiveId::DECIMAL8;
-        width_max = DECIMAL8_MAX;
+        width_max = VARIANT_DECIMAL8_MAX;
     } else if (width != 16) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant decimal width {} must be one of 4, 8, or 16", width);
@@ -428,7 +391,7 @@ VariantScalarEncodingPlan VariantScalarEncodingPlan::uuid(
 }
 
 VariantScalarEncodingPlan VariantScalarEncodingPlan::largeint(__int128 value) noexcept {
-    if (magnitude(value) <= MAX_DECIMAL38) {
+    if (variant_unsigned_magnitude(value) <= VARIANT_DECIMAL16_MAX) {
         VariantScalarEncodingPlan plan;
         plan._header = static_cast<uint8_t>(VariantPrimitiveId::DECIMAL16)
                        << VARIANT_VALUE_HEADER_SHIFT;
@@ -443,7 +406,7 @@ VariantScalarEncodingPlan VariantScalarEncodingPlan::largeint(__int128 value) no
     VariantScalarEncodingPlan plan;
     char reversed[39];
     size_t digit_count = 0;
-    unsigned __int128 remaining = magnitude(value);
+    unsigned __int128 remaining = variant_unsigned_magnitude(value);
     do {
         reversed[digit_count++] = static_cast<char>('0' + remaining % 10);
         remaining /= 10;
@@ -478,13 +441,13 @@ void VariantScalarEncodingPlan::write(char* destination, size_t capacity) const 
         *output++ = static_cast<char>(_scale);
     }
     if (_has_length) {
-        write_scalar_unsigned(output, _borrowed.size, sizeof(uint32_t));
+        write_unsigned(output, _borrowed.size, sizeof(uint32_t));
     }
     switch (_kind) {
     case PayloadKind::HEADER_ONLY:
         break;
     case PayloadKind::UNSIGNED:
-        write_scalar_unsigned(output, _unsigned_value, _payload_width);
+        write_unsigned(output, _unsigned_value, _payload_width);
         break;
     case PayloadKind::SIGNED:
         write_signed128(output, _signed_value, _payload_width);
@@ -642,7 +605,8 @@ void VariantMetadataBuilder::seal() {
         _impl->temporary_to_final_id[sorted_temporary_ids[final_id]] = final_id;
     }
 
-    const uint8_t offset_width = minimum_unsigned_width(std::max<uint64_t>(count, strings_size));
+    const uint8_t offset_width =
+            variant_minimum_unsigned_width(std::max<uint64_t>(count, strings_size));
     const uint64_t encoded_size =
             1 + offset_width + (static_cast<uint64_t>(count) + 1) * offset_width + strings_size;
     if (encoded_size > std::numeric_limits<size_t>::max()) {
@@ -986,7 +950,7 @@ public:
         case VariantPrimitiveId::DECIMAL8:
         case VariantPrimitiveId::DECIMAL16: {
             const VariantDecimal decimal = value.get_decimal();
-            if (magnitude(decimal.unscaled) > MAX_DECIMAL38) {
+            if (variant_unsigned_magnitude(decimal.unscaled) > VARIANT_DECIMAL16_MAX) {
                 throw Exception(ErrorCode::CORRUPTION,
                                 "Variant imported decimal exceeds precision 38");
             }
@@ -1462,13 +1426,13 @@ public:
             DCHECK_EQ(array_child_index, INVALID_INDEX);
         }
         plan.values_size = values_size;
-        plan.offset_width = minimum_unsigned_width(values_size);
+        plan.offset_width = variant_minimum_unsigned_width(values_size);
         if (node.kind == NodeKind::OBJECT) {
             const uint32_t maximum_id =
                     count == 0 ? 0
                                : planned_object_children[plan.object_children_begin + count - 1]
                                          .final_field_id;
-            plan.id_width = minimum_unsigned_width(maximum_id);
+            plan.id_width = variant_minimum_unsigned_width(maximum_id);
         }
 
         uint64_t encoded_size = 1 + plan.count_width + values_size;
