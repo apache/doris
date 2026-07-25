@@ -291,12 +291,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema() {
-        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
-    }
-
-    @Override
-    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
+        List<Column> schema = IcebergUtils.getIcebergSchema(this);
         schema = new ArrayList<>(schema);
 
         if (Util.showHiddenColumns() || needInternalHiddenColumns()) {

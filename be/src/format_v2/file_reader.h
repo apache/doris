@@ -57,7 +57,6 @@ enum class FileFormat {
     JNI,
     NATIVE,
     ARROW,
-    WAL,
 };
 
 struct FileScanRequest {

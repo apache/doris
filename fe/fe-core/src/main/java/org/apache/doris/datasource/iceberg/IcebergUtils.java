@@ -690,11 +690,8 @@ public class IcebergUtils {
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
                 ArrayList<StructField> nestedTypes = struct.fields().stream().map(
-                        // Nested docs live on Iceberg fields, so carry them into the Doris type;
-                        // otherwise DESC can only expose the top-level column comment.
                         x -> new StructField(x.name(),
-                                icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                                x.doc(), x.isOptional()))
+                                icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             case VARIANT:
@@ -1451,6 +1448,12 @@ public class IcebergUtils {
                 refName = params.getListParams().get(0);
             }
             SnapshotRef snapshotRef = table.refs().get(refName);
+            LOG.info("[BranchDebug] getQuerySpecSnapshot: refName={}, snapshotId={}, "
+                    + "currentSnapshotId={}, allRefs={}",
+                    refName,
+                    snapshotRef != null ? snapshotRef.snapshotId() : "null",
+                    table.currentSnapshot() != null ? table.currentSnapshot().snapshotId() : "null",
+                    table.refs());
             if (params.isBranch()) {
                 if (snapshotRef == null || !snapshotRef.isBranch()) {
                     throw new UserException("Table " + table.name() + " does not have branch named " + refName);
@@ -1463,9 +1466,7 @@ public class IcebergUtils {
             return new IcebergTableQueryInfo(
                 snapshotRef.snapshotId(),
                 refName,
-                // Iceberg maps a branch name to the table's latest schema, so resolve the branch
-                // head snapshot directly to keep historical branch columns isolated.
-                SnapshotUtil.schemaFor(table, snapshotRef.snapshotId()).schemaId());
+                SnapshotUtil.schemaFor(table, refName).schemaId());
         }
 
         // solve version/time as of
@@ -1488,13 +1489,10 @@ public class IcebergUtils {
             if (!table.refs().containsKey(value)) {
                 throw new UserException("Table " + table.name() + " does not have tag or branch named " + value);
             }
-            SnapshotRef snapshotRef = table.refs().get(value);
-            // VERSION accepts both tags and branches; branch-name schema lookup returns the
-            // table's latest schema, so use the referenced snapshot for both kinds of ref.
             return new IcebergTableQueryInfo(
-                snapshotRef.snapshotId(),
+                table.refs().get(value).snapshotId(),
                 value,
-                SnapshotUtil.schemaFor(table, snapshotRef.snapshotId()).schemaId()
+                SnapshotUtil.schemaFor(table, value).schemaId()
             );
         } else {
             long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
@@ -1839,11 +1837,8 @@ public class IcebergUtils {
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {
-        return getIcebergSchema(dorisTable, MvccUtil.getSnapshotFromContext(dorisTable));
-    }
-
-    public static List<Column> getIcebergSchema(ExternalTable dorisTable, Optional<MvccSnapshot> snapshot) {
-        IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshot, dorisTable);
+        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(dorisTable);
+        IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshotFromContext, dorisTable);
         return IcebergUtils.getSchemaCacheValue(dorisTable, cacheValue).getSchema();
     }
 

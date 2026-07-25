@@ -21,17 +21,10 @@ public class PaimonSnapshotCacheValue {
 
     private final PaimonPartitionInfo partitionInfo;
     private final PaimonSnapshot snapshot;
-    private final boolean schemaFromSnapshotTable;
 
     public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot) {
-        this(partitionInfo, snapshot, false);
-    }
-
-    public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot,
-            boolean schemaFromSnapshotTable) {
         this.partitionInfo = partitionInfo;
         this.snapshot = snapshot;
-        this.schemaFromSnapshotTable = schemaFromSnapshotTable;
     }
 
     public PaimonPartitionInfo getPartitionInfo() {
@@ -40,9 +33,5 @@ public class PaimonSnapshotCacheValue {
 
     public PaimonSnapshot getSnapshot() {
         return snapshot;
-    }
-
-    public boolean isSchemaFromSnapshotTable() {
-        return schemaFromSnapshotTable;
     }
 }

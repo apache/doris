@@ -65,8 +65,6 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             }
         }
         result.setNames(names);
-        boolean showNestedComment = additionalColNames.stream()
-                .anyMatch(name -> "comment".equalsIgnoreCase(name));
 
         for (Column column : schema) {
             // Extra string (aggregation and bloom filter)
@@ -89,7 +87,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Lists.newArrayList(column.getDisplayName(),
-                    column.getOriginType().hideVersionForVersionColumn(true, showNestedComment),
+                    column.getOriginType().hideVersionForVersionColumn(true),
                     column.isAllowNull() ? "Yes" : "No",
                     ((Boolean) column.isKey()).toString(),
                     column.getDefaultValue() == null

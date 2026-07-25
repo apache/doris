@@ -22,8 +22,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.StructField;
-import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -55,19 +53,5 @@ public class IndexSchemaProcNodeTest {
         Assert.assertEquals("The column size should be 6", 6, procResult.getColumnNames().size());
         Assert.assertEquals("The row size should be 6", 6, procResult.getRows().get(1).size());
 
-    }
-
-    @Test
-    public void testCreateResultShowsNestedCommentsWhenCommentsRequested() {
-        StructType structType = new StructType(
-                new StructField("value", Type.INT, "nested-comment", true));
-        Column column = new Column("info", structType, true, null, true, "", "top-level-comment");
-
-        ProcResult result = IndexSchemaProcNode.createResult(
-                Lists.newArrayList(column), null,
-                Lists.newArrayList(IndexSchemaProcNode.COMMENT_COLUMN_TITLE));
-
-        Assert.assertTrue(result.getRows().get(0).get(1).contains("nested-comment"));
-        Assert.assertEquals("top-level-comment", result.getRows().get(0).get(6));
     }
 }

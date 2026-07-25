@@ -196,19 +196,22 @@ suite("test_iceberg_schema_ref_actions_matrix",
         sql """alter table ${fastForwardTable} modify column metric bigint"""
         sql """insert into ${fastForwardTable} values (2, 'new-2', 6000000000)"""
 
-        // Scenario T08: before fast-forward, the branch keeps its pre-rename schema.
-        assertEquals([[1, "old-1", 10]], sql("""
+        // Scenario T08 negative contract: before fast-forward, branch reads use the latest rename schema.
+        test {
+            sql """
                 select id, old_name, metric
                 from ${fastForwardTable}@branch(pre_rename_branch)
                 order by id
-        """))
+            """
+            exception "Unknown column 'old_name'"
+        }
         assertEquals([[1, "old-1", 10]], sql("""
             select id, old_name, metric
             from ${fastForwardTable}@tag(pre_rename_tag)
             order by id
         """))
 
-        // Scenario T09: writes use the table's latest schema even when targeting an old branch.
+        // Scenario T09 negative contract: a pre-rename branch write uses main's latest schema.
         test {
             sql """
                 insert into ${fastForwardTable}@branch(pre_rename_branch)

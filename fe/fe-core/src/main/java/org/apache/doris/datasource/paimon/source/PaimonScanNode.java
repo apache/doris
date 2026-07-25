@@ -19,7 +19,6 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -31,9 +30,7 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
-import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonUtils;
@@ -61,7 +58,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
@@ -179,19 +175,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         long startTime = System.currentTimeMillis();
-        Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
-        // System-table descriptors still require the generic source; only relation tables can pin
-        // a relation-local snapshot.
         source = new PaimonSource(desc);
-        if (desc.getTable() instanceof PaimonExternalTable) {
-            source = new PaimonSource(desc, relationSnapshot);
-        }
         serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         // Todo: Get the current schema id of the table, instead of using -1.
-        List<Column> columns = source.getTargetTable() instanceof ExternalTable
-                ? ((ExternalTable) source.getTargetTable()).getFullSchema(relationSnapshot)
-                : source.getTargetTable().getColumns();
-        ExternalUtil.initSchemaInfo(params, -1L, columns);
+        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
@@ -267,14 +254,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
 
-            TableSchema tableSchema;
-            if (targetTable instanceof PaimonExternalTable) {
-                // Schema IDs are scoped to the resolved relation table, so a branch ID must
-                // never be looked up through the base table's schema cache namespace.
-                tableSchema = ((DataTable) source.getPaimonTable()).schemaManager().schema(schemaId);
-            } else {
-                tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
-            }
+            TableSchema tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
             params.addToHistorySchemaInfo(PaimonUtil.getHistorySchemaInfo(targetTable, tableSchema,
                     source.getCatalog().getEnableMappingVarbinary(),
                     source.getCatalog().getEnableMappingTimestampTz()));

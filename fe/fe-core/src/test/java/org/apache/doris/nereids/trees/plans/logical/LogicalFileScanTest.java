@@ -21,8 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
@@ -52,7 +50,7 @@ public class LogicalFileScanTest {
 
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(schema);
+        Mockito.when(table.getFullSchema()).thenReturn(schema);
         Mockito.when(table.getName()).thenReturn("iceberg_tbl");
 
         LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
@@ -65,21 +63,5 @@ public class LogicalFileScanTest {
                 "id",
                 IcebergUtils.ICEBERG_ROW_ID_COL,
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL), outputNames);
-    }
-
-    @Test
-    public void testCapturingRelationSchemaDoesNotAllocateOutputExprIds() throws Exception {
-        StatementScopeIdGenerator.clear();
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
-        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(table.getFullSchema(Mockito.any()))
-                .thenReturn(Collections.singletonList(new Column("id", Type.INT, true)));
-        Mockito.when(table.getName()).thenReturn("iceberg_tbl");
-
-        new LogicalFileScan(new RelationId(1), table,
-                Collections.singletonList("db"), Collections.emptyList(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-
-        Assertions.assertEquals(new ExprId(10000), StatementScopeIdGenerator.newExprId());
     }
 }

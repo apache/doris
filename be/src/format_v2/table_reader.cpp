@@ -90,8 +90,6 @@ std::string file_format_to_string(FileFormat format) {
         return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
-    case FileFormat::WAL:
-        return "WAL";
     }
     return "UNKNOWN";
 }

@@ -47,13 +47,9 @@ public class PaimonSource {
     }
 
     public PaimonSource(TupleDescriptor desc) {
-        this(desc, MvccUtil.getSnapshotFromContext((ExternalTable) desc.getTable()));
-    }
-
-    public PaimonSource(TupleDescriptor desc, Optional<MvccSnapshot> snapshot) {
         this.desc = desc;
         this.paimonExtTable = (ExternalTable) desc.getTable();
-        this.originTable = resolvePaimonTable(paimonExtTable, snapshot);
+        this.originTable = resolvePaimonTable(paimonExtTable);
     }
 
     public TupleDescriptor getDesc() {
@@ -72,7 +68,8 @@ public class PaimonSource {
         return paimonExtTable;
     }
 
-    private Table resolvePaimonTable(ExternalTable table, Optional<MvccSnapshot> snapshot) {
+    private Table resolvePaimonTable(ExternalTable table) {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table);
         if (table instanceof PaimonExternalTable) {
             return ((PaimonExternalTable) table).getPaimonTable(snapshot);
         }
