@@ -155,10 +155,24 @@ public class PaimonPredicateConverter {
         }
         Object value = convertLiteralValue(literal, fieldTypes.get(idx));
         if (value == null) {
+            // A null value here means one of two unrelated things, and conflating them is what caused
+            // `col <=> 5` to be pushed as IS NULL: either the literal really IS null, or this Paimon
+            // type is deliberately not pushed down (FLOAT / CHAR / timestamp with local time zone).
+            // Only the first case has a translation - and only for the null-safe operator. Checking
+            // the operator alone would resurrect the same bug on a FLOAT column.
+            if (cmp.getOperator() == ConnectorComparison.Operator.EQ_FOR_NULL && literal.isNull()) {
+                return builder.isNull(idx);
+            }
             return null;
         }
         switch (cmp.getOperator()) {
             case EQ:
+            case EQ_FOR_NULL:
+                // Against a NON-null literal, `col <=> v` and `col = v` have identical result sets:
+                // <=> yields false (never unknown) when col is null, and Paimon's Equal likewise never
+                // matches nulls. Translating this to IS NULL - as the port from fe-core did - is not a
+                // narrowing but an inversion: Paimon prunes away every file that holds col = v, and the
+                // BE-side residual filter can only remove rows, never bring pruned files back.
                 return builder.equal(idx, value);
             case NE:
                 return builder.notEqual(idx, value);
@@ -170,8 +184,6 @@ public class PaimonPredicateConverter {
                 return builder.greaterThan(idx, value);
             case GE:
                 return builder.greaterOrEqual(idx, value);
-            case EQ_FOR_NULL:
-                return builder.isNull(idx);
             default:
                 return null;
         }

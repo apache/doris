@@ -23,6 +23,8 @@ import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.predicate.Equal;
+import org.apache.paimon.predicate.IsNull;
 import org.apache.paimon.predicate.LeafPredicate;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.types.DataTypes;
@@ -141,5 +143,79 @@ public class PaimonPredicateConverterTest {
         LeafPredicate leaf = (LeafPredicate) predicates.get(0);
         Assertions.assertEquals(42, leaf.literals().get(0),
                 "the INT literal must be carried through unchanged");
+    }
+
+    // ---------- null-safe equality (<=>) ----------
+
+    @Test
+    public void eqForNullWithNonNullLiteralPushesEqual() {
+        RowType rowType = RowType.builder().field("id", DataTypes.INT()).build();
+
+        List<Predicate> predicates = convert(rowType,
+                ConnectorComparison.Operator.EQ_FOR_NULL, "id", ConnectorLiteral.ofInt(5));
+
+        // WHY: `id <=> 5` and `id = 5` select exactly the same rows (<=> yields false, never unknown,
+        // when id is null, and paimon's Equal likewise never matches nulls). Pushing IS NULL instead -
+        // which is what the port from fe-core did - is not a narrowing but an INVERSION: paimon prunes
+        // away every data file that holds id = 5 at planning time, and the BE-side residual filter can
+        // only drop rows from what was read, never bring pruned files back. The query returns 0 rows,
+        // with no error, no warning and a smaller partition count in EXPLAIN.
+        // MUTATION: restore `case EQ_FOR_NULL: return builder.isNull(idx)` -> red.
+        Assertions.assertEquals(1, predicates.size(),
+                "`id <=> 5` must be pushed as an equality predicate");
+        LeafPredicate leaf = (LeafPredicate) predicates.get(0);
+        Assertions.assertSame(Equal.INSTANCE, leaf.function(),
+                "`id <=> <non-null>` must translate to Equal, never IsNull");
+        Assertions.assertEquals(5, leaf.literals().get(0));
+    }
+
+    @Test
+    public void eqForNullWithNullLiteralPushesIsNull() {
+        RowType rowType = RowType.builder().field("id", DataTypes.INT()).build();
+
+        List<Predicate> predicates = convert(rowType,
+                ConnectorComparison.Operator.EQ_FOR_NULL, "id", ConnectorLiteral.ofNull(ANY));
+
+        // `id <=> NULL` is exactly IS NULL - the one case where the null-safe operator does translate.
+        Assertions.assertEquals(1, predicates.size());
+        LeafPredicate leaf = (LeafPredicate) predicates.get(0);
+        Assertions.assertSame(IsNull.INSTANCE, leaf.function());
+        Assertions.assertTrue(leaf.literals().isEmpty());
+    }
+
+    @Test
+    public void plainEqWithNullLiteralNotPushed() {
+        RowType rowType = RowType.builder().field("id", DataTypes.INT()).build();
+
+        List<Predicate> predicates = convert(rowType,
+                ConnectorComparison.Operator.EQ, "id", ConnectorLiteral.ofNull(ANY));
+
+        // `id = NULL` is unknown for every row. It is neither Equal nor IsNull, so the only correct
+        // action is to decline the pushdown.
+        Assertions.assertTrue(predicates.isEmpty(),
+                "`id = NULL` must not be pushed as anything");
+    }
+
+    @Test
+    public void eqForNullOnNonPushableTypeNotPushed() {
+        RowType rowType = RowType.builder().field("f", DataTypes.FLOAT()).build();
+
+        List<Predicate> predicates = convert(rowType,
+                ConnectorComparison.Operator.EQ_FOR_NULL, "f", new ConnectorLiteral(ANY, 1.5d));
+
+        // WHY this case is separate: FLOAT is deliberately not pushed, so the value conversion fails
+        // and we land in the same "no value" branch as a genuine null literal. Guarding on the operator
+        // ALONE would turn `f <=> 1.5` into IS NULL and recreate the very bug this batch fixes, just on
+        // another column type. The guard must also require that the literal really is null.
+        // MUTATION: relax the guard to `operator == EQ_FOR_NULL` without `literal.isNull()` -> red.
+        Assertions.assertTrue(predicates.isEmpty(),
+                "`f <=> 1.5` on a non-pushable type must be declined, not turned into IS NULL");
+    }
+
+    /** Builds `col <op> literal` over a single-column RowType. */
+    private static List<Predicate> convert(RowType rowType, ConnectorComparison.Operator op,
+            String colName, ConnectorLiteral literal) {
+        return new PaimonPredicateConverter(rowType).convert(new ConnectorComparison(
+                op, new ConnectorColumnRef(colName, ANY), literal));
     }
 }
