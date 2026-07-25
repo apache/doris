@@ -109,8 +109,8 @@ import java.util.Set;
  * O5-2 write constraint ({@link #applyWriteConstraint}, a neutral {@link ConnectorPredicate} converted lazily
  * at commit) ANDed with a commit-time identity-partition filter derived from the commit fragments.</p>
  *
- * <p><b>Live since the iceberg SPI cutover.</b> {@code iceberg} is in {@code SPI_READY_TYPES}, so
- * plugin-driven iceberg writes route through this class ({@link #beginWrite} is wired by
+ * <p><b>Live since the iceberg SPI cutover.</b> An {@code iceberg} catalog is served by this connector
+ * plugin, so plugin-driven iceberg writes route through this class ({@link #beginWrite} is wired by
  * {@code planWrite}). The txn-id is the engine-allocated Doris global id, so the generic
  * {@code PluginDrivenTransactionManager} registers it in both the per-manager map and
  * {@code GlobalExternalTransactionInfoMgr} — no per-connector registration code is needed, mirroring

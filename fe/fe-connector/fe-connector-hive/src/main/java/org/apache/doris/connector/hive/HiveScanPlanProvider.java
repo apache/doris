@@ -275,7 +275,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * surviving base/delta data files and delete-delta directories, and emits one ACID-annotated
      * {@link HiveScanRange} per data-file split. The BE subtracts the delete deltas on read.</p>
      *
-     * <p><b>Live path.</b> Post-cutover {@code hms} is in {@code SPI_READY_TYPES}, so an hms-catalog
+     * <p><b>Live path.</b> Post-cutover an {@code hms} catalog is plugin-driven, so an hms-catalog
      * transactional table is a {@code PluginDrivenExternalTable} routed through {@code PluginDrivenScanNode}
      * straight into this method on a live query (the only read gate is the full-ACID ORC-format check below).
      * It opens a real metastore transaction/lock; the matching commit (lock release) is driven by

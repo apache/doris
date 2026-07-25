@@ -802,8 +802,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public boolean supportInternalPartitionPruned() {
         // Unconditional true, mirroring legacy MaxComputeExternalTable (and IcebergExternalTable).
-        // This override is shared by every SPI-driven connector (jdbc/es/trino/max_compute via
-        // CatalogFactory.SPI_READY_TYPES) and true is correct for all of them, partitioned or not:
+        // This override is shared by every plugin-driven connector (jdbc/es/trino/max_compute among them)
+        // and true is correct for all of them, partitioned or not:
         //   - partitioned     -> PruneFileScanPartition prunes to the surviving partitions;
         //   - non-partitioned -> PruneFileScanPartition takes its IF branch and pruneExternalPartitions
         //                        returns NOT_PRUNED for empty partition columns, so the scan reads all.

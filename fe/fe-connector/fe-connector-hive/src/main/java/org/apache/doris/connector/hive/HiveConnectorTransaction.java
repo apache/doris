@@ -96,7 +96,8 @@ import java.util.stream.Collectors;
  * MPU narrowing (D6); plugin-owned async pool threads each auth-wrapped (D5); full-ACID writes hard-rejected at
  * begin (D7); {@code rollback()} deletes staging + aborts MPUs (D9).
  *
- * <p>Live since the HMS cutover: {@code hms} is in {@code SPI_READY_TYPES}, so a {@code type=hms} table INSERT
+ * <p>Live since the HMS cutover: an {@code hms} catalog is served by this connector plugin, so a
+ * {@code type=hms} table INSERT
  * routes through {@code HiveWritePlanProvider.planWrite} &rarr; {@link #beginWrite} &rarr; this class. The engine
  * {@link FileSystem} is borrowed (never closed here — the catalog owns its lifecycle).
  */

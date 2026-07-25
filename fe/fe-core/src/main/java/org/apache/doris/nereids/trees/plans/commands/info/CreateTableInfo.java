@@ -909,7 +909,7 @@ public class CreateTableInfo {
      * and catalog-engine consistency. Keyed on {@link PluginDrivenExternalCatalog#getType()} (the
      * CatalogFactory key, e.g. "max_compute"), mirroring
      * {@code PluginDrivenExternalTable.getEngine()/getEngineTableTypeName()} — the two switches must
-     * stay in sync if SPI_READY_TYPES gains a CREATE-TABLE-capable full-adopter. Returns {@code null}
+     * stay in sync if another connector type becomes CREATE-TABLE-capable. Returns {@code null}
      * for SPI types that do not support CREATE TABLE (jdbc/es/trino-connector) so callers preserve
      * their existing (legacy-equivalent) behavior for those types.
      */

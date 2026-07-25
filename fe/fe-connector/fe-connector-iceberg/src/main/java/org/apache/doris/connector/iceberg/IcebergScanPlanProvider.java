@@ -112,17 +112,14 @@ import java.util.function.UnaryOperator;
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
  * {@code PaimonScanPlanProvider}. The generic, engine-neutral {@code PluginDrivenScanNode} drives split
- * generation through this provider once iceberg is in {@code SPI_READY_TYPES} (P6.6 cutover).
+ * generation through this provider.
  *
  * <p>P6.2-T01 (this task) is the skeleton: it wires the collaborators ({@code properties} /
  * {@link IcebergCatalogOps} seam / {@link ConnectorContext}) and pins the predicate-driven semantics
  * ({@link #ignorePartitionPruneShortCircuit()} = {@code true}). The real split planning — self-contained
  * predicate pushdown, {@code FileScanTask} enumeration, native-vs-JNI classification, merge-on-read
  * delete files (T04), COUNT(*) pushdown (T05; batch mode deferred, mirrors paimon), the field-id
- * history-schema dictionary (T06), and vended credentials (T09) — lands across P6.2-T02..T09. Iceberg is NOT
- * yet in {@code SPI_READY_TYPES}, so {@link #planScan} is not exercised at
- * runtime this phase (iceberg queries still route to the legacy {@code IcebergScanNode}); the parity is
- * verified by offline unit tests until the P6.6 cutover.</p>
+ * history-schema dictionary (T06), and vended credentials (T09) — lands across P6.2-T02..T09.</p>
  */
 public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 

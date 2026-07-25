@@ -46,8 +46,7 @@ import java.util.Optional;
  * props), iceberg's carriers are strongly typed fields (its params are numeric), so {@link #getProperties()}
  * stays empty. T04 adds the typed merge-on-read {@link DeleteFile} carriers (position / equality / deletion
  * vector); T05 adds the COUNT(*)-pushdown row count ({@code pushDownRowCount} → {@code table_level_row_count}).
- * The field-id history dictionary (T06, scan-level) lands later. Iceberg is not yet in
- * {@code SPI_READY_TYPES}, so no range reaches BE.</p>
+ * The field-id history dictionary (T06, scan-level) lands later.</p>
  */
 public class IcebergScanRange implements ConnectorScanRange {
 

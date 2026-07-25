@@ -95,8 +95,8 @@ import java.util.function.Function;
  * per-statement {@link IcebergStatementScope} carried across the scan&rarr;write seam (commit-bridge S4 part 2),
  * replacing the legacy fe-resident rewritable-delete planner.</p>
  *
- * <p><b>Live since the iceberg SPI cutover.</b> {@code iceberg} is in {@code SPI_READY_TYPES}, so a
- * plugin-driven iceberg write routes through this provider; {@link #planWrite} requires the executor-bound
+ * <p><b>Live since the iceberg SPI cutover.</b> An {@code iceberg} catalog is served by this connector
+ * plugin, so a plugin-driven iceberg write routes through this provider; {@link #planWrite} requires the executor-bound
  * connector transaction and fails loud if absent.</p>
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {

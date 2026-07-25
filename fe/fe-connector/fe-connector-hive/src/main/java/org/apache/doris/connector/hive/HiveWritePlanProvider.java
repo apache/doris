@@ -71,7 +71,8 @@ import java.util.UUID;
  * {@link #requiresPartitionHashWrite()} (hash-by-partition, no local sort) matches the legacy
  * {@code PhysicalHiveTableSink}.</p>
  *
- * <p><b>Live since the hms flip.</b> {@code hms} is in {@code SPI_READY_TYPES}, so a type=hms INSERT routes
+ * <p><b>Live since the hms flip.</b> An {@code hms} catalog is served by this connector plugin, so a
+ * type=hms INSERT routes
  * here via {@code PhysicalPlanTranslator} &rarr; {@code getWritePlanProvider} &rarr; {@link #planWrite};
  * {@link #planWrite} requires the executor-bound connector transaction and fails loud if absent.</p>
  */

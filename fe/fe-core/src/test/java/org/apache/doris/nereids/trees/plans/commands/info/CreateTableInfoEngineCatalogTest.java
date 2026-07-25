@@ -196,8 +196,8 @@ public class CreateTableInfoEngineCatalogTest {
     // HMS cutover: a flipped hms external catalog is a PluginDrivenExternalCatalog (type "hms").
     // pluginCatalogTypeToEngine must map "hms" -> ENGINE_HIVE so a no-ENGINE CREATE pads engine=hive
     // (legacy hms catalogs always create hive-engine tables) and the catalog-engine consistency check
-    // still rejects a non-hive explicit ENGINE. Class A (unreachable until "hms" enters
-    // SPI_READY_TYPES); getType() is mocked to "hms" to prove the switch entry without an actual flip.
+    // still rejects a non-hive explicit ENGINE. Class A; getType() is mocked to "hms" so the switch entry
+    // is proved without standing up a real hms catalog.
     // ---------------------------------------------------------------------------------------------
 
     @Test

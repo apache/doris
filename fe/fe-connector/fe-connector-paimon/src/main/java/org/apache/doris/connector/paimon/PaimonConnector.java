@@ -333,9 +333,9 @@ public class PaimonConnector implements Connector {
                 ConnectorCapability.SUPPORTS_PARTITION_STATS,
                 // Paimon tables are queryable via the generic SQL-driven ExternalAnalysisTask FULL path, so
                 // they opt into background per-column auto-analyze (paimon was never wired into the legacy
-                // instanceof-based whitelist; this is the parity-neutral mechanism wiring it in). Unlike the
-                // iceberg capabilities this is NOT inert pre-cutover: paimon is already in SPI_READY_TYPES, so
-                // paimon background auto-analyze activates on merge (parity-safe — manual ANALYZE already uses
+                // instanceof-based whitelist; this is the parity-neutral mechanism wiring it in). Paimon is
+                // already served by its connector plugin, so this is not inert: paimon background
+                // auto-analyze activates on merge (parity-safe — manual ANALYZE already uses
                 // the same doFull SQL path). NOT SUPPORTS_TOPN_LAZY_MATERIALIZE: paimon was never eligible for
                 // Top-N lazy materialization.
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,

@@ -149,8 +149,7 @@ public class IcebergConnectorTest {
         // WHY: SUPPORTS_MVCC_SNAPSHOT is the gate PluginDrivenExternalDatabase checks to build the MVCC/MTMV
         // table subclass (so beginQuerySnapshot/resolveTimeTravel/applySnapshot fire). MUTATION: leaving the
         // default empty capability set -> iceberg tables build as plain non-MVCC tables, time-travel silently
-        // reads latest -> red. (Inert pre-cutover; iceberg is not yet in SPI_READY_TYPES, so getCapabilities
-        // does not touch the catalog and needs no live connection.)
+        // reads latest -> red. (getCapabilities does not touch the catalog, so this needs no live connection.)
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Set<ConnectorCapability> caps = connector.getCapabilities();
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT));
@@ -176,8 +175,8 @@ public class IcebergConnectorTest {
         // async pre-warms schema/snapshot before taking the read lock. Post-cutover PluginDrivenExternalTable
         // reproduces this ONLY when the connector declares SUPPORTS_METADATA_PRELOAD (replacing the legacy
         // engine-name "jdbc" gate). MUTATION: dropping the capability -> flipped iceberg degrades to synchronous
-        // bind-time metadata load (longer lock hold on slow metastores) -> red. (Inert pre-cutover; iceberg not
-        // yet in SPI_READY_TYPES, so getCapabilities does not touch the catalog.)
+        // bind-time metadata load (longer lock hold on slow metastores) -> red. (getCapabilities does not
+        // touch the catalog, so this needs no live connection.)
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Assertions.assertTrue(
                 connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD),
@@ -191,7 +190,7 @@ public class IcebergConnectorTest {
         // Post-cutover the generic fe-core gates reproduce both ONLY when the connector declares these
         // capabilities; omitting them silently regresses CBO stats quality (auto-analyze stalls) and Top-N
         // latency (lazy materialization skipped). MUTATION: dropping either capability -> the corresponding
-        // fe-core gate excludes flipped iceberg -> red. (Inert pre-cutover; iceberg not yet in SPI_READY_TYPES.)
+        // fe-core gate excludes flipped iceberg -> red.
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Set<ConnectorCapability> caps = connector.getCapabilities();
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
@@ -239,7 +238,6 @@ public class IcebergConnectorTest {
         // is correct only because parseSchema/IcebergTypeMapping also carry the per-field ids the BE field-id
         // scan path matches nested leaves by. MUTATION: dropping the capability -> flipped iceberg stops pruning
         // STRUCT/ARRAY/MAP sub-fields (reads the whole complex column = read amplification) -> regression.
-        // (Inert pre-cutover; iceberg not yet in SPI_READY_TYPES.)
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Assertions.assertTrue(connector.getCapabilities()
                         .contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),

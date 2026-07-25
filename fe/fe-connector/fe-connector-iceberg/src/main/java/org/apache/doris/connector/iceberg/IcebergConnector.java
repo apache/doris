@@ -808,8 +808,8 @@ public class IcebergConnector implements Connector {
     /**
      * Iceberg exposes point-in-time snapshots, so it declares {@code SUPPORTS_MVCC_SNAPSHOT} (the gate for the
      * generic {@code PluginDrivenMvccExternalTable}, which drives {@code beginQuerySnapshot}/{@code
-     * resolveTimeTravel}/{@code applySnapshot}). Inert pre-cutover — the capability is consumed only on the
-     * plugin-driven path, which iceberg does not use until it enters {@code SPI_READY_TYPES} (P6.6).
+     * resolveTimeTravel}/{@code applySnapshot}). The capability is consumed only on the plugin-driven path,
+     * which is how iceberg is served since its cutover.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
