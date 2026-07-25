@@ -106,6 +106,22 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         }
     }
 
+    public Table getPaimonTable(TableScanParams scanParams) {
+        if (scanParams != null && scanParams.isOptions()) {
+            // Statement MVCC is keyed by table, while OPTIONS belongs to one relation. Start
+            // from the catalog handle so its schema cannot inherit another relation's selector.
+            return PaimonScanParams.applyOptions(getBasePaimonTable(), scanParams.getMapParams());
+        }
+        return getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    public List<Column> getFullSchema(TableScanParams scanParams) {
+        Table table = getPaimonTable(scanParams);
+        return PaimonUtil.parseSchema(table,
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz());
+    }
+
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();

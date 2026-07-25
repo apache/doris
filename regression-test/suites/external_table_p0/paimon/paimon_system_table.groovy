@@ -178,28 +178,26 @@ suite("paimon_system_table", "p0,external") {
         assertTrue(snapshotRows.size() > 1, "The regression table should contain multiple snapshots")
         String firstSnapshotId = String.valueOf(snapshotRows.first()[0])
         String latestSnapshotId = String.valueOf(snapshotRows.last()[0])
-        List<List<Object>> filesWithoutOptions = sql """
-                select file_path from ${multiSnapshotTable}\$files order by file_path
-                """
-        List<List<Object>> filesAtFirstSnapshot = sql """
-                select file_path from ${multiSnapshotTable}\$files
+        order_qt_files_at_first_snapshot """
+                select count(*) from ${multiSnapshotTable}\$files
                 @options('scan.snapshot-id'='${firstSnapshotId}')
-                order by file_path
                 """
-        List<List<Object>> filesAtLatestSnapshot = sql """
-                select file_path from ${multiSnapshotTable}\$files
+        order_qt_files_at_latest_snapshot """
+                select count(*) from ${multiSnapshotTable}\$files
                 @options('scan.snapshot-id'='${latestSnapshotId}')
-                order by file_path
                 """
-        assertTrue(filesAtFirstSnapshot.size() < filesWithoutOptions.size(),
-                "The first snapshot should contain fewer files than the current table")
-        assertEquals(filesWithoutOptions, filesAtLatestSnapshot,
-                "The latest snapshot option should return the same files as a query without options")
+        order_qt_files_without_options """
+                select count(*) from ${multiSnapshotTable}\$files
+                """
 
-        List<List<Object>> incrementalSystemTableResult = sql """
-                select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)
-                """
-        assertNotNull(incrementalSystemTableResult, "System table incremental query result should not be null")
+        test {
+            sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+            exception "does not support INCR"
+        }
+        test {
+            sql """select * from ${tableName}\$snapshots@options('scan.snapshot-id'='1')"""
+            exception "does not support OPTIONS"
+        }
 
         test {
             sql """select * from ${tableName}\$snapshots FOR VERSION AS OF 1"""

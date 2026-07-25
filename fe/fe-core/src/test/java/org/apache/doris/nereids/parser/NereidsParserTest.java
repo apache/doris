@@ -200,6 +200,15 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testRejectOptionsWithoutKeyValuePairs() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> nereidsParser.parseSingle("select * from t@options()"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> nereidsParser.parseSingle("select * from t@options(foo, bar)"));
+    }
+
+    @Test
     public void testParseIndependentDataTableOptionsParams() {
         NereidsParser nereidsParser = new NereidsParser();
         Plan plan = nereidsParser.parseSingle(

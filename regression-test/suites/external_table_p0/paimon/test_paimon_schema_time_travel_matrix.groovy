@@ -31,6 +31,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     String nestedTable = "nested_timeline"
     String pkTable = "pk_dv_timeline"
     String partitionTable = "partition_timeline"
+    String rowTrackingTable = "row_tracking_timeline"
 
     def latestSnapshotId = { String tableName ->
         List<List<Object>> rows = spark_paimon """
@@ -87,6 +88,17 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     try {
         spark_paimon_multi """
             CREATE DATABASE IF NOT EXISTS paimon.${dbName};
+            DROP TABLE IF EXISTS paimon.${dbName}.${rowTrackingTable};
+            CREATE TABLE paimon.${dbName}.${rowTrackingTable} (
+                id INT,
+                name STRING
+            ) USING paimon
+            TBLPROPERTIES (
+                'bucket'='-1',
+                'row-tracking.enabled'='true'
+            );
+            INSERT INTO paimon.${dbName}.${rowTrackingTable}
+                VALUES (1, 'alpha'), (2, 'beta');
             DROP TABLE IF EXISTS paimon.${dbName}.${topTable};
             CREATE TABLE paimon.${dbName}.${topTable} (
                 id INT,
@@ -337,6 +349,28 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         sql """use ${dbName}"""
         sql """refresh catalog ${catalogName}"""
 
+        // row_tracking exposes Paimon-generated hidden columns, so its incremental scan must
+        // bypass the C++ reader even when the session otherwise enables native Paimon scans.
+        sql """set force_jni_scanner=false"""
+        sql """set enable_paimon_cpp_reader=true"""
+        String rowTrackingExplain = sql("""
+            explain verbose
+            select id, name, _ROW_ID, _SEQUENCE_NUMBER
+            from ${rowTrackingTable}\$row_tracking
+            @incr('startSnapshotId'=0, 'endSnapshotId'=1)
+        """).collect { row -> row[0].toString() }.join("\n")
+        assertTrue(rowTrackingExplain.contains("paimonNativeReadSplits=0/"),
+                "row_tracking incremental scan must not select native Paimon splits")
+        assertTrue(rowTrackingExplain.contains("SplitStat [type=JNI"),
+                "row_tracking incremental scan must use JNI splits")
+        order_qt_row_tracking_first_snapshot_incr """
+            select id, name, _ROW_ID, _SEQUENCE_NUMBER
+            from ${rowTrackingTable}\$row_tracking
+            @incr('startSnapshotId'=0, 'endSnapshotId'=1)
+            order by id
+        """
+        sql """set enable_paimon_cpp_reader=false"""
+
         // Scenario TC01: validate latest schema/data, explicit new binding, predicate and aggregate.
         assertEquals([[1, null], [2, null], [3, null], [4, null], [5, 5000L], [6, 6000L]],
                 sql("""select id, victim from ${topTable} order by id"""))
@@ -363,6 +397,21 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             from ${topTable}@tag(top_cp0)
             order by id
         """))
+        order_qt_options_snapshot_schema """
+            select id, old_name, victim, metric
+            from ${topTable}@options('scan.snapshot-id'='${topCp0}')
+            order by id
+        """
+        order_qt_options_tag_schema """
+            select id, old_name, victim, metric
+            from ${topTable}@options('scan.tag-name'='top_cp0')
+            order by id
+        """
+        order_qt_audit_log_options_tag_schema """
+            select rowkind, id, old_name, victim, metric
+            from ${topTable}\$audit_log@options('scan.tag-name'='top_cp0')
+            order by id
+        """
         assertEquals(topCp0Rows, sql("""
             select id, old_name, victim, metric
             from ${topTable}@branch(top_cp0_branch)

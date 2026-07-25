@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalTable;
@@ -131,6 +132,20 @@ public class PaimonSysExternalTable extends ExternalTable {
             }
         }
         return paimonSysTable;
+    }
+
+    public Table getSysPaimonTable(TableScanParams scanParams) {
+        Table table = getSysPaimonTable();
+        return scanParams != null && scanParams.isOptions()
+                ? PaimonScanParams.applyOptions(table, scanParams.getMapParams())
+                : table;
+    }
+
+    public List<Column> getFullSchema(TableScanParams scanParams) {
+        Table table = getSysPaimonTable(scanParams);
+        return PaimonUtil.parseSchema(table,
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz());
     }
 
     /**

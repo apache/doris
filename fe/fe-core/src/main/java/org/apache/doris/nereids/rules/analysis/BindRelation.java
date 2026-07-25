@@ -50,6 +50,9 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonScanParams;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -626,6 +629,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (sysTablePlan.isNative()) {
             List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
             ExternalTable sysExternalTable = sysTablePlan.getSysExternalTable();
+            if (sysExternalTable instanceof PaimonSysExternalTable) {
+                validatePaimonSystemTableScanParams(
+                        (PaimonSysExternalTable) sysExternalTable, unboundRelation.getScanParams());
+            }
             return Optional.of(new LogicalFileScan(
                     unboundRelation.getRelationId(),
                     sysExternalTable,
@@ -724,6 +731,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             statementContext.addIndexInSqlToString(pair,
                     Utils.qualifiedNameWithBackquote(qualifiedTableName));
         });
+
+        validateOptionsTarget(table, unboundRelation.getScanParams());
 
         // Handle meta table like "table_name$partitions"
         // qualifiedTableName should be like "ctl.db.tbl$partitions"
@@ -896,6 +905,29 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     }
                 }
             }
+        }
+    }
+
+    private void validateOptionsTarget(TableIf table, TableScanParams scanParams) {
+        if (scanParams == null || !scanParams.isOptions()) {
+            return;
+        }
+        if (!(table instanceof PaimonExternalTable)) {
+            throw new AnalysisException("OPTIONS scan params are only supported for Paimon tables.");
+        }
+        try {
+            PaimonScanParams.validateOptions(scanParams.getMapParams());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    private void validatePaimonSystemTableScanParams(
+            PaimonSysExternalTable table, TableScanParams scanParams) {
+        try {
+            PaimonScanParams.validateSystemTable(table.getSysTableType(), scanParams);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 

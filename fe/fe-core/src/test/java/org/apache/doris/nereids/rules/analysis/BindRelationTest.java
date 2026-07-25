@@ -102,6 +102,16 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     }
 
     @Test
+    void rejectOptionsOnUnsupportedTableType() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT * FROM db1.t@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertEquals(
+                "OPTIONS scan params are only supported for Paimon tables.", exception.getMessage());
+    }
+
+    @Test
     void bindSchemaTable() {
         boolean originValue = connectContext.getSessionVariable().isFetchAllFeForSystemTable();
         try {

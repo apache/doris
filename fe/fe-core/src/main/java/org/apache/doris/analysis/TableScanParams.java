@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.bouncycastle.util.Strings;
@@ -56,7 +57,9 @@ public class TableScanParams {
                 && !VALID_OLAP_TABLE_STREAM_PARAM_TYPES.contains(paramType)) {
             throw new IllegalArgumentException("Invalid param type: " + paramType);
         }
-        // TODO: validate mapParams and listParams for different param types
+        if (OPTIONS.equals(paramType) && (mapParams.isEmpty() || !listParams.isEmpty())) {
+            throw new IllegalArgumentException("OPTIONS requires a non-empty key/value map");
+        }
     }
 
     public void validateOlapTable() {
@@ -74,7 +77,7 @@ public class TableScanParams {
     public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
         this.paramType = Strings.toLowerCase(paramType);
         this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
-        this.listParams = listParams;
+        this.listParams = listParams == null ? ImmutableList.of() : ImmutableList.copyOf(listParams);
         validate();
     }
 

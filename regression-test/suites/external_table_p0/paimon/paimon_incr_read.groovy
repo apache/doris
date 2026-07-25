@@ -44,45 +44,31 @@ suite("test_paimon_incr_read", "p0,external") {
         def test_incr_read = { String force ->
             sql """ set force_jni_scanner=${force} """
 
-            // Query-level OPTIONS params apply to ordinary data tables for both native and JNI readers.
-            List<List<Object>> latestRows = sql """
-                    select id, name, age from paimon_incr order by id
-                    """
-            List<List<Object>> snapshot1Rows = sql """
+            // Query-level OPTIONS params apply independently for both native and JNI readers.
+            order_qt_options_snapshot1 """
                     select id, name, age from paimon_incr
-                    @options('scan.snapshot-id'='1')
-                    order by id
+                    @options('scan.snapshot-id'='1') order by id
                     """
-            List<List<Object>> snapshot2Rows = sql """
+            order_qt_options_snapshot2 """
                     select id, name, age from paimon_incr
-                    @options('scan.snapshot-id'='2')
-                    order by id
+                    @options('scan.snapshot-id'='2') order by id
                     """
-            List<List<Object>> latestSnapshotRows = sql """
+            order_qt_options_snapshot3 """
                     select id, name, age from paimon_incr
-                    @options('scan.snapshot-id'='3')
-                    order by id
+                    @options('scan.snapshot-id'='3') order by id
                     """
-            assertEquals(1, snapshot1Rows.size())
-            assertEquals(2, snapshot2Rows.size())
-            assertEquals(3, latestRows.size())
-            assertEquals(latestRows, latestSnapshotRows)
+            // The latest query proves that a prior relation's dynamic option did not leak.
+            order_qt_options_isolation """select id, name, age from paimon_incr order by id"""
 
-            // A dynamic option must not leak into the cached table used by the next query.
-            assertEquals(latestRows, sql("select id, name, age from paimon_incr order by id"))
-
-            List<List<Object>> relationScopedRows = sql """
-                    select left_orders.id, right_orders.id
+            order_qt_relation_scoped_options """
+                    select right_orders.id
                     from paimon_incr
-                    @options('scan.snapshot-id'='1') left_orders
-                    join paimon_incr
                     @options('scan.snapshot-id'='2') right_orders
-                    on left_orders.id = right_orders.id
-                    order by left_orders.id
+                    left anti join paimon_incr
+                    @options('scan.snapshot-id'='1') left_orders
+                    on right_orders.id = left_orders.id
+                    order by right_orders.id
                     """
-            assertEquals(1, relationScopedRows.size())
-            assertEquals(1, ((Number) relationScopedRows[0][0]).intValue())
-            assertEquals(1, ((Number) relationScopedRows[0][1]).intValue())
 
             test {
                 sql """
@@ -90,6 +76,18 @@ suite("test_paimon_incr_read", "p0,external") {
                         @options('scan.snapshot-id'='999999')
                         """
                 exception "snapshot"
+            }
+            test {
+                sql """select * from paimon_incr@options()"""
+                exception "OPTIONS requires a non-empty key/value map"
+            }
+            test {
+                sql """select * from paimon_incr@options(foo, bar)"""
+                exception "OPTIONS requires a non-empty key/value map"
+            }
+            test {
+                sql """select * from paimon_incr@options('scan.snapsh0t-id'='1')"""
+                exception "Unsupported Paimon query option"
             }
 
             order_qt_snapshot_incr3  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
