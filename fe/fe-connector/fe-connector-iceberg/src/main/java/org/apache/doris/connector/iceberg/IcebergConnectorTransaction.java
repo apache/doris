@@ -109,8 +109,8 @@ import java.util.Set;
  * O5-2 write constraint ({@link #applyWriteConstraint}, a neutral {@link ConnectorPredicate} converted lazily
  * at commit) ANDed with a commit-time identity-partition filter derived from the commit fragments.</p>
  *
- * <p><b>Gate-closed / dormant.</b> Iceberg is not in {@code SPI_READY_TYPES} until the P6.6 cutover, so
- * nothing routes plugin-driven iceberg writes through this class yet ({@link #beginWrite} is wired by T06's
+ * <p><b>Live since the iceberg SPI cutover.</b> {@code iceberg} is in {@code SPI_READY_TYPES}, so
+ * plugin-driven iceberg writes route through this class ({@link #beginWrite} is wired by
  * {@code planWrite}). The txn-id is the engine-allocated Doris global id, so the generic
  * {@code PluginDrivenTransactionManager} registers it in both the per-manager map and
  * {@code GlobalExternalTransactionInfoMgr} — no per-connector registration code is needed, mirroring
@@ -154,7 +154,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     // Session zone for human-readable TIMESTAMP partition value parsing (DV-T04-f).
     private ZoneId zone = ZoneOffset.UTC;
 
-    // ── REWRITE (rewrite_data_files, P6.4-T06; dormant until the P6.6 cutover) ──
+    // ── REWRITE (rewrite_data_files; live since the iceberg SPI cutover) ──
     // The original data files to remove, fed by updateRewriteFiles (the rewrite execution half hands it the
     // planner's RewriteDataGroup.getDataFiles() — FileScanTask.file()). The new compacted files arrive on the
     // shared commitDataList channel (like INSERT) and are materialized into filesToAdd at commit time.
@@ -346,7 +346,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * REWRITE: registers original data files to remove (the rewrite execution half feeds it one bin-packed
      * group at a time — {@code RewriteDataGroup.getDataFiles()}). Accumulates across calls. Ported from legacy
      * {@code IcebergTransaction.updateRewriteFiles}; package-visible because the rewrite coordinator lives in
-     * the connector (fe-core cannot traffic in iceberg {@code DataFile}). Dormant until the P6.6 cutover.
+     * the connector (fe-core cannot traffic in iceberg {@code DataFile}). Live since the iceberg SPI cutover.
      */
     void updateRewriteFiles(List<DataFile> originalFiles) {
         synchronized (filesToDelete) {
@@ -999,8 +999,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * <p>Unlike legacy {@code IcebergTransaction.collectRewrittenDeleteFiles} (which looked the old files up in a
      * scan-time map fed from the read plan), this reads them from the write-time {@link #baseSnapshotId} the
      * RowDelta validates against, so the removed deletes are snapshot-consistent with the commit by construction
-     * (no read-vs-write snapshot skew). Post-flip deviation DV-S2-rederive (dormant: iceberg is not yet a
-     * plugin-driven type, so this commit path runs only after the C5 flip).</p>
+     * (no read-vs-write snapshot skew). Post-flip deviation DV-S2-rederive: iceberg is a plugin-driven type
+     * since the SPI flip, so this commit path is live.</p>
      */
     List<DeleteFile> collectRewrittenDeleteFiles(List<TIcebergCommitData> deleteCommitData) {
         if (deleteCommitData == null || deleteCommitData.isEmpty() || baseSnapshotId == null || table == null) {

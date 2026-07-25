@@ -52,12 +52,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * write session — the session id / target identifier / environment settings used
  * by {@link #commit()}.</p>
  *
- * <p><b>Gate-closed / dormant.</b> Nothing routes plugin-driven MaxCompute writes
- * through this class until the {@code max_compute} cutover: the executor wiring
+ * <p><b>Live since the MaxCompute cutover.</b> Plugin-driven MaxCompute writes
+ * route through this class: the executor wiring
  * ({@code beginTransaction} &rarr; {@code PluginDrivenTransactionManager.begin})
- * and {@code GlobalExternalTransactionInfoMgr} registration are deferred to that
- * step. {@link #commit()} depends on the write-session state populated by P4-T04
- * (via {@link #setWriteSession}); it is intentionally not runnable before then.</p>
+ * and {@code GlobalExternalTransactionInfoMgr} registration are in place.
+ * {@link #commit()} depends on the write-session state populated by the write plan
+ * (via {@link #setWriteSession}).</p>
  */
 public class MaxComputeConnectorTransaction
         implements ConnectorTransaction, WriteBlockAllocatingConnectorTransaction {

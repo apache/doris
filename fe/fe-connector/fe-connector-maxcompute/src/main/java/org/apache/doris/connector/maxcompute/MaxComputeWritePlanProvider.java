@@ -71,10 +71,9 @@ import java.util.stream.Collectors;
  * engine transaction ({@link MaxComputeConnectorTransaction#allocateWriteBlockRange})
  * keyed by {@code txn_id}.</p>
  *
- * <p><b>Gate-closed / dormant.</b> Nothing routes plugin-driven MaxCompute writes
- * through this provider until the {@code max_compute} cutover. In particular
- * {@link #planWrite} requires the session to carry the connector transaction
- * (bound by the executor wiring added at cutover); it fails loud if absent.</p>
+ * <p><b>Live since the MaxCompute cutover.</b> A plugin-driven MaxCompute write
+ * routes through this provider. {@link #planWrite} requires the session to carry
+ * the connector transaction (bound by the executor wiring); it fails loud if absent.</p>
  */
 public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
 

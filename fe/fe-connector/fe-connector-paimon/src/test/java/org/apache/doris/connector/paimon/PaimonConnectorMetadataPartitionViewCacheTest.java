@@ -19,7 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;
@@ -38,10 +38,11 @@ import java.util.stream.Collectors;
 
 /**
  * PERF-06 tests for the cross-query DERIVED partition-view cache ("cache A", the generic
- * {@link ConnectorPartitionViewCache}) wired into {@link PaimonConnectorMetadata#listPartitions}. Paimon does
- * NOT override {@code getMvccPartitionView} (the generic MTMV model falls back to its default
- * listPartitions/LIST/timestamp path), so — unlike iceberg's two typed fields — there is exactly ONE
- * enumeration hook to wrap.
+ * {@link ConnectorMetadataCache}) wired into all three partition-enumeration hooks
+ * ({@link PaimonConnectorMetadata#listPartitions}, {@code listPartitionNames}, {@code listPartitionValues})
+ * via the shared {@code cachedPartitions} collector. Paimon does NOT override {@code getMvccPartitionView}
+ * (the generic MTMV model falls back to its default listPartitions/LIST/timestamp path), so — unlike
+ * iceberg's two typed fields — there is a single typed cache field, now shared by all three hooks.
  *
  * <p>Uses the real {@link RecordingPaimonCatalogOps} + {@link FakePaimonTable} harness (no Mockito, no docker):
  * {@link PaimonConnectorMetadata#collectPartitions}'s first (and only) remote call is
@@ -57,14 +58,14 @@ import java.util.stream.Collectors;
 public class PaimonConnectorMetadataPartitionViewCacheTest {
 
     private static PaimonConnectorMetadata metadataWithCache(RecordingPaimonCatalogOps ops,
-            ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache) {
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
         return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
                 new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE),
                 new PaimonLatestSnapshotCache(0L, 1), cache);
     }
 
-    private static ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache() {
-        return new ConnectorPartitionViewCache<>("paimon", Collections.emptyMap());
+    private static ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache() {
+        return new ConnectorMetadataCache<>("paimon", "partition_view", Collections.emptyMap());
     }
 
     private static RowType regionRowType() {
@@ -113,7 +114,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Arrays.asList(partition("cn"), partition("us"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -135,7 +136,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = regionTable();
         ops.table = table;
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -162,7 +163,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Collections.singletonList(partition("cn"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -181,7 +182,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Collections.singletonList(partition("cn"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -205,7 +206,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         ops.table = table;
         ops.latestSnapshotId = OptionalLong.of(100L);
         ops.partitions = Collections.singletonList(partition("cn"));
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
         PaimonTableHandle h = handle(table);
 
@@ -251,12 +252,107 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         PaimonTableHandle h = new PaimonTableHandle(
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         h.setPaimonTable(table);
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
 
         List<ConnectorPartitionInfo> result = md.listPartitions(null, h, Optional.empty());
 
         Assertions.assertTrue(result.isEmpty());
         Assertions.assertTrue(ops.log.isEmpty(), "an unpartitioned handle must not touch any remote seam");
+    }
+
+    @Test
+    public void listPartitionNamesCachesAcrossQueries() {
+        // WHY (PA-1): listPartitionNames now routes through the SAME partitionViewCache as listPartitions
+        // (SHOW PARTITIONS re-rendered the full list on every call before). Two calls on the same latest
+        // snapshot must share one entry: the seam runs once and both calls return identical names.
+        // MUTATION: listPartitionNames calling collectPartitions directly (the pre-fix code) -> loadCount 2 -> red.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = regionTable();
+        ops.table = table;
+        ops.latestSnapshotId = OptionalLong.of(100L);
+        ops.partitions = Arrays.asList(partition("cn"), partition("us"));
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        PaimonConnectorMetadata md = metadataWithCache(ops, cache);
+        PaimonTableHandle h = handle(table);
+
+        List<String> first = md.listPartitionNames(null, h);
+        List<String> second = md.listPartitionNames(null, h);
+
+        Assertions.assertEquals(Arrays.asList("region=cn", "region=us"), first);
+        Assertions.assertEquals(first, second, "the cached list drives identical names");
+        Assertions.assertEquals(1, loadCount(ops), "listPartitionNames must hit the shared cache (enumerate once)");
+    }
+
+    @Test
+    public void listPartitionValuesCachesAcrossQueries() {
+        // WHY (PA-1): same as above for the partition_values() TVF path -- it re-rendered on every call before.
+        // MUTATION: listPartitionValues calling collectPartitions directly -> loadCount 2 -> red.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = regionTable();
+        ops.table = table;
+        ops.latestSnapshotId = OptionalLong.of(100L);
+        ops.partitions = Arrays.asList(partition("cn"), partition("us"));
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        PaimonConnectorMetadata md = metadataWithCache(ops, cache);
+        PaimonTableHandle h = handle(table);
+
+        List<String> cols = Collections.singletonList("region");
+        List<List<String>> first = md.listPartitionValues(null, h, cols);
+        List<List<String>> second = md.listPartitionValues(null, h, cols);
+
+        Assertions.assertEquals(
+                Arrays.asList(Collections.singletonList("cn"), Collections.singletonList("us")), first);
+        Assertions.assertEquals(first, second, "the cached list drives identical values");
+        Assertions.assertEquals(1, loadCount(ops), "listPartitionValues must hit the shared cache (enumerate once)");
+    }
+
+    @Test
+    public void allThreeHooksShareOneCacheEntry() {
+        // WHY (PA-1): the three enumeration hooks share ONE (db,table,snapshotId) entry -- listPartitions
+        // populates it, listPartitionNames and listPartitionValues then derive from the SAME cached list
+        // without re-enumerating, and the derived outputs stay byte-consistent with listPartitions' rendered
+        // list. MUTATION: any hook bypassing the shared cachedPartitions -> loadCount > 1 -> red.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = regionTable();
+        ops.table = table;
+        ops.latestSnapshotId = OptionalLong.of(100L);
+        ops.partitions = Arrays.asList(partition("cn"), partition("us"));
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        PaimonConnectorMetadata md = metadataWithCache(ops, cache);
+        PaimonTableHandle h = handle(table);
+
+        List<ConnectorPartitionInfo> full = md.listPartitions(null, h, Optional.empty());
+        List<String> namesOut = md.listPartitionNames(null, h);
+        List<List<String>> valuesOut = md.listPartitionValues(null, h, Collections.singletonList("region"));
+
+        Assertions.assertEquals(1, loadCount(ops), "all three hooks must share one cache entry (enumerate once)");
+        Assertions.assertEquals(names(full), namesOut, "listPartitionNames equals the names of listPartitions' list");
+        Assertions.assertEquals(
+                full.stream().map(p -> Collections.singletonList(p.getPartitionValues().get("region")))
+                        .collect(Collectors.toList()),
+                valuesOut, "listPartitionValues equals the values derived from listPartitions' list");
+    }
+
+    @Test
+    public void unpartitionedNamesAndValuesBypassCacheWithoutTouchingSnapshotSeam() {
+        // WHY (PA-1): the "no seam call for unpartitioned" contract must hold for the new routing of
+        // listPartitionNames and listPartitionValues too -- cachedPartitions short-circuits before building a
+        // key, so neither latestSnapshotId nor listPartitions is called. MUTATION: routing through the cache
+        // before the emptiness check -> "latestSnapshotId" appears in ops.log -> red.
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", RowType.builder().field("id", DataTypes.INT()).build(),
+                Collections.emptyList(), Collections.emptyList());
+        ops.table = table;
+        PaimonTableHandle h = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        h.setPaimonTable(table);
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
+        PaimonConnectorMetadata md = metadataWithCache(ops, cache);
+
+        Assertions.assertTrue(md.listPartitionNames(null, h).isEmpty());
+        Assertions.assertTrue(md.listPartitionValues(null, h, Collections.singletonList("region")).isEmpty());
+        Assertions.assertTrue(ops.log.isEmpty(), "unpartitioned names/values must not touch any remote seam");
     }
 }

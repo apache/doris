@@ -24,18 +24,18 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
- * GENERIC (engine-agnostic) cross-query cache of a connector's derived partition view — "cache A" of the
- * external-partition-derived-cache design (design doc {@code 2026-07-20-external-partition-derived-cache-design.md}
- * §5). It is the generic version of {@code org.apache.doris.connector.iceberg.IcebergPartitionCache}: same
- * construction pattern (a contextual-only, manual-miss-load {@link MetaCacheEntry}), same {@link CacheSpec} wiring,
- * same invalidation style — but keyed by the engine-agnostic {@link PartitionViewCacheKey} and holding an opaque
- * value {@code V} instead of an iceberg-specific raw-partition list, so it has no engine-specific imports and can be
- * shared by every connector (iceberg/paimon/hive/maxcompute, wired in later subsystems — this class has NO
- * consumers yet).
+ * GENERIC (engine-agnostic) cross-query cache of a connector's derived metadata, keyed by a table identity plus
+ * an optional MVCC coordinate ({@link ConnectorTableKey}) and holding an opaque value {@code V}. It is the generic
+ * form of the hand-rolled iceberg caches (e.g. {@code IcebergPartitionCache}): same construction pattern (a
+ * contextual-only, manual-miss-load {@link MetaCacheEntry}), same {@link CacheSpec} wiring, same invalidation style
+ * — but keyed by the engine-agnostic {@link ConnectorTableKey} and holding an opaque {@code V} instead of an
+ * engine-specific value, so it has no engine-specific imports and is shared by every connector. Consumers today:
+ * the hive/iceberg/paimon derived partition-view caches (entry {@code "partition_view"}); a connector may hold
+ * several instances under distinct entry names.
  *
- * <p><b>Config</b>: {@code meta.cache.<engine>.partition_view.(enable|ttl-second|capacity)}, default ON / 86400s /
- * 1000 entries (matching {@code IcebergPartitionCache}'s {@code DEFAULT_TABLE_CACHE_CAPACITY}). {@code enable=false}
- * / {@code ttl-second=0} / {@code capacity=0} each disable the cache (see {@link CacheSpec#isCacheEnabled}): {@link
+ * <p><b>Config</b>: {@code meta.cache.<engine>.<entry>.(enable|ttl-second|capacity)}, default ON / 86400s / 1000
+ * entries (matching {@code IcebergPartitionCache}'s {@code DEFAULT_TABLE_CACHE_CAPACITY}). {@code enable=false} /
+ * {@code ttl-second=0} / {@code capacity=0} each disable the cache (see {@link CacheSpec#isCacheEnabled}): {@link
  * #get} then calls the loader on every call, matching {@code IcebergPartitionCache}'s disabled-cache bypass.
  *
  * <p><b>Concurrency</b>: mirrors {@code IcebergPartitionCache} / {@code MaxComputePartitionCache} exactly — the
@@ -43,31 +43,32 @@ import java.util.function.Supplier;
  * load, so a slow remote enumeration runs OUTSIDE Caffeine's compute lock (deduplicated per key by a striped lock)
  * on the calling thread, and its exception propagates to the caller unwrapped without poisoning the cache.
  */
-public final class ConnectorPartitionViewCache<V> {
+public final class ConnectorMetadataCache<V> {
 
-    /** {@code meta.cache.<engine>.partition_view.*} — the property-namespace entry name for this cache. */
-    static final String ENTRY_PARTITION_VIEW = "partition_view";
     /** Default TTL: 24h, matching the design doc's stated default and sibling caches' 24h TTL. */
     static final long DEFAULT_TTL_SECOND = 86400L;
     /** Default capacity, matching {@code IcebergPartitionCache}'s {@code DEFAULT_TABLE_CACHE_CAPACITY}. */
     static final long DEFAULT_CAPACITY = 1000L;
 
-    private final MetaCacheEntry<PartitionViewCacheKey, V> entry;
+    private final MetaCacheEntry<ConnectorTableKey, V> entry;
 
     /**
-     * @param engine engine token for the {@code meta.cache.<engine>.partition_view.*} property namespace, e.g.
-     *               {@code "iceberg"}/{@code "paimon"}/{@code "hive"}/{@code "max_compute"}.
-     * @param props  the catalog properties; drives the {@link CacheSpec} (enable/ttl-second/capacity). May be
-     *               {@code null}, treated as empty (defaults apply).
+     * @param engine    engine token for the {@code meta.cache.<engine>.<entry>.*} property namespace, e.g.
+     *                  {@code "iceberg"}/{@code "paimon"}/{@code "hive"}/{@code "max_compute"}.
+     * @param entryName the entry name within that namespace (e.g. {@code "partition_view"}); a connector may hold
+     *                  several {@code ConnectorMetadataCache}s under distinct entry names.
+     * @param props     the catalog properties; drives the {@link CacheSpec} (enable/ttl-second/capacity). May be
+     *                  {@code null}, treated as empty (defaults apply).
      */
-    public ConnectorPartitionViewCache(String engine, Map<String, String> props) {
+    public ConnectorMetadataCache(String engine, String entryName, Map<String, String> props) {
         Objects.requireNonNull(engine, "engine can not be null");
+        Objects.requireNonNull(entryName, "entryName can not be null");
         Map<String, String> properties = props == null ? Collections.emptyMap() : props;
-        CacheSpec spec = CacheSpec.fromProperties(properties, engine, ENTRY_PARTITION_VIEW,
+        CacheSpec spec = CacheSpec.fromProperties(properties, engine, entryName,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_CAPACITY));
         // contextual-only (loader == null, supplied per-call by get()) + manual-miss-load, no auto-refresh --
         // identical shape to IcebergPartitionCache / MaxComputePartitionCache's entry construction.
-        this.entry = new MetaCacheEntry<>(engine + "." + ENTRY_PARTITION_VIEW, null, spec,
+        this.entry = new MetaCacheEntry<>(engine + "." + entryName, null, spec,
                 ForkJoinPool.commonPool(), false, true, 0L, true);
     }
 
@@ -81,7 +82,7 @@ public final class ConnectorPartitionViewCache<V> {
      * Disabled cache -&gt; {@code loader} runs on every call. The loader runs OUTSIDE Caffeine's compute lock
      * (single-flight per key) and its exception propagates unwrapped; a failed load is never cached.
      */
-    public V get(PartitionViewCacheKey key, Supplier<V> loader) {
+    public V get(ConnectorTableKey key, Supplier<V> loader) {
         Objects.requireNonNull(loader, "loader can not be null");
         return entry.get(key, ignored -> loader.get());
     }

@@ -20,7 +20,7 @@ package org.apache.doris.connector.cache;
 import java.util.Objects;
 
 /**
- * Immutable cache key for {@link ConnectorPartitionViewCache}: {@code (db, table, snapshotId, schemaId)}.
+ * Immutable cache key for {@link ConnectorMetadataCache}: {@code (db, table, snapshotId, schemaId)}.
  *
  * <p>Engine-agnostic (external-partition-derived-cache design doc §5, "cache A"): a table's derived partition
  * view is a pure function of its identity plus the MVCC coordinate it was read at, so pinning that coordinate
@@ -28,18 +28,18 @@ import java.util.Objects;
  * hit. Non-MVCC engines (hive) or engines without a separate schema version pass {@code snapshotId = -1} /
  * {@code schemaId = -1}; the key still holds them, it just means "unversioned" for that axis.
  *
- * <p>{@link #matches} / {@link #matchesDb} back {@link ConnectorPartitionViewCache#invalidateTable} /
- * {@link ConnectorPartitionViewCache#invalidateDb}, which must drop every snapshot/schema of a (db, table) or
+ * <p>{@link #matches} / {@link #matchesDb} back {@link ConnectorMetadataCache#invalidateTable} /
+ * {@link ConnectorMetadataCache#invalidateDb}, which must drop every snapshot/schema of a (db, table) or
  * every table of a db — mirrors the {@code matches}/{@code matchesDb} helpers on the sibling connector caches
  * ({@code MaxComputePartitionCache.PartitionKey}, {@code HiveFileListingCache.FileListingKey}).
  */
-public final class PartitionViewCacheKey {
+public final class ConnectorTableKey {
     private final String db;
     private final String table;
     private final long snapshotId;
     private final long schemaId;
 
-    public PartitionViewCacheKey(String db, String table, long snapshotId, long schemaId) {
+    public ConnectorTableKey(String db, String table, long snapshotId, long schemaId) {
         this.db = db;
         this.table = table;
         this.snapshotId = snapshotId;
@@ -77,10 +77,10 @@ public final class PartitionViewCacheKey {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof PartitionViewCacheKey)) {
+        if (!(o instanceof ConnectorTableKey)) {
             return false;
         }
-        PartitionViewCacheKey that = (PartitionViewCacheKey) o;
+        ConnectorTableKey that = (ConnectorTableKey) o;
         return snapshotId == that.snapshotId
                 && schemaId == that.schemaId
                 && Objects.equals(db, that.db)
@@ -94,7 +94,7 @@ public final class PartitionViewCacheKey {
 
     @Override
     public String toString() {
-        return "PartitionViewCacheKey{db=" + db + ", table=" + table
+        return "ConnectorTableKey{db=" + db + ", table=" + table
                 + ", snapshotId=" + snapshotId + ", schemaId=" + schemaId + '}';
     }
 }

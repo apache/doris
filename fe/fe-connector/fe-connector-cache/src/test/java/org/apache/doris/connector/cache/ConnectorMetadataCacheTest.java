@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Unit tests for {@link ConnectorPartitionViewCache} — the GENERIC (engine-agnostic) cache A of the
+ * Unit tests for {@link ConnectorMetadataCache} — the GENERIC (engine-agnostic) cache A of the
  * external-partition-derived-cache design (design doc {@code 2026-07-20-external-partition-derived-cache-design.md}
  * §5). Mirrors {@link org.apache.doris.connector.iceberg.IcebergPartitionCache}'s test shape (that class is the
  * iceberg-specific ancestor this generic framework is modeled on), but with a generic string value type ({@code V})
@@ -33,22 +33,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  * per-table / per-db / whole-cache invalidation, and the disabled-cache bypass (both {@code enable=false} and
  * {@code ttl-second=0}).
  */
-public class ConnectorPartitionViewCacheTest {
+public class ConnectorMetadataCacheTest {
 
     private static final String ENGINE = "testengine";
 
-    private static PartitionViewCacheKey key(String db, String table, long snapshotId, long schemaId) {
-        return new PartitionViewCacheKey(db, table, snapshotId, schemaId);
+    private static ConnectorTableKey key(String db, String table, long snapshotId, long schemaId) {
+        return new ConnectorTableKey(db, table, snapshotId, schemaId);
     }
 
-    private static ConnectorPartitionViewCache<String> newCache() {
-        return new ConnectorPartitionViewCache<>(ENGINE, new HashMap<>());
+    private static ConnectorMetadataCache<String> newCache() {
+        return new ConnectorMetadataCache<>(ENGINE, "partition_view", new HashMap<>());
     }
 
     @Test
     public void missThenHitLoaderRunsOnceWithinTtl() {
         AtomicInteger loads = new AtomicInteger();
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
 
         String first = cache.get(key("db", "t", 5L, 1L), () -> {
             loads.incrementAndGet();
@@ -71,7 +71,7 @@ public class ConnectorPartitionViewCacheTest {
     @Test
     public void differentSnapshotIdIsADistinctEntry() {
         AtomicInteger loads = new AtomicInteger();
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
 
         cache.get(key("db", "t", 1L, 1L), () -> {
             loads.incrementAndGet();
@@ -91,7 +91,7 @@ public class ConnectorPartitionViewCacheTest {
     @Test
     public void differentSchemaIdIsADistinctEntry() {
         AtomicInteger loads = new AtomicInteger();
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
 
         cache.get(key("db", "t", 1L, 1L), () -> {
             loads.incrementAndGet();
@@ -111,7 +111,7 @@ public class ConnectorPartitionViewCacheTest {
     @Test
     public void invalidateTableEvictsAllSnapshotsOfThatTableOnly() {
         AtomicInteger loads = new AtomicInteger();
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
 
         cache.get(key("db", "t", 1L, 1L), () -> "v1");
         cache.get(key("db", "t", 2L, 1L), () -> "v2");
@@ -142,7 +142,7 @@ public class ConnectorPartitionViewCacheTest {
     @Test
     public void invalidateDbClearsOnlyThatDbsTables() {
         AtomicInteger loads = new AtomicInteger();
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
 
         cache.get(key("db1", "t1", 1L, 1L), () -> "a");
         cache.get(key("db1", "t2", 1L, 1L), () -> "b");
@@ -171,7 +171,7 @@ public class ConnectorPartitionViewCacheTest {
     @Test
     public void invalidateAllClearsEveryEntry() {
         AtomicInteger loads = new AtomicInteger();
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
 
         cache.get(key("db1", "t1", 1L, 1L), () -> "a");
         cache.get(key("db2", "t2", 1L, 1L), () -> "b");
@@ -191,7 +191,7 @@ public class ConnectorPartitionViewCacheTest {
         AtomicInteger loads = new AtomicInteger();
         Map<String, String> props = new HashMap<>();
         props.put("meta.cache." + ENGINE + ".partition_view.enable", "false");
-        ConnectorPartitionViewCache<String> cache = new ConnectorPartitionViewCache<>(ENGINE, props);
+        ConnectorMetadataCache<String> cache = new ConnectorMetadataCache<>(ENGINE, "partition_view", props);
 
         String first = cache.get(key("db", "t", 5L, 1L), () -> {
             loads.incrementAndGet();
@@ -215,7 +215,7 @@ public class ConnectorPartitionViewCacheTest {
         AtomicInteger loads = new AtomicInteger();
         Map<String, String> props = new HashMap<>();
         props.put("meta.cache." + ENGINE + ".partition_view.ttl-second", "0");
-        ConnectorPartitionViewCache<String> cache = new ConnectorPartitionViewCache<>(ENGINE, props);
+        ConnectorMetadataCache<String> cache = new ConnectorMetadataCache<>(ENGINE, "partition_view", props);
 
         cache.get(key("db", "t", 5L, 1L), () -> {
             loads.incrementAndGet();
@@ -238,7 +238,7 @@ public class ConnectorPartitionViewCacheTest {
         AtomicInteger loads = new AtomicInteger();
         Map<String, String> props = new HashMap<>();
         props.put("meta.cache." + ENGINE + ".partition_view.capacity", "0");
-        ConnectorPartitionViewCache<String> cache = new ConnectorPartitionViewCache<>(ENGINE, props);
+        ConnectorMetadataCache<String> cache = new ConnectorMetadataCache<>(ENGINE, "partition_view", props);
 
         cache.get(key("db", "t", 5L, 1L), () -> {
             loads.incrementAndGet();
@@ -259,13 +259,13 @@ public class ConnectorPartitionViewCacheTest {
         // No meta.cache.<engine>.partition_view.* properties set at all -> the built-in default (TTL 86400s,
         // capacity 1000, ON) applies, matching IcebergPartitionCache's DEFAULT_TABLE_CACHE_CAPACITY. MUTATION:
         // defaulting to disabled -> isEnabled() would be false here.
-        ConnectorPartitionViewCache<String> cache = new ConnectorPartitionViewCache<>(ENGINE, new HashMap<>());
+        ConnectorMetadataCache<String> cache = new ConnectorMetadataCache<>(ENGINE, "partition_view", new HashMap<>());
         Assertions.assertTrue(cache.isEnabled(), "the cache must be ON by default with no override properties");
     }
 
     @Test
     public void loaderExceptionPropagatesUnwrappedAndIsNotCached() {
-        ConnectorPartitionViewCache<String> cache = newCache();
+        ConnectorMetadataCache<String> cache = newCache();
         // A failed load (e.g. a remote enumeration RPC failure) must propagate to the caller verbatim and must
         // NOT poison the cache -- a transient failure should not make every subsequent query fail for the TTL.
         Assertions.assertThrows(IllegalStateException.class, () -> cache.get(key("db", "t", 5L, 1L), () -> {

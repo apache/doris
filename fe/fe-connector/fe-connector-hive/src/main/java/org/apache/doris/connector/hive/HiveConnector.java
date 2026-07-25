@@ -29,7 +29,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -98,7 +98,7 @@ public class HiveConnector implements Connector {
     // metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
     private final HiveFileListingCache fileListingCache;
 
-    // PERF-06 (S6): cross-query DERIVED partition-view cache ("cache A", the generic ConnectorPartitionViewCache
+    // PERF-06 (S6): cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache
     // from fe-connector-cache), layered ABOVE the raw per-name HMS listing served by CachingHmsClient: it
     // memoizes the BUILT List<ConnectorPartitionInfo> (HiveConnectorMetadata#listPartitionsUncached's per-name
     // HiveWriteUtils.toPartitionValues parse + ConnectorPartitionInfo construction), keyed by
@@ -109,7 +109,7 @@ public class HiveConnector implements Connector {
     // session=user / per-user credential-isolation cache-disabling convention (its per-catalog caches —
     // CachingHmsClient, HiveFileListingCache — are already built unconditionally below), so this is constructed
     // unconditionally too.
-    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache;
+    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
     // Embedded iceberg SIBLING connector: a flipped hms gateway delegates its iceberg-on-HMS tables to it. Built
     // once per gateway connector (lazily) in the iceberg plugin's OWN child-first classloader via
@@ -131,7 +131,7 @@ public class HiveConnector implements Connector {
         this.fileListingCache = new HiveFileListingCache(this.properties);
         // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
         // via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorPartitionViewCache<>("hive", this.properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>("hive", "partition_view", this.properties);
     }
 
     @Override
@@ -495,7 +495,7 @@ public class HiveConnector implements Connector {
     }
 
     /** Test-only: the derived listPartitions view cache (PERF-06). Never null (hive has no session=user gate). */
-    ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCacheForTest() {
+    ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCacheForTest() {
         return partitionViewCache;
     }
 

@@ -49,6 +49,11 @@ import java.util.TreeSet;
  *
  * <p><b>No partial commit:</b> every {@code UpdateSchema.commit()} is the final statement of each entry point, so
  * any validation/resolution throw aborts the whole change before anything is committed (legacy parity).</p>
+ *
+ * <p>The TOP-LEVEL (flat) column ops stay on {@link IcebergCatalogOps}, but they share this class's name
+ * resolution and validators — iceberg matches field names case-SENSITIVELY while Doris column names are
+ * case-insensitive, so both arms must agree. See {@link #validateNoCaseInsensitiveSiblingCollision},
+ * {@link #validateNoCaseInsensitiveTopLevelCollisions} and {@link #renameTopLevelColumn}.</p>
  */
 public final class IcebergNestedColumnEvolution {
 
@@ -277,7 +282,45 @@ public final class IcebergNestedColumnEvolution {
         return ConnectorColumnPath.of(parts);
     }
 
-    private static void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, String parentPath,
+    /**
+     * Renames the TOP-LEVEL column {@code oldName} to {@code newName}. {@code oldName} is resolved
+     * case-insensitively (iceberg's own {@code renameColumn} is case-sensitive and would report the column as
+     * missing when the user types a different case than the iceberg field), then {@code newName} is checked
+     * against the other top-level fields. Mirrors the legacy flat {@code IcebergMetadataOps.renameColumn}.
+     */
+    static void renameTopLevelColumn(Table table, String oldName, String newName) {
+        Schema schema = table.schema();
+        ResolvedColumnPath oldPath = resolveColumnPath(schema, ConnectorColumnPath.of(oldName), "rename");
+        validateNoCaseInsensitiveSiblingCollision(schema.asStruct(), "", newName, oldPath.getField(), "rename");
+
+        UpdateSchema updateSchema = table.updateSchema();
+        applyRenameColumn(schema, updateSchema, oldPath, newName);
+        updateSchema.commit();
+    }
+
+    /**
+     * Rejects a batch of TOP-LEVEL columns that collides case-insensitively with an existing field or with
+     * another column of the same request. Validates the whole batch before the caller stages anything, so a
+     * partly-valid request commits nothing. Mirrors the legacy
+     * {@code IcebergMetadataOps.validateNoCaseInsensitiveTopLevelCollisions}.
+     */
+    static void validateNoCaseInsensitiveTopLevelCollisions(Schema schema, List<IcebergColumnChange> columns) {
+        Set<String> requestedNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (IcebergColumnChange column : columns) {
+            validateNoCaseInsensitiveSiblingCollision(schema.asStruct(), "", column.getName(), null, "add");
+            if (!requestedNames.add(column.getName())) {
+                throw new DorisConnectorException("Cannot add column '" + column.getName()
+                        + "': conflicts with another requested column (case-insensitive)");
+            }
+        }
+    }
+
+    /**
+     * Rejects {@code targetName} when it case-insensitively collides with a sibling of {@code parentType} that
+     * is not {@code sourceField} itself (the identity escape lets a pure re-casing rename through). An empty
+     * {@code parentPath} addresses the table's top-level columns.
+     */
+    static void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, String parentPath,
             String targetName, NestedField sourceField, String operation) {
         NestedField conflictingField = parentType.caseInsensitiveField(targetName);
         if (conflictingField != null

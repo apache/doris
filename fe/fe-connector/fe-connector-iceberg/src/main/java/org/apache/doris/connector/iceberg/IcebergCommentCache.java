@@ -55,13 +55,10 @@ final class IcebergCommentCache {
     private final MetaCacheEntry<TableIdentifier, String> entry;
 
     IcebergCommentCache(long ttlSeconds, int maxSize) {
-        // Mirror IcebergTableCache: translate the connector's "<= 0 disables" contract to CacheSpec's ttl == 0
-        // (disabled) rather than passing a negative value through, which CacheSpec reads as ttl == -1 "no
-        // expiration (enabled)". This ttl<=0 -> disabled mapping is load-bearing: a vended no-cache catalog builds
-        // this object but must NOT cache comments (operator "no meta cache" intent).
-        CacheSpec spec = ttlSeconds > 0
-                ? CacheSpec.of(true, ttlSeconds, maxSize)
-                : CacheSpec.of(true, CacheSpec.CACHE_TTL_DISABLE_CACHE, maxSize);
+        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
+        // Load-bearing here: a vended no-cache catalog builds this object but must NOT cache comments
+        // (operator "no meta cache" intent).
+        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = new MetaCacheEntry<>("iceberg-comment", null, spec,
                 ForkJoinPool.commonPool(), false, true, 0L, true);
     }

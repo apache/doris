@@ -42,7 +42,7 @@ import java.util.Map;
  * So this action is NOT reachable through {@link IcebergExecuteActionFactory#createAction} (which deliberately
  * rejects {@code rewrite_data_files}) and {@link #executeAction} is never invoked — it is built directly by
  * {@code IcebergProcedureOps.planRewrite}, which calls {@link #buildRewriteParameters()} and runs the
- * connector {@link RewriteDataFilePlanner}. Dormant until the P6.6 cutover.</p>
+ * connector {@link RewriteDataFilePlanner}. Live since the iceberg SPI cutover.</p>
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 

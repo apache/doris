@@ -18,8 +18,8 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
-import org.apache.doris.connector.cache.PartitionViewCacheKey;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -63,16 +63,16 @@ public class HiveConnectorPartitionViewCacheTest {
         // loader must run again. MUTATION: an invalidate* hook not routed to the view cache -> the entry
         // survives -> loader not re-run -> a loads assert below red.
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = connector.partitionViewCacheForTest();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = connector.partitionViewCacheForTest();
         Assertions.assertNotNull(cache);
         int[] loads = {0};
         Supplier<List<ConnectorPartitionInfo>> loader = () -> {
             loads[0]++;
             return Collections.emptyList();
         };
-        PartitionViewCacheKey db1t1 = new PartitionViewCacheKey("db1", "t1", -1L, -1L);
-        PartitionViewCacheKey db1t2 = new PartitionViewCacheKey("db1", "t2", -1L, -1L);
-        PartitionViewCacheKey db2t1 = new PartitionViewCacheKey("db2", "t1", -1L, -1L);
+        ConnectorTableKey db1t1 = new ConnectorTableKey("db1", "t1", -1L, -1L);
+        ConnectorTableKey db1t2 = new ConnectorTableKey("db1", "t2", -1L, -1L);
+        ConnectorTableKey db2t1 = new ConnectorTableKey("db2", "t1", -1L, -1L);
 
         // REFRESH TABLE db1.t1 -> only db1.t1 re-loads. Uses the public no-client hook (mirrors a never-scanned
         // catalog's REFRESH — hmsClient is null here).
@@ -108,14 +108,14 @@ public class HiveConnectorPartitionViewCacheTest {
         // it must invalidate that whole entry. MUTATION: invalidatePartition not routed to the view cache -> the
         // stale entry survives -> the reload assert below red.
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
-        ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> cache = connector.partitionViewCacheForTest();
+        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = connector.partitionViewCacheForTest();
         int[] loads = {0};
         Supplier<List<ConnectorPartitionInfo>> loader = () -> {
             loads[0]++;
             return Collections.emptyList();
         };
-        PartitionViewCacheKey db1t1 = new PartitionViewCacheKey("db1", "t1", -1L, -1L);
-        PartitionViewCacheKey db1t2 = new PartitionViewCacheKey("db1", "t2", -1L, -1L);
+        ConnectorTableKey db1t1 = new ConnectorTableKey("db1", "t1", -1L, -1L);
+        ConnectorTableKey db1t2 = new ConnectorTableKey("db1", "t2", -1L, -1L);
 
         cache.get(db1t1, loader);
         cache.get(db1t2, loader);
