@@ -140,14 +140,26 @@ suite("test_iceberg_write_overwrite_evolution",
     """
     assertSparkMatchesDoris()
 
-    // WO01-S04: Evolve away from identity region and overwrite a NULL current
-    // partition. Historical references and unrelated current partitions stay intact.
+    // WO01-S04: Seed the complete post-evolution partition tuple before its
+    // overwrite; reusing id 9 also fixes the new bucket value across both writes.
     sql """alter table overwrite_evolution drop partition key region"""
     sql """alter table overwrite_evolution add partition key bucket(4, id) as id_bucket"""
+    sql """
+        insert into overwrite_evolution
+        values (9, null, 'null-new', null, 'overwrite-seed-null-current-spec')
+    """
+    assertEquals(1L, (sql """
+        select count(*) from overwrite_evolution
+        where payload = 'overwrite-seed-null-current-spec'
+    """)[0][0] as long)
     sql """
         insert overwrite table overwrite_evolution
         values (9, null, 'null-new', null, 'overwrite-null-current-spec')
     """
+    assertEquals(0L, (sql """
+        select count(*) from overwrite_evolution
+        where payload = 'overwrite-seed-null-current-spec'
+    """)[0][0] as long)
     order_qt_overwrite_after_drop_identity """
         select id, region, code, event_time, payload
         from overwrite_evolution

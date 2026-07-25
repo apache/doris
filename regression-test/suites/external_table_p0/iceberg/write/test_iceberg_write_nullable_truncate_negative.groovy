@@ -60,7 +60,12 @@ suite("test_iceberg_write_nullable_truncate_negative",
             zone string
         )
         partition by list (zone) ()
-        properties ("format-version" = "2")
+        properties (
+            "format-version" = "2",
+            "write.delete.mode" = "merge-on-read",
+            "write.update.mode" = "merge-on-read",
+            "write.merge.mode" = "merge-on-read"
+        )
     """
     sql """insert into nullable_truncate values (1, 'CN'), (2, null)"""
 
@@ -71,8 +76,22 @@ suite("test_iceberg_write_nullable_truncate_negative",
         add partition key truncate(2, zone) as zone_prefix
     """
     sql """insert into nullable_truncate values (3, 'US-east'), (4, null)"""
+    // UPDATE creates a Nullable projection even though the non-NULL branch is
+    // selected for id 3; the partition transformer must preserve that wrapper.
+    sql """
+        update nullable_truncate
+        set zone = if(id = 3, 'US-west', cast(null as string))
+        where id in (3, 4)
+    """
 
     order_qt_nullable_truncate_rows """
         select id, zone from nullable_truncate order by id
+    """
+    order_qt_nullable_truncate_physical_partitions """
+        select distinct spec_id,
+               hex(struct_element(`partition`, 'zone')),
+               hex(struct_element(`partition`, 'zone_prefix'))
+        from nullable_truncate\$partitions
+        order by spec_id, 2, 3
     """
 }

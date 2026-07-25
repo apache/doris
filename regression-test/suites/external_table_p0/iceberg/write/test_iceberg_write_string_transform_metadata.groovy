@@ -152,6 +152,20 @@ suite("test_iceberg_write_string_transform_metadata",
         group by spec_id
         order by spec_id
     """
+    // Old and new transform fields must coexist in the union partition struct;
+    // spec counts alone cannot distinguish bucket(8) from bucket(16), or
+    // truncate(2) from truncate(3).
+    order_qt_string_transform_evolved_physical_partitions """
+        select spec_id,
+               hex(struct_element(`partition`, 'p_identity')),
+               struct_element(`partition`, 'p_bucket_8'),
+               hex(struct_element(`partition`, 'p_truncate_2')),
+               struct_element(`partition`, 'p_bucket_16'),
+               hex(struct_element(`partition`, 'p_truncate_3')),
+               record_count
+        from string_transform_metadata\$partitions
+        order by spec_id, 2, 3, 4, 5, 6
+    """
     order_qt_string_transform_evolved_rows """
         select id, hex(p_identity), hex(p_bucket), hex(p_truncate), payload
         from string_transform_metadata
@@ -169,4 +183,30 @@ suite("test_iceberg_write_string_transform_metadata",
         order by id
     """
     assertSparkDorisResultEquals(sparkRows, dorisRows)
+
+    // Compare the evolved physical metadata as well as logical rows, including
+    // both superseded and current transform fields.
+    sparkPartitions = spark_iceberg """
+        select spec_id,
+               hex(partition.p_identity),
+               partition.p_bucket_8,
+               hex(partition.p_truncate_2),
+               partition.p_bucket_16,
+               hex(partition.p_truncate_3),
+               record_count
+        from demo.${dbName}.string_transform_metadata.partitions
+        order by spec_id, 2, 3, 4, 5, 6
+    """
+    dorisPartitions = sql """
+        select spec_id,
+               hex(struct_element(`partition`, 'p_identity')),
+               struct_element(`partition`, 'p_bucket_8'),
+               hex(struct_element(`partition`, 'p_truncate_2')),
+               struct_element(`partition`, 'p_bucket_16'),
+               hex(struct_element(`partition`, 'p_truncate_3')),
+               record_count
+        from string_transform_metadata\$partitions
+        order by spec_id, 2, 3, 4, 5, 6
+    """
+    assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
 }

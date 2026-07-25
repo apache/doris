@@ -221,13 +221,27 @@ suite("test_iceberg_write_dml_modes_evolution",
     long cowSnapshots = (sql """select count(*) from cow_evolution\$snapshots""")[0][0] as long
     test {
         sql """delete from cow_evolution where region is null"""
-        exception "Doris does not support DELETE on Iceberg copy-on-write tables"
-        exception "Set table property 'write.delete.mode' to 'merge-on-read'"
+        // TestAction has one exception slot; a check closure preserves both
+        // the rejected operation and its actionable property guidance.
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            String message = exception.toString()
+            assertTrue(message.contains(
+                    "Doris does not support DELETE on Iceberg copy-on-write tables"))
+            assertTrue(message.contains(
+                    "Set table property 'write.delete.mode' to 'merge-on-read'"))
+        }
     }
     test {
         sql """update cow_evolution set score = score + 1 where id = 1"""
-        exception "Doris does not support UPDATE on Iceberg copy-on-write tables"
-        exception "Set table property 'write.update.mode' to 'merge-on-read'"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            String message = exception.toString()
+            assertTrue(message.contains(
+                    "Doris does not support UPDATE on Iceberg copy-on-write tables"))
+            assertTrue(message.contains(
+                    "Set table property 'write.update.mode' to 'merge-on-read'"))
+        }
     }
     test {
         sql """
@@ -236,8 +250,14 @@ suite("test_iceberg_write_dml_modes_evolution",
             on t.id = s.id
             when matched then update set score = s.score
         """
-        exception "Doris does not support MERGE INTO on Iceberg copy-on-write tables"
-        exception "Set table property 'write.merge.mode' to 'merge-on-read'"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            String message = exception.toString()
+            assertTrue(message.contains(
+                    "Doris does not support MERGE INTO on Iceberg copy-on-write tables"))
+            assertTrue(message.contains(
+                    "Set table property 'write.merge.mode' to 'merge-on-read'"))
+        }
     }
     assertEquals(cowSnapshots, (sql """select count(*) from cow_evolution\$snapshots""")[0][0] as long)
     order_qt_cow_after_rejections """

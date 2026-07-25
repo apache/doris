@@ -90,4 +90,11 @@ suite("test_iceberg_write_merge_truncate_negative",
         from merge_truncate_negative
         order by id
     """
+    // Logical rows cannot prove the MERGE writer used truncate(2) when routing
+    // its updated and inserted records.
+    order_qt_merge_truncate_physical_partitions """
+        select distinct hex(struct_element(`partition`, 'partition_value_trunc_2'))
+        from merge_truncate_negative\$partitions
+        order by 1
+    """
 }

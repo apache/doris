@@ -128,6 +128,13 @@ suite("test_iceberg_write_partition_types_null",
         where p_string is null or p_string like 'alp%'
         order by id
     """
+    // Filtering the replaced bucket source exercises both bucket widths;
+    // predicates on the unchanged identity source cannot detect a bad bucket.
+    order_qt_string_cross_spec_bucket_filter """
+        select id from string_partitions
+        where p_bucket in ('bucket-a', 'bucket-new')
+        order by id
+    """
     order_qt_string_partition_specs """
         select spec_id, sum(record_count)
         from string_partitions\$partitions
@@ -185,6 +192,18 @@ suite("test_iceberg_write_partition_types_null",
         from numeric_partitions\$partitions
         group by spec_id
         order by spec_id
+    """
+    // Logical rows and spec totals do not expose incorrect transform values.
+    order_qt_numeric_physical_partitions """
+        select struct_element(`partition`, 'p_int_bucket'),
+               struct_element(`partition`, 'p_bigint_bucket'),
+               struct_element(`partition`, 'p_bigint_trunc'),
+               struct_element(`partition`, 'p_decimal_bucket'),
+               struct_element(`partition`, 'p_decimal_trunc'),
+               struct_element(`partition`, 'p_bool'),
+               record_count
+        from numeric_partitions\$partitions
+        order by 1, 2, 3, 4, 5, 6
     """
     assertSparkMatchesDoris(
             "numeric_partitions",
@@ -247,6 +266,19 @@ suite("test_iceberg_write_partition_types_null",
         from temporal_partitions\$partitions
         group by spec_id
         order by spec_id
+    """
+    // Read each time-transform field from Iceberg metadata so epoch boundaries
+    // and NULL routing are observable independently of source-row equality.
+    order_qt_temporal_physical_partitions """
+        select struct_element(`partition`, 'p_date_bucket_bucket'),
+               struct_element(`partition`, 'p_date_year_year'),
+               struct_element(`partition`, 'p_date_month_month'),
+               struct_element(`partition`, 'p_ts_bucket_bucket'),
+               struct_element(`partition`, 'p_ts_day_day'),
+               struct_element(`partition`, 'p_ts_hour_hour'),
+               record_count
+        from temporal_partitions\$partitions
+        order by 1, 2, 3, 4, 5, 6
     """
     assertSparkMatchesDoris(
             "temporal_partitions",

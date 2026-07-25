@@ -15,6 +15,10 @@
 5
 7
 
+-- !string_cross_spec_bucket_filter --
+1
+6
+
 -- !string_partition_specs --
 0	5
 1	2
@@ -32,6 +36,12 @@
 -- !numeric_partitions --
 0	4
 
+-- !numeric_physical_partitions --
+\N	\N	\N	\N	\N	\N	1
+0	4	0	7	0.00	\N	1
+0	4	100	1	11.10	true	1
+0	5	-200	4	-11.20	false	1
+
 -- !temporal_rows --
 1	1969-12-31	1969-12-31	1969-12-31	1969-12-31T23:59:59	1969-12-31T23:59:59	1969-12-31T23:59:59	before-epoch
 2	1970-01-01	1970-01-01	1970-01-01	1970-01-01T00:00	1970-01-01T00:00	1970-01-01T00:00	epoch
@@ -45,4 +55,10 @@
 
 -- !temporal_partitions --
 0	4
+
+-- !temporal_physical_partitions --
+\N	\N	\N	\N	\N	\N	1
+0	0	0	7	1970-01-01	0	1
+4	0	0	4	1970-01-01	0	1
+6	54	649	4	2024-02-29	474780	1
 

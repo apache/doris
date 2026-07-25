@@ -62,9 +62,20 @@ suite("test_iceberg_write_required_null_values_negative",
         properties ("format-version" = "2")
     """
 
-    // W07-S01: VALUES must reject NULL for an Iceberg required field before publishing a snapshot.
+    long snapshotsBefore = (sql """select count(*) from required_values\$snapshots""")[0][0] as long
+    long filesBefore = (sql """select count(*) from required_values\$files""")[0][0] as long
+    long rowsBefore = (sql """select count(*) from required_values""")[0][0] as long
+
+    // W07-S01: A thrown NULL error is insufficient proof of atomicity; all
+    // visible and metadata state must remain at the pre-statement baseline.
     test {
         sql """insert into required_values values (1, null)"""
         exception "null"
     }
+    assertEquals(snapshotsBefore,
+            (sql """select count(*) from required_values\$snapshots""")[0][0] as long)
+    assertEquals(filesBefore,
+            (sql """select count(*) from required_values\$files""")[0][0] as long)
+    assertEquals(rowsBefore,
+            (sql """select count(*) from required_values""")[0][0] as long)
 }

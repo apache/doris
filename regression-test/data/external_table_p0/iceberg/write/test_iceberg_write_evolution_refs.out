@@ -44,6 +44,7 @@
 2	US	\N
 3	\N	\N
 7	JP-east	branch-insert
+8	FR-west	branch-overwrite-seed
 
 -- !main_unchanged_after_branch_insert --
 1
@@ -72,4 +73,3 @@
 4	CN-east	new-spec
 5	DE-west	\N
 6	\N	null-zone
-

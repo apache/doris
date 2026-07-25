@@ -65,12 +65,25 @@ suite("test_iceberg_write_branch_dml_boundary",
     sql """alter table branch_dml_boundary create branch audit_branch"""
     sql """alter table branch_dml_boundary create tag protected_tag"""
 
-    // WB01-S01: Doris supports INSERT and INSERT OVERWRITE to an Iceberg branch.
+    // WB01-S01: Seed the exact identity partition that OVERWRITE targets so an
+    // append-equivalent implementation cannot satisfy the final row oracle.
     sql """insert into branch_dml_boundary@branch(audit_branch) values (2, 'B', 'branch-insert')"""
+    sql """
+        insert into branch_dml_boundary@branch(audit_branch)
+        values (30, 'C', 'branch-overwrite-seed')
+    """
+    assertEquals(1L, (sql """
+        select count(*) from branch_dml_boundary@branch(audit_branch)
+        where payload = 'branch-overwrite-seed'
+    """)[0][0] as long)
     sql """
         insert overwrite table branch_dml_boundary@branch(audit_branch)
         values (3, 'C', 'branch-overwrite')
     """
+    assertEquals(0L, (sql """
+        select count(*) from branch_dml_boundary@branch(audit_branch)
+        where payload = 'branch-overwrite-seed'
+    """)[0][0] as long)
     order_qt_branch_write """
         select id, region, payload
         from branch_dml_boundary@branch(audit_branch)
@@ -118,7 +131,39 @@ suite("test_iceberg_write_branch_dml_boundary",
     // WB01-S03: Tags are immutable write targets.
     test {
         sql """insert into branch_dml_boundary@branch(protected_tag) values (9, 'T', 'tag-write')"""
-        exception "tag"
-        exception "not a branch"
+        // TestAction stores only one `exception` substring, so one closure must
+        // verify both parts of the capability-boundary diagnostic.
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            String message = exception.toString()
+            assertTrue(message.contains("tag"))
+            assertTrue(message.contains("not a branch"))
+        }
     }
+
+    // Cross-engine reads cover both the unchanged main ref and the branch
+    // after its successful writes and rejected row-level DML attempts.
+    spark_iceberg """refresh table demo.${dbName}.branch_dml_boundary"""
+    def sparkMainRows = spark_iceberg """
+        select id, region, payload
+        from demo.${dbName}.branch_dml_boundary
+        order by id
+    """
+    def dorisMainRows = sql """
+        select id, region, payload
+        from branch_dml_boundary
+        order by id
+    """
+    assertSparkDorisResultEquals(sparkMainRows, dorisMainRows)
+    def sparkBranchRows = spark_iceberg """
+        select id, region, payload
+        from demo.${dbName}.branch_dml_boundary version as of 'audit_branch'
+        order by id
+    """
+    def dorisBranchRows = sql """
+        select id, region, payload
+        from branch_dml_boundary@branch(audit_branch)
+        order by id
+    """
+    assertSparkDorisResultEquals(sparkBranchRows, dorisBranchRows)
 }

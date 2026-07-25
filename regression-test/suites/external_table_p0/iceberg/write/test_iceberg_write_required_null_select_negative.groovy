@@ -80,7 +80,12 @@ suite("test_iceberg_write_required_null_select_negative",
         properties ("format-version" = "2")
     """
 
-    // W07-S02: A mixed distributed INSERT SELECT must reject the whole statement atomically.
+    long snapshotsBefore = (sql """select count(*) from required_select\$snapshots""")[0][0] as long
+    long filesBefore = (sql """select count(*) from required_select\$files""")[0][0] as long
+    long rowsBefore = (sql """select count(*) from required_select""")[0][0] as long
+
+    // W07-S02: The metadata and row baselines distinguish an early rejection
+    // from a late failure that has already published a snapshot or data file.
     test {
         sql """
             insert into required_select
@@ -89,4 +94,10 @@ suite("test_iceberg_write_required_null_select_negative",
         """
         exception "null"
     }
+    assertEquals(snapshotsBefore,
+            (sql """select count(*) from required_select\$snapshots""")[0][0] as long)
+    assertEquals(filesBefore,
+            (sql """select count(*) from required_select\$files""")[0][0] as long)
+    assertEquals(rowsBefore,
+            (sql """select count(*) from required_select""")[0][0] as long)
 }

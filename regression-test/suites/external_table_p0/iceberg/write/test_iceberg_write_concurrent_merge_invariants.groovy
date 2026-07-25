@@ -17,6 +17,7 @@
 
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 suite("test_iceberg_write_concurrent_merge_invariants",
         "p0,external,iceberg,external_docker,external_docker_iceberg") {
@@ -71,14 +72,24 @@ suite("test_iceberg_write_concurrent_merge_invariants",
     sql """insert into concurrent_merge values (1, 'A', 'base')"""
     long snapshotsBefore = (sql """select count(*) from concurrent_merge\$snapshots""")[0][0] as long
 
-    // WC02-S01: Start two conflicting MERGE statements at the same barrier.
+    def isExpectedIcebergCommitConflict = { Exception exception ->
+        String message = exception.toString()
+        return message.contains("org.apache.iceberg.exceptions.ValidationException")
+                || message.contains("org.apache.iceberg.exceptions.CommitFailedException")
+                || message.contains("Found conflicting files")
+    }
+
+    // WC02-S01: A readiness barrier prevents a fast worker from completing
+    // before the second session is even eligible for concurrent dispatch.
     // The exact winner is intentionally unspecified; cardinality, snapshot
     // accounting and cross-engine visibility are deterministic invariants.
+    CountDownLatch ready = new CountDownLatch(2)
     CountDownLatch start = new CountDownLatch(1)
     List<String> successes = Collections.synchronizedList(new ArrayList<String>())
     List<String> failures = Collections.synchronizedList(new ArrayList<String>())
 
-    def first = thread {
+    def first = thread("iceberg-merge-one") {
+        ready.countDown()
         start.await()
         try {
             sql """
@@ -89,10 +100,16 @@ suite("test_iceberg_write_concurrent_merge_invariants",
             """
             successes.add("one")
         } catch (Exception e) {
+            // Only an Iceberg optimistic-validation conflict is an admissible
+            // loser; planner, RPC, catalog and BE failures must fail the suite.
+            if (!isExpectedIcebergCommitConflict(e)) {
+                throw e
+            }
             failures.add(e.getMessage())
         }
     }
-    def second = thread {
+    def second = thread("iceberg-merge-two") {
+        ready.countDown()
         start.await()
         try {
             sql """
@@ -103,9 +120,14 @@ suite("test_iceberg_write_concurrent_merge_invariants",
             """
             successes.add("two")
         } catch (Exception e) {
+            if (!isExpectedIcebergCommitConflict(e)) {
+                throw e
+            }
             failures.add(e.getMessage())
         }
     }
+    assertTrue(ready.await(30, TimeUnit.SECONDS),
+            "Both MERGE workers must reach the dispatch barrier")
     start.countDown()
     first.get()
     second.get()
@@ -135,10 +157,12 @@ suite("test_iceberg_write_concurrent_merge_invariants",
     """
     assertSparkDorisResultEquals(sparkRows, dorisRows)
 
-    // WC02-S02: Concurrent non-conflicting appends must both commit without
-    // duplicate ids or lost rows.
+    // WC02-S02: Use the same readiness invariant for non-conflicting appends;
+    // otherwise sequential execution can falsely satisfy the row-count oracle.
+    CountDownLatch appendReady = new CountDownLatch(2)
     CountDownLatch appendStart = new CountDownLatch(1)
-    def appendOne = thread {
+    def appendOne = thread("iceberg-append-one") {
+        appendReady.countDown()
         appendStart.await()
         sql """
             insert into ${catalogName}.${dbName}.concurrent_merge
@@ -146,7 +170,8 @@ suite("test_iceberg_write_concurrent_merge_invariants",
             from numbers('number' = '128')
         """
     }
-    def appendTwo = thread {
+    def appendTwo = thread("iceberg-append-two") {
+        appendReady.countDown()
         appendStart.await()
         sql """
             insert into ${catalogName}.${dbName}.concurrent_merge
@@ -154,6 +179,8 @@ suite("test_iceberg_write_concurrent_merge_invariants",
             from numbers('number' = '128')
         """
     }
+    assertTrue(appendReady.await(30, TimeUnit.SECONDS),
+            "Both append workers must reach the dispatch barrier")
     appendStart.countDown()
     appendOne.get()
     appendTwo.get()
@@ -164,4 +191,19 @@ suite("test_iceberg_write_concurrent_merge_invariants",
         group by region
         order by region
     """
+
+    // Refresh after both appends so the cross-engine oracle covers the
+    // concurrent commits rather than only the earlier MERGE result.
+    spark_iceberg """refresh table demo.${dbName}.concurrent_merge"""
+    sparkRows = spark_iceberg """
+        select id, region, payload
+        from demo.${dbName}.concurrent_merge
+        order by id
+    """
+    dorisRows = sql """
+        select id, region, payload
+        from concurrent_merge
+        order by id
+    """
+    assertSparkDorisResultEquals(sparkRows, dorisRows)
 }

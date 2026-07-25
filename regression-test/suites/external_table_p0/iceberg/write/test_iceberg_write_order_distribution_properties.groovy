@@ -97,8 +97,18 @@ suite("test_iceberg_write_order_distribution_properties",
         select count(*), sum(record_count)
         from ordered_evolution\$files
     """
-    assertTrue((filesAfterInsert[0][0] as long) > 1L)
     assertEquals(10000L, filesAfterInsert[0][1] as long)
+    def maxFilesPerPartition = sql """
+        select max(file_count)
+        from (
+            select `partition`, count(*) as file_count
+            from ordered_evolution\$files
+            group by `partition`
+        ) partition_file_counts
+    """
+    // Partition fan-out already creates multiple files globally, so rollover
+    // is proven only when one physical partition owns more than one file.
+    assertTrue((maxFilesPerPartition[0][0] as long) > 1L)
 
     // WP01-S03: Schema evolution and row-level DML continue to use the current
     // sort order and preserve Spark/Doris visible results.

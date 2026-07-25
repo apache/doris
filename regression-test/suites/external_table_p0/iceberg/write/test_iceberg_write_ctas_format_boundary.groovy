@@ -84,7 +84,9 @@ suite("test_iceberg_write_ctas_format_boundary",
             "write.orc.compression-codec" = "lz4"
         )
         as
-        select id, cast(region as string) as region, tags, attrs, detail
+        select id,
+               cast(if(id in (1, 3), 'A', region) as string) as region,
+               tags, attrs, detail
         from internal.${internalDbName}.ctas_source
     """
     order_qt_ctas_complex_rows """
@@ -104,6 +106,20 @@ suite("test_iceberg_write_ctas_format_boundary",
         group by spec_id
         order by spec_id
     """
+    order_qt_ctas_complex_physical_partitions """
+        select struct_element(`partition`, 'region'),
+               struct_element(`partition`, 'id_bucket'),
+               record_count
+        from ctas_complex_partitioned\$partitions
+        order by 1, 2
+    """
+    // Two rows share identity region A, so more than one physical partition
+    // proves bucket(4,id) contributes to CTAS routing.
+    assertTrue(((sql """
+        select count(distinct struct_element(`partition`, 'id_bucket'))
+        from ctas_complex_partitioned\$partitions
+        where struct_element(`partition`, 'region') = 'A'
+    """)[0][0] as long) > 1L)
     spark_iceberg """refresh table demo.${dbName}.ctas_complex_partitioned"""
     def sparkRows = spark_iceberg """
         select id, region, tags, attrs, detail
@@ -116,6 +132,12 @@ suite("test_iceberg_write_ctas_format_boundary",
         order by id
     """
     assertSparkDorisResultEquals(sparkRows, dorisRows)
+    def compressionProperty = spark_iceberg """
+        show tblproperties demo.${dbName}.ctas_complex_partitioned
+        ('write.orc.compression-codec')
+    """
+    // File-format checks do not prove the requested codec survived CTAS.
+    assertEquals("lz4", compressionProperty[0][1].toString().toLowerCase())
 
     // WC01-S02: CTAS is atomic. A source expression failure must not leave a
     // visible Iceberg table or a partially committed snapshot.

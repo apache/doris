@@ -23,7 +23,7 @@ under the License.
 
 本文档覆盖 Doris 向 Iceberg 表写入时的正确性、兼容性和失败原子性。矩阵既检查单项能力，也检查 schema change、Partition Evolution、snapshot/tag/branch、行级 delete/update/merge、表模型、分区与 bucket、数据类型和 NULL 语义之间的交互。
 
-所有正向写入场景都以 Doris 确定性查询结果和 Spark 读取同一 Iceberg 表的结果一致作为双重 oracle；涉及历史引用时，另行校验 snapshot、tag 和 branch 的隔离性。
+所有正向 suite 都在最后一次写入后比较 Doris 与 Spark 的同表逻辑结果；涉及 transform metadata 的 suite 还比较物理分区值，涉及历史引用时另行校验 snapshot、tag 和 branch 的隔离性。
 
 覆盖状态含义：
 
@@ -70,7 +70,7 @@ under the License.
 | Doris 源 bucket | HASH 固定 bucket、RANDOM bucket、HASH AUTO bucket | 已覆盖（验证通过） | `test_iceberg_write_source_models` |
 | 分区源类型 | STRING/INT/BIGINT/DATE/DATETIME/DECIMAL 的 bucket 与适用 transform；BOOLEAN identity 与非法 bucket | 已覆盖（验证通过） | `test_iceberg_write_partition_types_null` |
 | NULL 分区 | identity NULL、数值/decimal bucket 与 truncate NULL、time transform NULL、多列组合 NULL | 已覆盖（验证通过） | `test_iceberg_write_partition_types_null` |
-| nullable STRING truncate | nullable STRING 经过 truncate transform 的 INSERT，以及 NOT NULL 源列经 UPDATE block 写入 | 已覆盖（隔离负向） | `test_iceberg_write_nullable_truncate_negative` |
+| nullable STRING truncate | nullable STRING 经过 truncate transform 的 INSERT，以及 UPDATE 产生的 Nullable projection 写入 | 已覆盖（隔离负向） | `test_iceberg_write_nullable_truncate_negative` |
 | MERGE 完整语义 | 条件 MATCHED、DELETE/UPDATE、多个条件 NOT MATCHED、NULL-safe 与普通 NULL key | 已覆盖（验证通过） | `test_iceberg_write_merge_semantics` |
 | MERGE 基数约束 | 多个源行匹配同一目标行必须整句失败且不发布快照 | 已覆盖（隔离负向） | `test_iceberg_write_merge_duplicate_source_negative` |
 | MERGE + STRING truncate | required truncate 源列经 MERGE nullable projection 写入 | 已覆盖（隔离负向） | `test_iceberg_write_merge_truncate_negative` |
@@ -87,7 +87,7 @@ under the License.
 | 排序与分布属性 | 多列 sort order、NULL ordering、none/hash/range distribution、强制多文件 flush | 已覆盖（验证通过） | `test_iceberg_write_order_distribution_properties` |
 | 并发写入 | 同行冲突 MERGE 的串行化不变量、非冲突分布式 append | 已覆盖（验证通过） | `test_iceberg_write_concurrent_merge_invariants` |
 | 分布式执行 | 多 bucket 源表、多分区 Iceberg sink、多 BE writer、suite 间无共享 catalog/database | 已覆盖（验证通过） | 所有本次新增 suite |
-| Spark 交叉验证 | Doris 写入后由 Spark 与 Doris 查询同一 Iceberg 表并逐行比较，含行数据和物理分区 metadata | 已覆盖（验证通过） | 十五个正向 suite |
+| Spark 交叉验证 | 十五个正向 suite 在最后一次写入后逐行比较；STRING transform suite 另行比较演进前后的物理分区 metadata | 已覆盖（验证通过） | 十五个正向 suite；物理 metadata 见 `test_iceberg_write_string_transform_metadata` |
 
 ## 本次新增用例设计
 
@@ -110,11 +110,11 @@ under the License.
 | W15 | 验证 STRING transform 的真实物理分区值 | R03、R18 | 边界、正确性 | Iceberg v2 | 空串、ASCII、中文、emoji、组合字符、NULL bucket，随后替换 bucket/truncate 宽度 | 行结果和 `$partitions` 物理值均与 Spark 一致 |
 | W16 | 验证 CTAS、复杂类型、格式和失败清理 | R08、R09、R16 | 功能、异常、兼容性 | 内部多 bucket 源表 | CTAS 到 ORC 分区表；严格转换失败；向 Avro 表写入 | ORC 与 Spark 一致；失败不遗留表或快照；Avro 明确拒绝 |
 | W17 | 验证 sort order、distribution mode 和多文件 flush | R03、R11、R17 | 正确性、稳定性 | 多 BE Doris | NULL sort key、多列升降序、none/hash/range、低 target file size | 计划包含声明排序，多文件总行数正确，三种分布模式结果一致 |
-| W18 | 验证并发 MERGE 与 append 的提交不变量 | R11、R13、R17 | 并发、原子性 | 多 BE Doris | 两个会话同时更新同行；两个会话写入互不冲突数据 | 同行提交可串行化且基数为一；非冲突写入无丢失或重复 |
+| W18 | 验证并发 MERGE 与 append 的提交不变量 | R11、R13、R17 | 并发、原子性 | 多 BE Doris | readiness barrier 保证两个独立会话同时具备 dispatch 条件；同行更新与互不冲突 append | 同行提交可串行化且基数为一；仅接受 Iceberg validation/commit conflict；非冲突写入无丢失或重复 |
 | W19 | 验证 MERGE source projection 进入 truncate transform 的类型安全 | R12、R18 | 隔离负向、稳定性 | 可重启的隔离 Doris 集群 | required STRING truncate 列执行匹配更新与未匹配插入 | 修复前 BE FATAL；修复后 MERGE 成功且物理分区正确 |
 
 ## P0 覆盖检查
 
-R01-R18 均映射到至少一个 P0 regression。十五个正向 suite 已在双 BE 环境通过，并由 Spark/Doris 交叉校验同表结果；稳定性或已确认正确性缺陷使用独立 suite 和显式隔离开关保存复现，避免默认 P0 破坏共享集群或固化错误结果。
+R01-R18 均映射到至少一个 P0 regression。十五个正向 suite 在最后一次成功写入后均由 Spark/Doris 交叉校验同表逻辑结果；transform、rollover、CTAS property 和失败原子性另有物理 metadata 或状态 oracle。稳定性或已确认正确性缺陷使用独立 suite、完整预期输出和显式隔离开关保存复现，避免默认 P0 破坏共享集群或固化错误结果。
 
 本矩阵未覆盖项为 0。COW 行级 DML、branch 行级 DML、tag 写入和 Avro 写入属于当前明确能力边界，均以预期拒绝用例固化错误语义与失败原子性；已确认的产品缺陷均有隔离负向 regression。

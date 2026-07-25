@@ -114,6 +114,20 @@ suite("test_iceberg_write_overwrite_atomicity",
         from overwrite_atomicity
         order by id
     """
+    // A branch failure is only atomic if both engines still observe the same
+    // pre-write branch state; a Doris-only query could hide unreadable files.
+    spark_iceberg """refresh table demo.${dbName}.overwrite_atomicity"""
+    def sparkBranchRows = spark_iceberg """
+        select id, region, payload
+        from demo.${dbName}.overwrite_atomicity version as of 'retry_branch'
+        order by id
+    """
+    def dorisBranchRows = sql """
+        select id, region, payload
+        from overwrite_atomicity@branch(retry_branch)
+        order by id
+    """
+    assertSparkDorisResultEquals(sparkBranchRows, dorisBranchRows)
 
     // WO03-S03: Retry the corrected logical operation. Each replacement row
     // becomes visible exactly once and only one new main snapshot is committed.
@@ -132,4 +146,18 @@ suite("test_iceberg_write_overwrite_atomicity",
         group by id, region, payload
         order by id
     """
+    // Refresh after the retry so cross-engine validation covers the corrected
+    // overwrite commit, not merely the failure baselines.
+    spark_iceberg """refresh table demo.${dbName}.overwrite_atomicity"""
+    def sparkRows = spark_iceberg """
+        select id, region, payload
+        from demo.${dbName}.overwrite_atomicity
+        order by id
+    """
+    def dorisRows = sql """
+        select id, region, payload
+        from overwrite_atomicity
+        order by id
+    """
+    assertSparkDorisResultEquals(sparkRows, dorisRows)
 }

@@ -54,6 +54,22 @@ suite("test_iceberg_write_evolution_refs",
         assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
+    def assertSparkBranchMatchesDoris = { String branch, String projection ->
+        sql """refresh table ${dbName}.evolution_refs"""
+        spark_iceberg """refresh table demo.${dbName}.evolution_refs"""
+        def sparkRows = spark_iceberg """
+            select ${projection}
+            from demo.${dbName}.evolution_refs version as of '${branch}'
+            order by id
+        """
+        def dorisRows = sql """
+            select ${projection}
+            from evolution_refs@branch(${branch})
+            order by id
+        """
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+    }
+
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog ${catalogName} properties (
@@ -181,14 +197,16 @@ suite("test_iceberg_write_evolution_refs",
         order by id
     """
 
-    // W01-S05: A branch created before both evolutions accepts the current schema/spec.
-    // Its commit and full overwrite must not change main or the protected base tag.
+    // W01-S05: Seed the current-spec branch partition before overwriting it;
+    // this proves replacement semantics while main and the base tag stay isolated.
     sql """
         insert into evolution_refs@branch(base_branch)
             (id, zone, bucket_key, event_time, amount, payload, note)
         values
             (7, 'JP-east', 'branch-a', '2026-04-01 12:00:00', 70.70,
-                struct(70, 'branch', 'current-schema'), 'branch-insert')
+                struct(70, 'branch', 'current-schema'), 'branch-insert'),
+            (8, 'FR-west', 'branch-b', '2026-05-01 13:00:00', 80.80,
+                struct(80, 'branch-seed', 'current-schema'), 'branch-overwrite-seed')
     """
     order_qt_branch_after_insert """
         select id, zone, note
@@ -198,6 +216,9 @@ suite("test_iceberg_write_evolution_refs",
     order_qt_main_unchanged_after_branch_insert """
         select id from evolution_refs order by id
     """
+    assertSparkBranchMatchesDoris(
+            "base_branch",
+            "id, zone, bucket_key, event_time, amount, note")
 
     sql """
         insert overwrite table evolution_refs@branch(base_branch)
@@ -206,6 +227,10 @@ suite("test_iceberg_write_evolution_refs",
                struct(cast(80 as bigint), 'branch-overwrite', 'current-schema'),
                'branch-overwrite'
     """
+    assertEquals(0L, (sql """
+        select count(*) from evolution_refs@branch(base_branch)
+        where note = 'branch-overwrite-seed'
+    """)[0][0] as long)
     order_qt_branch_after_overwrite """
         select id, zone, note
         from evolution_refs@branch(base_branch)
@@ -221,4 +246,8 @@ suite("test_iceberg_write_evolution_refs",
         from evolution_refs
         order by id
     """
+    assertSparkBranchMatchesDoris(
+            "base_branch",
+            "id, zone, bucket_key, event_time, amount, note")
+    assertSparkMatchesDoris("", "id, zone, bucket_key, event_time, amount")
 }
