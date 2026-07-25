@@ -183,8 +183,13 @@ public interface ConnectorMetadata extends
      * over the scan, binding column references to the connector's own (visible) output columns by name.
      *
      * <p>The predicate is expressed in the connector-neutral {@link ConnectorExpression} pushdown grammar,
-     * NOT a source-specific shape — the engine NEVER discriminates by connector here; it applies whatever the
-     * connector returns. This mirrors the engine-agnostic residual-predicate model.</p>
+     * NOT a source-specific shape — the engine NEVER discriminates by connector here. It does, however, accept
+     * only a narrow subset of that grammar on this path, because it has to translate the expression back into
+     * an engine predicate: conjunction (AND), the five comparisons EQ / LT / LE / GT / GE, a column reference
+     * that binds BY NAME to one of the scan's visible output columns, and STRING literals. Anything else
+     * (OR, NOT, IN, LIKE, arithmetic, a non-STRING literal, an unbindable column) makes the reverse conversion
+     * throw and fails the query — deliberately loud, so a silently dropped correctness filter is impossible.
+     * Keep what you return inside that subset.</p>
      *
      * <p>The default returns an EMPTY list: a connector with no synthetic scan predicate adds nothing, so the
      * plan is byte-identical. iceberg/paimon/jdbc/... inherit this empty default; only a connector that opts in

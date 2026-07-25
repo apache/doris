@@ -54,9 +54,13 @@ public final class ConnectorPartitionInfo {
      * {@link #partitionValueNullFlags} — i.e. value {@code i} is the value of the {@code i}-th
      * {@code key=value} segment of {@link #partitionName}, decoded exactly as fe-core's legacy name parse
      * would produce it (so the connector supplies what fe-core used to re-parse out of the name).
-     * Empty means "not supplied": fe-core then falls back to parsing {@link #partitionName} itself
-     * (unchanged behavior). A connector that lists partitions for the MVCC partition-item path
-     * (hive/paimon/iceberg/hudi) supplies this so fe-core does not re-run the hive-style parse.
+     *
+     * <p><b>A connector that lists partitions for the MVCC partition-item path (hive/paimon/iceberg/hudi)
+     * MUST supply this. There is no name-parsing fallback in fe-core any more.</b> fe-core checks that the
+     * number of values matches the number of partition columns and fails that partition when it does not;
+     * the failure is caught per partition, so the visible effect of leaving this empty is not an error but a
+     * silent degradation: every partition is skipped, the table is treated as unpartitioned, and partition
+     * pruning is lost (only a warn line in the FE log records it).</p>
      */
     private final List<String> orderedPartitionValues;
 

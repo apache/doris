@@ -76,7 +76,7 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
 
     /**
      * Applies an optional engine-extracted, target-only write constraint used for write-time optimistic
-     * conflict detection (O5-2). The engine extracts, from the analyzed DELETE/UPDATE/MERGE plan, the
+     * conflict detection. The engine extracts, from the analyzed DELETE/UPDATE/MERGE plan, the
      * conjuncts that reference only the target table's own columns (slot origin-table == target, excluding
      * synthetic {@code $row_id} / metadata / join columns) and hands the connector a neutral
      * {@link ConnectorPredicate} at plan time, before {@code begin}/{@code commit}.

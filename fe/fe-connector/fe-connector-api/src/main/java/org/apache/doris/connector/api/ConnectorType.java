@@ -78,8 +78,8 @@ public final class ConnectorType {
     // This is the one bit {@link #childrenComments} cannot encode: a Doris STRUCT field stores an omitted
     // COMMENT as a non-null empty string, so "COMMENT omitted" and "COMMENT ''" collapse to the same comment
     // value and are distinguishable ONLY by this flag. A connector's nested complex {@code MODIFY COLUMN} diff
-    // reads it to keep the field's CURRENT doc when the COMMENT was omitted vs clear it when it was "" (#65329
-    // omit-preserves-metadata). Unused by CREATE / ADD (a new field has no prior doc), so those paths are
+    // reads it to keep the field's CURRENT doc when the COMMENT was omitted vs clear it when it was ""
+    // (omitting preserves, explicit empty clears). Unused by CREATE / ADD (a new field has no prior doc), so those
     // unaffected.
     private final List<Boolean> childrenCommentSpecified;
 

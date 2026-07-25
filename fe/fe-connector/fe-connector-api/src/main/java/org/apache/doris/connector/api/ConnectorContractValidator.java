@@ -27,11 +27,23 @@ import java.util.Set;
  * the doc contracts the removed {@code ConnectorCapability} javadoc stated only in prose.
  *
  * <p>Because the invariants are static properties of a connector's own capability declarations, they are
- * enforced by the per-connector contract tests (which build each connector and call {@link #validate}),
+ * meant to be enforced by per-connector contract tests (which build the connector and call {@link #validate}),
  * not at catalog registration: reading a connector's write capabilities constructs its write plan provider,
  * which for some connectors (e.g. iceberg) eagerly builds the live remote catalog — too costly and
  * outage-fragile to run on the FE metadata-replay / CREATE CATALOG path. This class stays available to any
  * caller that already holds an eagerly-built connector and wants the same check.</p>
+ *
+ * <p><b>Actual coverage today</b> (do not read the paragraph above as a statement that every connector is
+ * checked): four connectors' tests call {@link #validate} — iceberg, elasticsearch, maxcompute and jdbc. The
+ * two partition-hash-write invariants below have NO positive sample on a real connector: the only connector
+ * declaring that capability is hive, and hive's tests do not call this validator, so those two branches are
+ * exercised solely by fe-core's fake-connector test. A connector added without such a test is simply
+ * unchecked.</p>
+ *
+ * <p>Note also that this validator reads the CONNECTOR-LEVEL getters, while the engine's write path reads the
+ * per-table overloads (for example {@code Connector.requiresPartitionHashWrite(ConnectorTableHandle)}). A
+ * heterogeneous gateway connector can therefore be self-consistent here and still answer differently per
+ * table, which is by design and out of this validator's scope.</p>
  */
 public final class ConnectorContractValidator {
 

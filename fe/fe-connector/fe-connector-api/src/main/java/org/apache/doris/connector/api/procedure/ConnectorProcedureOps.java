@@ -46,8 +46,14 @@ import java.util.Map;
 public interface ConnectorProcedureOps {
 
     /**
-     * Returns the procedure names this connector supports for {@code ALTER TABLE EXECUTE}, used by the
-     * engine for routing, validation, and {@code SHOW}-style discovery.
+     * Returns the procedure names this connector supports for {@code ALTER TABLE EXECUTE}.
+     *
+     * <p>The engine does NOT use this list to route or to validate. Routing is by table type plus the
+     * execution mode reported by {@link #getExecutionMode}; an unknown procedure name is rejected by the
+     * connector inside {@link #execute} (the engine's "is this supported" check answers {@code true}
+     * unconditionally and says so at its call site). The engine's only reader of this list is a
+     * {@code SHOW}-style discovery helper that has no production caller today, so a name omitted here still
+     * executes and a name added here does not by itself become reachable.</p>
      */
     List<String> getSupportedProcedures();
 

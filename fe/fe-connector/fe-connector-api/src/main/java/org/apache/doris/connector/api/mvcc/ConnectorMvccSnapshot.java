@@ -28,8 +28,12 @@ import java.util.Objects;
  *
  * <p>Returned by {@code ConnectorMetadata.beginQuerySnapshot} and friends.
  * Used by the engine as the MVCC pin for all subsequent reads of the same
- * table handle within a query, and serialized into BE scan ranges so the
- * read path sees a consistent version.</p>
+ * table handle within a query.</p>
+ *
+ * <p>The pin lives entirely inside FE: this type is not serializable and the engine never places it in a
+ * scan range. What reaches BE is whatever the connector itself put there — the engine hands the snapshot back
+ * to the connector ({@code ConnectorMetadata.applySnapshot}), the connector weaves the version into its own
+ * table handle, and its scan plan provider decides what to emit.</p>
  */
 public final class ConnectorMvccSnapshot {
 
@@ -74,7 +78,11 @@ public final class ConnectorMvccSnapshot {
         return schemaId;
     }
 
-    /** Connector-specific metadata propagated to BE. Unmodifiable, never null. */
+    /**
+     * Connector-specific metadata carried alongside the snapshot, read back only by the connector that
+     * produced it (in {@code applySnapshot}, and in hudi's synthetic-predicate hook). fe-core never reads
+     * these entries and never forwards them anywhere. Unmodifiable, never null.
+     */
     public Map<String, String> getProperties() {
         return properties;
     }

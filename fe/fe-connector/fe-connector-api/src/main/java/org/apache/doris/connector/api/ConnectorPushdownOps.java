@@ -61,13 +61,24 @@ public interface ConnectorPushdownOps {
      * Returns whether this connector supports pushing down predicates that contain
      * implicit CAST expressions.
      *
-     * <p>When this returns {@code false}, the engine will strip any conjuncts
-     * containing CAST expressions from the filter before passing it to the connector.
-     * The default is {@code true} (CASTs are pushed down).</p>
+     * <p><b>This switch governs ONE of the two pushdown paths.</b> Returning {@code false} makes the engine
+     * drop CAST-containing conjuncts from the RESIDUAL predicate it builds for the scan node. The
+     * {@link #applyFilter} path never consults it: there the engine converts every conjunct and hands the
+     * result to the connector regardless of what this method answers.</p>
      *
-     * <p>Connectors that delegate filtering to remote systems with different type
-     * coercion rules (e.g., JDBC databases) may override this to disable CAST
-     * pushdown when the session configuration indicates it is unsafe.</p>
+     * <p><b>And on either path a CAST does not arrive as a CAST.</b> The forward converter unwraps it and
+     * pushes the child expression, so {@code CAST(dt AS INT) = 20240101} reaches the connector as
+     * {@code dt = 20240101}, with nothing marking it as coerced — a connector cannot detect the situation by
+     * inspecting what it received. The risk is therefore carried by the connector: a connector that turns such
+     * a comparison into remote filtering (e.g. metastore partition pruning from equality / IN predicates on
+     * partition columns) will UNDER-return rows whenever the remote comparison semantics differ from Doris's
+     * coercion, and BE cannot recover the difference because the data was never scanned.</p>
+     *
+     * <p>The default is {@code true} (CASTs are pushed down), which is an opt-OUT polarity and the one
+     * exception to this module's "capabilities default to false" rule; it is kept for compatibility. Do not
+     * copy the polarity into a new switch. A connector that delegates filtering to a remote system with
+     * different type coercion rules (e.g. a JDBC database) overrides this to {@code false}, optionally driven
+     * by session configuration.</p>
      */
     default boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return true;

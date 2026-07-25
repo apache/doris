@@ -229,7 +229,7 @@ public interface Connector extends Closeable {
 
     /**
      * Storage-configuration defaults this connector derives from its own catalog properties, which the raw
-     * catalog map does not already supply. Design S8: storage-property derivation is owned by the connector —
+     * catalog map does not already supply. Storage-property derivation is owned by the connector —
      * fe-core does not parse metastore properties. fe-core folds the returned map into the catalog's storage
      * properties as DEFAULTS (an explicit user key always wins via {@code putIfAbsent}), and does so BEFORE
      * both the fe-filesystem bind ({@code ConnectorContext.getStorageProperties()}) and the BE storage map

@@ -323,7 +323,7 @@ public interface ConnectorTableOps {
     }
 
     // ---- Nested (dotted-path) column evolution ----
-    // #65329 dotted column paths (e.g. `s.b`, `arr.element.c`, `m.value`) are carried neutrally by
+    // Dotted column paths (e.g. `s.b`, `arr.element.c`, `m.value`) are carried neutrally by
     // {@link ConnectorColumnPath}; a single-part path targets a top-level column. Connectors that support
     // nested column schema evolution (iceberg) override these; others inherit the throwing default. The
     // fe-core bridge routes top-level ADD/DROP/RENAME/MODIFY through the flat ops above and reserves these
