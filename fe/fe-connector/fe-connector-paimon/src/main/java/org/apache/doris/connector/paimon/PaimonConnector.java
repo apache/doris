@@ -24,7 +24,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.cache.ConnectorPartitionViewCache;
+import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -129,18 +129,19 @@ public class PaimonConnector implements Connector {
     // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
     private final PaimonSchemaAtMemo schemaAtMemo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
 
-    // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorPartitionViewCache from
+    // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
     // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
     // it memoizes the BUILT List<ConnectorPartitionInfo> (display-name rendering + null-sentinel normalization,
     // see PaimonConnectorMetadata#collectPartitions) keyed by (db, table, snapshotId, schemaId), so a repeated
     // query on a partitioned table skips the derived rebuild AND the remote catalog round-trip. ONE typed field
     // (unlike iceberg's two): paimon does not override getMvccPartitionView, so the generic MTMV model falls
-    // back to its default listPartitions/LIST/timestamp path for paimon -- listPartitions is the only
-    // enumeration hook to wrap. Unlike iceberg, paimon has NO session=user / per-user credential-isolation
+    // back to its default listPartitions/LIST/timestamp path for paimon -- all three partition-enumeration
+    // hooks (listPartitions/Names/Values) share it via PaimonConnectorMetadata#cachedPartitions. Unlike
+    // iceberg, paimon has NO session=user / per-user credential-isolation
     // cache-disabling convention (a paimon catalog authenticates at catalog-creation time -- Kerberos UGI /
     // HMS principal -- not per-query session identity), so this is constructed unconditionally: never null on
     // a live connector (only PaimonConnectorMetadata's convenience/test constructors pass null).
-    private final ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCache;
+    private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
@@ -155,7 +156,7 @@ public class PaimonConnector implements Connector {
                 new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
         // properties via the framework's CacheSpec (default ON / 24h / 1000).
-        this.partitionViewCache = new ConnectorPartitionViewCache<>("paimon", properties);
+        this.partitionViewCache = new ConnectorMetadataCache<>("paimon", "partition_view", properties);
     }
 
     /**
@@ -341,7 +342,7 @@ public class PaimonConnector implements Connector {
     }
 
     /** Test-only: the derived listPartitions view cache (PERF-06). Never null (paimon has no session=user gate). */
-    ConnectorPartitionViewCache<List<ConnectorPartitionInfo>> partitionViewCacheForTest() {
+    ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCacheForTest() {
         return partitionViewCache;
     }
 

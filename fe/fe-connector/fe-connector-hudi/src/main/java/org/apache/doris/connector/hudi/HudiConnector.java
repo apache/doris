@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.ThriftHmsClient;
@@ -137,6 +138,60 @@ public class HudiConnector implements Connector {
         return new HudiScanPlanProvider(properties, context);
     }
 
+    /**
+     * REFRESH TABLE hook: flush this table's cached HMS metadata ({@link CachingHmsClient#flush}: table info +
+     * partition names) so the next query re-reads it live. Reads the client field WITHOUT building it
+     * (getOrCreateClient would force a real client just to flush an empty cache; a never-queried catalog has no
+     * cache to flush). hudi is a leaf sibling (no siblings of its own) holding no file/partition-view caches, so
+     * the metastore flush is the only layer. The hive gateway forwards REFRESH to this sibling via
+     * {@code forEachBuiltSibling}, so this override is what makes REFRESH reach the sibling's own client
+     * (fe-core routes REFRESH TABLE to {@code connector.invalidateTable} for a plugin-driven catalog).
+     */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        invalidateTable(hmsClient, dbName, tableName);
+    }
+
+    // Package-private seam: a unit test can pass an observable CachingHmsClient (the hmsClient field is
+    // otherwise only set by getOrCreateClient building a real pooled client).
+    void invalidateTable(HmsClient client, String dbName, String tableName) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flush(dbName, tableName);
+        }
+    }
+
+    /**
+     * REFRESH DATABASE hook: flush every cached table in this database ({@link CachingHmsClient#flushDb}). Same
+     * no-force-build read of the client as {@link #invalidateTable(String, String)}.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        invalidateDb(hmsClient, dbName);
+    }
+
+    // Package-private seam (see invalidateTable above).
+    void invalidateDb(HmsClient client, String dbName) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flushDb(dbName);
+        }
+    }
+
+    /**
+     * REFRESH CATALOG hook: flush this catalog's entire HMS metadata cache ({@link CachingHmsClient#flushAll}).
+     * Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
+     */
+    @Override
+    public void invalidateAll() {
+        invalidateAll(hmsClient);
+    }
+
+    // Package-private seam (see invalidateTable above).
+    void invalidateAll(HmsClient client) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flushAll();
+        }
+    }
+
     private HmsClient getOrCreateClient() {
         if (hmsClient == null) {
             synchronized (this) {
@@ -183,7 +238,21 @@ public class HudiConnector implements Connector {
         } else {
             authAction = context::executeAuthenticated;
         }
-        return new ThriftHmsClient(config, authAction);
+        return wrapWithCache(new ThriftHmsClient(config, authAction));
+    }
+
+    /**
+     * Wraps the raw pooled client in the shared {@link CachingHmsClient} (mirrors {@code HiveConnector}):
+     * {@code getTable} and {@code listPartitionNames} become {@code (db,table)}-keyed and TTL-bounded
+     * ({@code meta.cache.hive.*}, default 24h), so repeated queries against the same hudi table stop re-hitting
+     * HMS; {@code tableExists}/{@code listTables} stay pass-through. Freshness is preserved two ways: the
+     * SHOW-PARTITIONS / {@code partition_values} path lists FRESH (bypasses the cache &mdash; see
+     * {@link HudiConnectorMetadata}{@code .collectPartitions}), and REFRESH flushes it (see
+     * {@link #invalidateTable(String, String)}). Package-private so a unit test can wrap an observable fake and
+     * assert the cache decoration.
+     */
+    HmsClient wrapWithCache(HmsClient raw) {
+        return new CachingHmsClient(raw, properties);
     }
 
     /**

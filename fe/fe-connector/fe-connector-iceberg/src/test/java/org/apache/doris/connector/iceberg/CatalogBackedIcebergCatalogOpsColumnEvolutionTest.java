@@ -131,6 +131,118 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         Assertions.assertNotNull(reload().findField("full_name"));
     }
 
+    // ---------- case-insensitive name collision on the flat ops (#65329 flat arm) ----------
+
+    /**
+     * Creates db1.mixed with Spark-style mixed-case names ({@code Id}, {@code Label},
+     * {@code Info STRUCT<Metric:INT>}) — the fixture of the regression suite
+     * {@code test_iceberg_nested_schema_evolution_spark_doris_interop}. Iceberg itself matches names
+     * case-SENSITIVELY, so without the connector guards a Doris user could add a second {@code id} next to
+     * {@code Id} and make the table unreadable through Doris (whose column names are case-insensitive).
+     */
+    private void createMixedCaseTable() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "Id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "Label", Types.StringType.get()),
+                Types.NestedField.optional(3, "Info", Types.StructType.of(
+                        Types.NestedField.optional(4, "Metric", Types.IntegerType.get()))));
+        ops.createTable("db1", "mixed", schema, PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+    }
+
+    @Test
+    public void testAddColumnCaseInsensitiveCollisionFailsLoud() {
+        createMixedCaseTable();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumn("db1", "mixed", change("id", Types.StringType.get(), "", true), null));
+        Assertions.assertTrue(ex.getMessage()
+                        .contains("conflicts with existing Iceberg field 'Id' (case-insensitive)"),
+                ex.getMessage());
+        Assertions.assertEquals(3, reload("mixed").columns().size());
+    }
+
+    @Test
+    public void testAddColumnsCaseInsensitiveCollisionFailsLoud() {
+        createMixedCaseTable();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumns("db1", "mixed", Arrays.asList(
+                        change("ok_col", Types.StringType.get(), "", true),
+                        change("id", Types.StringType.get(), "", true))));
+        Assertions.assertTrue(ex.getMessage()
+                        .contains("conflicts with existing Iceberg field 'Id' (case-insensitive)"),
+                ex.getMessage());
+        // Whole batch validated before anything is staged: the valid sibling must not be committed either.
+        Assertions.assertEquals(3, reload("mixed").columns().size());
+    }
+
+    @Test
+    public void testAddColumnsDuplicateRequestedNamesFailLoud() {
+        createMixedCaseTable();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumns("db1", "mixed", Arrays.asList(
+                        change("new_field", Types.StringType.get(), "", true),
+                        change("NEW_FIELD", Types.StringType.get(), "", true))));
+        Assertions.assertTrue(ex.getMessage()
+                        .contains("conflicts with another requested column (case-insensitive)"),
+                ex.getMessage());
+        Assertions.assertEquals(3, reload("mixed").columns().size());
+    }
+
+    @Test
+    public void testRenameColumnCaseInsensitiveCollisionFailsLoud() {
+        createMixedCaseTable();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.renameColumn("db1", "mixed", "label", "id"));
+        Assertions.assertTrue(ex.getMessage()
+                        .contains("conflicts with existing Iceberg field 'Id' (case-insensitive)"),
+                ex.getMessage());
+        Assertions.assertNotNull(reload("mixed").findField("Label"));
+    }
+
+    @Test
+    public void testRenameColumnResolvesSourceNameCaseInsensitively() {
+        createMixedCaseTable();
+        // The user types the Doris-side (case-insensitive) name; it must resolve to the iceberg field 'Label'
+        // rather than hitting iceberg's case-sensitive "Cannot rename missing column".
+        ops.renameColumn("db1", "mixed", "label", "full_label");
+        Assertions.assertNull(reload("mixed").findField("Label"));
+        Assertions.assertNotNull(reload("mixed").findField("full_label"));
+    }
+
+    @Test
+    public void testRenameColumnCaseOnlySelfRenameSucceeds() {
+        createMixedCaseTable();
+        // 'Label' -> 'label' collides with itself; the field-identity escape in the guard must let it through,
+        // otherwise a pure re-casing of a column would be impossible.
+        ops.renameColumn("db1", "mixed", "label", "label");
+        Assertions.assertNotNull(reload("mixed").findField("label"));
+        Assertions.assertEquals(3, reload("mixed").columns().size());
+    }
+
+    @Test
+    public void testRenameColumnPreservesIdentifierFieldPath() {
+        // Iceberg drops an identifier-field path when the field is renamed; the flat rename must restate it
+        // (legacy IcebergMetadataOps.applyRenameColumn parity, already honoured by the nested arm).
+        Schema schema = new Schema(
+                Arrays.asList(
+                        Types.NestedField.required(1, "Key", Types.IntegerType.get()),
+                        Types.NestedField.optional(2, "v", Types.StringType.get())),
+                Collections.singleton(1));
+        ops.createTable("db1", "ident", schema, PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        ops.renameColumn("db1", "ident", "key", "renamed_key");
+        Schema after = reload("ident");
+        Assertions.assertEquals(Collections.singleton(after.findField("renamed_key").fieldId()),
+                after.identifierFieldIds());
+    }
+
+    @Test
+    public void testAddColumnKeepsWorkingWhenNoCollision() {
+        createMixedCaseTable();
+        ops.addColumn("db1", "mixed", change("brand_new", Types.StringType.get(), "", true), null);
+        Assertions.assertNotNull(reload("mixed").findField("brand_new"));
+    }
+
     // ---------- modifyColumn ----------
 
     @Test

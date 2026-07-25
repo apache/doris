@@ -19,6 +19,7 @@ package org.apache.doris.connector.jdbc;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
@@ -40,6 +41,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Byte-parity tests for {@link JdbcWritePlanProvider} (P6.3-T02 / RFC OQ-1).
@@ -59,6 +62,7 @@ class JdbcWritePlanProviderTest {
      */
     private static final class FakeJdbcClient extends JdbcConnectorClient {
         private final List<JdbcFieldInfo> fields;
+        private final AtomicInteger columnsFetches = new AtomicInteger();
 
         private FakeJdbcClient(JdbcDbType dbType, List<JdbcFieldInfo> fields) {
             super("test_catalog", dbType, "jdbc:mysql://h:3306/test_db",
@@ -68,6 +72,7 @@ class JdbcWritePlanProviderTest {
 
         @Override
         public List<JdbcFieldInfo> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
+            columnsFetches.incrementAndGet();
             return fields;
         }
 
@@ -111,6 +116,23 @@ class JdbcWritePlanProviderTest {
     }
 
     private static ConnectorSession session(long catalogId, Map<String, String> sessionProps) {
+        return session(catalogId, sessionProps, ConnectorStatementScope.NONE);
+    }
+
+    private static ConnectorStatementScope liveScope() {
+        return new ConnectorStatementScope() {
+            private final Map<String, Object> arena = new HashMap<>();
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+                return (T) arena.computeIfAbsent(key, k -> loader.get());
+            }
+        };
+    }
+
+    private static ConnectorSession session(long catalogId, Map<String, String> sessionProps,
+            ConnectorStatementScope scope) {
         return new ConnectorSession() {
             @Override
             public String getQueryId() {
@@ -155,6 +177,11 @@ class JdbcWritePlanProviderTest {
             @Override
             public Map<String, String> getSessionProperties() {
                 return sessionProps;
+            }
+
+            @Override
+            public ConnectorStatementScope getStatementScope() {
+                return scope;
             }
         };
     }
@@ -267,5 +294,57 @@ class JdbcWritePlanProviderTest {
         Assertions.assertFalse(t.isConnectionPoolKeepAlive());
         // enable_odbc_transcation absent -> false (note the legacy session-key spelling preserved).
         Assertions.assertFalse(sink.isUseTransaction());
+    }
+
+    @Test
+    void explainInsertSharesOneColumnFetchWithinStatement() {
+        // WHY (HP-2): planWrite and appendExplainInfo each shape the INSERT SQL via getColumnHandles ->
+        // getJdbcColumnsInfo; an EXPLAIN INSERT fires both on the same session -> two remote column fetches
+        // before. Routing that fetch through the per-statement scope collapses them to ONE. MUTATION: newing a
+        // fresh stateless JdbcConnectorMetadata that re-fetches (pre-fix) -> counter 2 -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("jdbc_url", "jdbc:mysql://h:3306/test_db");
+        FakeJdbcClient client = new FakeJdbcClient(
+                JdbcDbType.MYSQL, Arrays.asList(field("id"), field("name")));
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        ConnectorSession session = session(7L, Collections.emptyMap(), liveScope());
+        ConnectorWriteHandle handle = writeHandle(
+                new JdbcTableHandle("test_db", "t1"), Arrays.asList("id", "name"));
+
+        ConnectorSinkPlan plan = provider.planWrite(session, handle);
+        StringBuilder sb = new StringBuilder();
+        provider.appendExplainInfo(sb, "  ", session, handle);
+
+        Assertions.assertEquals(1, client.columnsFetches.get(),
+                "planWrite + appendExplainInfo must share ONE remote column fetch per statement");
+        // byte-parity of the produced SQL is unaffected by the memo
+        Assertions.assertEquals("INSERT INTO `test_db`.`t1`(`id`,`name`) VALUES (?, ?)",
+                plan.getDataSink().getJdbcTableSink().getInsertSql());
+        Assertions.assertTrue(sb.toString().contains(
+                "INSERT SQL: INSERT INTO `test_db`.`t1`(`id`,`name`) VALUES (?, ?)"));
+    }
+
+    @Test
+    void scanAndWriteShareOneColumnFetchWithinStatement() {
+        // WHY (HP-1 + HP-2 composition): because the memo lives in the statement SCOPE (not the metadata
+        // instance), the scan-path getColumnHandles and the write-path buildInsertSql -- even though the write
+        // provider news up its own JdbcConnectorMetadata -- share the ONE fetch for the same (catalog, db,
+        // table, query). MUTATION: an instance-level memo instead of scope-keyed -> the write's fresh instance
+        // misses -> counter 2 -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("jdbc_url", "jdbc:mysql://h:3306/test_db");
+        FakeJdbcClient client = new FakeJdbcClient(
+                JdbcDbType.MYSQL, Arrays.asList(field("id"), field("name")));
+        ConnectorSession session = session(7L, Collections.emptyMap(), liveScope());
+        JdbcTableHandle tableHandle = new JdbcTableHandle("test_db", "t1");
+
+        // scan path resolves column handles on the funnel metadata
+        new JdbcConnectorMetadata(client, props).getColumnHandles(session, tableHandle);
+        // write path news up its own metadata inside buildInsertSql, yet shares the same scope entry
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        provider.planWrite(session, writeHandle(tableHandle, Arrays.asList("id", "name")));
+
+        Assertions.assertEquals(1, client.columnsFetches.get(),
+                "scan getColumnHandles and write buildInsertSql must share ONE fetch (scope-keyed, not instance)");
     }
 }

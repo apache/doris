@@ -83,8 +83,8 @@ public class IcebergExecuteActionFactory {
                 return new IcebergPublishChangesAction(properties, partitionNames, whereCondition);
             case REWRITE_MANIFESTS:
                 return new IcebergRewriteManifestsAction(properties, partitionNames, whereCondition);
-            // REWRITE_DATA_FILES is the distributed INSERT-SELECT procedure; its body is ported in T05/T06 and
-            // until then falls through to the default rejection (the whole procedure path is dormant pre-cutover).
+            // REWRITE_DATA_FILES is the distributed INSERT-SELECT procedure, built directly by
+            // IcebergProcedureOps.planRewrite (not this SINGLE_CALL factory); it falls through to the rejection.
             default:
                 throw new DorisConnectorException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));

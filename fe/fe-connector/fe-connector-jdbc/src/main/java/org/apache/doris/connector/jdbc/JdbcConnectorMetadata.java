@@ -20,6 +20,7 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScopes;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
@@ -48,6 +49,14 @@ import java.util.Optional;
 public class JdbcConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(JdbcConnectorMetadata.class);
+
+    /**
+     * Namespace for jdbc's per-statement RAW remote-columns memo (a {@code List<JdbcFieldInfo>}), shared by the
+     * schema path ({@link #getTableSchema}), the scan column-handle path ({@link #getColumnHandles}) and the write
+     * INSERT-SQL shaping ({@code JdbcWritePlanProvider#buildInsertSql}). Source-prefixed with the connector type
+     * ("jdbc") so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
+     */
+    static final String COLUMNS_NAMESPACE = "jdbc.columns";
 
     private final JdbcConnectorClient client;
     private final Map<String, String> properties;
@@ -116,7 +125,9 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         String dbName = jdbcHandle.getRemoteDbName();
         String tableName = jdbcHandle.getRemoteTableName();
 
-        List<JdbcFieldInfo> fields = client.getJdbcColumnsInfo(dbName, tableName);
+        List<JdbcFieldInfo> fields = ConnectorStatementScopes.resolveInStatement(
+                session, COLUMNS_NAMESPACE, dbName, tableName,
+                () -> client.getJdbcColumnsInfo(dbName, tableName));
 
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (JdbcFieldInfo field : fields) {
@@ -159,7 +170,9 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
         String tableName = jdbcHandle.getRemoteTableName();
 
         JdbcIdentifierMapper mapper = getIdentifierMapper(session);
-        List<JdbcFieldInfo> fields = client.getJdbcColumnsInfo(dbName, tableName);
+        List<JdbcFieldInfo> fields = ConnectorStatementScopes.resolveInStatement(
+                session, COLUMNS_NAMESPACE, dbName, tableName,
+                () -> client.getJdbcColumnsInfo(dbName, tableName));
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (JdbcFieldInfo field : fields) {
             String remoteName = field.getColumnName();
