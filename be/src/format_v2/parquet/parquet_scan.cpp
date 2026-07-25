@@ -1528,13 +1528,16 @@ Status build_dictionary_entry_filter(size_t block_position,
     dictionary_filter->clear();
     dictionary_filter->resize_fill(dictionary.size(), 1);
     *kernel = DictionaryEntryFilterKernel::GENERIC;
+    // Block positions are expression slot IDs here; validate the narrowing once so every
+    // dictionary evaluation path uses the same representable ID.
+    const int expression_column_id = cast_set<int>(block_position);
     const auto typed_data_type = remove_nullable(column_schema.type);
     const uint8_t* raw_values = nullptr;
     size_t value_width = 0;
     if (std::ranges::all_of(conjuncts,
                             [&](const auto& conjunct) {
                                 return conjunct->root()->can_execute_on_raw_fixed_values(
-                                        column_schema.type, block_position);
+                                        column_schema.type, expression_column_id);
                             }) &&
         get_numeric_dictionary_raw_values(typed_data_type->get_primitive_type(), dictionary,
                                           &raw_values, &value_width)) {
@@ -1542,8 +1545,8 @@ Status build_dictionary_entry_filter(size_t block_position,
         // and reuse the resulting id bitmap for every data page.
         for (const auto& conjunct : conjuncts) {
             RETURN_IF_ERROR(conjunct->root()->execute_on_raw_fixed_values(
-                    raw_values, dictionary.size(), value_width, column_schema.type, block_position,
-                    dictionary_filter->data()));
+                    raw_values, dictionary.size(), value_width, column_schema.type,
+                    expression_column_id, dictionary_filter->data()));
         }
         *kernel = DictionaryEntryFilterKernel::TYPED_FIXED_WIDTH;
         return Status::OK();
@@ -1562,7 +1565,7 @@ Status build_dictionary_entry_filter(size_t block_position,
     dictionary_filter->resize_fill(dictionary.size(), 1);
     DictionaryEvalContext ctx;
     auto& slot = ctx.slots
-                         .emplace(static_cast<int>(block_position),
+                         .emplace(expression_column_id,
                                   DictionaryEvalContext::SlotDictionary {
                                           .data_type = column_schema.type, .values = {}})
                          .first->second;
