@@ -480,6 +480,11 @@ public:
 
     bool enable_page_cache() const;
 
+    bool enable_cache_aware_lazy_read() const {
+        return _query_options.__isset.enable_cache_aware_lazy_read &&
+               _query_options.enable_cache_aware_lazy_read;
+    }
+
     bool enable_prefer_cached_rowset() const {
         return _query_options.__isset.enable_prefer_cached_rowset &&
                _query_options.enable_prefer_cached_rowset;

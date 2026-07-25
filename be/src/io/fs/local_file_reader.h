@@ -65,6 +65,12 @@ public:
 
     int64_t mtime() const override { return 0; }
 
+    PageCacheProbeResult probe_page_cache(size_t offset, Slice result) override;
+
+    bool supports_cache_aware_read() const override { return true; }
+
+    bool prefetch(size_t offset, size_t length) override;
+
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

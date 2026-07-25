@@ -543,6 +543,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+    public static final String ENABLE_CACHE_AWARE_LAZY_READ = "enable_cache_aware_lazy_read";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
@@ -2464,6 +2465,16 @@ public class SessionVariable implements Serializable, Writable {
                     + "The default value is true."},
             needForward = true)
     public boolean enablePageCache = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_CACHE_AWARE_LAZY_READ,
+            description = {"是否启用基于 page cache 驻留状态的本地 lazy read 调度实验。默认为 false。",
+                    "Whether to enable experimental cache-aware scheduling for local lazy reads. "
+                            + "The default value is false."},
+            needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean enableCacheAwareLazyRead = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_FILE_PAGE_CACHE,
@@ -5570,6 +5581,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFileCache(enableFileCache);
 
         tResult.setEnablePageCache(enablePageCache);
+
+        tResult.setEnableCacheAwareLazyRead(enableCacheAwareLazyRead);
 
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
 
