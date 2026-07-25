@@ -49,7 +49,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * never drains).</p>
  */
 public class IcebergScanProfileReporter implements MetricsReporter {
-    /** Profile group name — MUST equal fe-core {@code SummaryProfile.ICEBERG_SCAN_METRICS} (display ordering). */
+    /**
+     * Profile group name. Connector-chosen and self-contained: the engine get-or-creates a profile child under
+     * this name, so it needs no prior registration in fe-core. It IS user-visible in the query profile, hence
+     * pinned by a test.
+     */
     static final String GROUP_NAME = "Iceberg Scan Metrics";
     private static final DecimalFormat BYTES_FORMAT = new DecimalFormat("0.000");
     private static final long KB = 1024L;

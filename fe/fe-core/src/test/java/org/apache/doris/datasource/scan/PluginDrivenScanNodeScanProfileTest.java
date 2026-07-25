@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.profile.RuntimeProfile;
-import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 
 import org.junit.jupiter.api.Assertions;
@@ -87,14 +86,5 @@ public class PluginDrivenScanNodeScanProfileTest {
         Assertions.assertEquals(2, group.getChildMap().size(), "one group, two scan children");
         Assertions.assertEquals("3", group.getChildMap().get("Table Scan (db.a)").getInfoString("data_files"));
         Assertions.assertEquals("5", group.getChildMap().get("Table Scan (db.b)").getInfoString("data_files"));
-    }
-
-    @Test
-    public void groupNameConstantsMatchConnectorLiterals() {
-        // The connector-supplied group name is stringly-typed coupled to these fe-core constants (the connector
-        // cannot import SummaryProfile). This is the fe-core half of the mirror check; the connector tests
-        // assert their own literals equal the same strings.
-        Assertions.assertEquals("Paimon Scan Metrics", SummaryProfile.PAIMON_SCAN_METRICS);
-        Assertions.assertEquals("Iceberg Scan Metrics", SummaryProfile.ICEBERG_SCAN_METRICS);
     }
 }
