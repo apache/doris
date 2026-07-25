@@ -38,16 +38,12 @@ import java.util.Objects;
 public final class ConnectorMvccSnapshot {
 
     private final long snapshotId;
-    private final long timestampMillis;
-    private final String description;
     private final long schemaId;
     private final Map<String, String> properties;
     private final boolean lastModifiedFreshness;
 
     private ConnectorMvccSnapshot(Builder b) {
         this.snapshotId = b.snapshotId;
-        this.timestampMillis = b.timestampMillis;
-        this.description = b.description;
         this.schemaId = b.schemaId;
         this.properties = b.properties.isEmpty()
                 ? Collections.emptyMap()
@@ -58,16 +54,6 @@ public final class ConnectorMvccSnapshot {
     /** Connector-assigned snapshot identifier (e.g. Iceberg snapshot id). */
     public long getSnapshotId() {
         return snapshotId;
-    }
-
-    /** Wall-clock time at which the snapshot was committed, in ms since epoch. */
-    public long getTimestampMillis() {
-        return timestampMillis;
-    }
-
-    /** Optional human-readable description; may be empty, never null. */
-    public String getDescription() {
-        return description;
     }
 
     /**
@@ -110,24 +96,20 @@ public final class ConnectorMvccSnapshot {
         }
         ConnectorMvccSnapshot that = (ConnectorMvccSnapshot) o;
         return snapshotId == that.snapshotId
-                && timestampMillis == that.timestampMillis
                 && schemaId == that.schemaId
                 && lastModifiedFreshness == that.lastModifiedFreshness
-                && description.equals(that.description)
                 && properties.equals(that.properties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(snapshotId, timestampMillis, schemaId, lastModifiedFreshness, description, properties);
+        return Objects.hash(snapshotId, schemaId, lastModifiedFreshness, properties);
     }
 
     @Override
     public String toString() {
         return "ConnectorMvccSnapshot{snapshotId=" + snapshotId
-                + ", timestampMillis=" + timestampMillis
                 + ", schemaId=" + schemaId
-                + ", description='" + description + "'"
                 + ", lastModifiedFreshness=" + lastModifiedFreshness
                 + ", properties=" + properties + "}";
     }
@@ -139,8 +121,6 @@ public final class ConnectorMvccSnapshot {
     public static final class Builder {
 
         private long snapshotId;
-        private long timestampMillis;
-        private String description = "";
         private long schemaId = -1;
         private final Map<String, String> properties = new HashMap<>();
         private boolean lastModifiedFreshness;
@@ -156,18 +136,8 @@ public final class ConnectorMvccSnapshot {
             return this;
         }
 
-        public Builder timestampMillis(long timestampMillis) {
-            this.timestampMillis = timestampMillis;
-            return this;
-        }
-
         public Builder schemaId(long schemaId) {
             this.schemaId = schemaId;
-            return this;
-        }
-
-        public Builder description(String description) {
-            this.description = Objects.requireNonNull(description, "description");
             return this;
         }
 

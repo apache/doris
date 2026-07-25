@@ -28,11 +28,8 @@ import java.io.Closeable;
  * {@link #rollback()} on failure, then always calls {@link #close()} to
  * release resources. {@code rollback()} and {@code close()} are safe to
  * call multiple times.</p>
- *
- * <p>Extends the marker {@link ConnectorTransactionHandle} so that existing
- * APIs that traffic in opaque handles continue to work without change.</p>
  */
-public interface ConnectorTransaction extends ConnectorTransactionHandle, Closeable {
+public interface ConnectorTransaction extends Closeable {
 
     /** Stable transaction ID assigned by the connector. */
     long getTransactionId();

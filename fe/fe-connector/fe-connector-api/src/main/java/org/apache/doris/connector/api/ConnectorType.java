@@ -246,26 +246,6 @@ public final class ConnectorType {
         return fieldNames;
     }
 
-    /** The full per-child nullability list (may be empty / shorter than children when unset). */
-    public List<Boolean> getChildrenNullable() {
-        return childrenNullable;
-    }
-
-    /** The full per-child comment list (may be empty / shorter than children when unset). */
-    public List<String> getChildrenComments() {
-        return childrenComments;
-    }
-
-    /** The full per-child field-id list (may be empty / shorter than children when unset). */
-    public List<Integer> getChildrenFieldIds() {
-        return childrenFieldIds;
-    }
-
-    /** The full per-child comment-specified list (may be empty / shorter than children when unset). */
-    public List<Boolean> getChildrenCommentSpecified() {
-        return childrenCommentSpecified;
-    }
-
     /**
      * Whether the comment of the child at {@code index} was explicitly specified. Defaults to {@code true}
      * (the carried comment is authoritative) when not carried for that index (legacy factories / CREATE /
