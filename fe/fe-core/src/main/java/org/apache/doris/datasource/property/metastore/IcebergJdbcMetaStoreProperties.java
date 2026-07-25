@@ -50,7 +50,8 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     @ConnectorProperty(
             names = {"uri", "iceberg.jdbc.uri"},
             required = true,
-            description = "JDBC connection URI for the Iceberg JDBC catalog."
+            description = "JDBC connection URI for the Iceberg JDBC catalog.",
+            checkSsrf = true
     )
     private String uri = "";
 

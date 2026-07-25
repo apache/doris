@@ -35,7 +35,8 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
     private static final String PAIMON_REST_PROPERTY_PREFIX = "paimon.rest.";
 
     @ConnectorProperty(names = {"paimon.rest.uri", "uri"},
-            description = "The uri of the Paimon rest catalog service.")
+            description = "The uri of the Paimon rest catalog service.",
+            checkSsrf = true)
     private String paimonRestUri = "";
 
     @Getter

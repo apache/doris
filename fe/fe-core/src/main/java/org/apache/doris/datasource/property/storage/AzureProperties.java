@@ -68,7 +68,8 @@ public class AzureProperties extends StorageProperties {
     @Getter
     @ConnectorProperty(names = {"azure.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
-            description = "The endpoint of S3.")
+            description = "The endpoint of S3.",
+            checkSsrf = true)
     protected String endpoint = "";
 
 
@@ -102,7 +103,8 @@ public class AzureProperties extends StorageProperties {
 
     @ConnectorProperty(names = {"azure.oauth2_server_uri"},
             required = false,
-            description = "The account host of Azure blob.")
+            description = "The account host of Azure blob.",
+            checkSsrf = true)
     private String oauthServerUri;
 
     @ConnectorProperty(names = {"azure.oauth2_account_host"},

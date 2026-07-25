@@ -175,6 +175,10 @@ public class CatalogFactory {
         catalog.setDefaultPropsIfMissing(isReplay);
 
         if (!isReplay) {
+            // SSRF validation runs on this common, non-overridable creation path so it applies
+            // to every catalog type, including those (e.g. MaxCompute, plugin-driven) that
+            // override checkWhenCreating() and would otherwise bypass it.
+            catalog.checkSsrf();
             catalog.checkWhenCreating();
             // This will check if the customized access controller can be created successfully.
             // If failed, it will throw exception and the catalog will not be created.

@@ -46,7 +46,8 @@ import java.util.regex.Pattern;
 public class AWSGlueMetaStoreBaseProperties {
     @Getter
     @ConnectorProperty(names = {"glue.endpoint", "aws.endpoint", "aws.glue.endpoint"},
-            description = "The endpoint of the AWS Glue.")
+            description = "The endpoint of the AWS Glue.",
+            checkSsrf = true)
     protected String glueEndpoint = "";
 
     @ConnectorProperty(names = {"glue.region", "aws.region", "aws.glue.region"},

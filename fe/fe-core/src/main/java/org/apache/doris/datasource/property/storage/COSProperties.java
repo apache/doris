@@ -41,7 +41,8 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"cos.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
-            description = "The endpoint of COS.")
+            description = "The endpoint of COS.",
+            checkSsrf = true)
     protected String endpoint = "";
 
     @Getter

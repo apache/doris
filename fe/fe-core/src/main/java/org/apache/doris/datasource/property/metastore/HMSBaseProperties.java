@@ -47,7 +47,8 @@ public class HMSBaseProperties {
 
     @Getter
     @ConnectorProperty(names = {HIVE_METASTORE_URIS, "uri"},
-            description = "The uri of the hive metastore.")
+            description = "The uri of the hive metastore.",
+            checkSsrf = true)
     private String hiveMetastoreUri = "";
 
     @ConnectorProperty(names = {"hive.metastore.authentication.type"},

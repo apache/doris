@@ -48,7 +48,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "dlf.endpoint",
             "dlf.catalog.endpoint", "fs.oss.endpoint"},
             required = false,
-            description = "The endpoint of OSS.")
+            description = "The endpoint of OSS.",
+            checkSsrf = true)
     protected String endpoint = "";
 
     @Getter

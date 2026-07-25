@@ -34,7 +34,8 @@ public class OzoneProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"ozone.endpoint", "s3.endpoint"},
             required = false,
-            description = "The endpoint of Ozone S3 Gateway.")
+            description = "The endpoint of Ozone S3 Gateway.",
+            checkSsrf = true)
     protected String endpoint = "";
 
     @Setter

@@ -656,6 +656,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!isReplay) {
                     try {
                         ((ExternalCatalog) catalog).checkProperties();
+                        ((ExternalCatalog) catalog).checkSsrf();
                     } catch (DdlException ddlException) {
                         if (oldProperties != null) {
                             ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);

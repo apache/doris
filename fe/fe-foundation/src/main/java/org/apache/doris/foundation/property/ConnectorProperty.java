@@ -31,4 +31,12 @@ public @interface ConnectorProperty {
     boolean sensitive() default false;
 
     boolean isRegionField() default false;
+
+    /**
+     * If true, the field's value is treated as a remote endpoint URI and will be validated
+     * by the SSRF rule engine when a catalog is created. Use for properties whose value is
+     * an HTTP / Thrift / HDFS / S3-style URI (e.g. {@code hive.metastore.uris},
+     * {@code fs.defaultFS}, {@code iceberg.rest.uri}, S3 endpoint, Glue endpoint).
+     */
+    boolean checkSsrf() default false;
 }

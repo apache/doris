@@ -68,7 +68,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     private String allowFallbackToSimpleAuth = "";
 
 
-    @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
+    @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "", checkSsrf = true)
     protected String fsDefaultFS = "";
 
     @ConnectorProperty(names = {"hadoop.config.resources"},
