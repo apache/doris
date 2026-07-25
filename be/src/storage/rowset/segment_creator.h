@@ -20,6 +20,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 

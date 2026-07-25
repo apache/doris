@@ -19,10 +19,18 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include "common/config.h"
+#include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/olap_common.h"
+#include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_id_generator.h"
+#include "storage/rowset/segment_creator.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
@@ -98,6 +106,90 @@ TabletSchemaSPtr create_unique_key_schema_with_cluster_key() {
     return schema;
 }
 
+class CloseOutcomeFileWriter final : public io::FileWriter {
+public:
+    explicit CloseOutcomeFileWriter(std::string path) : _path(std::move(path)) {}
+
+    Status close(bool /*non_block*/ = false) override {
+        ++close_calls;
+        if (_fail_close) {
+            return Status::IOError("injected data close failure");
+        }
+        _state = State::CLOSED;
+        return Status::OK();
+    }
+
+    Status appendv(const Slice* /*data*/, size_t /*data_cnt*/) override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return 0; }
+    State state() const override { return _state; }
+
+    void set_fail_close() { _fail_close = true; }
+
+    int close_calls = 0;
+
+private:
+    io::Path _path;
+    State _state = State::OPENED;
+    bool _fail_close = false;
+};
+
+class TrackingFileWriterCreator final : public FileWriterCreator {
+public:
+    explicit TrackingFileWriterCreator(std::string rowset_id) : _rowset_id(std::move(rowset_id)) {}
+
+    Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                  FileType file_type = FileType::SEGMENT_FILE) override {
+        DORIS_CHECK(file_type == FileType::SEGMENT_FILE);
+        created_segment_ids.push_back(segment_id);
+        return io::global_local_filesystem()->create_file(
+                fmt::format("{}/streaming_{}_{}.dat", kSegmentDir, _rowset_id, segment_id),
+                &file_writer);
+    }
+
+    Status create(uint32_t /*segment_id*/, IndexFileWriterPtr* /*file_writer*/) override {
+        return Status::InternalError("unexpected index writer creation");
+    }
+
+    std::vector<uint32_t> created_segment_ids;
+
+private:
+    std::string _rowset_id;
+};
+
+class CountingSegmentCollector final : public SegmentCollector {
+public:
+    Status add(uint32_t segment_id, SegmentStatistics& segstat) override {
+        ++add_calls;
+        last_segment_id = segment_id;
+        last_row_count = segstat.row_num;
+        return Status::OK();
+    }
+
+    int add_calls = 0;
+    uint32_t last_segment_id = 0;
+    int64_t last_row_count = 0;
+};
+
+class ScopedVerticalSegmentWriterSetting {
+public:
+    explicit ScopedVerticalSegmentWriterSetting(bool enabled)
+            : _saved(config::enable_vertical_segment_writer) {
+        config::enable_vertical_segment_writer = enabled;
+    }
+
+    ~ScopedVerticalSegmentWriterSetting() { config::enable_vertical_segment_writer = _saved; }
+
+private:
+    bool _saved;
+};
+
+class ScopedSyncPointProcessing {
+public:
+    ScopedSyncPointProcessing() { SyncPoint::get_instance()->enable_processing(); }
+    ~ScopedSyncPointProcessing() { SyncPoint::get_instance()->disable_processing(); }
+};
+
 class SegmentWriterMowCheckTest : public testing::Test {
 public:
     void SetUp() override {
@@ -123,6 +215,93 @@ public:
         return file_writer;
     }
 };
+
+class SegmentCreatorTest : public SegmentWriterMowCheckTest {};
+
+TEST(SegmentFileCollectionTest, CloseAttemptsEveryWriterAfterFirstFailure) {
+    SegmentFileCollection segment_files;
+    std::unordered_map<int, CloseOutcomeFileWriter*> writers;
+    for (int segment_id = 0; segment_id < 3; ++segment_id) {
+        auto writer =
+                std::make_unique<CloseOutcomeFileWriter>(fmt::format("segment_{}", segment_id));
+        writers.emplace(segment_id, writer.get());
+        ASSERT_TRUE(segment_files.add(segment_id, std::move(writer)).ok());
+    }
+
+    const auto first_segment_id = segment_files.get_file_writers().begin()->first;
+    writers.at(first_segment_id)->set_fail_close();
+
+    const auto expected_status = Status::IOError("injected data close failure");
+    const auto status = segment_files.close();
+    EXPECT_EQ(status.code(), expected_status.code());
+    EXPECT_EQ(status.msg(), expected_status.msg());
+    for (const auto& [segment_id, writer] : writers) {
+        EXPECT_EQ(writer->close_calls, 1);
+        if (segment_id != first_segment_id) {
+            EXPECT_EQ(writer->state(), io::FileWriter::State::CLOSED);
+        }
+    }
+}
+
+TEST_F(SegmentCreatorTest, StreamingAddFailureDiscardsWriterBeforeRetry) {
+    ScopedVerticalSegmentWriterSetting vertical_writer_setting(false);
+
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*create_int_key(0));
+    schema->_keys_type = DUP_KEYS;
+    RowsetId rowset_id;
+    rowset_id.init(1014);
+    auto file_writer_creator = std::make_shared<TrackingFileWriterCreator>(rowset_id.to_string());
+    auto segment_collector = std::make_shared<CountingSegmentCollector>();
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_schema = schema;
+    context.tablet_path = kSegmentDir;
+    context.file_writer_creator = file_writer_creator;
+    context.segment_collector = segment_collector;
+
+    SegmentFileCollection segment_files;
+    InvertedIndexFileCollection index_files;
+    SegmentCreator creator(context, segment_files, index_files);
+
+    const auto ordinary_status = Status::IOError("injected streaming add failure");
+    bool inject_add_failure = true;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard add_rows_guard;
+    sync_point->set_call_back(
+            "SegmentFlusher::_add_rows.segment_writer",
+            [&](auto&& values) {
+                if (inject_add_failure) {
+                    auto* outcome = try_any_cast<std::pair<Status, bool>*>(values.back());
+                    outcome->first = ordinary_status;
+                    outcome->second = true;
+                }
+            },
+            &add_rows_guard);
+    ScopedSyncPointProcessing sync_point_processing;
+
+    Block block = schema->create_block();
+    auto columns = std::move(block).mutate_columns();
+    const int32_t value = 42;
+    columns[0]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+    block.set_columns(std::move(columns));
+
+    const auto add_status = creator.add_block(&block);
+    EXPECT_EQ(add_status.code(), ordinary_status.code());
+    EXPECT_EQ(add_status.msg(), ordinary_status.msg());
+    ASSERT_EQ(file_writer_creator->created_segment_ids.size(), 1);
+
+    inject_add_failure = false;
+    ASSERT_TRUE(creator.add_block(&block).ok());
+    ASSERT_EQ(file_writer_creator->created_segment_ids.size(), 2);
+    EXPECT_NE(file_writer_creator->created_segment_ids[0],
+              file_writer_creator->created_segment_ids[1]);
+    ASSERT_TRUE(creator.flush().ok());
+    ASSERT_TRUE(creator.close().ok());
+    EXPECT_EQ(segment_collector->add_calls, 1);
+    EXPECT_EQ(segment_collector->last_segment_id, file_writer_creator->created_segment_ids[1]);
+    EXPECT_EQ(segment_collector->last_row_count, 1);
+}
 
 TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_false_for_dup_key) {
     auto schema = create_dup_key_schema();

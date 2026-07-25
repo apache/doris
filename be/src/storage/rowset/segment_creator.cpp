@@ -113,6 +113,7 @@ Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                                  const Block* block, size_t row_pos, size_t num_rows) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("SegmentFlusher::_add_rows.segment_writer", Status::OK());
     RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
     _num_rows_written += num_rows;
     return Status::OK();
@@ -421,7 +422,11 @@ Status SegmentCreator::add_block(const Block* block) {
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        RETURN_IF_ERROR(_flush_writer->add_rows(block, row_offset, input_row_num));
+        auto status = _flush_writer->add_rows(block, row_offset, input_row_num);
+        if (!status.ok()) {
+            _flush_writer.reset();
+            return status;
+        }
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
@@ -432,9 +437,9 @@ Status SegmentCreator::flush() {
     if (_flush_writer == nullptr) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_flush_writer->flush());
+    auto status = _flush_writer->flush();
     _flush_writer.reset();
-    return Status::OK();
+    return status;
 }
 
 Status SegmentCreator::flush_single_block(const Block* block, int32_t segment_id,

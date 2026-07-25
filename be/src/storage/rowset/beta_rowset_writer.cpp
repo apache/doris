@@ -84,6 +84,13 @@ bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key
     return false;
 }
 
+Status merge_owner_status(Status first, const Status& second) {
+    if (first.ok()) {
+        return second;
+    }
+    return first;
+}
+
 bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
     DCHECK(dst != nullptr);
     if (config::random_segments_key_bounds_truncation) {
@@ -188,6 +195,7 @@ Status SegmentFileCollection::close() {
         _closed = true;
     }
 
+    Status first_error;
     for (auto&& [_, writer] : _file_writers) {
         DBUG_EXECUTE_IF("SegmentFileCollection.close.wait_dat_closed", {
             auto before_state = writer->state();
@@ -200,12 +208,15 @@ Status SegmentFileCollection::close() {
                       << " after_state=" << static_cast<int>(writer->state());
         });
         if (writer->state() != io::FileWriter::State::CLOSED) {
-            RETURN_IF_ERROR(writer->close());
+            auto status = writer->close();
+            if (first_error.ok() && !status.ok()) {
+                first_error = std::move(status);
+            }
         }
         TEST_SYNC_POINT_CALLBACK("SegmentFileCollection::close_file_writer", writer.get());
     }
 
-    return Status::OK();
+    return first_error;
 }
 
 Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id_offset) {
@@ -773,10 +784,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_is_doing_segcompaction.exchange(true)) {
         return status;
     }
-    if (_segcompaction_status.load() != OK) {
-        status = Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
-                _segcompaction_status.load());
+    if (!_segcompaction_status.ok()) {
+        status = _segcompaction_status.status();
     } else {
         status = _check_segment_number_limit(_num_segcompacted);
     }
@@ -806,11 +815,8 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     if (!config::enable_segcompaction) {
         return Status::OK();
     }
-    if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state, error "
-                "code: {}",
-                _segcompaction_status.load());
+    if (!_segcompaction_status.ok()) {
+        return _segcompaction_status.status();
     }
     if (!is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
@@ -915,12 +921,22 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
     if (elapsed >= MICROS_PER_SEC) {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
-    if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter meet invalid state, error code: {}",
-                _segcompaction_status.load());
+    if (!_segcompaction_status.ok()) {
+        return _segcompaction_status.status();
     }
     return Status::OK();
+}
+
+Status BetaRowsetWriter::_synchronize_segcompaction() {
+    if (_segment_start_id != 0) {
+        return Status::OK();
+    }
+    if (_segcompaction_worker->cancel()) {
+        std::lock_guard lk(_is_doing_segcompaction_lock);
+        _is_doing_segcompaction = false;
+        _segcompacting_cond.notify_all();
+    }
+    return _wait_flying_segcompaction();
 }
 
 RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
@@ -948,17 +964,25 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
 }
 
 Status BetaRowsetWriter::_close_file_writers() {
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_file_writers());
+    auto close_status = BaseBetaRowsetWriter::_close_file_writers();
+    if (!close_status.ok()) {
+        LOG(WARNING) << "failed to close segment creator when build new rowset, error: "
+                     << close_status;
+    }
+
+    Status segcompaction_status;
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.
     if (_segment_start_id == 0) {
-        if (_segcompaction_worker->cancel()) {
-            std::lock_guard lk(_is_doing_segcompaction_lock);
-            _is_doing_segcompaction = false;
-            _segcompacting_cond.notify_all();
-        } else {
-            RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
-                                           "segcompaction failed when build new rowset");
+        segcompaction_status = _synchronize_segcompaction();
+        if (!segcompaction_status.ok()) {
+            LOG(WARNING) << "segcompaction failed when build new rowset, error: "
+                         << segcompaction_status;
+        }
+
+        auto owner_status = merge_owner_status(close_status, segcompaction_status);
+        if (!owner_status.ok()) {
+            return owner_status;
         }
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
                                        "rename last segments failed when build new rowset");
@@ -984,12 +1008,18 @@ Status BetaRowsetWriter::_close_file_writers() {
             }
         }
     }
-    return Status::OK();
+    return close_status;
 }
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     if (_calc_delete_bitmap_token != nullptr) {
-        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+        auto delete_bitmap_status = _calc_delete_bitmap_token->wait();
+        if (!delete_bitmap_status.ok()) {
+            auto segcompaction_status = _synchronize_segcompaction();
+            auto owner_status =
+                    merge_owner_status(std::move(delete_bitmap_status), segcompaction_status);
+            return owner_status;
+        }
     }
     RETURN_IF_ERROR(_close_file_writers());
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;

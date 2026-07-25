@@ -306,6 +306,7 @@ private:
     Status _wait_flying_segcompaction();
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
+    Status _synchronize_segcompaction();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
@@ -328,7 +329,7 @@ private:
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 
-    std::atomic<int> _segcompaction_status {ErrorCode::OK};
+    AtomicStatus _segcompaction_status;
 };
 
 class RowBinlogRowsetWriter : public BetaRowsetWriter {

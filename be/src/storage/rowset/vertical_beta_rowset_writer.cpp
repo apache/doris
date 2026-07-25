@@ -204,21 +204,46 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::final_flush() {
+    struct FinalizedSegment {
+        uint32_t segment_id;
+        segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+    };
+    auto merge_status = [](Status first, const Status& second) {
+        if (first.ok()) {
+            return second;
+        }
+        return first;
+    };
+
+    std::vector<FinalizedSegment> finalized_segments;
+    finalized_segments.reserve(_segment_writers.size());
+    Status footer_status;
     for (auto& segment_writer : _segment_writers) {
         uint64_t segment_size = 0;
-        //uint64_t footer_position = 0;
         segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
         auto segment_id = segment_writer->get_segment_id();
         auto st = segment_writer->finalize_footer(&segment_size, &index_file_cache_info);
         if (!st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
-            return st;
+            footer_status = merge_status(std::move(footer_status), st);
+            continue;
         }
         this->_total_data_size += segment_size;
+        finalized_segments.push_back({segment_id, std::move(index_file_cache_info)});
+    }
+
+    if (!footer_status.ok()) {
+        return merge_status(std::move(footer_status), this->_seg_files.close());
+    }
+
+    DORIS_CHECK_EQ(finalized_segments.size(), _segment_writers.size());
+    for (size_t i = 0; i < _segment_writers.size(); ++i) {
+        auto& finalized_segment = finalized_segments[i];
         TEST_SYNC_POINT_CALLBACK("VerticalBetaRowsetWriter::final_flush_segment_writer",
-                                 &segment_id);
-        segment_writer.reset();
-        _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
+                                 &finalized_segment.segment_id);
+        _segment_writers[i].reset();
+        _record_segment_index_file_cache_preload(finalized_segment.segment_id,
+                                                 finalized_segment.index_file_cache_info);
     }
     return Status::OK();
 }
