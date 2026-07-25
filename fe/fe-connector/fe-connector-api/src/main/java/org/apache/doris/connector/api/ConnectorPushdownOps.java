@@ -21,7 +21,6 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 
 import java.util.List;
@@ -47,13 +46,6 @@ public interface ConnectorPushdownOps {
             applyProjection(ConnectorSession session,
                     ConnectorTableHandle handle,
                     List<ConnectorColumnHandle> projections) {
-        return Optional.empty();
-    }
-
-    /** Attempts to push a limit into the table scan. */
-    default Optional<LimitApplicationResult<ConnectorTableHandle>>
-            applyLimit(ConnectorSession session,
-                    ConnectorTableHandle handle, long limit) {
         return Optional.empty();
     }
 

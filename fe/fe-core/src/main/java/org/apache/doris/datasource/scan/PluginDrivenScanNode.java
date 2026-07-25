@@ -41,7 +41,6 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
@@ -901,27 +900,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
-     * Attempts to push the limit down via the SPI applyLimit() protocol.
-     * Called before getSplits(), after filter pushdown.
-     *
-     * <p>If the connector accepts the limit, the handle is updated.
-     * The limit is still passed to planScan() as a parameter for
-     * connectors that handle limit directly in planScan().</p>
-     */
-    private void tryPushDownLimit() {
-        if (limit <= 0) {
-            return;
-        }
-        ConnectorMetadata metadata = metadata();
-        Optional<LimitApplicationResult<ConnectorTableHandle>> result =
-                metadata.applyLimit(connectorSession, currentHandle, limit);
-        if (result.isPresent()) {
-            currentHandle = result.get().getHandle();
-            LOG.debug("Limit {} pushed down via applyLimit for plugin-driven scan", limit);
-        }
-    }
-
-    /**
      * Attempts to push the projection down via the SPI applyProjection() protocol.
      * Called before getSplits(), after filter and limit pushdown.
      *
@@ -971,9 +949,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     /**
      * Resolves the pinned MVCC snapshot from the statement context and threads it onto
-     * {@link #currentHandle} (mutates the handle exactly like {@link #tryPushDownProjection} /
-     * {@link #tryPushDownLimit}). Called at every scan-side handle-consumption point so both the
-     * split path and the serialized-table path read at the pinned snapshot.
+     * {@link #currentHandle} (mutates the handle exactly like {@link #tryPushDownProjection}).
+     * Called at every scan-side handle-consumption point so both the split path and the
+     * serialized-table path read at the pinned snapshot.
      */
     private void pinMvccSnapshot() throws UserException {
         ConnectorMetadata metadata = metadata();
@@ -1257,8 +1235,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         checkSysTableScanConstraints();
-        // Attempt limit and projection pushdown via SPI protocol
-        tryPushDownLimit();
 
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {

@@ -3,7 +3,6 @@ addColumns(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.conn
 addNestedColumn(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,org.apache.doris.connector.api.ddl.ConnectorColumnPath,org.apache.doris.connector.api.ConnectorColumn,org.apache.doris.connector.api.ddl.ConnectorColumnPosition)
 addPartitionField(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,org.apache.doris.connector.api.ddl.PartitionFieldChange)
 applyFilter(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint)
-applyLimit(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,long)
 applyProjection(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,java.util.List)
 applyRewriteFileScope(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,java.util.Set)
 applySnapshot(org.apache.doris.connector.api.ConnectorSession,org.apache.doris.connector.api.handle.ConnectorTableHandle,org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot)
