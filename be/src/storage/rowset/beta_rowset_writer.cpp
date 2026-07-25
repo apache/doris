@@ -54,6 +54,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer.h"
+#include "storage/rowset/rowset_writer_status.h"
 #include "storage/rowset/segcompaction.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/segment/segment.h"
@@ -82,13 +83,6 @@ bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key
         last = cur_max;
     }
     return false;
-}
-
-Status merge_owner_status(Status first, const Status& second) {
-    if (first.ok()) {
-        return second;
-    }
-    return first;
 }
 
 bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
@@ -209,9 +203,7 @@ Status SegmentFileCollection::close() {
         });
         if (writer->state() != io::FileWriter::State::CLOSED) {
             auto status = writer->close();
-            if (first_error.ok() && !status.ok()) {
-                first_error = std::move(status);
-            }
+            record_first_error(first_error, std::move(status));
         }
         TEST_SYNC_POINT_CALLBACK("SegmentFileCollection::close_file_writer", writer.get());
     }
@@ -285,20 +277,22 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
 
 Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
+    Status first_error;
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->begin_close());
+        record_first_error(first_error, writer->begin_close());
         _total_size += writer->get_index_file_total_size();
     }
 
-    return Status::OK();
+    return first_error;
 }
 
 Status InvertedIndexFileCollection::finish_close() {
     std::lock_guard lock(_lock);
+    Status first_error;
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->finish_close());
+        record_first_error(first_error, writer->finish_close());
     }
-    return Status::OK();
+    return first_error;
 }
 
 Result<std::vector<const InvertedIndexFileInfo*>>
@@ -939,6 +933,24 @@ Status BetaRowsetWriter::_synchronize_segcompaction() {
     return _wait_flying_segcompaction();
 }
 
+Status BetaRowsetWriter::_close_segcompaction_file_writers() {
+    Status first_error;
+    auto& index_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
+    if (index_file_writer != nullptr) {
+        record_first_error(first_error, index_file_writer->begin_close());
+    }
+
+    auto& data_file_writer = _segcompaction_worker->get_file_writer();
+    if (data_file_writer != nullptr && data_file_writer->state() != io::FileWriter::State::CLOSED) {
+        record_first_error(first_error, data_file_writer->close());
+    }
+
+    if (index_file_writer != nullptr) {
+        record_first_error(first_error, index_file_writer->finish_close());
+    }
+    return first_error;
+}
+
 RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -963,36 +975,39 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     return Status::OK();
 }
 
+Status BaseBetaRowsetWriter::_close_inverted_index_file_writers() {
+    Status first_error;
+    record_first_error(first_error, _idx_files.begin_close());
+    _total_index_size += _idx_files.get_total_index_size();
+    record_first_error(first_error, _idx_files.finish_close());
+    return first_error;
+}
+
 Status BetaRowsetWriter::_close_file_writers() {
-    auto close_status = BaseBetaRowsetWriter::_close_file_writers();
-    if (!close_status.ok()) {
+    auto first_error = BaseBetaRowsetWriter::_close_file_writers();
+    if (!first_error.ok()) {
         LOG(WARNING) << "failed to close segment creator when build new rowset, error: "
-                     << close_status;
+                     << first_error;
     }
 
-    Status segcompaction_status;
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.
     if (_segment_start_id == 0) {
-        segcompaction_status = _synchronize_segcompaction();
+        auto segcompaction_status = _synchronize_segcompaction();
         if (!segcompaction_status.ok()) {
             LOG(WARNING) << "segcompaction failed when build new rowset, error: "
                          << segcompaction_status;
         }
+        record_first_error(first_error, std::move(segcompaction_status));
 
-        auto owner_status = merge_owner_status(close_status, segcompaction_status);
-        if (!owner_status.ok()) {
-            return owner_status;
+        if (first_error.ok()) {
+            record_first_error(first_error, _segcompaction_rename_last_segments());
         }
-        RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
-                                       "rename last segments failed when build new rowset");
-        // segcompaction worker would do file wrier's close function in compact_segments
-        if (auto& seg_comp_file_writer = _segcompaction_worker->get_file_writer();
-            nullptr != seg_comp_file_writer &&
-            seg_comp_file_writer->state() != io::FileWriter::State::CLOSED) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(seg_comp_file_writer->close(),
-                                           "close segment compaction worker failed");
+        record_first_error(first_error, _close_segcompaction_file_writers());
+        if (!first_error.ok()) {
+            return first_error;
         }
+
         // process delete bitmap for mow table
         if (is_segcompacted() && _segcompaction_worker->need_convert_delete_bitmap()) {
             auto converted_delete_bitmap = _segcompaction_worker->get_converted_delete_bitmap();
@@ -1008,17 +1023,16 @@ Status BetaRowsetWriter::_close_file_writers() {
             }
         }
     }
-    return close_status;
+    return first_error;
 }
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     if (_calc_delete_bitmap_token != nullptr) {
         auto delete_bitmap_status = _calc_delete_bitmap_token->wait();
         if (!delete_bitmap_status.ok()) {
-            auto segcompaction_status = _synchronize_segcompaction();
-            auto owner_status =
-                    merge_owner_status(std::move(delete_bitmap_status), segcompaction_status);
-            return owner_status;
+            record_first_error(delete_bitmap_status, _synchronize_segcompaction());
+            record_first_error(delete_bitmap_status, _close_segcompaction_file_writers());
+            return delete_bitmap_status;
         }
     }
     RETURN_IF_ERROR(_close_file_writers());

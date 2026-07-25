@@ -38,6 +38,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/rowset/rowset_writer_status.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "util/slice.h"
 
@@ -208,12 +209,6 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         uint32_t segment_id;
         segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
     };
-    auto merge_status = [](Status first, const Status& second) {
-        if (first.ok()) {
-            return second;
-        }
-        return first;
-    };
 
     std::vector<FinalizedSegment> finalized_segments;
     finalized_segments.reserve(_segment_writers.size());
@@ -225,7 +220,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         auto st = segment_writer->finalize_footer(&segment_size, &index_file_cache_info);
         if (!st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
-            footer_status = merge_status(std::move(footer_status), st);
+            record_first_error(footer_status, std::move(st));
             continue;
         }
         this->_total_data_size += segment_size;
@@ -233,7 +228,11 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
     }
 
     if (!footer_status.ok()) {
-        return merge_status(std::move(footer_status), this->_seg_files.close());
+        for (auto& segment_writer : _segment_writers) {
+            segment_writer.reset();
+        }
+        record_first_error(footer_status, _close_file_writers());
+        return footer_status;
     }
 
     DORIS_CHECK_EQ(finalized_segments.size(), _segment_writers.size());
@@ -251,9 +250,13 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_inverted_index_file_writers());
-    RETURN_IF_ERROR(this->_seg_files.close());
-    return _preload_segment_indexes_to_file_cache();
+    Status first_error;
+    record_first_error(first_error, BaseBetaRowsetWriter::_close_inverted_index_file_writers());
+    record_first_error(first_error, this->_seg_files.close());
+    if (first_error.ok()) {
+        record_first_error(first_error, _preload_segment_indexes_to_file_cache());
+    }
+    return first_error;
 }
 
 template <class T>

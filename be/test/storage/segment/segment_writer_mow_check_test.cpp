@@ -243,7 +243,22 @@ TEST(SegmentFileCollectionTest, CloseAttemptsEveryWriterAfterFirstFailure) {
     }
 }
 
-TEST_F(SegmentCreatorTest, StreamingAddFailureDiscardsWriterBeforeRetry) {
+TEST(InvertedIndexFileCollectionTest, BeginCloseHandlesAlreadyStartedWriter) {
+    InvertedIndexFileCollection index_files;
+    for (int segment_id = 0; segment_id < 2; ++segment_id) {
+        auto writer = std::make_unique<IndexFileWriter>(
+                io::global_local_filesystem(),
+                fmt::format("{}/index_collection_{}", kSegmentDir, segment_id), "1015", segment_id,
+                InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(index_files.add(segment_id, std::move(writer)).ok());
+    }
+
+    ASSERT_TRUE(index_files.get_file_writers().at(0)->begin_close().ok());
+    ASSERT_TRUE(index_files.begin_close().ok());
+    ASSERT_TRUE(index_files.finish_close().ok());
+}
+
+TEST_F(SegmentCreatorTest, StreamingAddFailureTerminatesCreatorAndClosesWriter) {
     ScopedVerticalSegmentWriterSetting vertical_writer_setting(false);
 
     auto schema = std::make_shared<TabletSchema>();
@@ -290,17 +305,24 @@ TEST_F(SegmentCreatorTest, StreamingAddFailureDiscardsWriterBeforeRetry) {
     EXPECT_EQ(add_status.code(), ordinary_status.code());
     EXPECT_EQ(add_status.msg(), ordinary_status.msg());
     ASSERT_EQ(file_writer_creator->created_segment_ids.size(), 1);
+    auto* failed_file_writer =
+            segment_files.get_file_writers().at(file_writer_creator->created_segment_ids[0]).get();
 
     inject_add_failure = false;
-    ASSERT_TRUE(creator.add_block(&block).ok());
-    ASSERT_EQ(file_writer_creator->created_segment_ids.size(), 2);
-    EXPECT_NE(file_writer_creator->created_segment_ids[0],
-              file_writer_creator->created_segment_ids[1]);
-    ASSERT_TRUE(creator.flush().ok());
-    ASSERT_TRUE(creator.close().ok());
-    EXPECT_EQ(segment_collector->add_calls, 1);
-    EXPECT_EQ(segment_collector->last_segment_id, file_writer_creator->created_segment_ids[1]);
-    EXPECT_EQ(segment_collector->last_row_count, 1);
+    const auto retry_status = creator.add_block(&block);
+    EXPECT_EQ(retry_status.code(), ordinary_status.code());
+    EXPECT_EQ(retry_status.msg(), ordinary_status.msg());
+    EXPECT_EQ(file_writer_creator->created_segment_ids.size(), 1);
+
+    const auto flush_status = creator.flush();
+    EXPECT_EQ(flush_status.code(), ordinary_status.code());
+    EXPECT_EQ(flush_status.msg(), ordinary_status.msg());
+
+    const auto close_status = creator.close();
+    EXPECT_EQ(close_status.code(), ordinary_status.code());
+    EXPECT_EQ(close_status.msg(), ordinary_status.msg());
+    EXPECT_EQ(failed_file_writer->state(), io::FileWriter::State::CLOSED);
+    EXPECT_EQ(segment_collector->add_calls, 0);
 }
 
 TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_false_for_dup_key) {

@@ -226,14 +226,7 @@ protected:
     // Only during vertical compaction is this method called
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
-    Status _close_inverted_index_file_writers() {
-        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.begin_close(),
-                                       "failed to close index file when build new rowset");
-        this->_total_index_size += _idx_files.get_total_index_size();
-        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.finish_close(),
-                                       "failed to wait close index file when build new rowset");
-        return Status::OK();
-    }
+    Status _close_inverted_index_file_writers();
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
@@ -307,6 +300,7 @@ private:
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
     Status _synchronize_segcompaction();
+    Status _close_segcompaction_file_writers();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
     Status _rename_compacted_segments(int64_t begin, int64_t end);

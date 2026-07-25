@@ -45,6 +45,8 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/storage_engine.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -68,6 +70,7 @@ bool has_suffix(std::string_view value, std::string_view suffix) {
 struct CreatedS3File {
     std::string path;
     FileType file_type;
+    io::FileWriter* writer = nullptr;
     bool is_s3_writer = false;
     bool has_cache_builder = false;
     bool write_file_cache = false;
@@ -366,6 +369,7 @@ protected:
                     created_files->push_back(CreatedS3File {
                             .path = *path,
                             .file_type = *file_type,
+                            .writer = writer,
                             .is_s3_writer = dynamic_cast<io::S3FileWriter*>(writer) != nullptr,
                             .has_cache_builder = writer->cache_builder() != nullptr,
                             .write_file_cache = opts->write_file_cache,
@@ -744,6 +748,72 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     expect_segment_write_bypasses_file_cache(created_files);
     expect_inverted_index_writes_file_cache(created_files);
     expect_loader_open_file_is_mocked_out(s3_write_counters);
+}
+
+TEST_F(CloudFileCacheWriteIndexOnlyTest, VerticalFinalFlushFailureClosesAllFileWriters) {
+    auto tablet_schema = create_schema(true);
+    RowsetWriterContext context = create_context(tablet_schema, DataWriteType::TYPE_COMPACTION,
+                                                 ReaderType::READER_CUMULATIVE_COMPACTION);
+
+    std::vector<ObservedIndexPreload> observed;
+    std::vector<CreatedS3File> created_files;
+    int preload_task_count = 0;
+    WriterFlushCounters writer_flush_counters;
+    S3WriteCounters s3_write_counters;
+    SyncPoint::CallbackGuard load_guard;
+    SyncPoint::CallbackGuard task_guard;
+    SyncPoint::CallbackGuard vertical_writer_guard;
+    SyncPoint::CallbackGuard segment_writer_guard;
+    SyncPoint::CallbackGuard s3_client_guard;
+    SyncPoint::CallbackGuard s3_put_guard;
+    SyncPoint::CallbackGuard create_file_guard;
+    SyncPoint::CallbackGuard close_file_guard;
+    SyncPoint::CallbackGuard s3_open_file_guard;
+    install_observers(&observed, &created_files, &preload_task_count, &writer_flush_counters,
+                      &s3_write_counters, &load_guard, &task_guard, &vertical_writer_guard,
+                      &segment_writer_guard, &s3_client_guard, &s3_put_guard, &create_file_guard,
+                      &close_file_guard, &s3_open_file_guard);
+
+    auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, true);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    std::vector<uint32_t> key_column_ids = {0};
+    auto key_block = create_column_block(tablet_schema, key_column_ids);
+    ASSERT_TRUE(
+            rowset_writer->add_columns(&key_block, key_column_ids, true, UINT32_MAX, false).ok());
+    ASSERT_TRUE(rowset_writer->flush_columns(true).ok());
+
+    std::vector<uint32_t> value_column_ids = {1};
+    auto value_block = create_column_block(tablet_schema, value_column_ids);
+    ASSERT_TRUE(rowset_writer->add_columns(&value_block, value_column_ids, false, UINT32_MAX, false)
+                        .ok());
+    ASSERT_TRUE(rowset_writer->flush_columns(false).ok());
+
+    const bool enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("S3FileWriter.close.submit_async_close.inject_error");
+    DebugPoints::instance()->add("S3FileWriter._close_impl.inject_error");
+    Defer restore_debug_point([enable_debug_points]() {
+        DebugPoints::instance()->remove("S3FileWriter.close.submit_async_close.inject_error");
+        DebugPoints::instance()->remove("S3FileWriter._close_impl.inject_error");
+        config::enable_debug_points = enable_debug_points;
+    });
+
+    const auto status = rowset_writer->final_flush();
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("S3FileWriter._close_impl.inject_error"), std::string::npos);
+
+    bool saw_index_file = false;
+    for (const auto& file : created_files) {
+        if (file.file_type == FileType::INVERTED_INDEX_FILE) {
+            saw_index_file = true;
+            ASSERT_NE(file.writer, nullptr);
+            EXPECT_EQ(file.writer->state(), io::FileWriter::State::CLOSED);
+        }
+    }
+    EXPECT_TRUE(saw_index_file);
+    EXPECT_EQ(preload_task_count, 0);
 }
 
 TEST_F(CloudFileCacheWriteIndexOnlyTest,

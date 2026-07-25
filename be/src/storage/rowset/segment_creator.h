@@ -210,15 +210,22 @@ public:
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.
     Status flush_single_block(const Block* block) {
+        if (!_write_status.ok()) {
+            return _write_status.status();
+        }
         return flush_single_block(block, allocate_segment_id());
     }
 
     Status close();
 
 private:
+    Status _update_write_status(const Status& status);
+
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
+    // The first write failure is terminal for this creator.
+    AtomicStatus _write_status;
 };
 
 } // namespace doris
