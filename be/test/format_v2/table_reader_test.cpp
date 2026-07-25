@@ -328,6 +328,56 @@ private:
     const std::string _expr_name = "StatefulSequencePredicate";
 };
 
+struct ExprLifecycleState {
+    int prepare_count = 0;
+    int open_count = 0;
+    int close_count = 0;
+};
+
+class LifecycleCountingPredicate final : public VExpr {
+public:
+    explicit LifecycleCountingPredicate(std::shared_ptr<ExprLifecycleState> state)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _state(std::move(state)) {}
+
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   VExprContext* context) override {
+        RETURN_IF_ERROR(VExpr::prepare(state, row_desc, context));
+        ++_state->prepare_count;
+        return Status::OK();
+    }
+
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override {
+        RETURN_IF_ERROR(VExpr::open(state, context, scope));
+        ++_state->open_count;
+        return Status::OK();
+    }
+
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {
+        VExpr::close(context, scope);
+        ++_state->close_count;
+    }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_deterministic() const override { return false; }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<LifecycleCountingPredicate>(_state);
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<ExprLifecycleState> _state;
+    const std::string _expr_name = "LifecycleCountingPredicate";
+};
+
 class NullableArrayBigintDefaultExpr final : public VExpr {
 public:
     explicit NullableArrayBigintDefaultExpr(DataTypePtr data_type)
@@ -1568,6 +1618,56 @@ TEST(TableReaderTest, ScannerOwnedUnsafePredicateIsPassedButNotExecutedByTableRe
     EXPECT_FALSE(predicate_executed);
     EXPECT_EQ(block.rows(), 2);
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ScannerOwnedInitialConjunctRemainsAnalysisOnly) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto lifecycle = std::make_shared<ExprLifecycleState>();
+    auto source =
+            prepared_conjunct(&state, std::make_shared<LifecycleCountingPredicate>(lifecycle));
+    {
+        TableReader reader;
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = {},
+                                        .conjuncts = {source},
+                                        .table_reader_owned_conjunct_count = 0,
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = nullptr,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = nullptr,
+                                })
+                            .ok());
+        EXPECT_EQ(lifecycle->prepare_count, 1);
+        EXPECT_EQ(lifecycle->open_count, 1);
+    }
+    source.reset();
+    EXPECT_EQ(lifecycle->close_count, 1);
+}
+
+TEST(TableReaderTest, ScannerOwnedAppendedConjunctRemainsAnalysisOnly) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto lifecycle = std::make_shared<ExprLifecycleState>();
+    auto source =
+            prepared_conjunct(&state, std::make_shared<LifecycleCountingPredicate>(lifecycle));
+    {
+        TableReader reader;
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = {},
+                                        .conjuncts = {},
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = nullptr,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = nullptr,
+                                })
+                            .ok());
+        ASSERT_TRUE(reader.append_conjuncts_with_ownership({source}, 0).ok());
+        EXPECT_EQ(lifecycle->prepare_count, 1);
+        EXPECT_EQ(lifecycle->open_count, 1);
+    }
+    source.reset();
+    EXPECT_EQ(lifecycle->close_count, 1);
 }
 
 TEST(TableReaderTest, ResidualExpressionStateSurvivesAcrossSplits) {
