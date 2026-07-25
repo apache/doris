@@ -61,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
@@ -266,7 +267,14 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
 
-            TableSchema tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
+            TableSchema tableSchema;
+            if (targetTable instanceof PaimonExternalTable) {
+                // Schema IDs are scoped to the resolved relation table, so a branch ID must
+                // never be looked up through the base table's schema cache namespace.
+                tableSchema = ((DataTable) source.getPaimonTable()).schemaManager().schema(schemaId);
+            } else {
+                tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
+            }
             params.addToHistorySchemaInfo(PaimonUtil.getHistorySchemaInfo(targetTable, tableSchema,
                     source.getCatalog().getEnableMappingVarbinary(),
                     source.getCatalog().getEnableMappingTimestampTz()));
