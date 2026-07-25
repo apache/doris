@@ -141,18 +141,18 @@ explicit rename plus old snapshot/tag smoke path.
 | `paimon/test_paimon_jdbc_catalog.groovy` | JDBC catalog rename × numeric snapshot/tag smoke |
 
 Each Groovy file contains `Scenario` comments identifying the matrix cell under
-test. Jira keys are deliberately absent from Groovy source. Product issues link
-back to the exact suite, scenario and file location from Jira instead.
+test. Internal issue identifiers are deliberately absent from the checked-in
+test sources and coverage documentation.
 
 ## Product contracts discovered by the matrix
 
-| Issue | Observed contract | Negative regression location |
-| --- | --- | --- |
-| DORIS-27425 | Iceberg branch can use latest schema instead of branch schema | `test_iceberg_schema_time_travel_matrix.groovy`, `test_iceberg_schema_ref_actions_matrix.groovy` |
-| DORIS-27427 | Iceberg dual historical relations can share the wrong schema | `test_iceberg_schema_dual_relation_matrix.groovy` |
-| DORIS-27428 | Paimon dual historical relations can share the wrong schema | `test_paimon_schema_dual_relation_matrix.groovy` |
-| DORIS-27433 | Paimon branch schema init fails; a post-fast-forward scan can abort BE | `test_paimon_schema_branch_partition_matrix.groovy` |
-| DORIS-27434 | Doris `DESC` omits Iceberg field comments | `test_iceberg_schema_metadata_atomicity_matrix.groovy` |
+| Contract | Negative regression location |
+| --- | --- |
+| Iceberg historical branch schema isolation | `test_iceberg_schema_time_travel_matrix.groovy`, `test_iceberg_schema_ref_actions_matrix.groovy` |
+| Iceberg dual-relation schema isolation | `test_iceberg_schema_dual_relation_matrix.groovy` |
+| Paimon dual-relation schema isolation | `test_paimon_schema_dual_relation_matrix.groovy` |
+| Paimon branch schema initialization isolation | `test_paimon_schema_branch_partition_matrix.groovy` |
+| Iceberg nested field comment preservation | `test_iceberg_schema_metadata_atomicity_matrix.groovy` |
 
 ## Validation status
 
