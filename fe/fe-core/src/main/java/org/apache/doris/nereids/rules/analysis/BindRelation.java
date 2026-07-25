@@ -803,7 +803,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String ddlSql = pluginViewTable.getViewText();
                         Plan pluginViewPlan = parseAndAnalyzeExternalView(pluginViewTable,
                                 pluginCatalog, pluginDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
+                        // The external view body's slot names may diverge from the declared view schema;
+                        // pass the schema as aliases so the outer query resolves columns by the view
+                        // definition instead of the view-body slot names.
+                        // getFullSchema() returns null when the schema cache is empty (e.g. after a
+                        // catalog drop / cache-lifecycle miss). Preserve the child fallback in that case:
+                        // an empty aliases Optional makes LogicalSubQueryAlias.computeOutput() fall back
+                        // to the analyzed view-body slot names instead of dereferencing a null schema.
+                        List<Column> viewSchema = pluginViewTable.getFullSchema();
+                        Optional<List<String>> columnAliases = (viewSchema == null || viewSchema.isEmpty())
+                                ? Optional.empty()
+                                : Optional.of(viewSchema.stream()
+                                        .map(Column::getName)
+                                        .collect(Collectors.toList()));
+                        return new LogicalSubQueryAlias<>(
+                                qualifiedTableName, columnAliases, pluginViewPlan);
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
