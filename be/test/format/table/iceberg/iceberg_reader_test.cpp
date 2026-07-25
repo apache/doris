@@ -1546,6 +1546,71 @@ TEST_F(IcebergReaderTest, v1_rejects_missing_required_field_without_initial_defa
     EXPECT_NE(status.to_string().find("no initial default"), std::string::npos);
 }
 
+TEST_F(IcebergReaderTest, initial_default_decodes_uuid_and_validates_hex) {
+    std::string decoded;
+    ASSERT_TRUE(
+            iceberg::detail::decode_json_binary("123e4567-e89b-12d3-a456-426614174000", &decoded)
+                    .ok());
+    const std::string expected_uuid(
+            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
+    EXPECT_EQ(decoded, expected_uuid);
+
+    ASSERT_TRUE(iceberg::detail::decode_hex("ABCDEF", &decoded).ok());
+    EXPECT_EQ(decoded, std::string("\xab\xcd\xef", 3));
+
+    auto status = iceberg::detail::decode_hex("abc", &decoded);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("odd-length"), std::string::npos);
+
+    status = iceberg::detail::decode_hex("0G", &decoded);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("hexadecimal"), std::string::npos);
+}
+
+TEST_F(IcebergReaderTest, initial_default_normalizes_timestamp_for_doris) {
+    std::string datetime = "2026-07-24T12:34:56Z";
+    iceberg::detail::normalize_timestamp_for_doris(TYPE_DATETIME, &datetime);
+    EXPECT_EQ(datetime, "2026-07-24 12:34:56");
+
+    std::string datetime_v2 = "2026-07-24T12:34:56.123456+08:00";
+    iceberg::detail::normalize_timestamp_for_doris(TYPE_DATETIMEV2, &datetime_v2);
+    EXPECT_EQ(datetime_v2, "2026-07-24 12:34:56.123456");
+
+    std::string timestamp_tz = "2026-07-24T12:34:56.123456+08:00";
+    iceberg::detail::normalize_timestamp_for_doris(TYPE_TIMESTAMPTZ, &timestamp_tz);
+    EXPECT_EQ(timestamp_tz, "2026-07-24 12:34:56.123456+08:00");
+
+    std::string date = "2026-07-24";
+    iceberg::detail::normalize_timestamp_for_doris(TYPE_DATETIME, &date);
+    EXPECT_EQ(date, "2026-07-24");
+
+    std::string integer = "7";
+    iceberg::detail::normalize_timestamp_for_doris(TYPE_INT, &integer);
+    EXPECT_EQ(integer, "7");
+}
+
+TEST_F(IcebergReaderTest, initial_default_rejects_invalid_nullability) {
+    schema::external::TField field;
+    field.__set_name("added");
+
+    Field value;
+    field.__set_is_optional(false);
+    auto status = iceberg::detail::make_null_field(
+            field, make_nullable(std::make_shared<DataTypeInt32>()), &value);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Required Iceberg field 'added'"), std::string::npos);
+
+    field.__set_is_optional(true);
+    status = iceberg::detail::make_null_field(field, std::make_shared<DataTypeInt32>(), &value);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("not nullable"), std::string::npos);
+
+    ASSERT_TRUE(iceberg::detail::make_null_field(
+                        field, make_nullable(std::make_shared<DataTypeInt32>()), &value)
+                        .ok());
+    EXPECT_TRUE(value.is_null());
+}
+
 // GTest assertion macros inflate clang-tidy's cognitive-complexity score.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(IcebergReaderTest, v1_reuses_prepared_complex_initial_default_across_block_types) {
