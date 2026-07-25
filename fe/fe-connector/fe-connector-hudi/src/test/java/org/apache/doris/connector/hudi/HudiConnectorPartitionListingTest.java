@@ -242,16 +242,6 @@ public class HudiConnectorPartitionListingTest {
     }
 
     @Test
-    public void listPartitionValuesProjectsRequestedColumnOrder() {
-        HudiConnectorMetadata md = metadata(false,
-                new RecordingHmsClient(null), stub(new AbstractMap.SimpleImmutableEntry<>(
-                        99L, Collections.singletonList("2024/01"))));
-        // Request in reversed order: inner list order must follow the input columns, not the storage order.
-        List<List<String>> values = md.listPartitionValues(null, partitioned(), Arrays.asList("month", "year"));
-        Assertions.assertEquals(Collections.singletonList(Arrays.asList("01", "2024")), values);
-    }
-
-    @Test
     public void unpartitionedTableListsNothing() {
         HudiConnectorMetadata md = metadata(false, new RecordingHmsClient(null),
                 new DirectHudiMetaClientExecutor());

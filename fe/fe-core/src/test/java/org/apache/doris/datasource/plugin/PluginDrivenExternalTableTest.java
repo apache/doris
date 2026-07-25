@@ -931,7 +931,7 @@ public class PluginDrivenExternalTableTest {
         Map<String, String> raw = new LinkedHashMap<>();
         raw.put("write.format.default", "parquet");
         raw.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "id");
-        raw.put(ConnectorTableSchema.PRIMARY_KEYS_KEY, "id");
+        raw.put(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, "id");
         raw.put(ConnectorTableSchema.SHOW_LOCATION_KEY, "s3://bucket/db/t");
         raw.put(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, "PARTITION BY LIST (`id`) ()");
         raw.put(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, "ORDER BY (`id` ASC NULLS FIRST)");
@@ -948,7 +948,7 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertEquals("a_user_value", props.get("partition_columns"),
                 "a user's bare partition_columns property flows through (no collision with the reserved key)");
         Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
-        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PRIMARY_KEYS_KEY));
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY));
         Assertions.assertFalse(props.containsKey(ConnectorTableSchema.SHOW_LOCATION_KEY));
         Assertions.assertFalse(props.containsKey(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY));
         Assertions.assertFalse(props.containsKey(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY));

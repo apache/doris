@@ -53,13 +53,12 @@ import java.util.Optional;
  * <li><b>System tables</b>: {@link #listSupportedSysTables} plus {@link #getSysTableHandle};
  *     {@link #isPartitionValuesSysTable} only for a system table served by the engine's generic
  *     partition-values function rather than by a native scan.</li>
- * <li><b>Optional</b>: {@link #getTableComment}, {@link #getPrimaryKeys},
- *     {@link #renderShowCreateTableDdl}.</li>
+ * <li><b>Optional</b>: {@link #getTableComment}, {@link #renderShowCreateTableDdl}.</li>
  * </ul>
  *
- * <p>Note that {@link #getTableComment} and {@link #getPrimaryKeys} address a table by NAME, not by handle. A
- * heterogeneous gateway connector routes foreign tables to a sibling by the concrete handle type, so it cannot
- * route these two that way; if you are writing a gateway, handle them explicitly.</p>
+ * <p>Note that {@link #getTableComment} addresses a table by NAME, not by handle. A heterogeneous gateway
+ * connector routes foreign tables to a sibling by the concrete handle type, so it cannot route a name-only
+ * method that way; if you are writing a gateway, handle it explicitly.</p>
  */
 public interface ConnectorTableMetadataOps {
 
@@ -210,12 +209,6 @@ public interface ConnectorTableMetadataOps {
     @ConnectorMustImplement
     default List<String> listTableNames(ConnectorSession session,
             String dbName) {
-        return Collections.emptyList();
-    }
-
-    /** Returns the primary key column names for the given table. */
-    default List<String> getPrimaryKeys(ConnectorSession session,
-            String dbName, String tableName) {
         return Collections.emptyList();
     }
 

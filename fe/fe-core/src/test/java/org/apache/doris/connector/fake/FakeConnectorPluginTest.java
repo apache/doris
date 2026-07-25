@@ -102,40 +102,53 @@ public class FakeConnectorPluginTest {
 
         Assertions.assertEquals(Optional.empty(),
                 metadata.getTableHandle(session, "db", "t"));
-        Assertions.assertTrue(metadata.getPrimaryKeys(session, "db", "t").isEmpty());
         Assertions.assertEquals("", metadata.getTableComment(session, "db", "t"));
     }
 
     @Test
     void partitionListingDefaultsToEmpty() {
         ConnectorTableHandle handle = new ConnectorTableHandle() { };
-        // T17-T19: all three listing defaults return empty.
+        // T17-T18: both listing defaults return empty.
         Assertions.assertTrue(
                 metadata.listPartitionNames(session, handle).isEmpty());
         Assertions.assertTrue(
                 metadata.listPartitions(session, handle, Optional.empty()).isEmpty());
-        Assertions.assertTrue(
-                metadata.listPartitionValues(session, handle,
-                        Collections.singletonList("dt")).isEmpty());
     }
 
     @Test
-    void createTableRequestDefaultDegradesToLegacy() {
+    void createTableDefaultRejectsInsteadOfDegrading() {
         ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
                 .dbName("db")
                 .tableName("t")
                 .columns(Collections.emptyList())
                 .properties(Collections.emptyMap())
                 .build();
-        // T14: default createTable(request) falls through to legacy createTable(schema,
-        // props), whose own default throws "CREATE TABLE not supported". This proves
-        // the fall-through chain is wired correctly, even if the connector ultimately
-        // rejects the request.
+        // WHY: a connector that does not implement CREATE TABLE must FAIL, and it must fail on the request
+        // overload itself. This default used to build a ConnectorTableSchema and delegate to a narrower
+        // (schema, properties) overload, which meant the partition spec, the bucket spec and IF NOT EXISTS were
+        // dropped on the way -- a connector implementing only the narrow form reported success on a partitioned
+        // CREATE TABLE and produced an unpartitioned table. That degradation path is gone; there is one entry
+        // point, and not implementing it is an error rather than a silently narrower table.
+        // MUTATION: reinstating the degrading default (build a schema, do nothing) -> no throw -> red.
         DorisConnectorException ex = Assertions.assertThrows(
                 DorisConnectorException.class,
                 () -> metadata.createTable(session, request));
         Assertions.assertTrue(ex.getMessage().contains("CREATE TABLE not supported"),
-                "should propagate legacy createTable's error, got: " + ex.getMessage());
+                "should reject with the connector-facing message, got: " + ex.getMessage());
+    }
+
+    @Test
+    void dropDatabaseDefaultRejectsInsteadOfSilentlyDroppingForce() {
+        // WHY: the throw now lives on the 4-arg overload. It used to live on a 3-arg form and this overload
+        // defaulted to it, discarding `force` -- so DROP DATABASE ... FORCE silently became a non-cascading
+        // drop that then failed on a non-empty database, with an error about the database not being empty
+        // rather than about FORCE being unsupported. Nothing implemented the 3-arg form.
+        // MUTATION: removing the throw from the 4-arg default -> no throw -> red.
+        DorisConnectorException ex = Assertions.assertThrows(
+                DorisConnectorException.class,
+                () -> metadata.dropDatabase(session, "db", false, true));
+        Assertions.assertTrue(ex.getMessage().contains("DROP DATABASE not supported"),
+                "should reject with the connector-facing message, got: " + ex.getMessage());
     }
 
     // ──────────────────── ConnectorWriteOps defaults ────────────────────

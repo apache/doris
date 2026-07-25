@@ -811,11 +811,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return Long.parseLong(totalRecords) - Long.parseLong(positionDeletes);
     }
 
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     /**
      * Builds the read-path Thrift descriptor for an iceberg plugin table, forking on the catalog type
      * exactly as legacy {@code IcebergExternalTable.toThrift} / {@code IcebergSysExternalTable.toThrift}:

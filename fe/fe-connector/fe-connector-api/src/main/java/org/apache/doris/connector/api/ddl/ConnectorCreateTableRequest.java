@@ -29,10 +29,10 @@ import java.util.Objects;
  * Full {@code CREATE TABLE} payload passed to
  * {@code ConnectorTableDdlOps.createTable(session, request)}.
  *
- * <p>Carries partition / bucket / {@code IF NOT EXISTS} information
- * absent from the legacy
- * {@code createTable(session, ConnectorTableSchema, Map<String,String>)}
- * signature.</p>
+ * <p>Carries everything the statement said: the columns, the partition and bucket specs,
+ * {@code IF NOT EXISTS} and the user properties. A connector that cannot honor one of them must reject it
+ * rather than ignore it — reporting success after dropping the partition spec produces a table the user did
+ * not ask for, with no error to go on.</p>
  *
  * <p>{@code partitionSpec} and {@code bucketSpec} are nullable when the
  * underlying DDL omits them.</p>

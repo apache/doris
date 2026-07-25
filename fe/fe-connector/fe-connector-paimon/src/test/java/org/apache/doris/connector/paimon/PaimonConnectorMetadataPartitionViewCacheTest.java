@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 /**
  * PERF-06 tests for the cross-query DERIVED partition-view cache ("cache A", the generic
  * {@link ConnectorMetadataCache}) wired into all three partition-enumeration hooks
- * ({@link PaimonConnectorMetadata#listPartitions}, {@code listPartitionNames}, {@code listPartitionValues})
+ * ({@link PaimonConnectorMetadata#listPartitions}, {@code listPartitionNames})
  * via the shared {@code cachedPartitions} collector. Paimon does NOT override {@code getMvccPartitionView}
  * (the generic MTMV model falls back to its default listPartitions/LIST/timestamp path), so — unlike
  * iceberg's two typed fields — there is a single typed cache field, now shared by all three hooks.
@@ -285,34 +285,12 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
     }
 
     @Test
-    public void listPartitionValuesCachesAcrossQueries() {
-        // WHY (PA-1): same as above for the partition_values() TVF path -- it re-rendered on every call before.
-        // MUTATION: listPartitionValues calling collectPartitions directly -> loadCount 2 -> red.
-        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
-        FakePaimonTable table = regionTable();
-        ops.table = table;
-        ops.latestSnapshotId = OptionalLong.of(100L);
-        ops.partitions = Arrays.asList(partition("cn"), partition("us"));
-        ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = partitionViewCache();
-        PaimonConnectorMetadata md = metadataWithCache(ops, cache);
-        PaimonTableHandle h = handle(table);
-
-        List<String> cols = Collections.singletonList("region");
-        List<List<String>> first = md.listPartitionValues(null, h, cols);
-        List<List<String>> second = md.listPartitionValues(null, h, cols);
-
-        Assertions.assertEquals(
-                Arrays.asList(Collections.singletonList("cn"), Collections.singletonList("us")), first);
-        Assertions.assertEquals(first, second, "the cached list drives identical values");
-        Assertions.assertEquals(1, loadCount(ops), "listPartitionValues must hit the shared cache (enumerate once)");
-    }
-
-    @Test
-    public void allThreeHooksShareOneCacheEntry() {
-        // WHY (PA-1): the three enumeration hooks share ONE (db,table,snapshotId) entry -- listPartitions
-        // populates it, listPartitionNames and listPartitionValues then derive from the SAME cached list
-        // without re-enumerating, and the derived outputs stay byte-consistent with listPartitions' rendered
-        // list. MUTATION: any hook bypassing the shared cachedPartitions -> loadCount > 1 -> red.
+    public void bothHooksShareOneCacheEntry() {
+        // WHY (PA-1): the two enumeration hooks share ONE (db,table,snapshotId) entry -- listPartitions
+        // populates it and listPartitionNames then derives from the SAME cached list without re-enumerating,
+        // with the derived names byte-consistent with listPartitions' rendered list. The partition_values()
+        // table function also lands on listPartitions, so it is covered by this same entry.
+        // MUTATION: either hook bypassing the shared cachedPartitions -> loadCount > 1 -> red.
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = regionTable();
         ops.table = table;
@@ -324,22 +302,18 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
 
         List<ConnectorPartitionInfo> full = md.listPartitions(null, h, Optional.empty());
         List<String> namesOut = md.listPartitionNames(null, h);
-        List<List<String>> valuesOut = md.listPartitionValues(null, h, Collections.singletonList("region"));
 
-        Assertions.assertEquals(1, loadCount(ops), "all three hooks must share one cache entry (enumerate once)");
-        Assertions.assertEquals(names(full), namesOut, "listPartitionNames equals the names of listPartitions' list");
-        Assertions.assertEquals(
-                full.stream().map(p -> Collections.singletonList(p.getPartitionValues().get("region")))
-                        .collect(Collectors.toList()),
-                valuesOut, "listPartitionValues equals the values derived from listPartitions' list");
+        Assertions.assertEquals(1, loadCount(ops), "both hooks must share one cache entry (enumerate once)");
+        Assertions.assertEquals(names(full), namesOut,
+                "listPartitionNames equals the names of listPartitions' list");
     }
 
     @Test
-    public void unpartitionedNamesAndValuesBypassCacheWithoutTouchingSnapshotSeam() {
-        // WHY (PA-1): the "no seam call for unpartitioned" contract must hold for the new routing of
-        // listPartitionNames and listPartitionValues too -- cachedPartitions short-circuits before building a
-        // key, so neither latestSnapshotId nor listPartitions is called. MUTATION: routing through the cache
-        // before the emptiness check -> "latestSnapshotId" appears in ops.log -> red.
+    public void unpartitionedNamesBypassCacheWithoutTouchingSnapshotSeam() {
+        // WHY (PA-1): the "no seam call for unpartitioned" contract must hold for the cache-aware routing of
+        // listPartitionNames too -- cachedPartitions short-circuits before building a key, so neither
+        // latestSnapshotId nor listPartitions is called. MUTATION: routing through the cache before the
+        // emptiness check -> "latestSnapshotId" appears in ops.log -> red.
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(
                 "t1", RowType.builder().field("id", DataTypes.INT()).build(),
@@ -352,7 +326,6 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
         PaimonConnectorMetadata md = metadataWithCache(ops, cache);
 
         Assertions.assertTrue(md.listPartitionNames(null, h).isEmpty());
-        Assertions.assertTrue(md.listPartitionValues(null, h, Collections.singletonList("region")).isEmpty());
-        Assertions.assertTrue(ops.log.isEmpty(), "unpartitioned names/values must not touch any remote seam");
+        Assertions.assertTrue(ops.log.isEmpty(), "unpartitioned name listing must not touch any remote seam");
     }
 }

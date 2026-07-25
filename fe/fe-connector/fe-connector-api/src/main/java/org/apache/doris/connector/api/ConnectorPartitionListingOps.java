@@ -31,11 +31,6 @@ import java.util.Optional;
  * {@link #listPartitionNames} and {@link #listPartitions}. A connector without partitioned tables implements
  * nothing here and the empty defaults are correct for it.</p>
  *
- * <p><b>Do not implement {@link #listPartitionValues}.</b> It has no production caller: the
- * {@code partition_values()} table function reaches the connector through {@link #listPartitions}, not through
- * this method, so an implementation is dead code that reads as live. It is documented here rather than deleted
- * only because deleting it is a separate change that also touches the connectors that implement it today.</p>
- *
  * <p>When supplying {@link ConnectorPartitionInfo} objects, note that the ordered partition values are
  * mandatory on the MVCC partition-item path — see that class for what silently happens when they are
  * omitted.</p>
@@ -66,15 +61,4 @@ public interface ConnectorPartitionListingOps {
         return Collections.emptyList();
     }
 
-    /**
-     * Lists distinct partition column value combinations for the given columns.
-     * Inner list order matches {@code partitionColumns}.
-     *
-     * <p>No engine path calls this; see the class javadoc.</p>
-     */
-    default List<List<String>> listPartitionValues(ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<String> partitionColumns) {
-        return Collections.emptyList();
-    }
 }

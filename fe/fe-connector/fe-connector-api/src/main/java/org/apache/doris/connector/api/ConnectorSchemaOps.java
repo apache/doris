@@ -66,21 +66,17 @@ public interface ConnectorSchemaOps {
                 "CREATE DATABASE not supported");
     }
 
-    /** Drops the specified database. */
-    default void dropDatabase(ConnectorSession session,
-            String dbName, boolean ifExists) {
-        throw new DorisConnectorException(
-                "DROP DATABASE not supported");
-    }
-
     /**
-     * Drops the specified database, cascading to its tables when {@code force} is
-     * true. The default delegates to the non-cascading 3-arg form, so connectors
-     * that do not support cascade keep their current behavior with zero change;
-     * a connector that supports FORCE overrides this overload.
+     * Drops the specified database, cascading to its tables when {@code force} is true.
+     *
+     * <p>This is the only drop-database entry point: a 3-arg form without {@code force} used to exist and
+     * this overload defaulted to it, so {@code DROP DATABASE ... FORCE} silently became a non-cascading drop
+     * that then failed on a non-empty database. A connector that cannot cascade should reject {@code force}
+     * explicitly instead.</p>
      */
     default void dropDatabase(ConnectorSession session,
             String dbName, boolean ifExists, boolean force) {
-        dropDatabase(session, dbName, ifExists);
+        throw new DorisConnectorException(
+                "DROP DATABASE not supported");
     }
 }

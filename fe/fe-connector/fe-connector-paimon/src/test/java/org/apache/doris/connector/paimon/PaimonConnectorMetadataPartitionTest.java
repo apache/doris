@@ -208,33 +208,6 @@ public class PaimonConnectorMetadataPartitionTest {
         Assertions.assertEquals(Collections.singletonList("dt=2024-01-01/region=cn"), names);
     }
 
-    @Test
-    public void listPartitionValuesUsesRequestedColumnOrderWithRenderedValues() {
-        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
-        FakePaimonTable table = new FakePaimonTable(
-                "t1", dtRegionRowType(), Arrays.asList("dt", "region"), Collections.emptyList());
-        table.setOptions(Collections.singletonMap("partition.legacy-name", "true"));
-        ops.table = table;
-        // Paimon native spec order is dt, region; the request asks for the reversed order.
-        Map<String, String> spec = new LinkedHashMap<>();
-        spec.put("dt", String.valueOf(DT_EPOCH_DAY));
-        spec.put("region", "cn");
-        ops.partitions = Collections.singletonList(partition(spec, 1L, 1L, 1L));
-
-        List<List<String>> values = metadataWith(ops)
-                .listPartitionValues(null, dtRegionHandle(table), Arrays.asList("region", "dt"));
-
-        // WHY: the partition_values() TVF contract requires the inner list order to match the
-        // REQUESTED partitionColumns order (region, dt), NOT Paimon's native spec order (dt, region); and
-        // each value is the Hive-canonical RENDERED form (dt -> the formatted date, never the raw epoch-day
-        // int) so the TVF consumer can parse it (convertStringToDateV2 throws on "19723"). MUTATION:
-        // iterating spec.entrySet()/keySet() instead of partitionColumns -> ["2024-01-01", "cn"] instead of
-        // ["cn", "2024-01-01"] -> red; emitting the raw epoch-day "19723" instead of the rendered date -> red.
-        Assertions.assertEquals(
-                Collections.singletonList(Arrays.asList("cn", DateTimeUtils.formatDate(DT_EPOCH_DAY))),
-                values);
-    }
-
     /** Single STRING partition column {@code category}. */
     private static RowType categoryRowType() {
         return RowType.builder()
@@ -382,13 +355,11 @@ public class PaimonConnectorMetadataPartitionTest {
         PaimonConnectorMetadata metadata = metadataWith(ops);
 
         // WHY: legacy never lists partitions for unpartitioned tables (PaimonPartitionInfoLoader
-        // returns EMPTY when partitionColumns is empty). All three SPI methods must short-circuit
+        // returns EMPTY when partitionColumns is empty). Both SPI methods must short-circuit
         // to empty BEFORE touching the catalog seam. MUTATION: removing the empty-partitionKeys
         // guard -> a listPartitions seam call is logged -> red.
         Assertions.assertTrue(metadata.listPartitionNames(null, handle).isEmpty());
         Assertions.assertTrue(metadata.listPartitions(null, handle, Optional.empty()).isEmpty());
-        Assertions.assertTrue(
-                metadata.listPartitionValues(null, handle, Collections.singletonList("id")).isEmpty());
         Assertions.assertFalse(ops.log.contains("listPartitions:db1.t1"),
                 "unpartitioned tables must not reach the listPartitions seam");
     }

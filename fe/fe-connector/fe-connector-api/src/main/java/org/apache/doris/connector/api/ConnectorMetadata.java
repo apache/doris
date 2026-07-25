@@ -26,9 +26,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -57,11 +55,6 @@ public interface ConnectorMetadata extends
         ConnectorWriteOps,
         ConnectorIdentifierOps,
         Closeable {
-
-    /** Returns connector-level properties. */
-    default Map<String, String> getProperties() {
-        return Collections.emptyMap();
-    }
 
     // ──────────────────── MVCC Snapshots ────────────────────
 

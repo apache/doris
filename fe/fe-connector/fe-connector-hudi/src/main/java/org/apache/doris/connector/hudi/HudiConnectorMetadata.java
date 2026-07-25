@@ -389,11 +389,6 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 hudiHandle.getTableName(), columns, "HUDI", tableProperties);
     }
 
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     // ========== Read-only write-reject safety net ==========
 
     /**
@@ -686,28 +681,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return names;
     }
 
-    @Override
-    public List<List<String>> listPartitionValues(ConnectorSession session,
-            ConnectorTableHandle handle, List<String> partitionColumns) {
-        // partition_values() TVF (user-facing enumeration): list FRESH (bypassCache=true), like listPartitionNames.
-        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle, true);
-        List<List<String>> result = new ArrayList<>(partitions.size());
-        for (ConnectorPartitionInfo partition : partitions) {
-            Map<String, String> rawValues = partition.getPartitionValues();
-            // Preserve the requested partitionColumns order (feeds the partition_values() TVF, whose inner-list
-            // order must match the input), mirroring PaimonConnectorMetadata.listPartitionValues.
-            List<String> values = new ArrayList<>(partitionColumns.size());
-            for (String column : partitionColumns) {
-                values.add(rawValues.get(column));
-            }
-            result.add(values);
-        }
-        return result;
-    }
-
     /**
-     * Shared partition collector backing {@link #listPartitions}, {@link #listPartitionNames} and
-     * {@link #listPartitionValues}. Lists the raw partition identifiers from the
+     * Shared partition collector backing {@link #listPartitions} and {@link #listPartitionNames}. Lists the
+     * raw partition identifiers from the
      * {@code use_hive_sync_partition}-aware source (mirroring legacy
      * {@code HudiExternalMetaCache.loadPartitionNames}), then renders one {@link ConnectorPartitionInfo} per
      * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
@@ -723,9 +699,10 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // hmsClient, no metaClient), like legacy. The instant still comes from the timeline. If HMS has none
             // (a hive-sync table not yet synced), fall back to the hudi metadata listing (legacy parity).
             // bypassCache selects the freshness contract (mirrors HiveConnectorMetadata.collectPartitionNames):
-            // the SHOW-PARTITIONS / partition_values-TVF path (listPartitionNames / listPartitionValues) lists
-            // FRESH — legacy read the raw pooled client, so an externally hive-synced partition must not stay
-            // invisible until TTL/REFRESH — while the query-pruning / MTMV path (listPartitions) reads the cache.
+            // the SHOW PARTITIONS path (listPartitionNames) lists FRESH — legacy read the raw pooled client, so
+            // an externally hive-synced partition must not stay invisible until TTL/REFRESH — while the
+            // query-pruning / MTMV path (listPartitions) reads the cache. Note the partition_values() table
+            // function goes through listPartitions, so it reads the cache too and can trail it by one TTL.
             List<String> hmsNames = bypassCache
                     ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
                     : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);

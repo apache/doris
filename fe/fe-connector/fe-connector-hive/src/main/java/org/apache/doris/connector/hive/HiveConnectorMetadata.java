@@ -208,7 +208,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     };
 
     private final HmsClient hmsClient;
-    private final Map<String, String> properties;
     // Carries the fe-core-injected environment (getEnvironment()) with the FE-global CREATE TABLE defaults
     // (hive_default_file_format / enable_create_hive_bucket_table / doris_version) that the plugin cannot
     // read from FE Config. The default getEnvironment() is an empty map, so direct-construction tests that
@@ -282,7 +281,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             HiveFileListingCache fileListingCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
         this.hmsClient = hmsClient;
-        this.properties = properties;
         this.context = context;
         this.icebergSiblingSupplier = icebergSiblingSupplier;
         this.hudiSiblingSupplier = hudiSiblingSupplier;
@@ -592,11 +590,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         props.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY, String.join(",", caps));
         return new ConnectorTableSchema(siblingSchema.getTableName(), siblingSchema.getColumns(),
                 siblingSchema.getTableFormatType(), props);
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
     }
 
     // ========== ConnectorTableOps: Column Handles ==========

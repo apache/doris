@@ -38,11 +38,16 @@ import java.util.concurrent.Callable;
  * {@code HiveConnector} so repeated queries against the same hudi-on-HMS table stop re-hitting the metastore.
  * Two behaviors carry correctness weight and are pinned here (Rule 9):
  * <ul>
- *   <li><b>Fresh vs cached split.</b> The user-facing enumeration paths ({@code SHOW PARTITIONS} =
- *       {@code listPartitionNames}, {@code partition_values()} TVF = {@code listPartitionValues}) MUST list
- *       FRESH (bypass the cache), or an externally hive-synced partition stays invisible until the 24h TTL —
- *       a freshness regression the raw pre-cache client never had. The query-pruning / MTMV path
- *       ({@code listPartitions}) MUST use the cache (that is the whole point of wrapping).</li>
+ *   <li><b>Fresh vs cached split.</b> {@code SHOW PARTITIONS} ({@code listPartitionNames}) MUST list FRESH
+ *       (bypass the cache), or an externally hive-synced partition stays invisible until the 24h TTL — a
+ *       freshness regression the raw pre-cache client never had. The query-pruning / MTMV path
+ *       ({@code listPartitions}) MUST use the cache (that is the whole point of wrapping).
+ *       <p>Note which path the {@code partition_values()} table function takes, because the earlier comment
+ *       here had it wrong: the engine reaches the connector through {@code listPartitions}
+ *       ({@code PluginDrivenExternalTable.getNameToPartitionValues}), i.e. the CACHED path, so its output can
+ *       trail an external partition addition by one cache TTL. That is pre-existing behavior, not something
+ *       this cache introduced, and deciding whether the table function should list fresh is a separate
+ *       change — the mapping is recorded here so it does not get re-derived wrongly.</p></li>
  *   <li><b>REFRESH flush.</b> {@code invalidateTable}/{@code invalidateDb}/{@code invalidateAll} MUST flush the
  *       {@link CachingHmsClient}, or REFRESH cannot clear the sibling's own cache (the gateway forwards REFRESH
  *       to the sibling, so the flush must land on THIS connector's client).</li>
@@ -75,16 +80,6 @@ public class HudiConnectorHmsCacheTest {
         md.listPartitionNames(null, partitioned());
         Assertions.assertEquals(1, hms.freshCalls, "SHOW PARTITIONS must list FRESH (bypass cache)");
         Assertions.assertEquals(0, hms.cachedCalls, "SHOW PARTITIONS must NOT read the cached listing");
-    }
-
-    @Test
-    public void partitionValuesTvfListsFresh() {
-        // partition_values() TVF is user-facing enumeration too -> fresh, like listPartitionNames.
-        FakeHmsClient hms = new FakeHmsClient(ONE_PARTITION);
-        HudiConnectorMetadata md = hiveSyncMetadata(hms);
-        md.listPartitionValues(null, partitioned(), YEAR_MONTH);
-        Assertions.assertEquals(1, hms.freshCalls, "partition_values() must list FRESH (bypass cache)");
-        Assertions.assertEquals(0, hms.cachedCalls, "partition_values() must NOT read the cached listing");
     }
 
     @Test

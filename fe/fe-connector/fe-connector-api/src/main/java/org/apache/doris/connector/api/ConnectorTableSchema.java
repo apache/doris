@@ -74,12 +74,6 @@ public final class ConnectorTableSchema {
     public static final String PARTITION_COLUMNS_KEY = INTERNAL_KEY_PREFIX + "partition_columns";
 
     /**
-     * Reserved property key carrying a CSV of the table's primary-key column names (paimon). FE-only;
-     * stripped from the user-facing SHOW CREATE TABLE PROPERTIES(...) block.
-     */
-    public static final String PRIMARY_KEYS_KEY = INTERNAL_KEY_PREFIX + "primary_keys";
-
-    /**
      * Reserved property key carrying a CSV of {@link ConnectorCapability#name()} values that THIS specific
      * table supports, refining the connector-wide {@link Connector#getCapabilities()} set per-table.
      *
@@ -117,7 +111,7 @@ public final class ConnectorTableSchema {
      */
     public static final Set<String> RESERVED_CONTROL_KEYS = Collections.unmodifiableSet(new HashSet<>(
             Arrays.asList(
-                    PARTITION_COLUMNS_KEY, PRIMARY_KEYS_KEY, SHOW_LOCATION_KEY, SHOW_PARTITION_CLAUSE_KEY,
+                    PARTITION_COLUMNS_KEY, SHOW_LOCATION_KEY, SHOW_PARTITION_CLAUSE_KEY,
                     SHOW_SORT_CLAUSE_KEY, PER_TABLE_CAPABILITIES_KEY, DISTRIBUTION_COLUMNS_KEY)));
 
     private final String tableName;

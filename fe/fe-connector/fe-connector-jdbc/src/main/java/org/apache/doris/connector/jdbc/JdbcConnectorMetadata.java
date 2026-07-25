@@ -183,11 +183,6 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    @Override
     public org.apache.doris.thrift.TTableDescriptor buildTableDescriptor(
             ConnectorSession session,
             long tableId, String tableName, String dbName,
@@ -253,11 +248,6 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
             String remoteColumnName) {
         return getIdentifierMapper(session).fromRemoteColumnName(
                 remoteDatabaseName, remoteTableName, remoteColumnName);
-    }
-
-    @Override
-    public List<String> getPrimaryKeys(ConnectorSession session, String dbName, String tableName) {
-        return client.getPrimaryKeys(dbName, tableName);
     }
 
     @Override

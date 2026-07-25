@@ -21,7 +21,6 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Table-level DDL: create, drop, rename, truncate.
@@ -30,44 +29,29 @@ import java.util.Map;
  * fails loud with a "not supported" message, which is the correct answer for it.</p>
  *
  * <p>Minimum implementation set: to support {@code CREATE TABLE}, override
- * {@link #createTable(ConnectorSession, ConnectorCreateTableRequest)} — <b>the request overload, never only
- * the schema/properties one</b>. The request overload's default degrades to the narrow one and drops the
- * partition spec, the bucket spec, {@code EXTERNAL} and {@code IF NOT EXISTS} on the floor, so a connector
- * that implements only the narrow signature reports success on a partitioned {@code CREATE TABLE} and creates
- * an unpartitioned table. All four connectors that support create implement the request overload and none
- * implements the narrow one; it is kept only as the degradation target. {@link #dropTable},
- * {@link #renameTable} and {@link #truncateTable} are independent and optional.</p>
+ * {@link #createTable(ConnectorSession, ConnectorCreateTableRequest)}. There is deliberately only ONE create
+ * entry point: a narrower {@code (schema, properties)} overload used to exist and the request overload
+ * degraded to it, silently dropping the partition spec, the bucket spec and {@code IF NOT EXISTS} — a
+ * connector implementing only the narrow form reported success on a partitioned {@code CREATE TABLE} and
+ * created an unpartitioned table. Nothing implemented it, so it is gone rather than documented.
+ * {@link #dropTable}, {@link #renameTable} and {@link #truncateTable} are independent and optional.</p>
  */
 public interface ConnectorTableDdlOps {
 
-    /** Creates a new table with the given schema and properties. */
-    default void createTable(ConnectorSession session,
-            ConnectorTableSchema schema,
-            Map<String, String> properties) {
-        throw new DorisConnectorException(
-                "CREATE TABLE not supported");
-    }
-
     /**
-     * Creates a table with full DDL semantics (partition, bucket,
-     * {@code IF NOT EXISTS}).
+     * Creates a table with full DDL semantics (partition, bucket, {@code IF NOT EXISTS}).
      *
-     * <p>Connectors should override this when they support advanced
-     * {@code CREATE TABLE} options. The default degrades to the legacy
-     * {@link #createTable(ConnectorSession, ConnectorTableSchema, Map)},
-     * dropping partition / bucket / {@code ifNotExists} info.</p>
+     * <p>The request carries everything the statement said; a connector that cannot honor part of it must
+     * reject that part rather than ignore it, because a {@code CREATE TABLE} reporting success after dropping
+     * the partition spec is indistinguishable from one that worked.</p>
      *
-     * @throws DorisConnectorException if the connector cannot honor the request
+     * @throws DorisConnectorException if the connector cannot create tables, or cannot honor the request
      */
     @ConnectorMustImplement(when = "the connector supports CREATE TABLE")
     default void createTable(ConnectorSession session,
             ConnectorCreateTableRequest request) {
-        ConnectorTableSchema schema = new ConnectorTableSchema(
-                request.getTableName(),
-                request.getColumns(),
-                null,
-                request.getProperties());
-        createTable(session, schema, request.getProperties());
+        throw new DorisConnectorException(
+                "CREATE TABLE not supported");
     }
 
     /** Drops the specified table. */
