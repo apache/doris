@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
@@ -242,6 +243,11 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.renameColumn(session, foreignHandle, "a", "b");
         md.modifyColumn(session, foreignHandle, null, null);
         md.reorderColumns(session, foreignHandle, Collections.emptyList());
+        md.addNestedColumn(session, foreignHandle, null, null, null);
+        md.dropNestedColumn(session, foreignHandle, null);
+        md.renameNestedColumn(session, foreignHandle, null, "b");
+        md.modifyNestedColumn(session, foreignHandle, null, null, null);
+        md.modifyColumnComment(session, foreignHandle, null, "c");
         md.createOrReplaceBranch(session, foreignHandle, null);
         md.createOrReplaceTag(session, foreignHandle, null);
         md.dropBranch(session, foreignHandle, null);
@@ -295,6 +301,15 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         assertThrowsMessage(() -> md.modifyColumn(session, hive, null, null), "MODIFY COLUMN not supported");
         assertThrowsMessage(() -> md.reorderColumns(session, hive, Collections.emptyList()),
                 "REORDER COLUMNS not supported");
+        assertThrowsMessage(() -> md.addNestedColumn(session, hive, null, null, null),
+                "nested ADD COLUMN not supported");
+        assertThrowsMessage(() -> md.dropNestedColumn(session, hive, null), "nested DROP COLUMN not supported");
+        assertThrowsMessage(() -> md.renameNestedColumn(session, hive, null, "b"),
+                "nested RENAME COLUMN not supported");
+        assertThrowsMessage(() -> md.modifyNestedColumn(session, hive, null, null, null),
+                "nested MODIFY COLUMN not supported");
+        assertThrowsMessage(() -> md.modifyColumnComment(session, hive, null, "c"),
+                "MODIFY COLUMN COMMENT not supported");
         assertThrowsMessage(() -> md.createOrReplaceBranch(session, hive, null), "CREATE/REPLACE BRANCH not supported");
         assertThrowsMessage(() -> md.createOrReplaceTag(session, hive, null), "CREATE/REPLACE TAG not supported");
         assertThrowsMessage(() -> md.dropBranch(session, hive, null), "DROP BRANCH not supported");
@@ -555,7 +570,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
         static final List<String> EXPECTED_WRITE_METHODS = Collections.unmodifiableList(Arrays.asList(
                 "renameTable", "addColumn", "addColumns", "dropColumn", "renameColumn", "modifyColumn",
-                "reorderColumns", "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
+                "reorderColumns", "addNestedColumn", "dropNestedColumn", "renameNestedColumn",
+                "modifyNestedColumn", "modifyColumnComment",
+                "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
                 "addPartitionField", "dropPartitionField", "replacePartitionField",
                 "validateRowLevelDmlMode", "validateStaticPartitionColumns", "validateWritePartitionNames"));
 
@@ -762,6 +779,36 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle, List<String> newOrder) {
             calls.add("reorderColumns");
+        }
+
+        @Override
+        public void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+                ConnectorColumn column, ConnectorColumnPosition position) {
+            calls.add("addNestedColumn");
+        }
+
+        @Override
+        public void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path) {
+            calls.add("dropNestedColumn");
+        }
+
+        @Override
+        public void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path, String newName) {
+            calls.add("renameNestedColumn");
+        }
+
+        @Override
+        public void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+            calls.add("modifyNestedColumn");
+        }
+
+        @Override
+        public void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path, String comment) {
+            calls.add("modifyColumnComment");
         }
 
         @Override

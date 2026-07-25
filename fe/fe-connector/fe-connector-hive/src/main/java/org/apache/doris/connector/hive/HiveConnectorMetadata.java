@@ -32,6 +32,7 @@ import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
@@ -1865,6 +1866,60 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return;
         }
         throw new DorisConnectorException("REORDER COLUMNS not supported");
+    }
+
+    // The five path-addressed (nested) column ops need the same divert as the six flat ones above: fe-core
+    // routes a dotted-path ALTER straight at the catalog's own metadata, so without these an iceberg-on-HMS
+    // table rejects nested column DDL that the very same table accepts through a dedicated iceberg catalog.
+    // modifyColumnComment is the entry point for MODIFY COLUMN ... COMMENT on flat columns too, not only nested.
+
+    @Override
+    public void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).addNestedColumn(session, handle, path, column, position);
+            return;
+        }
+        throw new DorisConnectorException("nested ADD COLUMN not supported");
+    }
+
+    @Override
+    public void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).dropNestedColumn(session, handle, path);
+            return;
+        }
+        throw new DorisConnectorException("nested DROP COLUMN not supported");
+    }
+
+    @Override
+    public void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            String newName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).renameNestedColumn(session, handle, path, newName);
+            return;
+        }
+        throw new DorisConnectorException("nested RENAME COLUMN not supported");
+    }
+
+    @Override
+    public void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).modifyNestedColumn(session, handle, path, column, position);
+            return;
+        }
+        throw new DorisConnectorException("nested MODIFY COLUMN not supported");
+    }
+
+    @Override
+    public void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            String comment) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).modifyColumnComment(session, handle, path, comment);
+            return;
+        }
+        throw new DorisConnectorException("MODIFY COLUMN COMMENT not supported");
     }
 
     @Override
