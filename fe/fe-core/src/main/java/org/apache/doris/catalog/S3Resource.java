@@ -103,7 +103,10 @@ public class S3Resource extends Resource {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
 
-        String region = S3Properties.getRegionOfEndpoint(properties.get(S3Properties.ENDPOINT));
+        String endpoint = S3Util.buildEndpointUrl(properties.get(S3Properties.ENDPOINT));
+        properties.put(S3Properties.ENDPOINT, endpoint);
+        properties.put(S3Properties.Env.ENDPOINT, endpoint);
+        String region = S3Properties.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
 
         if (needCheck) {
@@ -226,6 +229,11 @@ public class S3Resource extends Resource {
         }
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
+        if (!Strings.isNullOrEmpty(properties.get(S3Properties.ENDPOINT))) {
+            String endpoint = S3Util.buildEndpointUrl(properties.get(S3Properties.ENDPOINT));
+            properties.put(S3Properties.ENDPOINT, endpoint);
+            properties.put(S3Properties.Env.ENDPOINT, endpoint);
+        }
         boolean needCheck = isNeedCheck(properties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);

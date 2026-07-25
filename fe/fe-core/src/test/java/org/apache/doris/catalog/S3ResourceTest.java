@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -194,7 +195,10 @@ public class S3ResourceTest {
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());
 
-        Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ENDPOINT), "aaa");
+        String expectedEndpoint = Config.s3_client_http_scheme + "://aaa";
+        Assert.assertEquals(expectedEndpoint, rS3Resource2.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals(expectedEndpoint,
+                S3Properties.getObjStoreInfoPB(rS3Resource2.getCopiedProperties()).getEndpoint());
         Assert.assertEquals(rS3Resource2.getProperty(S3Properties.REGION), "bbb");
         Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ROOT_PATH), "/path/to/root");
         Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ACCESS_KEY), "xxx");
@@ -226,6 +230,21 @@ public class S3ResourceTest {
         Map<String, String> modify = new HashMap<>();
         modify.put("s3.access_key", "aaa");
         s3Resource.modifyProperties(modify);
+
+        modify.clear();
+        modify.put(S3Properties.ENDPOINT, "new-endpoint");
+        s3Resource.modifyProperties(modify);
+        String expectedEndpoint = Config.s3_client_http_scheme + "://new-endpoint";
+        Assert.assertEquals(expectedEndpoint, s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals(expectedEndpoint, s3Resource.getProperty(S3Properties.Env.ENDPOINT));
+        Assert.assertEquals(expectedEndpoint,
+                S3Properties.getObjStoreInfoPB(s3Resource.getCopiedProperties()).getEndpoint());
+
+        modify.clear();
+        modify.put(S3Properties.Env.ENDPOINT, "http://other-endpoint");
+        s3Resource.modifyProperties(modify);
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.Env.ENDPOINT));
     }
 
     @Test
