@@ -506,6 +506,22 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
+    public void testExecuteKeepsDetailedCommandErrorMessage() throws Exception {
+        // Preserve the detailed command error so callers like export jobs can surface
+        // the root cause instead of the outer wrapper message.
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext,
+                "ALTER RESOURCE \"missing_resource_for_error_message\" PROPERTIES (\"type\" = \"s3\")");
+        stmtExecutor.execute();
+
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("Can not change resource type"),
+                connectContext.getState().getErrorMessage());
+        Assertions.assertFalse(connectContext.getState().getErrorMessage().contains("Command ("),
+                connectContext.getState().getErrorMessage());
+    }
+
+    @Test
     public void testAlterResourceSuccessLogDoesNotPrintResourceObject() throws Exception {
         createResource(CREATE_AI_RESOURCE_SQL);
         String alterSql = "ALTER RESOURCE \"ai_resource_log_test\" PROPERTIES ("
