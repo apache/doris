@@ -492,6 +492,18 @@ public abstract class JdbcConnectorClient implements Closeable {
     }
 
     /**
+     * Generates a CREATE DATABASE SQL statement for the given database name.
+     * Subclasses override for database-specific SQL syntax.
+     */
+    public String getCreateDatabaseSql(String dbName, boolean ifNotExists) {
+        throw new DorisConnectorException("CREATE DATABASE is not supported for " + dbType);
+    }
+
+    public String getDropDatabaseSql(String dbName, boolean ifExists) {
+        throw new DorisConnectorException("DROP DATABASE is not supported for " + dbType);
+    }
+
+    /**
      * Get column metadata from a query by preparing it and reading ResultSetMetaData.
      */
     public List<JdbcFieldInfo> getColumnsFromQuery(String query) {

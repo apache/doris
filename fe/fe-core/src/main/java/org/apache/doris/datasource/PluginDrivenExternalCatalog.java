@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -26,6 +27,8 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
@@ -33,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -293,6 +297,77 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         if (logType != InitCatalogLog.Type.PLUGIN) {
             LOG.info("Migrating catalog '{}' logType from {} to PLUGIN", name, logType);
             logType = InitCatalogLog.Type.PLUGIN;
+        }
+    }
+
+    @Override
+    public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties)
+            throws DdlException {
+        makeSureInitialized();
+        LOG.info("Creating database {} in catalog {} (ifNotExists={})", dbName, getName(), ifNotExists);
+        HashMap<String, String> props = new HashMap<>(properties);
+        props.put("jdbc_if_not_exists", String.valueOf(ifNotExists));
+        ConnectorSession session = buildConnectorSession();
+
+        // Execute remote CREATE DATABASE
+        connector.getMetadata(session).createDatabase(session, dbName, props);
+
+        // Invalidate cache so next listDatabaseNames() re-fetches from remote
+        resetMetaCacheNames();
+
+        // Write edit log so follower FEs can replay cache invalidation
+        Env.getCurrentEnv().getEditLog().logCreateDb(new CreateDbInfo(getName(), dbName, null));
+    }
+
+    @Override
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        makeSureInitialized();
+
+        // Look up ExternalDatabase by name (handles case-insensitive lookup internally)
+        ExternalDatabase<?> dorisDb = getDbNullable(dbName);
+        if (dorisDb == null) {
+            if (ifExists) {
+                LOG.info("Drop database [{}] which does not exist", dbName);
+                return;
+            } else {
+                throw new DdlException("Database " + dbName + " does not exist");
+            }
+        }
+
+        // Get the local name and remote name
+        String localDbName = dorisDb.getFullName();
+        String remoteDbName = dorisDb.getRemoteName();
+
+        LOG.info("Dropping database {} (local: {}, remote: {}) in catalog {}",
+                dbName, localDbName, remoteDbName, getName());
+
+        ConnectorSession session = buildConnectorSession();
+
+        // Execute remote DROP DATABASE with remote name (preserves case for MySQL)
+        connector.getMetadata(session).dropDatabase(session, remoteDbName, ifExists);
+
+        // Remove from cache using local name
+        unregisterDatabase(localDbName);
+
+        // Write edit log using local name
+        Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), localDbName));
+    }
+
+    @Override
+    public void replayCreateDb(String dbName) {
+        if (isInitialized()) {
+            LOG.info("Replay create database {} in catalog {}", dbName, getName());
+            // Follower FE only needs to invalidate cache, not re-execute remote CREATE
+            resetMetaCacheNames();
+        }
+    }
+
+    @Override
+    public void replayDropDb(String dbName) {
+        if (isInitialized()) {
+            LOG.info("Replay drop database {} in catalog {}", dbName, getName());
+            // Follower FE only needs to remove from cache
+            unregisterDatabase(dbName);
         }
     }
 

@@ -532,4 +532,18 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         return lower.contains("zerodatetimebehavior=converttonull")
                 || lower.contains("zerodatetimebehavior=convert_to_null");
     }
+
+    @Override
+    public String getCreateDatabaseSql(String dbName, boolean ifNotExists) {
+        String sql = ifNotExists
+                ? "CREATE DATABASE IF NOT EXISTS `" + dbName.replace("`", "``") + "`"
+                : "CREATE DATABASE `" + dbName.replace("`", "``") + "`";
+        return sql;
+    }
+
+    @Override
+    public String getDropDatabaseSql(String dbName, boolean ifExists) {
+        return (ifExists ? "DROP DATABASE IF EXISTS `" : "DROP DATABASE `")
+                + dbName.replace("`", "``") + "`";
+    }
 }
