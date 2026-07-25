@@ -18,13 +18,16 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.UnaryOperator;
 
 /**
  * Hand-written {@link ConnectorContext} test double (no Mockito) used to assert that the
@@ -61,6 +64,8 @@ final class RecordingConnectorContext implements ConnectorContext {
     // ---- FIX-URI-NORMALIZE / FIX-REST-VENDED-URI-NORMALIZE: normalizeStorageUri hook ----
     /** Number of times the connector invoked {@link #normalizeStorageUri}. */
     int normalizeCount;
+    /** Number of times the connector asked for a batch normalizer (the once-per-scan derivation). */
+    int newNormalizerCount;
     /** The vended token the connector passed to the most recent 2-arg {@link #normalizeStorageUri}. */
     Map<String, String> lastVendedToken;
 
@@ -95,6 +100,16 @@ final class RecordingConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> vendedToken) {
+        // A DISTINGUISHABLE normalizer instance. The SPI default builds a fresh lambda that never touches
+        // this context, so a decorator that forgets to forward this method silently gives back the default
+        // one - correct results, but the once-per-scan storage-config derivation degrades to once per file
+        // with nothing in the logs to say so.
+        newNormalizerCount++;
+        return rawUri -> normalizeStorageUri(rawUri, vendedToken);
+    }
+
+    @Override
     public long getCatalogId() {
         return 0;
     }
@@ -108,4 +123,16 @@ final class RecordingConnectorContext implements ConnectorContext {
         }
         return task.call();
     }
+
+    // A distinguishable, non-null engine filesystem. The SPI default for getFileSystem is null, so a
+    // decorator that forgets to forward it hands the connector null instead of this instance.
+    final FileSystem engineFileSystem = (FileSystem) java.lang.reflect.Proxy.newProxyInstance(
+            RecordingConnectorContext.class.getClassLoader(), new Class<?>[] {FileSystem.class},
+            (proxy, method, args) -> null);
+
+    @Override
+    public FileSystem getFileSystem(ConnectorSession session) {
+        return engineFileSystem;
+    }
+
 }

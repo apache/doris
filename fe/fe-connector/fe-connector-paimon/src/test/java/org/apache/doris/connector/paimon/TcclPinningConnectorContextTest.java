@@ -147,6 +147,25 @@ public class TcclPinningConnectorContextTest {
                 "createSiblingConnector properties must reach the delegate unchanged");
     }
 
+    @Test
+    public void delegatesEngineFileSystemAndBatchNormalizer() {
+        RecordingConnectorContext delegate = new RecordingConnectorContext();
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader(), () -> null);
+
+        // These two were the actual gaps. getFileSystem fell to the SPI default and handed the connector
+        // null instead of the engine's per-catalog filesystem - an NPE, or (copying hive's null check) a
+        // message blaming the catalog's storage properties, which are fine.
+        Assertions.assertSame(delegate.engineFileSystem, ctx.getFileSystem(null),
+                "getFileSystem must reach the wrapped engine context, not the SPI default (null)");
+
+        // newStorageUriNormalizer fell to the SPI default too. That one stays CORRECT but silently
+        // undoes the optimization it exists for: the default re-derives the storage config for every URI
+        // instead of once per scan, and nothing logs the downgrade.
+        ctx.newStorageUriNormalizer(Collections.emptyMap());
+        Assertions.assertEquals(1, delegate.newNormalizerCount,
+                "newStorageUriNormalizer must reach the wrapped engine context, not the SPI default");
+    }
+
     /** Wiring-only {@link HadoopAuthenticator} double: records doAs calls and runs the action WITHOUT a UGI. */
     private static final class RecordingAuthenticator implements HadoopAuthenticator {
         int doAsCount;

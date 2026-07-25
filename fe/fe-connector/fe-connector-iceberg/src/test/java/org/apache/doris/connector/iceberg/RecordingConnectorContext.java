@@ -18,9 +18,11 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -184,4 +186,16 @@ final class RecordingConnectorContext implements ConnectorContext {
         cleanedLocations.add(location);
         cleanedChildDirs.add(tableChildDirs);
     }
+
+    // A distinguishable, non-null engine filesystem. The SPI default for getFileSystem is null, so a
+    // decorator that forgets to forward it hands the connector null instead of this instance.
+    final FileSystem engineFileSystem = (FileSystem) java.lang.reflect.Proxy.newProxyInstance(
+            RecordingConnectorContext.class.getClassLoader(), new Class<?>[] {FileSystem.class},
+            (proxy, method, args) -> null);
+
+    @Override
+    public FileSystem getFileSystem(ConnectorSession session) {
+        return engineFileSystem;
+    }
+
 }
