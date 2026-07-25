@@ -40,7 +40,7 @@
 namespace doris {
 namespace {
 
-using variant_json_detail::FormattedScalar;
+using variant_json::FormattedScalar;
 
 void append_char(FormattedScalar* result, char value) {
     result->bytes[result->size++] = value;
@@ -140,7 +140,7 @@ public:
             : _builder(builder), _options(options) {}
 
     void collect(SimdJSONParser::Element element, uint32_t depth) {
-        variant_json_detail::require_json_depth(depth);
+        variant_json::require_json_depth(depth);
         if (element.isNull()) {
             _builder.add_null();
         } else if (element.isBool()) {
@@ -196,7 +196,7 @@ private:
     }
 
     void validate_ignored(SimdJSONParser::Element element, uint32_t depth) const {
-        variant_json_detail::require_json_depth(depth);
+        variant_json::require_json_depth(depth);
         if (element.isArray()) {
             for (SimdJSONParser::Element child : element.getArray()) {
                 validate_ignored(child, depth + 1);
@@ -215,7 +215,7 @@ private:
 
 } // namespace
 
-namespace variant_json_detail {
+namespace variant_json {
 
 void require_json_depth(uint32_t depth) {
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
@@ -382,7 +382,7 @@ FormattedScalar format_json_uuid(const std::array<uint8_t, 16>& value) {
     return result;
 }
 
-} // namespace variant_json_detail
+} // namespace variant_json
 
 JsonToVariantOptions JsonToVariantOptions::current_config() {
     return {.max_json_key_length = static_cast<uint32_t>(config::variant_max_json_key_length),

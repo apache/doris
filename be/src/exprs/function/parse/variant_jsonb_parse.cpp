@@ -282,13 +282,13 @@ void require_jsonb_write(bool written, const char* operation) {
 }
 
 void write_jsonb_string(JsonbWriter& writer, StringRef value, const char* description) {
-    variant_json_detail::require_valid_json_utf8(value, description);
+    variant_json::require_valid_json_utf8(value, description);
     require_jsonb_write(writer.writeStartString(), "string start");
     require_jsonb_write(writer.writeString(value.data, value.size), "string payload");
     require_jsonb_write(writer.writeEndString(), "string end");
 }
 
-void write_jsonb_string(JsonbWriter& writer, const variant_json_detail::FormattedScalar& value) {
+void write_jsonb_string(JsonbWriter& writer, const variant_json::FormattedScalar& value) {
     write_jsonb_string(writer, {value.bytes.data(), value.size}, "formatted string");
 }
 
@@ -386,17 +386,17 @@ private:
             write_decimal(value.get_decimal());
             return;
         case VariantPrimitiveId::DATE:
-            write_jsonb_string(_writer, variant_json_detail::format_json_date(value.get_date()));
+            write_jsonb_string(_writer, variant_json::format_json_date(value.get_date()));
             return;
         case VariantPrimitiveId::TIMESTAMP_MICROS:
             write_jsonb_string(_writer,
-                               variant_json_detail::format_json_timestamp(
-                                       value.get_timestamp_micros(), 6, true, _options.timezone));
+                               variant_json::format_json_timestamp(value.get_timestamp_micros(), 6,
+                                                                   true, _options.timezone));
             return;
         case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
             write_jsonb_string(_writer,
-                               variant_json_detail::format_json_timestamp(
-                                       value.get_timestamp_ntz_micros(), 6, false, nullptr));
+                               variant_json::format_json_timestamp(value.get_timestamp_ntz_micros(),
+                                                                   6, false, nullptr));
             return;
         case VariantPrimitiveId::FLOAT:
             require_jsonb_write(_writer.writeFloat(value.get_float()), "float value");
@@ -408,21 +408,21 @@ private:
             write_jsonb_string(_writer, value.get_string(), "Variant string");
             return;
         case VariantPrimitiveId::TIME_NTZ_MICROS:
-            write_jsonb_string(_writer, variant_json_detail::format_json_time_micros(
-                                                value.get_time_ntz_micros()));
+            write_jsonb_string(_writer,
+                               variant_json::format_json_time_micros(value.get_time_ntz_micros()));
             return;
         case VariantPrimitiveId::TIMESTAMP_NANOS:
             write_jsonb_string(_writer,
-                               variant_json_detail::format_json_timestamp(
-                                       value.get_timestamp_nanos(), 9, true, _options.timezone));
+                               variant_json::format_json_timestamp(value.get_timestamp_nanos(), 9,
+                                                                   true, _options.timezone));
             return;
         case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
-            write_jsonb_string(_writer,
-                               variant_json_detail::format_json_timestamp(
-                                       value.get_timestamp_ntz_nanos(), 9, false, nullptr));
+            write_jsonb_string(
+                    _writer, variant_json::format_json_timestamp(value.get_timestamp_ntz_nanos(), 9,
+                                                                 false, nullptr));
             return;
         case VariantPrimitiveId::UUID:
-            write_jsonb_string(_writer, variant_json_detail::format_json_uuid(value.get_uuid()));
+            write_jsonb_string(_writer, variant_json::format_json_uuid(value.get_uuid()));
             return;
         }
         throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
@@ -436,7 +436,7 @@ private:
             uint32_t field_id = 0;
             const VariantRef child = value.object_value_at(index, &field_id);
             const StringRef key = value.metadata.key_at(field_id);
-            variant_json_detail::require_json_object_key(key, previous_key, index);
+            variant_json::require_json_object_key(key, previous_key, index);
             if (key.size > std::numeric_limits<uint8_t>::max()) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Variant object key length {} exceeds JSONB maximum {}", key.size,
@@ -547,7 +547,7 @@ void variant_to_jsonb(VariantRef value, JsonbWriter& writer,
                             value.metadata.version());
         }
         static_cast<void>(value.metadata.dict_size());
-        variant_json_detail::require_exact_json_value(value);
+        variant_json::require_exact_json_value(value);
         VariantToJsonbConverter(writer, options).write(value, 0);
     } catch (...) {
         writer.reset();

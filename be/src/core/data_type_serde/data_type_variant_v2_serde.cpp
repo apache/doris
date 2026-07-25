@@ -23,6 +23,7 @@
 #include <cstring>
 #include <limits>
 #include <orc/Vector.hh>
+#include <span>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -43,6 +44,7 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 
@@ -51,10 +53,47 @@ namespace {
 
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
-using data_type_variant_v2_serde_internal::CountingWriter;
-using data_type_variant_v2_serde_internal::checked_row;
-using data_type_variant_v2_serde_internal::visit_variant_values;
-using data_type_variant_v2_serde_internal::write_json_value;
+std::span<const NullMap::value_type> forced_nulls(const NullMap* null_map) {
+    return null_map == nullptr
+                   ? std::span<const NullMap::value_type> {}
+                   : std::span<const NullMap::value_type> {null_map->data(), null_map->size()};
+}
+
+size_t checked_row(int64_t row) {
+    if (row < 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant SerDe row {} is negative", row);
+    }
+    return static_cast<size_t>(row);
+}
+
+struct CountingWriter {
+    void write(const char*, size_t size) {
+        if (size > std::numeric_limits<size_t>::max() - count) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant JSON output is too large");
+        }
+        count += size;
+    }
+    size_t count = 0;
+};
+
+struct FixedWriter {
+    void write(const char* data, size_t size) {
+        DCHECK_LE(written, capacity);
+        DCHECK_LE(size, capacity - written);
+        std::memcpy(destination + written, data, size);
+        written += size;
+    }
+    char* destination;
+    size_t capacity;
+    size_t written = 0;
+};
+
+template <typename Writer>
+void write_json_value(VariantRef value, Writer& writer,
+                      const DataTypeSerDe::FormatOptions& options) {
+    VariantJsonFormatOptions json_options {.timezone = options.timezone};
+    to_json(value, writer, json_options);
+}
 
 constexpr size_t VARIANT_V2_TYPE_META_BYTES = sizeof(int32_t) * 4;
 
@@ -96,7 +135,7 @@ DataTypePtr read_variant_v2_type(const char*& buf) {
     buf += sizeof(uint32_t);
     const auto length = unaligned_load<int32_t>(buf);
     buf += sizeof(int32_t);
-    if (!column_variant_v2_internal::is_supported_typed_identity(primitive)) {
+    if (!is_supported_variant_typed_identity(primitive)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Unsupported Variant V2 typed identity {}",
                         static_cast<int32_t>(primitive));
     }
@@ -128,7 +167,7 @@ const char* deserialize_meta_ids(const char* buf, MutableColumnPtr* column) {
 
 void preflight_json(const IColumn& column, size_t start, size_t end,
                     const DataTypeSerDe::FormatOptions& options) {
-    visit_variant_values(
+    visit_variant_v2_values(
             column, start, end, {}, [](size_t) {},
             [&](size_t, VariantRef value) {
                 CountingWriter writer;
@@ -236,7 +275,7 @@ Status DataTypeVariantV2SerDe::serialize_one_cell_to_json(const IColumn& column,
     RETURN_IF_CATCH_EXCEPTION({
         const size_t row = checked_row(row_num);
         preflight_json(column, row, row + 1, options);
-        visit_variant_values(
+        visit_variant_v2_values(
                 column, row, row + 1, {}, [](size_t) {},
                 [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
     });
@@ -250,7 +289,7 @@ Status DataTypeVariantV2SerDe::serialize_column_to_json(const IColumn& column, i
         const size_t start = checked_row(start_idx);
         const size_t end = checked_row(end_idx);
         preflight_json(column, start, end, options);
-        visit_variant_values(
+        visit_variant_v2_values(
                 column, start, end, {}, [](size_t) {},
                 [&](size_t row, VariantRef value) {
                     if (row != start) {
@@ -357,9 +396,9 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
 void DataTypeVariantV2SerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                      Arena&, int32_t col_id, int64_t row_num,
                                                      const FormatOptions& options) const {
-    const size_t row = data_type_variant_v2_serde_internal::checked_row(row_num);
+    const size_t row = checked_row(row_num);
     JsonbWriter document;
-    data_type_variant_v2_serde_internal::visit_variant_values(
+    visit_variant_v2_values(
             column, row, row + 1, {}, [](size_t) {},
             [&](size_t, VariantRef value) {
                 variant_to_jsonb(value, document, {.timezone = options.timezone});
@@ -390,13 +429,6 @@ void DataTypeVariantV2SerDe::read_one_cell_from_jsonb(IColumn& column,
 
 namespace {
 
-using data_type_variant_v2_serde_internal::CountingWriter;
-using data_type_variant_v2_serde_internal::FixedWriter;
-using data_type_variant_v2_serde_internal::checked_row;
-using data_type_variant_v2_serde_internal::forced_nulls;
-using data_type_variant_v2_serde_internal::visit_variant_values;
-using data_type_variant_v2_serde_internal::write_json_value;
-
 DorisVector<size_t> json_lengths(const IColumn& column, size_t start, size_t end,
                                  const NullMap* null_map,
                                  const DataTypeSerDe::FormatOptions& options) {
@@ -406,7 +438,7 @@ DorisVector<size_t> json_lengths(const IColumn& column, size_t start, size_t end
                         column.size());
     }
     DorisVector<size_t> lengths(end - start, 0);
-    visit_variant_values(
+    visit_variant_v2_values(
             column, start, end, forced_nulls(null_map), [](size_t) {},
             [&](size_t row, VariantRef value) {
                 CountingWriter writer;
@@ -426,7 +458,7 @@ Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& buil
     }
     DorisVector<char> rendered(maximum);
     Status status = Status::OK();
-    visit_variant_values(
+    visit_variant_v2_values(
             column, start, end, forced_nulls(null_map),
             [&](size_t) {
                 if (status.ok()) {
@@ -456,7 +488,7 @@ void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, Bu
     const DorisVector<size_t> lengths =
             json_lengths(column, row_num, row_num + 1, nullptr, options);
     DCHECK_EQ(lengths.size(), 1);
-    visit_variant_values(
+    visit_variant_v2_values(
             column, row_num, row_num + 1, {}, [](size_t) {},
             [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
 }
@@ -469,7 +501,7 @@ Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& colum
         const size_t row = col_const ? 0 : checked_row(row_idx);
         const DorisVector<size_t> lengths = json_lengths(column, row, row + 1, nullptr, options);
         DorisVector<char> rendered(lengths[0]);
-        visit_variant_values(
+        visit_variant_v2_values(
                 column, row, row + 1, {}, [](size_t) {},
                 [&](size_t, VariantRef value) {
                     FixedWriter writer {.destination = rendered.data(),
@@ -534,7 +566,7 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
         char* output = total_size == 0 ? nullptr : arena.alloc(total_size);
         size_t offset = 0;
         batch->hasNulls = null_map != nullptr;
-        visit_variant_values(
+        visit_variant_v2_values(
                 column, first, last, forced_nulls(null_map),
                 [&](size_t row) {
                     batch->notNull[row] = 0;

@@ -71,7 +71,7 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-namespace variant_json_detail {
+namespace variant_json {
 
 struct FormattedScalar {
     std::array<char, 128> bytes {};
@@ -391,14 +391,14 @@ private:
     const VariantJsonFormatOptions& _options;
 };
 
-} // namespace variant_json_detail
+} // namespace variant_json
 
 // Writer is statically dispatched and only needs write(const char*, size_t).
 template <typename Writer>
 void to_json(VariantRef value, Writer& out,
              const VariantJsonFormatOptions& options = VariantJsonFormatOptions {}) {
-    variant_json_detail::require_exact_json_value(value);
-    variant_json_detail::Printer<Writer>(out, options).write(value, 0);
+    variant_json::require_exact_json_value(value);
+    variant_json::Printer<Writer>(out, options).write(value, 0);
 }
 
 } // namespace doris

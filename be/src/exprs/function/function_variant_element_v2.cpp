@@ -46,7 +46,7 @@ struct ResolvedVariantElementV2Path::Impl {
     DorisVector<OwnedPathSegment> segments;
 };
 
-namespace variant_element_v2_internal {
+namespace {
 
 bool is_outer_null(std::span<const uint8_t> outer_nulls, size_t row) noexcept {
     return !outer_nulls.empty() && outer_nulls[row] != 0;
@@ -133,7 +133,7 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
 
 Status make_all_null_variant_element_result(size_t rows, ColumnPtr* output);
 
-} // namespace variant_element_v2_internal
+} // namespace
 
 ResolvedVariantElementV2Path::ResolvedVariantElementV2Path(std::unique_ptr<Impl> impl)
         : _impl(std::move(impl)) {}
@@ -218,13 +218,11 @@ Status extract_variant_element_v2(const ColumnVariantV2& source,
     ColumnPtr candidate;
     try {
         if (!source.is_typed()) {
-            RETURN_IF_ERROR(variant_element_v2_internal::extract_encoded_variant_element(
-                    source, path, outer_nulls, &candidate));
+            RETURN_IF_ERROR(extract_encoded_variant_element(source, path, outer_nulls, &candidate));
         } else {
             // A typed Variant is one scalar root value per row. String payloads are strings, not
             // JSON documents, so every non-empty object/array path is absent for all typed roots.
-            RETURN_IF_ERROR(variant_element_v2_internal::make_all_null_variant_element_result(
-                    source.size(), &candidate));
+            RETURN_IF_ERROR(make_all_null_variant_element_result(source.size(), &candidate));
         }
     } catch (const Exception& exception) {
         if (exception.code() == ErrorCode::CORRUPTION) {
@@ -240,7 +238,6 @@ Status extract_variant_element_v2(const ColumnVariantV2& source,
     return Status::OK();
 }
 
-namespace variant_element_v2_internal {
 namespace {
 
 constexpr uint32_t UNMAPPED_METADATA = std::numeric_limits<uint32_t>::max();
@@ -290,8 +287,6 @@ ColumnPtr wrap_result(ExtractedRows rows, MutableColumnPtr nulls) {
     values->insert_encoded_rows(rows.view());
     return ColumnNullable::create(std::move(values), std::move(nulls));
 }
-
-} // namespace
 
 Status extract_encoded_variant_element(const ColumnVariantV2& source,
                                        const ResolvedVariantElementV2Path& path,
@@ -365,6 +360,6 @@ Status make_all_null_variant_element_result(size_t rows, ColumnPtr* const output
     return Status::OK();
 }
 
-} // namespace variant_element_v2_internal
+} // namespace
 
 } // namespace doris

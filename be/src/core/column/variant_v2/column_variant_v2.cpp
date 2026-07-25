@@ -37,6 +37,7 @@
 #include "core/column/columns_common.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/custom_allocator.h"
+#include "core/data_type/data_type_string.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_field.h"
@@ -46,12 +47,6 @@ namespace doris {
 namespace {
 
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
-using column_variant_v2_internal::dispatch_typed_column;
-using column_variant_v2_internal::exact_typed_identity;
-using column_variant_v2_internal::is_supported_typed_identity;
-using column_variant_v2_internal::validate_typed_decimal_scale;
-using column_variant_v2_internal::visit_typed_canonical_column;
-using column_variant_v2_internal::visit_typed_rows;
 constexpr uint32_t UNMAPPED_METADATA_ID = std::numeric_limits<uint32_t>::max();
 constexpr std::array<char, 3> EMPTY_OBJECT_VALUE {static_cast<char>(0x02), 0, 0};
 
@@ -139,6 +134,86 @@ size_t validate_selected_indices(const uint32_t* indices_begin, const uint32_t* 
     DORIS_CHECK_LT(*std::max_element(indices_begin, indices_end), source_rows)
             << "source index is out of range";
     return rows;
+}
+
+bool exact_typed_identity(const DataTypePtr& left, const DataTypePtr& right) {
+    const PrimitiveType primitive = left->get_primitive_type();
+    if (primitive != right->get_primitive_type()) {
+        return false;
+    }
+    if (is_string_type(primitive)) {
+        return assert_cast<const DataTypeString&>(*left).len() ==
+               assert_cast<const DataTypeString&>(*right).len();
+    }
+    return left->equals(*right);
+}
+
+void validate_typed_decimal_scale(const IColumn& nested, PrimitiveType type, uint32_t scale) {
+    uint32_t column_scale = scale;
+    switch (type) {
+    case TYPE_DECIMALV2:
+        column_scale = assert_cast<const ColumnDecimal128V2&>(nested).get_scale();
+        break;
+    case TYPE_DECIMAL32:
+        column_scale = assert_cast<const ColumnDecimal32&>(nested).get_scale();
+        break;
+    case TYPE_DECIMAL64:
+        column_scale = assert_cast<const ColumnDecimal64&>(nested).get_scale();
+        break;
+    case TYPE_DECIMAL128I:
+        column_scale = assert_cast<const ColumnDecimal128V3&>(nested).get_scale();
+        break;
+    default:
+        return;
+    }
+    DORIS_CHECK_EQ(column_scale, scale) << "typed decimal scale does not match data type scale";
+}
+
+template <PrimitiveType Type, typename Column, typename Callback>
+void visit_typed_rows(const ColumnNullable& nullable, const Column& column, uint32_t scale,
+                      size_t start, size_t end, Callback&& callback) {
+    DCHECK_LE(start, end);
+    DCHECK_LE(end, nullable.size());
+    uint8_t variant_scale = 0;
+    if constexpr (Type == TYPE_DECIMALV2 || Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
+                  Type == TYPE_DECIMAL128I) {
+        DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()))
+                << "typed decimal scale exceeds the Variant scale domain";
+        variant_scale = static_cast<uint8_t>(scale);
+    }
+    const auto& null_map = nullable.get_null_map_data();
+    for (size_t row = start; row < end; ++row) {
+        if (null_map[row] != 0) {
+            callback(
+                    row, [] { return VariantScalarEncodingPlan::null_value(); },
+                    [] { return VariantCanonicalScalarRef::null_value(); });
+            continue;
+        }
+        with_variant_typed_scalar<Type>(
+                column, row, variant_scale, [&](auto&& physical_factory, auto&& canonical_factory) {
+                    callback(row, std::forward<decltype(physical_factory)>(physical_factory),
+                             std::forward<decltype(canonical_factory)>(canonical_factory));
+                });
+    }
+}
+
+template <PrimitiveType Type, typename Column, typename Callback>
+void visit_typed_canonical_rows(const ColumnNullable& nullable, const Column& column,
+                                uint32_t scale, size_t start, size_t end, Callback&& callback) {
+    visit_typed_rows<Type>(
+            nullable, column, scale, start, end, [&](size_t row, auto&&, auto&& canonical_factory) {
+                callback(row, std::forward<decltype(canonical_factory)>(canonical_factory));
+            });
+}
+
+template <typename Callback>
+void visit_typed_canonical_column(const ColumnNullable& nullable, PrimitiveType type,
+                                  uint32_t scale, size_t start, size_t end, Callback&& callback) {
+    dispatch_variant_typed_column(
+            nullable.get_nested_column(), type, [&]<PrimitiveType Type>(const auto& column) {
+                visit_typed_canonical_rows<Type>(nullable, column, scale, start, end,
+                                                 std::forward<Callback>(callback));
+            });
 }
 
 template <typename Sink, typename Hash>
@@ -231,7 +306,7 @@ ValidatedTypedInput validate_typed_input(ColumnPtr column, DataTypePtr scalar_ty
     DORIS_CHECK_EQ(nested.size(), nullable.get_null_map_column().size())
             << "typed ColumnVariantV2 null map size does not match nested column size";
     const PrimitiveType type = scalar_type->get_primitive_type();
-    DORIS_CHECK(is_supported_typed_identity(type))
+    DORIS_CHECK(is_supported_variant_typed_identity(type))
             << "unsupported typed identity " << scalar_type->get_name();
     MutableColumnPtr expected = scalar_type->create_column();
     const IColumn* expected_column = expected.get();
@@ -320,9 +395,10 @@ void ColumnVariantV2::ensure_encoded() {
     const PrimitiveType type = _typed_type->get_primitive_type();
     const uint32_t scale = _typed_type->get_scale();
     TypedEncodingResult encoded;
-    dispatch_typed_column(nullable, type, [&]<PrimitiveType Type>(const auto& column) {
-        encoded = encode_typed_column<Type>(nullable, column, scale);
-    });
+    dispatch_variant_typed_column(nullable.get_nested_column(), type,
+                                  [&]<PrimitiveType Type>(const auto& column) {
+                                      encoded = encode_typed_column<Type>(nullable, column, scale);
+                                  });
 
     static_cast<IColumn::Ptr&>(_metadatas) = std::move(encoded.metadatas);
     static_cast<IColumn::Ptr&>(_meta_ids) = std::move(encoded.metadata_ids);

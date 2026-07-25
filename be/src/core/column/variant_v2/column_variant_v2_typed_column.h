@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -27,31 +26,24 @@
 #include "common/check.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
+#include "core/call_on_type_index.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/value/large_int_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exec/common/format_ip.h"
 
-namespace doris::column_variant_v2_internal {
+namespace doris {
 
-bool is_supported_typed_identity(PrimitiveType type);
-bool exact_typed_identity(const DataTypePtr& left, const DataTypePtr& right);
-void validate_typed_decimal_scale(const IColumn& nested, PrimitiveType type, uint32_t scale);
-
-namespace detail {
-
-constexpr int64_t MICROS_PER_SECOND = 1'000'000;
-constexpr int64_t SECONDS_PER_DAY = 86'400;
-
-size_t format_int128(__int128 value, char* output) noexcept;
+bool is_supported_variant_typed_identity(PrimitiveType type);
 
 template <typename DateValue>
-int32_t days_since_epoch(const DateValue& value, size_t row, std::string_view description) {
+int32_t variant_days_since_epoch(const DateValue& value, size_t row, std::string_view description) {
     if (!value.is_valid_date()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot encode invalid {} value at row {} as Variant", description, row);
@@ -63,18 +55,20 @@ int32_t days_since_epoch(const DateValue& value, size_t row, std::string_view de
 }
 
 template <typename DateTimeValue>
-int64_t timestamp_micros(const DateTimeValue& value, size_t row, std::string_view description) {
-    const int64_t days = days_since_epoch(value, row, description);
+int64_t variant_timestamp_micros(const DateTimeValue& value, size_t row,
+                                 std::string_view description) {
+    constexpr int64_t MICROS_PER_SECOND = 1'000'000;
+    constexpr int64_t SECONDS_PER_DAY = 86'400;
+    const int64_t days = variant_days_since_epoch(value, row, description);
     const int64_t seconds =
             days * SECONDS_PER_DAY + value.hour() * 3600 + value.minute() * 60 + value.second();
     return seconds * MICROS_PER_SECOND + value.microsecond();
 }
 
-} // namespace detail
-
 template <PrimitiveType Type, typename Column, typename Callback>
 // NOLINTNEXTLINE(readability-function-size) -- centralized compile-time scalar mapping matrix.
-void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback&& callback) {
+void with_variant_typed_scalar(const Column& column, size_t row, uint8_t scale,
+                               Callback&& callback) {
     if constexpr (Type == TYPE_BOOLEAN) {
         const bool value = column.get_data()[row] != 0;
         callback([value] { return VariantScalarEncodingPlan::boolean(value); },
@@ -91,7 +85,7 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
                      [value] { return VariantCanonicalScalarRef::exact_integer(value); });
         } else {
             std::array<char, 40> buffer {};
-            const size_t size = detail::format_int128(value, buffer.data());
+            const size_t size = static_cast<size_t>(LargeIntValue::to_buffer(value, buffer.data()));
             const StringRef text(buffer.data(), size);
             callback([text] { return VariantScalarEncodingPlan::string(text); },
                      [text] { return VariantCanonicalScalarRef::string(text); });
@@ -121,23 +115,23 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
         callback([value, scale] { return VariantScalarEncodingPlan::decimal(value, scale, 16); },
                  [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); });
     } else if constexpr (Type == TYPE_DATE) {
-        const int32_t value = detail::days_since_epoch(column.get_data()[row], row, "DATE");
+        const int32_t value = variant_days_since_epoch(column.get_data()[row], row, "DATE");
         callback([value] { return VariantScalarEncodingPlan::date(value); },
                  [value] { return VariantCanonicalScalarRef::date(value); });
     } else if constexpr (Type == TYPE_DATEV2) {
-        const int32_t value = detail::days_since_epoch(column.get_data()[row], row, "DATEV2");
+        const int32_t value = variant_days_since_epoch(column.get_data()[row], row, "DATEV2");
         callback([value] { return VariantScalarEncodingPlan::date(value); },
                  [value] { return VariantCanonicalScalarRef::date(value); });
     } else if constexpr (Type == TYPE_DATETIME) {
-        const int64_t value = detail::timestamp_micros(column.get_data()[row], row, "DATETIME");
+        const int64_t value = variant_timestamp_micros(column.get_data()[row], row, "DATETIME");
         callback([value] { return VariantScalarEncodingPlan::timestamp_micros(value, false); },
                  [value] { return VariantCanonicalScalarRef::timestamp_micros(value, false); });
     } else if constexpr (Type == TYPE_DATETIMEV2) {
-        const int64_t value = detail::timestamp_micros(column.get_data()[row], row, "DATETIMEV2");
+        const int64_t value = variant_timestamp_micros(column.get_data()[row], row, "DATETIMEV2");
         callback([value] { return VariantScalarEncodingPlan::timestamp_micros(value, false); },
                  [value] { return VariantCanonicalScalarRef::timestamp_micros(value, false); });
     } else if constexpr (Type == TYPE_TIMESTAMPTZ) {
-        const int64_t value = detail::timestamp_micros(column.get_data()[row], row, "TIMESTAMPTZ");
+        const int64_t value = variant_timestamp_micros(column.get_data()[row], row, "TIMESTAMPTZ");
         callback([value] { return VariantScalarEncodingPlan::timestamp_micros(value, true); },
                  [value] { return VariantCanonicalScalarRef::timestamp_micros(value, true); });
     } else if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
@@ -163,134 +157,17 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
     }
 }
 
-template <PrimitiveType Type, typename Column, typename Callback>
-void visit_typed_rows(const ColumnNullable& nullable, const Column& column, uint32_t scale,
-                      size_t start, size_t end, Callback&& callback) {
-    DCHECK_LE(start, end);
-    DCHECK_LE(end, nullable.size());
-    uint8_t variant_scale = 0;
-    if constexpr (Type == TYPE_DECIMALV2 || Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                  Type == TYPE_DECIMAL128I) {
-        DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()))
-                << "typed decimal scale exceeds the Variant scale domain";
-        variant_scale = static_cast<uint8_t>(scale);
-    }
-    const auto& null_map = nullable.get_null_map_data();
-    for (size_t row = start; row < end; ++row) {
-        if (null_map[row] != 0) {
-            callback(
-                    row, [] { return VariantScalarEncodingPlan::null_value(); },
-                    [] { return VariantCanonicalScalarRef::null_value(); });
-            continue;
-        }
-        with_typed_scalar<Type>(
-                column, row, variant_scale, [&](auto&& physical_factory, auto&& canonical_factory) {
-                    callback(row, std::forward<decltype(physical_factory)>(physical_factory),
-                             std::forward<decltype(canonical_factory)>(canonical_factory));
-                });
-    }
-}
-
-template <PrimitiveType Type, typename Column, typename Callback>
-void visit_typed_canonical_rows(const ColumnNullable& nullable, const Column& column,
-                                uint32_t scale, size_t start, size_t end, Callback&& callback) {
-    visit_typed_rows<Type>(
-            nullable, column, scale, start, end, [&](size_t row, auto&&, auto&& canonical_factory) {
-                callback(row, std::forward<decltype(canonical_factory)>(canonical_factory));
-            });
-}
-
 template <typename Callback>
-void dispatch_scalar_column(const IColumn& nested, PrimitiveType type, Callback&& callback) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-        callback.template operator()<TYPE_BOOLEAN>(assert_cast<const ColumnUInt8&>(nested));
-        return;
-    case TYPE_TINYINT:
-        callback.template operator()<TYPE_TINYINT>(assert_cast<const ColumnInt8&>(nested));
-        return;
-    case TYPE_SMALLINT:
-        callback.template operator()<TYPE_SMALLINT>(assert_cast<const ColumnInt16&>(nested));
-        return;
-    case TYPE_INT:
-        callback.template operator()<TYPE_INT>(assert_cast<const ColumnInt32&>(nested));
-        return;
-    case TYPE_BIGINT:
-        callback.template operator()<TYPE_BIGINT>(assert_cast<const ColumnInt64&>(nested));
-        return;
-    case TYPE_LARGEINT:
-        callback.template operator()<TYPE_LARGEINT>(assert_cast<const ColumnInt128&>(nested));
-        return;
-    case TYPE_FLOAT:
-        callback.template operator()<TYPE_FLOAT>(assert_cast<const ColumnFloat32&>(nested));
-        return;
-    case TYPE_DOUBLE:
-        callback.template operator()<TYPE_DOUBLE>(assert_cast<const ColumnFloat64&>(nested));
-        return;
-    case TYPE_DECIMALV2:
-        callback.template operator()<TYPE_DECIMALV2>(
-                assert_cast<const ColumnDecimal128V2&>(nested));
-        return;
-    case TYPE_DECIMAL32:
-        callback.template operator()<TYPE_DECIMAL32>(assert_cast<const ColumnDecimal32&>(nested));
-        return;
-    case TYPE_DECIMAL64:
-        callback.template operator()<TYPE_DECIMAL64>(assert_cast<const ColumnDecimal64&>(nested));
-        return;
-    case TYPE_DECIMAL128I:
-        callback.template operator()<TYPE_DECIMAL128I>(
-                assert_cast<const ColumnDecimal128V3&>(nested));
-        return;
-    case TYPE_DATE:
-        callback.template operator()<TYPE_DATE>(assert_cast<const ColumnDate&>(nested));
-        return;
-    case TYPE_DATEV2:
-        callback.template operator()<TYPE_DATEV2>(assert_cast<const ColumnDateV2&>(nested));
-        return;
-    case TYPE_DATETIME:
-        callback.template operator()<TYPE_DATETIME>(assert_cast<const ColumnDateTime&>(nested));
-        return;
-    case TYPE_DATETIMEV2:
-        callback.template operator()<TYPE_DATETIMEV2>(assert_cast<const ColumnDateTimeV2&>(nested));
-        return;
-    case TYPE_TIMESTAMPTZ:
-        callback.template operator()<TYPE_TIMESTAMPTZ>(
-                assert_cast<const ColumnTimeStampTz&>(nested));
-        return;
-    case TYPE_CHAR:
-        callback.template operator()<TYPE_CHAR>(assert_cast<const ColumnString&>(nested));
-        return;
-    case TYPE_VARCHAR:
-        callback.template operator()<TYPE_VARCHAR>(assert_cast<const ColumnString&>(nested));
-        return;
-    case TYPE_STRING:
-        callback.template operator()<TYPE_STRING>(assert_cast<const ColumnString&>(nested));
-        return;
-    case TYPE_IPV4:
-        callback.template operator()<TYPE_IPV4>(assert_cast<const ColumnIPv4&>(nested));
-        return;
-    case TYPE_IPV6:
-        callback.template operator()<TYPE_IPV6>(assert_cast<const ColumnIPv6&>(nested));
-        return;
-    default:
-        DORIS_CHECK(false) << "unsupported ColumnVariantV2 typed identity " << type;
-    }
-}
-
-// Dispatches once per batch; row callbacks remain statically bound and allocate no per-row object.
-template <typename Callback>
-void dispatch_typed_column(const ColumnNullable& nullable, PrimitiveType type,
-                           Callback&& callback) {
-    dispatch_scalar_column(nullable.get_nested_column(), type, std::forward<Callback>(callback));
-}
-
-template <typename Callback>
-void visit_typed_canonical_column(const ColumnNullable& nullable, PrimitiveType type,
-                                  uint32_t scale, size_t start, size_t end, Callback&& callback) {
-    dispatch_typed_column(nullable, type, [&]<PrimitiveType Type>(const auto& column) {
-        visit_typed_canonical_rows<Type>(nullable, column, scale, start, end,
-                                         std::forward<Callback>(callback));
+void dispatch_variant_typed_column(const IColumn& nested, PrimitiveType type, Callback&& callback) {
+    DORIS_CHECK(is_supported_variant_typed_identity(type))
+            << "unsupported ColumnVariantV2 typed identity " << type;
+    const bool dispatched = dispatch_switch_all(type, [&](auto type_tag) {
+        using TypeTag = decltype(type_tag);
+        callback.template operator()<TypeTag::PType>(
+                assert_cast<const typename TypeTag::ColumnType&>(nested));
+        return true;
     });
+    DORIS_CHECK(dispatched) << "unsupported ColumnVariantV2 typed identity " << type;
 }
 
-} // namespace doris::column_variant_v2_internal
+} // namespace doris

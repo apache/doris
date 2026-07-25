@@ -65,21 +65,21 @@ template <PrimitiveType Type, typename Column>
 void append_scalar_value(const IColumn& source, size_t row, uint8_t scale,
                          VariantBatchBuilder::Row* output) {
     const auto& column = assert_cast<const Column&>(source);
-    column_variant_v2_internal::with_typed_scalar<Type>(
-            column, row, scale,
-            [&](auto&& physical_factory, auto&&) { output->add_scalar(physical_factory()); });
+    with_variant_typed_scalar<Type>(column, row, scale, [&](auto&& physical_factory, auto&&) {
+        output->add_scalar(physical_factory());
+    });
 }
 
 void configure_scalar_leaf(const IColumn& source, const DataTypePtr& type, ArrayEncodePlan* plan) {
     const uint32_t scale = type->get_scale();
     DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
-    column_variant_v2_internal::dispatch_scalar_column(
-            source, type->get_primitive_type(), [&]<PrimitiveType Type>(const auto& column) {
-                using Column = std::remove_cvref_t<decltype(column)>;
-                plan->scalar_leaf = &column;
-                plan->append_scalar = &append_scalar_value<Type, Column>;
-                plan->scalar_scale = static_cast<uint8_t>(scale);
-            });
+    dispatch_variant_typed_column(source, type->get_primitive_type(),
+                                  [&]<PrimitiveType Type>(const auto& column) {
+                                      using Column = std::remove_cvref_t<decltype(column)>;
+                                      plan->scalar_leaf = &column;
+                                      plan->append_scalar = &append_scalar_value<Type, Column>;
+                                      plan->scalar_scale = static_cast<uint8_t>(scale);
+                                  });
 }
 
 Status build_array_encode_plan(const ColumnPtr& source, const DataTypePtr& source_type,

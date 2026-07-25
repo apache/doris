@@ -380,9 +380,9 @@ Status execute_typed_cast(FunctionContext* context, const ColumnPtr& source,
 
 bool is_supported_scalar_source(const DataTypePtr& type) {
     // Every scalar admitted by the typed state has a Parquet Variant mapping in
-    // with_typed_scalar(), so CAST and the physical typed-state whitelist must stay identical.
-    return column_variant_v2_internal::is_supported_typed_identity(
-            remove_nullable(type)->get_primitive_type());
+    // with_variant_typed_scalar(), so CAST and the physical typed-state whitelist must stay
+    // identical.
+    return is_supported_variant_typed_identity(remove_nullable(type)->get_primitive_type());
 }
 
 bool is_supported_scalar_target(const DataTypePtr& type) {
@@ -475,7 +475,7 @@ Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVaria
         return Status::InvalidArgument("Invalid Variant V2 input for canonical scalar CAST");
     }
     ScalarGroups groups;
-    column_variant_v2_internal::visit_variant_values(
+    visit_variant_v2_values(
             source, 0, rows, forced_nulls, [&](size_t row) { append_invalid(groups, row); },
             [&](size_t row, VariantRef value) { classify_value(groups, row, value, false); });
     return assemble_groups(context, groups, target_type, rows, output);

@@ -67,7 +67,7 @@ Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& so
     strings->reserve(rows);
     JsonbWriter writer;
     const VariantJsonFormatOptions options = variant_json_options(context);
-    column_variant_v2_internal::visit_variant_values(
+    visit_variant_v2_values(
             source, 0, rows, forced_nulls,
             [&](size_t row) {
                 strings->insert_default();
