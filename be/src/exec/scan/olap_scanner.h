@@ -49,6 +49,7 @@ class RuntimeProfile;
 class RuntimeState;
 class TPaloScanRange;
 class ScanLocalStateBase;
+class CollectionStatisticsBuildState;
 struct FilterPredicates;
 #ifndef NDEBUG
 struct OlapReaderStatistics;
@@ -83,6 +84,8 @@ public:
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
+        // Shared per tablet so the collection-wide statistics are built once, not once per scanner.
+        std::shared_ptr<CollectionStatisticsBuildState> collection_statistics_build_state;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -124,6 +127,7 @@ private:
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;
     std::optional<int64_t> _end_tso;
+    std::shared_ptr<CollectionStatisticsBuildState> _collection_statistics_build_state;
 
 public:
     std::vector<ColumnId> _return_columns;

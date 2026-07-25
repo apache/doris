@@ -38,6 +38,10 @@ class Scanner;
 
 using ScannerSPtr = std::shared_ptr<Scanner>;
 
+class CollectionStatisticsBuildState;
+using CollectionStatisticsBuildStateMap =
+        std::unordered_map<int64_t, std::shared_ptr<CollectionStatisticsBuildState>>;
+
 class ParallelScannerBuilder {
 public:
     ParallelScannerBuilder(OlapScanLocalState* parent,
@@ -45,7 +49,8 @@ public:
                            std::vector<TabletReadSource>& read_sources,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
-                           int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
+                           int64_t limit, bool is_dup_mow_key, bool is_preaggregation,
+                           CollectionStatisticsBuildStateMap collection_statistics_build_states = {})
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
@@ -54,7 +59,8 @@ public:
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
               _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
-              _read_sources(read_sources) {}
+              _read_sources(read_sources),
+              _collection_statistics_build_states(std::move(collection_statistics_build_states)) {}
 
     Status build_scanners(std::list<ScannerSPtr>& scanners);
 
@@ -113,6 +119,7 @@ private:
     std::vector<OlapScanRange*> _key_ranges;
     std::unordered_map<int64_t, TabletReadSource> _all_read_sources;
     std::vector<TabletReadSource>& _read_sources;
+    CollectionStatisticsBuildStateMap _collection_statistics_build_states;
 };
 
 } // namespace doris

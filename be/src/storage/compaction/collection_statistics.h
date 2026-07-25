@@ -16,9 +16,13 @@
 // under the License.
 #pragma once
 
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "exprs/vexpr_fwd.h"
@@ -53,15 +57,39 @@ public:
                    const TabletSchemaSPtr& tablet_schema,
                    const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx);
 
+    // Collect over every rowset of the tablet rather than one scanner's slice of them. BM25 idf and
+    // avg_dl are collection-level quantities, so they must not depend on how the read source was
+    // divided among parallel scanners.
+    Status collect_full_collection(RuntimeState* state, const std::vector<RowsetSharedPtr>& rowsets,
+                                   const TabletSchemaSPtr& tablet_schema,
+                                   const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                   io::IOContext* io_ctx);
+
+    // Hand a scanner its own view of an already-collected prototype. The collected counts are
+    // shared read-only; the lazily memoized idf/avg_dl maps start empty so each scanner mutates
+    // only its own.
+    std::shared_ptr<CollectionStatistics> clone_for_scanner() const;
+
     MOCK_FUNCTION float get_or_calculate_idf(const std::wstring& lucene_col_name,
                                              const std::wstring& term);
     MOCK_FUNCTION float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
 private:
+    struct SharedBaseStatistics {
+        uint64_t total_num_docs = 0;
+        std::unordered_map<std::wstring, uint64_t> total_num_tokens;
+        std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> term_doc_freqs;
+    };
+
+    // Move the collected counts into an immutable block that every clone shares.
+    void freeze_for_scanners();
+
     Status extract_collect_info(RuntimeState* state,
                                 const VExprContextSPtrs& common_expr_ctxs_push_down,
                                 const TabletSchemaSPtr& tablet_schema,
                                 CollectInfoMap* collect_infos);
+    Status _collect_rowset(const RowsetSharedPtr& rowset, const TabletSchemaSPtr& tablet_schema,
+                           const CollectInfoMap& collect_infos, io::IOContext* io_ctx);
     Status process_segment(const RowsetSharedPtr& rowset, int32_t seg_id,
                            const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
                            io::IOContext* io_ctx);
@@ -74,6 +102,8 @@ private:
     uint64_t _total_num_docs = 0;
     std::unordered_map<std::wstring, uint64_t> _total_num_tokens;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> _term_doc_freqs;
+    // Set only on clones; when present it supersedes the three members above.
+    std::shared_ptr<const SharedBaseStatistics> _shared_base;
 
     std::unordered_map<std::wstring, float> _avg_dl_by_col;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
@@ -82,7 +112,34 @@ private:
     MOCK_DEFINE(friend class CollectionStatisticsTest;)
     MOCK_DEFINE(friend class BooleanQueryTest;)
     MOCK_DEFINE(friend class OccurBooleanQueryTest;)
+    friend class CollectionStatisticsBuildState;
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
+
+// One tablet's collection statistics, built at most once and shared by every scanner reading that
+// tablet. Without this each parallel scanner would repeat the full-collection walk.
+class CollectionStatisticsBuildState {
+public:
+    using Builder =
+            std::function<Status(CollectionStatistics*, const std::vector<RowsetSharedPtr>&)>;
+
+    explicit CollectionStatisticsBuildState(std::vector<RowsetSharedPtr> rowsets)
+            : _rowsets(std::move(rowsets)) {}
+
+    // The first caller builds while the others wait, then everyone gets its own clone. A failed
+    // build is remembered and returned to the waiters rather than retried per scanner.
+    Status get_or_build(const Builder& builder, CollectionStatisticsPtr* statistics);
+
+private:
+    enum class State { EMPTY, BUILDING, READY, FAILED };
+
+    const std::vector<RowsetSharedPtr> _rowsets;
+    std::mutex _mutex;
+    std::condition_variable _condition;
+    State _state = State::EMPTY;
+    Status _build_status;
+    CollectionStatisticsPtr _prototype;
+};
+using CollectionStatisticsBuildStatePtr = std::shared_ptr<CollectionStatisticsBuildState>;
 
 } // namespace doris
