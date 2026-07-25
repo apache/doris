@@ -950,6 +950,16 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ensure_first_data_page_parsed() {
+    if (_first_data_page_parsed) {
+        return Status::OK();
+    }
+    // OffsetIndex row bounds are untrusted until page zero has been reconciled and its declared
+    // cardinality checked, so no indexed skip may observe them before this one-time parse.
+    return parse_page_header();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
@@ -1020,14 +1030,19 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (!active_offset_index) {
         _chunk_parsed_values += _remaining_num_values;
     }
+    _first_data_page_parsed = true;
     _state = HEADER_PARSED;
     return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
-    // Load dictionary state before advancing can jump past the physical dictionary page.
-    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    if constexpr (OFFSET_INDEX) {
+        RETURN_IF_ERROR(ensure_first_data_page_parsed());
+    } else {
+        // Load dictionary state before advancing can jump past the physical dictionary page.
+        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    }
     // Level parsing advances _page_data past the allocation base, so retain explicit ownership
     // state instead of inferring whether current decoders still reference decompressed storage.
     _page_uses_decompress_buf = false;
@@ -1928,7 +1943,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
     if constexpr (IN_COLLECTION && OFFSET_INDEX) {
-        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+        RETURN_IF_ERROR(ensure_first_data_page_parsed());
     }
     if constexpr (OFFSET_INDEX) {
         if (_page_reader->has_active_offset_index()) {

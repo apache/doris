@@ -306,6 +306,7 @@ public:
 
     size_t page_end_row() const { return _page_reader->end_row(); }
 
+    Status ensure_first_data_page_parsed();
     Status parse_page_header();
     Status next_page();
 
@@ -409,6 +410,7 @@ private:
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
     bool _dict_checked = false;
+    bool _first_data_page_parsed = false;
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;

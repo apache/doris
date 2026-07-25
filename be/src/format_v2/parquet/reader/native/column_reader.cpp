@@ -1168,10 +1168,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_fixed_width_filter(
     int64_t right_row = 0;
     if constexpr (OFFSET_INDEX == false) {
         RETURN_IF_ERROR(_chunk_reader->parse_page_header());
-        right_row = _chunk_reader->page_end_row();
     } else {
-        right_row = _chunk_reader->page_end_row();
+        RETURN_IF_ERROR(_chunk_reader->ensure_first_data_page_parsed());
     }
+    right_row = _chunk_reader->page_end_row();
     RowRanges read_ranges;
     _generate_read_ranges(RowRange {_current_row_index, right_row}, &read_ranges);
     if (read_ranges.count() == 0) {
@@ -1586,10 +1586,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     int64_t right_row = 0;
     if constexpr (OFFSET_INDEX == false) {
         RETURN_IF_ERROR(_chunk_reader->parse_page_header());
-        right_row = _chunk_reader->page_end_row();
     } else {
-        right_row = _chunk_reader->page_end_row();
+        RETURN_IF_ERROR(_chunk_reader->ensure_first_data_page_parsed());
     }
+    right_row = _chunk_reader->page_end_row();
 
     do {
         // generate the row ranges that should be read
