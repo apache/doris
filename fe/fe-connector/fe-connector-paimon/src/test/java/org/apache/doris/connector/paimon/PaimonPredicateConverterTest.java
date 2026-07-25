@@ -20,13 +20,16 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
+import org.apache.doris.connector.api.pushdown.ConnectorLike;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.predicate.Equal;
 import org.apache.paimon.predicate.IsNull;
 import org.apache.paimon.predicate.LeafPredicate;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.predicate.StartsWith;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
@@ -210,6 +213,73 @@ public class PaimonPredicateConverterTest {
         // MUTATION: relax the guard to `operator == EQ_FOR_NULL` without `literal.isNull()` -> red.
         Assertions.assertTrue(predicates.isEmpty(),
                 "`f <=> 1.5` on a non-pushable type must be declined, not turned into IS NULL");
+    }
+
+    // ---------- LIKE ----------
+
+    private static List<Predicate> convertLike(String pattern) {
+        RowType rowType = RowType.builder().field("s", DataTypes.STRING()).build();
+        return new PaimonPredicateConverter(rowType).convert(new ConnectorLike(
+                ConnectorLike.Operator.LIKE,
+                new ConnectorColumnRef("s", ANY),
+                new ConnectorLiteral(ANY, pattern)));
+    }
+
+    private static void assertPrefixPushed(String pattern, String expectedPrefix) {
+        List<Predicate> predicates = convertLike(pattern);
+        Assertions.assertEquals(1, predicates.size(), "LIKE '" + pattern + "' must be pushed");
+        LeafPredicate leaf = (LeafPredicate) predicates.get(0);
+        Assertions.assertSame(StartsWith.INSTANCE, leaf.function());
+        Assertions.assertEquals(BinaryString.fromString(expectedPrefix), leaf.literals().get(0));
+    }
+
+    private static void assertNotPushed(String pattern) {
+        // WHY declining is the required answer rather than a missed optimization: this predicate drives
+        // paimon's partition and data-file pruning at planning time AND the BE-side JNI row filter. A
+        // prefix that is stricter than the user's pattern makes paimon skip files that hold matching
+        // rows, and nothing downstream can read them back - the query silently returns fewer rows.
+        Assertions.assertTrue(convertLike(pattern).isEmpty(),
+                "LIKE '" + pattern + "' cannot be proven equivalent to a prefix match, so it must "
+                        + "not be pushed (declining is slow but correct; narrowing loses rows)");
+    }
+
+    @Test
+    public void likeTrailingWildcardPushesPrefix() {
+        assertPrefixPushed("abc%", "abc");
+        assertPrefixPushed("abc%%", "abc");
+    }
+
+    @Test
+    public void likeSingleCharWildcardNotPushed() {
+        // '_' matches any ONE character, so 'a_c%' must also match "abc1". Treating it as a literal
+        // underscore prunes away every file that only holds "abc..." values.
+        assertNotPushed("a_c%");
+        assertNotPushed("a\\_c%");
+    }
+
+    @Test
+    public void likeEscapedWildcardNotPushed() {
+        // 'a\%%' means "starts with the literal a%". The raw text carries the backslash, so pushing it
+        // verbatim asks paimon for values starting with "a\%" - typically matching nothing at all.
+        assertNotPushed("a\\%%");
+    }
+
+    @Test
+    public void likeInnerWildcardNotPushed() {
+        // 'a%b%' does not start with '%' and does end with '%', which is exactly the shape the old
+        // check accepted; it then pushed "a%b" as a literal prefix.
+        assertNotPushed("a%b%");
+    }
+
+    @Test
+    public void likeNonPrefixShapesStayUnpushed() {
+        // Regression guard on the shapes that were already declined, so the tightening did not
+        // accidentally start pushing them.
+        assertNotPushed("%abc%");
+        assertNotPushed("%abc");
+        assertNotPushed("abc");
+        assertNotPushed("%");
+        assertNotPushed("%%");
     }
 
     /** Builds `col <op> literal` over a single-column RowType. */

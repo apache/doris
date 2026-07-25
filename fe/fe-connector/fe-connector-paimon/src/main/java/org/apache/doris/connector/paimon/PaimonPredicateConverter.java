@@ -243,11 +243,50 @@ public class PaimonPredicateConverter {
             return null;
         }
         String pattern = ((ConnectorLiteral) patternExpr).getValue().toString();
-        if (!pattern.startsWith("%") && pattern.endsWith("%")) {
-            String prefix = pattern.substring(0, pattern.length() - 1);
-            return builder.startsWith(idx, BinaryString.fromString(prefix));
+        String prefix = literalPrefixOrNull(pattern);
+        if (prefix == null) {
+            return null;
         }
-        return null;
+        return builder.startsWith(idx, BinaryString.fromString(prefix));
+    }
+
+    /**
+     * The literal prefix a Doris LIKE pattern is exactly equivalent to, or {@code null} when no such
+     * proof exists.
+     *
+     * <p>Declining is always safe - the predicate is simply not pushed and BE filters every row with
+     * the original LIKE. Narrowing is not: the predicate returned here drives Paimon's partition and
+     * data-file pruning at planning time and the BE-side JNI row filter, so a file skipped because the
+     * pushed prefix was stricter than the user's pattern can never be read back.
+     *
+     * <p>Doris LIKE uses backslash as its default escape character, {@code %} matches any run of
+     * characters and {@code _} matches exactly one. Only {@code literal%} is provably a prefix match:
+     * <ul>
+     *   <li>{@code _} anywhere is a wildcard, so {@code 'a_c%'} must also match {@code abc...};</li>
+     *   <li>a backslash escapes the next character, so the raw text is not the literal to match
+     *       ({@code 'a\%%'} means "starts with a%", not "starts with a\%"). Rejecting the whole
+     *       pattern on any backslash also guarantees the {@code %} we strip below is a real wildcard
+     *       and not an escaped literal one;</li>
+     *   <li>a {@code %} left anywhere but the tail means the rest is not a literal prefix.</li>
+     * </ul>
+     */
+    private static String literalPrefixOrNull(String pattern) {
+        if (pattern.indexOf('_') >= 0 || pattern.indexOf('\\') >= 0) {
+            return null;
+        }
+        int end = pattern.length();
+        while (end > 0 && pattern.charAt(end - 1) == '%') {
+            end--;
+        }
+        if (end == pattern.length()) {
+            // No trailing '%': the pattern is anchored at both ends (or starts with '%'), not a prefix.
+            return null;
+        }
+        String body = pattern.substring(0, end);
+        if (body.isEmpty() || body.indexOf('%') >= 0) {
+            return null;
+        }
+        return body;
     }
 
     /**
