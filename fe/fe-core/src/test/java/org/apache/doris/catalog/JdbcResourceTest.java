@@ -361,11 +361,19 @@ public class JdbcResourceTest {
     }
 
     @Test
-    public void testSchemelessEncodedSeparatorRejected() {
-        // Shared resolver must reject encoded separators in a scheme-less name, so direct consumers
-        // (Iceberg/Paimon/legacy JDBC) that call getFullDriverUrl cannot escape jdbc_drivers_dir.
-        Assert.assertThrows(IllegalArgumentException.class, () ->
-                JdbcResource.getFullDriverUrl("%2e%2e%2Fevil.jar"));
+    public void testSchemelessLegacyCharsAccepted() {
+        // The shared resolver is on the lazy load path of pre-existing catalogs, so it applies no new
+        // restriction: a bare name using historically valid characters (e.g. '+') must keep resolving,
+        // so an unmodified historical catalog is not broken after upgrade. The stricter bare-name
+        // grammar applies only when a catalog is created or altered (enforced in the JDBC connector).
+        String savedDir = Config.jdbc_drivers_dir;
+        try {
+            Config.jdbc_drivers_dir = "/opt/doris/jdbc_drivers";
+            Assert.assertEquals("file:///opt/doris/jdbc_drivers/legacy+patched.jar",
+                    JdbcResource.getFullDriverUrl("legacy+patched.jar"));
+        } finally {
+            Config.jdbc_drivers_dir = savedDir;
+        }
     }
 
     @Test
