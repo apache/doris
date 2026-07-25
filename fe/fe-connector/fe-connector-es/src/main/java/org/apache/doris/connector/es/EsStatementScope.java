@@ -38,13 +38,19 @@ import java.util.function.Supplier;
  */
 final class EsStatementScope {
 
+    /**
+     * Namespace for es's per-statement raw index-mapping memo. Source-prefixed with the connector type ("es")
+     * so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
+     */
+    static final String INDEX_MAPPING_NAMESPACE = "es.index_mapping";
+
     private EsStatementScope() {
     }
 
     static String sharedIndexMapping(ConnectorSession session, String indexName,
             Supplier<String> loader) {
         return ConnectorStatementScopes.resolveInStatement(
-                session, ConnectorStatementScopes.ES_INDEX_MAPPING,
+                session, INDEX_MAPPING_NAMESPACE,
                 EsConnectorMetadata.DEFAULT_DB, indexName, loader);
     }
 }

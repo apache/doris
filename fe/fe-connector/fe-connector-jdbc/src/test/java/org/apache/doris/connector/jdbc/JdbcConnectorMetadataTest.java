@@ -30,6 +30,8 @@ import org.apache.doris.connector.jdbc.client.JdbcFieldInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -218,7 +220,7 @@ class JdbcConnectorMetadataTest {
         // WHY (HP-1): within one statement the scan-path getColumnHandles (called ~2x per scan node) and a
         // schema-cache-miss getTableSchema each hit client.getJdbcColumnsInfo -- a remote
         // DatabaseMetaData.getColumns round-trip. Routing the raw fetch through the per-statement scope memo
-        // (ConnectorStatementScopes.JDBC_COLUMNS, keyed by (catalogId, db, table, queryId)) collapses them to
+        // (JdbcConnectorMetadata.COLUMNS_NAMESPACE, keyed by (catalogId, db, table, queryId)) collapses them to
         // ONE remote fetch. MUTATION: fetching directly on each call (pre-fix) -> counter 3 -> red.
         CountingJdbcClient client = new CountingJdbcClient(Arrays.asList(field("id"), field("name")));
         JdbcConnectorMetadata md = new JdbcConnectorMetadata(client, Collections.emptyMap());
@@ -274,5 +276,26 @@ class JdbcConnectorMetadataTest {
         Assertions.assertEquals(first, second, "getTableSchema over the shared (mutated) memo is stable");
         Assertions.assertTrue(first.contains("d:true"),
                 "the mutating type conversion's idempotent allowNull=true is reflected in the schema");
+    }
+
+    @Test
+    void allNamespacesArePrefixedWithConnectorType() throws Exception {
+        // NORM (self-extending): reflect over every "*_NAMESPACE" constant this connector declares and assert each
+        // is prefixed with the connector's ConnectorProvider.getType() ("jdbc."). Source-prefixing keeps it distinct
+        // from every other connector's namespaces on a heterogeneous gateway. Reflecting means a NEW namespace is
+        // auto-covered; a forgotten prefix or a getType() drift turns this red.
+        String prefix = new JdbcConnectorProvider().getType() + ".";
+        int checked = 0;
+        for (Field f : JdbcConnectorMetadata.class.getDeclaredFields()) {
+            if (Modifier.isStatic(f.getModifiers()) && f.getType() == String.class
+                    && f.getName().endsWith("_NAMESPACE")) {
+                f.setAccessible(true);
+                String ns = (String) f.get(null);
+                Assertions.assertTrue(ns.startsWith(prefix),
+                        f.getName() + " (\"" + ns + "\") must be prefixed with the connector type \"" + prefix + "\"");
+                checked++;
+            }
+        }
+        Assertions.assertTrue(checked > 0, "expected at least one *_NAMESPACE constant to guard");
     }
 }

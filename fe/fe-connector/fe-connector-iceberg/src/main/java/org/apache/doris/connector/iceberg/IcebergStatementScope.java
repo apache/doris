@@ -48,6 +48,19 @@ import java.util.function.Supplier;
  */
 final class IcebergStatementScope {
 
+    /**
+     * Namespace for iceberg's per-statement RAW {@link Table} memo. Source-prefixed with the connector type
+     * ("iceberg") so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
+     */
+    static final String TABLE_NAMESPACE = "iceberg.table";
+
+    /**
+     * Namespace for iceberg's per-statement rewritable-delete supply map (a per-statement singleton keyed by
+     * catalog id + queryId, with no db/table — it aggregates across all touched data files). Source-prefixed
+     * with the connector type ("iceberg").
+     */
+    static final String REWRITABLE_DELETE_SUPPLY_NAMESPACE = "iceberg.rewritable-delete-supply";
+
     private IcebergStatementScope() {}
 
     /**
@@ -58,11 +71,11 @@ final class IcebergStatementScope {
      * (the caller wraps this in {@code executeAuthenticated}).
      */
     static Table sharedTable(ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {
-        // Delegates to the shared per-statement resolver. The ICEBERG_TABLE namespace reproduces the historical
-        // "iceberg.table:" key prefix byte-for-byte, so the funnel keeps identical hits / misses / NONE fall-through
-        // (proved by IcebergStatementScopeTest#sharedTableKeyReproducesLegacyPrefixByteForByte).
+        // Delegates to the shared per-statement resolver. The TABLE_NAMESPACE ("iceberg.table") reproduces the
+        // historical "iceberg.table:" key prefix byte-for-byte, so the funnel keeps identical hits / misses / NONE
+        // fall-through (proved by IcebergStatementScopeTest#sharedTableKeyReproducesLegacyPrefixByteForByte).
         return ConnectorStatementScopes.resolveInStatement(
-                session, ConnectorStatementScopes.ICEBERG_TABLE, dbName, tableName, loader);
+                session, TABLE_NAMESPACE, dbName, tableName, loader);
     }
 
     /**
@@ -77,7 +90,7 @@ final class IcebergStatementScope {
             // No session: a throwaway map that does NOT bridge scan->write (same as NONE).
             return new ConcurrentHashMap<>();
         }
-        String key = "iceberg.rewritable-delete-supply:" + session.getCatalogId() + ":" + session.getQueryId();
+        String key = REWRITABLE_DELETE_SUPPLY_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         return session.getStatementScope().computeIfAbsent(key, ConcurrentHashMap::new);
     }
 }

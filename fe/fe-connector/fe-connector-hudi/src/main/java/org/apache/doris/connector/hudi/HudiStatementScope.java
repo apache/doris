@@ -34,14 +34,22 @@ import java.util.function.Supplier;
  * and the query-snapshot pin ({@code beginQuerySnapshot}) through {@link #sharedLatestInstant}. Each loader is the
  * connector's existing single-fact method, so the memo only collapses REPEATED same-fact resolves within a statement
  * and leaves each fact's value / failure semantics byte-identical. Distinct namespaces
- * ({@link ConnectorStatementScopes#HUDI_LATEST_SCHEMA} vs {@link ConnectorStatementScopes#HUDI_LATEST_INSTANT}) keep
- * the two value types (columns vs instant) from colliding on the shared {@code (catalog, db, table, queryId)}
- * coordinate.</p>
+ * ({@link #LATEST_SCHEMA_NAMESPACE} vs {@link #LATEST_INSTANT_NAMESPACE}) keep the two value types (columns vs
+ * instant) from colliding on the shared {@code (catalog, db, table, queryId)} coordinate.</p>
  *
  * <p>Under {@link ConnectorStatementScope#NONE} (offline planning / no live statement) or a {@code null} session each
  * loader runs every time — byte-identical to resolving the fact per call, as before the memo.</p>
  */
 final class HudiStatementScope {
+
+    /**
+     * Namespace for hudi's per-statement latest-columns memo. Source-prefixed with the connector type ("hudi")
+     * so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
+     */
+    static final String LATEST_SCHEMA_NAMESPACE = "hudi.latest_schema";
+
+    /** Namespace for hudi's per-statement latest-completed-instant memo. Source-prefixed with the type ("hudi"). */
+    static final String LATEST_INSTANT_NAMESPACE = "hudi.latest_instant";
 
     private HudiStatementScope() {}
 
@@ -54,7 +62,7 @@ final class HudiStatementScope {
     static List<ConnectorColumn> sharedLatestColumns(ConnectorSession session, String dbName, String tableName,
             Supplier<List<ConnectorColumn>> loader) {
         return ConnectorStatementScopes.resolveInStatement(
-                session, ConnectorStatementScopes.HUDI_LATEST_SCHEMA, dbName, tableName, loader);
+                session, LATEST_SCHEMA_NAMESPACE, dbName, tableName, loader);
     }
 
     /**
@@ -65,6 +73,6 @@ final class HudiStatementScope {
     static long sharedLatestInstant(ConnectorSession session, String dbName, String tableName,
             Supplier<Long> loader) {
         return ConnectorStatementScopes.resolveInStatement(
-                session, ConnectorStatementScopes.HUDI_LATEST_INSTANT, dbName, tableName, loader);
+                session, LATEST_INSTANT_NAMESPACE, dbName, tableName, loader);
     }
 }

@@ -129,7 +129,7 @@ public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
      *
      * <p>The {@code new JdbcConnectorMetadata} is a cheap stateless wrapper; its
      * {@link JdbcConnectorMetadata#getColumnHandles} resolves the raw remote-column fetch through the
-     * per-statement scope memo ({@code ConnectorStatementScopes.JDBC_COLUMNS}), so it shares the single
+     * per-statement scope memo ({@code JdbcConnectorMetadata.COLUMNS_NAMESPACE}), so it shares the single
      * {@code getJdbcColumnsInfo} round-trip with the read path and with the sibling
      * planWrite/appendExplainInfo call of the same statement — EXPLAIN INSERT no longer double-fetches.
      */

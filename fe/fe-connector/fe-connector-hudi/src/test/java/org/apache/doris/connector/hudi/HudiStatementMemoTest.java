@@ -25,6 +25,8 @@ import org.apache.doris.connector.api.ConnectorType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +128,27 @@ public class HudiStatementMemoTest {
         m.beginQuerySnapshot(null, handle());
         Assertions.assertEquals(2, m.schemaLoads, "null session -> schema loads every time");
         Assertions.assertEquals(2, m.instantLoads, "null session -> instant loads every time");
+    }
+
+    @Test
+    public void allNamespacesArePrefixedWithConnectorType() throws Exception {
+        // NORM (self-extending): reflect over every "*_NAMESPACE" constant this connector declares and assert each
+        // is prefixed with the connector's ConnectorProvider.getType() ("hudi."). Source-prefixing keeps the value
+        // types (columns vs instant) — and any other connector's — distinct on the shared coordinate. Reflecting
+        // means a NEW namespace is auto-covered; a forgotten prefix or a getType() drift turns this red.
+        String prefix = new HudiConnectorProvider().getType() + ".";
+        int checked = 0;
+        for (Field f : HudiStatementScope.class.getDeclaredFields()) {
+            if (Modifier.isStatic(f.getModifiers()) && f.getType() == String.class
+                    && f.getName().endsWith("_NAMESPACE")) {
+                f.setAccessible(true);
+                String ns = (String) f.get(null);
+                Assertions.assertTrue(ns.startsWith(prefix),
+                        f.getName() + " (\"" + ns + "\") must be prefixed with the connector type \"" + prefix + "\"");
+                checked++;
+            }
+        }
+        Assertions.assertTrue(checked > 0, "expected at least one *_NAMESPACE constant to guard");
     }
 
     /** A statement scope that memoizes like the engine's real one (ConcurrentHashMap computeIfAbsent). */
