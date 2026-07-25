@@ -730,7 +730,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                     ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
                     : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
             if (hmsNames != null && !hmsNames.isEmpty()) {
-                return buildPartitionInfos(hmsNames, partKeyNames, latestInstant(handle));
+                return buildPartitionInfos(hmsNames, partKeyNames, latestInstantMillis(handle));
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
@@ -742,8 +742,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         Map.Entry<Long, List<String>> listing = metaClientExecutor.execute(() -> {
             HoodieTableMetaClient metaClient =
                     HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
+            // Convert to epoch millis HERE, on the metaClient we already built: the partition info's
+            // last-modified field is contractually epoch millis, and the timeline zone is only readable
+            // from the table config. Doing it here costs no extra remote call.
             return new AbstractMap.SimpleImmutableEntry<>(
-                    HudiScanPlanProvider.latestCompletedInstant(metaClient),
+                    HudiScanPlanProvider.instantToEpochMillis(
+                            HudiScanPlanProvider.latestCompletedInstant(metaClient),
+                            HudiScanPlanProvider.timelineZone(metaClient)),
                     HudiScanPlanProvider.listAllPartitionPaths(metaClient));
         });
         return buildPartitionInfos(listing.getValue(), partKeyNames, listing.getKey());
@@ -752,12 +757,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     /**
      * Renders one {@link ConnectorPartitionInfo} per raw partition path. {@code partitionName} = hive-style
      * (for the fe-core re-parse), {@code partitionValues} = the unescaped value map (for the TVF),
-     * {@code lastModifiedMillis} = the pinned instant (a stable, monotonic freshness marker feeding
-     * {@code MTMVTimestampSnapshot}; row/size/file counts stay {@code UNKNOWN}). Static + package-private for
-     * offline unit testing.
+     * {@code lastModifiedMillis} = the pinned instant CONVERTED TO EPOCH MILLIS (a stable, monotonic
+     * freshness marker feeding {@code MTMVTimestampSnapshot}; row/size/file counts stay {@code UNKNOWN}).
+     * The conversion happens at the call sites, which hold the metaClient the timeline zone comes from;
+     * this method only passes the value through. Static + package-private for offline unit testing.
      */
     static List<ConnectorPartitionInfo> buildPartitionInfos(
-            List<String> rawPaths, List<String> partKeyNames, long instant) {
+            List<String> rawPaths, List<String> partKeyNames, long lastModifiedMillis) {
         List<ConnectorPartitionInfo> result = new ArrayList<>(rawPaths.size());
         for (String rawPath : rawPaths) {
             // Parse the unescaped values ONCE; render the hive-style name from the SAME values so the name and
@@ -772,7 +778,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             }
             result.add(new ConnectorPartitionInfo(name, values, Collections.emptyMap(),
                     ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
-                    instant, ConnectorPartitionInfo.UNKNOWN,
+                    lastModifiedMillis, ConnectorPartitionInfo.UNKNOWN,
                     orderedValues, Collections.emptyList()));
         }
         return result;
@@ -786,6 +792,21 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return metaClientExecutor.execute(() ->
                 HudiScanPlanProvider.latestCompletedInstant(
                         HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
+    }
+
+    /**
+     * The same pin as {@link #latestInstant}, expressed in epoch millis for the partition info's
+     * last-modified field. Kept separate because the raw instant is what the snapshot id and time travel
+     * need - the two units must never be swapped for one another.
+     */
+    long latestInstantMillis(HudiTableHandle handle) {
+        return metaClientExecutor.execute(() -> {
+            HoodieTableMetaClient metaClient =
+                    HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
+            return HudiScanPlanProvider.instantToEpochMillis(
+                    HudiScanPlanProvider.latestCompletedInstant(metaClient),
+                    HudiScanPlanProvider.timelineZone(metaClient));
+        });
     }
 
     private boolean useHiveSyncPartition() {

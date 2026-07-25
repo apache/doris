@@ -28,6 +28,11 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -67,6 +72,69 @@ public class HudiConnectorPartitionListingTest {
     public void emptyTimelinePinsZero() {
         // Empty timeline pins 0L (>= 0 so it survives getNewestUpdateVersionOrTime's v>=0 filter), NOT -1.
         Assertions.assertEquals(0L, HudiScanPlanProvider.requestedTimeToInstant(Optional.empty()));
+    }
+
+    // ── item 1b: instant → epoch millis (the unit the partition info contract requires) ────────────────
+
+    @Test
+    public void instantConvertsToEpochMillis() {
+        // 20240101120000000 read as a hudi instant is 2024-01-01T12:00:00.000; in UTC that is this
+        // epoch-millis value. The two representations of the same moment differ by four orders of
+        // magnitude (2.0e16 vs 1.7e12), which is exactly why swapping them goes unnoticed.
+        Assertions.assertEquals(1704110400000L,
+                HudiScanPlanProvider.instantToEpochMillis(20240101120000000L, ZoneOffset.UTC));
+        Assertions.assertTrue(
+                HudiScanPlanProvider.instantToEpochMillis(20240101120000000L, ZoneOffset.UTC) < 1e13,
+                "an epoch-millis value must be ~1e12, not the instant's ~1e16");
+    }
+
+    @Test
+    public void legacySecondPrecisionInstantConverts() {
+        // 14-digit (second-precision) instants predate the millis format. Hudi back-fills them with
+        // ".999" (verified against hudi-common 1.0.2's fixInstantTimeCompatibility / DEFAULT_MILLIS_EXT),
+        // which is also what keeps the mapping order-preserving.
+        Assertions.assertEquals(1704110400999L,
+                HudiScanPlanProvider.instantToEpochMillis(20240101120000L, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void emptyTimelineConvertsToZero() {
+        // 0 = "no completed instant". Stays 0 (>= 0) so the version-token filter still accepts it.
+        Assertions.assertEquals(0L, HudiScanPlanProvider.instantToEpochMillis(0L, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void unparseableInstantDegradesToZeroWithoutThrowing() {
+        // This value only feeds cache/freshness heuristics, and it is computed on the partition-listing
+        // hot path. Failing a whole table's queries over a statistics field is the wrong trade; 0 means
+        // "no reliable change signal", which the engine already handles.
+        Assertions.assertEquals(0L, HudiScanPlanProvider.instantToEpochMillis(5L, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void convertedValueReadsAsHowLongTheTableHasBeenQuiet() {
+        // THE point of this whole conversion, stated as an assertion.
+        //
+        // The engine gates the SQL cache on `now - lastModifiedMillis >= quiet window`, having first
+        // clamped `now` to at least lastModifiedMillis (a guard against FE/metadata clock skew). Feed it
+        // a raw instant (~2.0e16) and that clamp drags "now" along with it, so the difference is 0
+        // FOREVER - not "0 until the window passes". Result: partitioned hudi tables never serve from the
+        // SQL cache, and because the gate takes the maximum across every table a query touches, ONE hudi
+        // table also blocks caching for anything joined to it.
+        //
+        // MUTATION: pass the raw instant through instead of converting -> this difference becomes a huge
+        // negative number -> red.
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDateTime anHourAgo = LocalDateTime.now(zone).minusHours(1);
+        long instant = Long.parseLong(anHourAgo.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS")));
+
+        long quietForMillis = System.currentTimeMillis()
+                - HudiScanPlanProvider.instantToEpochMillis(instant, zone);
+
+        Assertions.assertTrue(Math.abs(quietForMillis - Duration.ofHours(1).toMillis())
+                        < Duration.ofMinutes(5).toMillis(),
+                "wall clock minus this field must read as 'the table has been quiet ~1 hour', got "
+                        + quietForMillis + " ms");
     }
 
     // ── item 2: hive-style NAME rendering + arity round-trip ───────────────────────────────────────────
@@ -136,17 +204,19 @@ public class HudiConnectorPartitionListingTest {
     // ── item 3/4: buildPartitionInfos + listPartitions/Names/Values ────────────────────────────────────
 
     @Test
-    public void buildPartitionInfosStampsInstantAndValues() {
+    public void buildPartitionInfosStampsLastModifiedAndValues() {
+        // The caller converts the instant to epoch millis; this method only passes it through.
         List<ConnectorPartitionInfo> infos = HudiConnectorMetadata.buildPartitionInfos(
-                Arrays.asList("2024/01", "2024/02"), YEAR_MONTH, 20240101120000000L);
+                Arrays.asList("2024/01", "2024/02"), YEAR_MONTH, 1704110400000L);
 
         Assertions.assertEquals(2, infos.size());
         ConnectorPartitionInfo first = infos.get(0);
         Assertions.assertEquals("year=2024/month=01", first.getPartitionName());
         Assertions.assertEquals("2024", first.getPartitionValues().get("year"));
         Assertions.assertEquals("01", first.getPartitionValues().get("month"));
-        // lastModifiedMillis == the instant (a stable non-negative marker), NOT the -1 UNKNOWN sentinel.
-        Assertions.assertEquals(20240101120000000L, first.getLastModifiedMillis());
+        // lastModifiedMillis is carried through verbatim (a stable non-negative marker), NOT the -1
+        // UNKNOWN sentinel.
+        Assertions.assertEquals(1704110400000L, first.getLastModifiedMillis());
         Assertions.assertNotEquals(ConnectorPartitionInfo.UNKNOWN, first.getLastModifiedMillis());
         // row/size/file counts stay UNKNOWN (not collected on the hot path).
         Assertions.assertEquals(ConnectorPartitionInfo.UNKNOWN, first.getRowCount());

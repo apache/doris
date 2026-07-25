@@ -167,7 +167,18 @@ public final class ConnectorPartitionInfo {
         return sizeBytes;
     }
 
-    /** @return last-modified epoch millis, or {@link #UNKNOWN}. */
+    /**
+     * @return last-modified epoch millis, or {@link #UNKNOWN}.
+     *
+     *         <p><b>The unit is load-bearing, not decorative.</b> The engine subtracts this from the
+     *         wall clock to decide whether the table has been quiet long enough to serve a query from
+     *         the SQL cache. Because it clamps "now" to at least this value (a guard against FE/metadata
+     *         clock skew), a value from any other scale - a source-native version, a commit id, a
+     *         timestamp in another unit - makes that difference come out as zero forever and SILENTLY
+     *         disables the SQL cache for this table AND for every table queried alongside it. There is
+     *         no error and no EXPLAIN signal; the only symptom is that the cache never engages. Report
+     *         {@link #UNKNOWN} rather than a value in a different unit.
+     */
     public long getLastModifiedMillis() {
         return lastModifiedMillis;
     }

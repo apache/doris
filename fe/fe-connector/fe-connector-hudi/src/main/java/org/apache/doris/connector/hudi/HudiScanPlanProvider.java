@@ -40,6 +40,7 @@ import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
@@ -53,6 +54,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -724,6 +729,50 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static long requestedTimeToInstant(Optional<String> requestedTime) {
         return requestedTime.map(Long::parseLong).orElse(0L);
+    }
+
+    /**
+     * The zone hudi generated this table's instants in ({@code hoodie.table.timeline.timezone}, default
+     * {@code LOCAL}). An instant string carries no offset, so it can only be read back through the table's
+     * own declared zone.
+     *
+     * <p>Read from the table config rather than through {@code HoodieInstantTimeGenerator}'s one-line
+     * parse helper on purpose: that helper takes the zone from a JVM-global static, which would put a
+     * whole timezone offset of error on a table that explicitly declares {@code UTC}.
+     */
+    static ZoneId timelineZone(HoodieTableMetaClient metaClient) {
+        return metaClient.getTableConfig().getTimelineTimezone().getZoneId();
+    }
+
+    /**
+     * Converts a hudi instant ({@code yyyyMMddHHmmssSSS} read as a number) to epoch millis - the unit
+     * {@code ConnectorPartitionInfo#getLastModifiedMillis} requires.
+     *
+     * <p>These are NOT interchangeable even though both are a {@code long}: an instant for 2024 reads as
+     * ~2.0e16 while the same moment in epoch millis is ~1.7e12, four orders of magnitude apart. The
+     * engine subtracts this field from the wall clock to decide whether a table has been quiet long
+     * enough to serve from the SQL cache, so an instant fed in there makes the difference come out as 0
+     * forever and silently disables that cache for the table and everything queried alongside it.
+     *
+     * <p>The raw instant keeps its own job (timeline lookup, snapshot id, time travel); only this
+     * freshness field changes unit. {@code instant <= 0} (empty timeline) maps to {@code 0}; anything
+     * unparseable logs and maps to {@code 0}, meaning "no reliable change signal" - the engine already
+     * degrades safely on that, and a statistics field must never fail a query on the scan hot path.
+     */
+    static long instantToEpochMillis(long instant, ZoneId zone) {
+        if (instant <= 0) {
+            return 0L;
+        }
+        String instantTime = HoodieInstantTimeGenerator.fixInstantTimeCompatibility(String.valueOf(instant));
+        try {
+            return LocalDateTime
+                    .parse(instantTime, DateTimeFormatter.ofPattern(
+                            HoodieInstantTimeGenerator.MILLIS_INSTANT_TIMESTAMP_FORMAT))
+                    .atZone(zone).toInstant().toEpochMilli();
+        } catch (DateTimeParseException e) {
+            LOG.warn("Cannot read hudi instant {} as a timestamp; reporting no last-modified time", instant, e);
+            return 0L;
+        }
     }
 
     /**
