@@ -72,7 +72,6 @@ public class CreateTableInfoToConnectorRequestConverterTest {
                 null,
                 "an orders table",
                 ImmutableMap.of("k", "v"),
-                true,
                 true);
 
         ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter
@@ -83,7 +82,6 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         Assertions.assertEquals("an orders table", req.getComment());
         Assertions.assertEquals(ImmutableMap.of("k", "v"), req.getProperties());
         Assertions.assertTrue(req.isIfNotExists());
-        Assertions.assertTrue(req.isExternal());
 
         Assertions.assertEquals(2, req.getColumns().size());
         ConnectorColumn col0 = req.getColumns().get(0);
@@ -112,7 +110,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         Mockito.when(autoIncCol.getAutoIncInitValue()).thenReturn(1L); // != -1 => auto-increment
 
         CreateTableInfo info = stubInfo("t", Collections.singletonList(autoIncCol),
-                null, null, "", Collections.emptyMap(), false, false);
+                null, null, "", Collections.emptyMap(), false);
         ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
 
         // WHY (Rule 9): the connector can only reject what the converter carries. This proves the
@@ -127,7 +125,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
     public void sortOrderIsCarriedThrough() {
         ColumnDefinition idCol = new ColumnDefinition("id", IntegerType.INSTANCE, false, "");
         CreateTableInfo info = stubInfo("t", Collections.singletonList(idCol),
-                null, null, "", Collections.emptyMap(), false, false);
+                null, null, "", Collections.emptyMap(), false);
         Mockito.when(info.getSortOrderFields()).thenReturn(Arrays.asList(
                 new SortFieldInfo("id", true, false),
                 new SortFieldInfo("name", false, true)));
@@ -152,7 +150,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
     public void sortOrderEmptyWhenAbsent() {
         ColumnDefinition idCol = new ColumnDefinition("id", IntegerType.INSTANCE, false, "");
         CreateTableInfo info = stubInfo("t", Collections.singletonList(idCol),
-                null, null, "", Collections.emptyMap(), false, false);
+                null, null, "", Collections.emptyMap(), false);
         // getSortOrderFields() unstubbed -> null -> the converter yields an empty (never null) list.
         ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
         Assertions.assertTrue(req.getSortOrder().isEmpty());
@@ -169,7 +167,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         Mockito.when(plainCol.getAutoIncInitValue()).thenReturn(-1L); // default => not auto-increment
 
         CreateTableInfo info = stubInfo("t", Collections.singletonList(plainCol),
-                null, null, "", Collections.emptyMap(), false, false);
+                null, null, "", Collections.emptyMap(), false);
         ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
 
         // WHY: guards the `!= -1` predicate boundary -- a normal column must map to false, not true
@@ -192,7 +190,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         Mockito.when(aggCol.getAggType()).thenReturn(AggregateType.SUM);
 
         CreateTableInfo info = stubInfo("t", Collections.singletonList(aggCol),
-                null, null, "", Collections.emptyMap(), false, false);
+                null, null, "", Collections.emptyMap(), false);
         ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
 
         // WHY (Rule 9): the connector can only reject what the converter carries. This proves the
@@ -215,7 +213,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         Mockito.when(plainCol.getAggType()).thenReturn(null); // no aggregate type
 
         CreateTableInfo info = stubInfo("t", Collections.singletonList(plainCol),
-                null, null, "", Collections.emptyMap(), false, false);
+                null, null, "", Collections.emptyMap(), false);
         ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
 
         // WHY: guards the boundary -- a normal column (null/NONE aggType) must map to false.
@@ -344,7 +342,6 @@ public class CreateTableInfoToConnectorRequestConverterTest {
                         null,
                         "",
                         Collections.emptyMap(),
-                        false,
                         false),
                 "db");
     }
@@ -359,7 +356,6 @@ public class CreateTableInfoToConnectorRequestConverterTest {
                         distribution,
                         "",
                         Collections.emptyMap(),
-                        false,
                         false),
                 "db");
     }
@@ -375,8 +371,7 @@ public class CreateTableInfoToConnectorRequestConverterTest {
             DistributionDescriptor distribution,
             String comment,
             java.util.Map<String, String> properties,
-            boolean ifNotExists,
-            boolean external) {
+            boolean ifNotExists) {
         CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
         Mockito.when(info.getTableName()).thenReturn(tableName);
         Mockito.when(info.getColumnDefinitions()).thenReturn(columns);
@@ -385,7 +380,6 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         Mockito.when(info.getComment()).thenReturn(comment);
         Mockito.when(info.getProperties()).thenReturn(properties);
         Mockito.when(info.isIfNotExists()).thenReturn(ifNotExists);
-        Mockito.when(info.isExternal()).thenReturn(external);
         return info;
     }
 }

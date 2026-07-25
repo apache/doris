@@ -72,7 +72,6 @@ public final class CreateTableInfoToConnectorRequestConverter {
                 .comment(info.getComment())
                 .properties(info.getProperties())
                 .ifNotExists(info.isIfNotExists())
-                .external(info.isExternal())
                 .build();
     }
 

@@ -49,13 +49,13 @@ public interface ConnectorTableDdlOps {
     }
 
     /**
-     * Creates a table with full DDL semantics (partition, bucket, external,
+     * Creates a table with full DDL semantics (partition, bucket,
      * {@code IF NOT EXISTS}).
      *
      * <p>Connectors should override this when they support advanced
      * {@code CREATE TABLE} options. The default degrades to the legacy
      * {@link #createTable(ConnectorSession, ConnectorTableSchema, Map)},
-     * dropping partition / bucket / external / {@code ifNotExists} info.</p>
+     * dropping partition / bucket / {@code ifNotExists} info.</p>
      *
      * @throws DorisConnectorException if the connector cannot honor the request
      */
