@@ -24,14 +24,17 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -71,6 +74,18 @@ class AggregateUtilsHighNdvDistinctTest {
         If ifExpr = new If(new EqualTo(age, new IntegerLiteral(1)), id, new NullLiteral(id.getDataType()));
         List<NamedExpression> outputs = Lists.newArrayList(
                 new Alias(new Count(true, ifExpr), "count_distinct_if"),
+                new Alias(new Count(true, name), "count_distinct_name"));
+        return new LogicalAggregate<>(Lists.newArrayList(age), outputs, childGroup);
+    }
+
+    // count(distinct year(dt)) group by age, where dt has no statistics. year() is a determinably
+    // low-ndv function (ExpressionEstimation.visitYear fabricates ndv=69, isUnknown=false), so the
+    // estimate alone says "not unknown"; only the per-input-slot check sees that dt itself is
+    // unanalyzed. This documents the intentional conservative fallback: an unknown base slot routes to
+    // CTE even under a low-ndv wrapper, trading a costlier plan for OOM safety.
+    private LogicalAggregate<GroupPlan> buildAggWithYear(Slot dateSlot) {
+        List<NamedExpression> outputs = Lists.newArrayList(
+                new Alias(new Count(true, new Year(dateSlot)), "count_distinct_year"),
                 new Alias(new Count(true, name), "count_distinct_name"));
         return new LogicalAggregate<>(Lists.newArrayList(age), outputs, childGroup);
     }
@@ -132,5 +147,88 @@ class AggregateUtilsHighNdvDistinctTest {
                 .build();
         Assertions.assertTrue(
                 AggregateUtils.hasHighNdvDistinctArgument(buildAgg(), childStats, ROW_COUNT));
+    }
+
+    @Test
+    void unknownDistinctArgumentIsTreatedAsRisky() {
+        // No column statistics at all: every distinct argument is unknown, so we cannot rule out a
+        // near-unique argument that would OOM MultiDistinct under a low-cardinality group by. This is
+        // the gap the helper closes -- an unknown distinct argument must route to CTE, matching the
+        // no-group-by branch of DistinctAggStrategySelector.
+        Statistics childStats = new StatisticsBuilder().setRowCount(ROW_COUNT).build();
+        Assertions.assertTrue(
+                AggregateUtils.hasUnknownNdvDistinctArgument(buildAgg(), childStats));
+    }
+
+    @Test
+    void oneUnknownDistinctArgumentAmongKnownIsTreatedAsRisky() {
+        // id has stats but name does not: a single unknown distinct argument is enough to be risky,
+        // because that one argument alone could be near-unique.
+        Statistics childStats = new StatisticsBuilder()
+                .setRowCount(ROW_COUNT)
+                .putColumnStatistics(id, ndvStat(100))
+                .putColumnStatistics(age, ndvStat(12))
+                .build();
+        Assertions.assertTrue(
+                AggregateUtils.hasUnknownNdvDistinctArgument(buildAgg(), childStats));
+    }
+
+    @Test
+    void allKnownDistinctArgumentsAreNotUnknown() {
+        // Both distinct arguments have statistics (regardless of ndv value), so none is unknown and
+        // the group-by cardinality checks downstream are allowed to run.
+        Statistics childStats = new StatisticsBuilder()
+                .setRowCount(ROW_COUNT)
+                .putColumnStatistics(id, ndvStat(100))
+                .putColumnStatistics(name, ndvStat(ROW_COUNT * 0.9))
+                .putColumnStatistics(age, ndvStat(12))
+                .build();
+        Assertions.assertFalse(
+                AggregateUtils.hasUnknownNdvDistinctArgument(buildAgg(), childStats));
+    }
+
+    @Test
+    void ifWrappedKnownDistinctArgumentIsNotUnknown() {
+        // if(age = 1, id, null): ExpressionEstimation resolves through the If to id's statistics, so a
+        // known column wrapped in an If is not treated as unknown.
+        Statistics childStats = new StatisticsBuilder()
+                .setRowCount(ROW_COUNT)
+                .putColumnStatistics(id, ndvStat(100))
+                .putColumnStatistics(name, ndvStat(100))
+                .putColumnStatistics(age, ndvStat(12))
+                .build();
+        Assertions.assertFalse(
+                AggregateUtils.hasUnknownNdvDistinctArgument(buildAggWithIf(), childStats));
+    }
+
+    @Test
+    void ifWrappedUnknownDistinctArgumentIsTreatedAsRisky() {
+        // if(age = 1, id, null) where id has no statistics. ExpressionEstimation.visitIf fabricates a
+        // small non-unknown ndv, so the estimate alone would not flag this; the per-input-slot check is
+        // what catches that id is unanalyzed and could be near-unique. This is the gap the slot scan
+        // closes -- the production if(cond, payment_id, null) shape.
+        Statistics childStats = new StatisticsBuilder()
+                .setRowCount(ROW_COUNT)
+                .putColumnStatistics(name, ndvStat(100))
+                .putColumnStatistics(age, ndvStat(12))
+                .build();
+        Assertions.assertTrue(
+                AggregateUtils.hasUnknownNdvDistinctArgument(buildAggWithIf(), childStats));
+    }
+
+    @Test
+    void lowNdvDerivedFunctionOverUnknownSlotIsTreatedAsRisky() {
+        // count(distinct year(dt)) where dt is unanalyzed. year() has an obviously bounded ndv, yet
+        // because its base slot has no statistics the strategy still routes to CTE. This is intentional:
+        // the per-input-slot check favors OOM safety over reusing the low-ndv estimate, so it is a
+        // conservative fallback, not a regression, if a future reader expects MultiDistinct here.
+        SlotReference dt = new SlotReference("dt", DateV2Type.INSTANCE);
+        Statistics childStats = new StatisticsBuilder()
+                .setRowCount(ROW_COUNT)
+                .putColumnStatistics(name, ndvStat(100))
+                .putColumnStatistics(age, ndvStat(12))
+                .build();
+        Assertions.assertTrue(
+                AggregateUtils.hasUnknownNdvDistinctArgument(buildAggWithYear(dt), childStats));
     }
 }

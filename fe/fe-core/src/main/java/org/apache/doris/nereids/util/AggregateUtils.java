@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -161,11 +162,42 @@ public class AggregateUtils {
             LogicalAggregate<? extends Plan> agg, Statistics childStats, double row) {
         for (Expression distinctArgument : agg.getDistinctArguments()) {
             ColumnStatistic stat = ExpressionEstimation.estimate(distinctArgument, childStats);
-            if (stat == null || stat.isUnKnown()) {
+            if (stat.isUnKnown()) {
                 continue;
             }
             if (stat.ndv >= row * MID_CARDINALITY_THRESHOLD) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether any distinct argument has unknown ndv (no usable statistics).
+     *
+     * A distinct argument with unknown statistics could be near-unique, and MultiDistinct keeps a
+     * per-group hash set of every distinct value on a single node, so under a low- or unknown-
+     * cardinality group by one node may hold a whole group's value set and OOM. Treating unknown as
+     * risky and routing to CTE split mirrors the no-group-by branch of DistinctAggStrategySelector,
+     * which also falls back to CTE when a distinct argument's statistics are unknown.
+     *
+     * <p>An argument is unknown when either ExpressionEstimation yields an unknown stat, or any input
+     * slot it reads has no usable statistics. The per-slot check is required because ExpressionEstimation
+     * fabricates a small non-unknown ndv for wrappers such as if(cond, col, null) (visitIf) even when col
+     * itself is unanalyzed, which would otherwise let a near-unique wrapped column escape this guard.
+     */
+    public static boolean hasUnknownNdvDistinctArgument(
+            LogicalAggregate<? extends Plan> agg, Statistics childStats) {
+        for (Expression distinctArgument : agg.getDistinctArguments()) {
+            ColumnStatistic stat = ExpressionEstimation.estimate(distinctArgument, childStats);
+            if (stat.isUnKnown()) {
+                return true;
+            }
+            for (Slot inputSlot : distinctArgument.getInputSlots()) {
+                ColumnStatistic slotStat = childStats.findColumnStatistics(inputSlot);
+                if (slotStat == null || slotStat.isUnKnown()) {
+                    return true;
+                }
             }
         }
         return false;

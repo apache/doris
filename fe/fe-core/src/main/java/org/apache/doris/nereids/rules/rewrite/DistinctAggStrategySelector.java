@@ -178,14 +178,23 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
             if (AggregateUtils.hasHighNdvDistinctArgument(agg, childStats, row)) {
                 return false;
             }
+            // A distinct argument with unknown statistics could be near-unique. We cannot rule out
+            // the single-node OOM above, so treat unknown as risky and split, matching the no-group-by
+            // branch which also routes unknown distinct statistics to CTE. Only when every distinct
+            // argument is confirmed low-ndv (neither high nor unknown) do we fall through to the
+            // group-by cardinality checks below.
+            if (AggregateUtils.hasUnknownNdvDistinctArgument(agg, childStats)) {
+                return false;
+            }
             if (agg.hasSkewHint()) {
                 return false;
             }
             if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
-                // No group-by stats to judge cardinality. Grouping by a single low-cardinality key
-                // is the common MultiDistinct OOM case (parallelism capped at the group count), so
-                // prefer CTE split there; with >=2 group-by keys the joint cardinality is usually
-                // high enough for MultiDistinct to spread safely. Mirrors StarRocks' fallback.
+                // Reached only when every distinct argument is confirmed low-ndv, so a single node
+                // holding a whole group's value set is not a concern. With a single group-by key the
+                // parallelism is still capped at the (unknown) group count, so prefer CTE split; with
+                // >=2 keys the joint cardinality is usually high enough for MultiDistinct to spread
+                // safely. Mirrors StarRocks' fallback.
                 return agg.getGroupByExpressions().size() >= 2;
             }
             // The joint ndv of Group by key is high, so multi_distinct is not selected;
