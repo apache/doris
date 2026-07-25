@@ -900,6 +900,16 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
+        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
+        // without a parsedStatement. Propagate it so that downstream code like
+        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
+        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
+        // Coordinator (which would fail with "fragment has no children").
+        // Only do this when isProxy is true, because other code paths like
+        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
+        if (isProxy) {
+            this.context.getStatementContext().setParsedStatement(parsedStmt);
+        }
     }
 
     public void finalizeQuery() {
