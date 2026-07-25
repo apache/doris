@@ -731,8 +731,7 @@ TEST(PaimonHybridReaderTest, NormalizesLegacyNativeSplitFormatBeforeChildPrepare
                         .ok());
 
     SplitReadOptions options;
-    options.current_range =
-            make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    options.current_range = make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
     options.current_split_format = FileFormat::JNI;
     ASSERT_TRUE(reader.prepare_split(options).ok());
     ASSERT_NE(tracking_reader, nullptr);

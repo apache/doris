@@ -108,8 +108,8 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
         auto native_options = options;
         // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
         // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
-        RETURN_IF_ERROR(_to_file_format(options.current_range,
-                                        &native_options.current_split_format));
+        RETURN_IF_ERROR(
+                _to_file_format(options.current_range, &native_options.current_split_format));
         return _current_split_reader->prepare_split(native_options);
     }
     return _current_split_reader->prepare_split(options);

@@ -40,10 +40,9 @@ namespace doris::format::wal {
 namespace {
 
 std::string temporary_wal_path() {
-    const auto root =
-            std::filesystem::temp_directory_path() /
-            ("doris-wal-v2-" +
-             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("doris-wal-v2-" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto path = root / "1" / "2" / "1_1_1_test";
     std::filesystem::create_directories(path.parent_path());
     return path.string();
@@ -82,8 +81,7 @@ TEST(WalReaderV2Test, WriterBackedReaderPreservesNestedSchemaAndMovesFirstPayloa
     const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
     const auto array_type = make_nullable(std::make_shared<DataTypeArray>(int_type));
     const auto string_type = make_nullable(std::make_shared<DataTypeString>());
-    const auto map_type =
-            make_nullable(std::make_shared<DataTypeMap>(string_type, int_type));
+    const auto map_type = make_nullable(std::make_shared<DataTypeMap>(string_type, int_type));
     const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
             DataTypes {int_type, array_type}, Strings {"id", "nested_items"}));
 

@@ -75,8 +75,7 @@ ColumnDefinition build_wal_column_definition(const PColumnMeta& meta, int32_t lo
     field.type = make_nullable(DataTypeFactory::instance().create_data_type(meta));
     field.children.reserve(meta.children_size());
     for (int child_idx = 0; child_idx < meta.children_size(); ++child_idx) {
-        field.children.push_back(
-                build_wal_column_definition(meta.children(child_idx), child_idx));
+        field.children.push_back(build_wal_column_definition(meta.children(child_idx), child_idx));
     }
     return field;
 }
@@ -278,8 +277,7 @@ Status WalReader::_init_schema_from_block(const PBlock* pblock) const {
     return Status::OK();
 }
 
-Status WalReader::_materialize_requested_columns(Block* source_block,
-                                                 Block* file_block) const {
+Status WalReader::_materialize_requested_columns(Block* source_block, Block* file_block) const {
     DORIS_CHECK(source_block != nullptr);
     for (const auto& [file_column_id, block_position] : _request->local_positions) {
         const auto source_idx = file_column_id.value();
