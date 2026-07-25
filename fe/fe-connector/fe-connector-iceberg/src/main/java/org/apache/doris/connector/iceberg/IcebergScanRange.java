@@ -18,7 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -147,11 +146,6 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.positionDeleteReferencedDataFilePath = builder.positionDeleteReferencedDataFilePath;
         this.positionDeleteContentOffset = builder.positionDeleteContentOffset;
         this.positionDeleteContentSizeInBytes = builder.positionDeleteContentSizeInBytes;
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

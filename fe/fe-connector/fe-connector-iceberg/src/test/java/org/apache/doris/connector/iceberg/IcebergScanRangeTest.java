@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -53,9 +52,6 @@ public class IcebergScanRangeTest {
                 .fileFormat("parquet")
                 .build();
 
-        // WHY: iceberg is a file-based connector, so the engine must build a TFileScanRange off this range.
-        // MUTATION: returning JDBC_SCAN / CUSTOM -> wrong thrift scan-range variant -> red.
-        Assertions.assertEquals(ConnectorScanRangeType.FILE_SCAN, range.getRangeType());
         Assertions.assertEquals(Optional.of("s3://bucket/db/t/data/f.parquet"), range.getPath());
         Assertions.assertEquals(128L, range.getStart());
         Assertions.assertEquals(4096L, range.getLength());

@@ -24,7 +24,6 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -111,11 +110,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         this.context = context;
         this.readTxnManager = readTxnManager;
         this.fileListingCache = fileListingCache;
-    }
-
-    @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
@@ -103,11 +102,6 @@ public class PaimonScanRange implements ConnectorScanRange {
             props.put("paimon.self_split_weight", String.valueOf(builder.selfSplitWeight));
         }
         this.properties = Collections.unmodifiableMap(props);
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

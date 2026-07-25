@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,11 +41,6 @@ public class PluginDrivenSplitPartitionValuesTest {
 
     private static ConnectorScanRange range(Map<String, String> partitionValues, boolean partitionBearing) {
         return new ConnectorScanRange() {
-            @Override
-            public ConnectorScanRangeType getRangeType() {
-                return ConnectorScanRangeType.FILE_SCAN;
-            }
-
             @Override
             public Map<String, String> getProperties() {
                 return Collections.emptyMap();

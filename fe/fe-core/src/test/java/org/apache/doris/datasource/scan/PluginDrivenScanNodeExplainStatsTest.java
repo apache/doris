@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -54,11 +53,6 @@ public class PluginDrivenScanNodeExplainStatsTest {
     /** Minimal fake range: native flag + optional precomputed count, the only two getters under test. */
     private static ConnectorScanRange range(boolean nativeRead, long pushDownRowCount) {
         return new ConnectorScanRange() {
-            @Override
-            public ConnectorScanRangeType getRangeType() {
-                return ConnectorScanRangeType.FILE_SCAN;
-            }
-
             @Override
             public Map<String, String> getProperties() {
                 return Collections.emptyMap();

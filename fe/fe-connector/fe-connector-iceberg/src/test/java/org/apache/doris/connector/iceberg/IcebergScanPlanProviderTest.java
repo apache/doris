@@ -26,7 +26,6 @@ import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
@@ -166,14 +165,6 @@ public class IcebergScanPlanProviderTest {
     }
 
     // --- T01 capability + seam/auth tests (unchanged contract; now backed by a real empty table) ---
-
-    @Test
-    public void getScanRangeTypeIsFileScan() {
-        IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps());
-        // WHY: iceberg is file-based, so BE must build a TFileScanRange. MUTATION: JDBC_SCAN / CUSTOM -> red.
-        Assertions.assertEquals(ConnectorScanRangeType.FILE_SCAN, provider.getScanRangeType());
-    }
 
     @Test
     public void ignorePartitionPruneShortCircuitIsTrue() {

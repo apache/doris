@@ -35,11 +35,6 @@ public class ConnectorScanRangeWeightDefaultsTest {
     public void defaultWeightGettersReturnSentinel() {
         ConnectorScanRange range = new ConnectorScanRange() {
             @Override
-            public ConnectorScanRangeType getRangeType() {
-                return ConnectorScanRangeType.FILE_SCAN;
-            }
-
-            @Override
             public Map<String, String> getProperties() {
                 return Collections.emptyMap();
             }

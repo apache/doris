@@ -41,19 +41,6 @@ import java.util.OptionalLong;
 public interface ConnectorScanPlanProvider {
 
     /**
-     * Returns the scan range type this provider produces.
-     *
-     * <p>The engine uses this to determine which Thrift scan range structure
-     * to generate. For example, {@link ConnectorScanRangeType#FILE_SCAN}
-     * produces TFileScanRange.</p>
-     *
-     * @return the scan range type (default: FILE_SCAN)
-     */
-    default ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
-    }
-
-    /**
      * Whether this connector is PREDICATE-DRIVEN and therefore opts out of the FE prune-to-zero
      * short-circuit.
      *

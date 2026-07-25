@@ -24,7 +24,6 @@ import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,11 +54,6 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         this.dbType = dbType;
         this.catalogProperties = catalogProperties;
         this.catalogId = catalogId;
-    }
-
-    @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

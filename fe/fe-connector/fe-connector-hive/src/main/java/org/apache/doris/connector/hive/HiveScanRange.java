@@ -19,7 +19,6 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
@@ -76,11 +75,6 @@ public class HiveScanRange implements ConnectorScanRange {
         this.properties = builder.properties != null
                 ? Collections.unmodifiableMap(builder.properties)
                 : Collections.emptyMap();
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

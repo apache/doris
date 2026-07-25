@@ -24,7 +24,6 @@ import org.apache.doris.connector.api.handle.NamedColumnHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
@@ -89,11 +88,6 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> properties) {
         this.restClient = restClient;
         this.properties = properties;
-    }
-
-    @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

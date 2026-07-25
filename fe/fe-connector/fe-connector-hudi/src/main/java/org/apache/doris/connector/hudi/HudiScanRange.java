@@ -19,7 +19,6 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
@@ -117,11 +116,6 @@ public class HudiScanRange implements ConnectorScanRange {
                 ? Collections.unmodifiableList(new ArrayList<>(builder.columnTypes))
                 : Collections.emptyList();
         this.forceJni = builder.forceJni;
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

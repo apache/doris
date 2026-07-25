@@ -30,17 +30,16 @@ import java.util.Optional;
 /**
  * Represents a unit of work (a split/range) for scanning a connector table.
  *
- * <p>Each scan range maps to one BE scan task. The {@link #getRangeType() range type}
- * determines how the engine converts this range into the appropriate Thrift
- * scan range structure for BE execution.</p>
+ * <p>Each scan range maps to one BE scan task. The Thrift shape is chosen by the range itself: override
+ * {@link #populateRangeParams} to build a format-specific {@code TTableFormatFileDesc} (iceberg, hudi, paimon
+ * and es all do), and use {@link #getTableFormatType()} to select the BE-side reader. The default
+ * {@code populateRangeParams} dumps {@link #getProperties()} into the generic {@code jdbc_params} map, which
+ * is what the JNI-based readers consume.</p>
  *
  * <p>Connectors produce scan ranges via {@link ConnectorScanPlanProvider#planScan},
  * and the engine converts them to {@code TScanRangeLocations} for dispatch.</p>
  */
 public interface ConnectorScanRange extends Serializable {
-
-    /** Returns the scan range type, which determines BE processing. */
-    ConnectorScanRangeType getRangeType();
 
     /** Returns the file path, if applicable. */
     default Optional<String> getPath() {
@@ -60,9 +59,8 @@ public interface ConnectorScanRange extends Serializable {
     /**
      * Returns the file format (e.g., "parquet", "orc", "csv", "jni").
      *
-     * <p>For {@link ConnectorScanRangeType#FILE_SCAN}, this determines the
-     * BE reader. For non-file types (JDBC, ES, etc.), return "jni" to use
-     * the JNI scanner framework.</p>
+     * <p>For a range read by a native file reader this determines that reader. For a range served through a
+     * JNI scanner (jdbc, es, and the system-table paths), return "jni".</p>
      */
     default String getFileFormat() {
         return "jni";
@@ -182,7 +180,6 @@ public interface ConnectorScanRange extends Serializable {
     default void populateRangeParams(TTableFormatFileDesc formatDesc,
             TFileRangeDesc rangeDesc) {
         Map<String, String> props = new HashMap<>(getProperties());
-        props.put("connector_scan_range_type", getRangeType().name());
         props.put("connector_file_format", getFileFormat());
         Map<String, String> partValues = getPartitionValues();
         if (partValues != null && !partValues.isEmpty()) {
