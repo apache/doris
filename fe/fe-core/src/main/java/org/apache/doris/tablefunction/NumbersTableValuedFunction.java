@@ -110,6 +110,10 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() {
+        return getSchemaForDescribe();
+    }
+
+    public static List<Column> getSchemaForDescribe() {
         List<Column> resColumns = new ArrayList<>();
         resColumns.add(new Column("number", PrimitiveType.BIGINT, false));
         return resColumns;

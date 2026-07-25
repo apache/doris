@@ -82,6 +82,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -132,6 +133,26 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public FileFormatProperties fileFormatProperties;
     private long tableId;
+
+    public static List<Column> getSchemaForDescribe(Map<String, String> params) throws AnalysisException {
+        List<Column> csvSchema = Lists.newArrayList();
+        String csvSchemaStr = null;
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (CsvFileFormatProperties.PROP_CSV_SCHEMA.equalsIgnoreCase(entry.getKey())) {
+                csvSchemaStr = entry.getValue();
+                break;
+            }
+        }
+        if (!Strings.isNullOrEmpty(csvSchemaStr)) {
+            FileFormatUtils.parseCsvSchema(csvSchema, csvSchemaStr);
+            if (!csvSchema.isEmpty()) {
+                return csvSchema;
+            }
+        }
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+        return columns;
+    }
 
     public abstract TFileType getTFileType();
 

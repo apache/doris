@@ -147,6 +147,29 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
      */
     @Override
     public List<Column> getTableColumns() {
+        return getSchemaForDescribe(queryType);
+    }
+
+    public static List<Column> getSchemaForDescribe(Map<String, String> params) throws AnalysisException {
+        String queryTypeString = null;
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (QUERY_TYPE.equalsIgnoreCase(entry.getKey())) {
+                queryTypeString = entry.getValue();
+                break;
+            }
+        }
+        if (queryTypeString == null) {
+            return Lists.newArrayList();
+        }
+        try {
+            THudiQueryType queryType = THudiQueryType.valueOf(queryTypeString.toUpperCase());
+            return getSchemaForDescribe(queryType);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unsupported hudi metadata query type: " + queryTypeString);
+        }
+    }
+
+    private static List<Column> getSchemaForDescribe(THudiQueryType queryType) {
         if (queryType == THudiQueryType.TIMELINE) {
             return SCHEMA_TIMELINE;
         }

@@ -234,6 +234,21 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        return getSchemaForDescribe(catalogName);
+    }
+
+    public static List<Column> getSchemaForDescribe(Map<String, String> params) {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (CATALOG.equalsIgnoreCase(entry.getKey())) {
+                catalogName = entry.getValue();
+                break;
+            }
+        }
+        return getSchemaForDescribe(catalogName);
+    }
+
+    private static List<Column> getSchemaForDescribe(String catalogName) {
         if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
             return SCHEMA_FOR_OLAP_TABLE;
         } else {
