@@ -104,6 +104,8 @@ public abstract class TableValuedFunctionIf {
                 return new HttpTableValuedFunction(params);
             case TableBinlogFunction.NAME:
                 return new TableBinlogFunction(params);
+            case TabletsTableValuedFunction.NAME:
+                return TabletsTableValuedFunction.create(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
