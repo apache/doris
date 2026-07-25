@@ -190,7 +190,7 @@ private:
     bool _need_global_rowid_column = false;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<int32_t, format::GlobalIndex> _slot_id_to_global_index;
-    std::unordered_map<std::string, PartitionSlotInfo> _partition_slot_descs;
+    std::unordered_map<std::string, PartitionSlotInfo> _split_value_slot_descs;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     io::FileCacheStatistics _reported_file_cache_statistics;

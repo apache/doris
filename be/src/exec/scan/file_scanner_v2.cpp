@@ -677,8 +677,8 @@ Status FileScannerV2::_generate_partition_values(
     DORIS_CHECK(range.columns_from_path_keys.size() == range.columns_from_path.size());
     for (size_t idx = 0; idx < range.columns_from_path_keys.size(); ++idx) {
         const auto& key = range.columns_from_path_keys[idx];
-        const auto it = _partition_slot_descs.find(key);
-        if (it == _partition_slot_descs.end()) {
+        const auto it = _split_value_slot_descs.find(key);
+        if (it == _split_value_slot_descs.end()) {
             continue;
         }
         const auto& value = range.columns_from_path[idx];
@@ -717,7 +717,7 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
 Status FileScannerV2::_init_expr_ctxes() {
     _slot_id_to_desc.clear();
     _slot_id_to_global_index.clear();
-    _partition_slot_descs.clear();
+    _split_value_slot_descs.clear();
     _file_slot_descs.clear();
     for (const auto* slot_desc : _output_tuple_desc->slots()) {
         _slot_id_to_desc.emplace(slot_desc->id(), slot_desc);
@@ -761,16 +761,16 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                 &column, it->second,
                 build_context.schema_column.has_value() ? &*build_context.schema_column : nullptr,
                 prefer_exact_name_match));
+        _split_value_slot_descs.insert_or_assign(
+                column.name,
+                PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
+        for (const auto& alias : column.name_mapping) {
+            _split_value_slot_descs.emplace(
+                    alias,
+                    PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
+        }
         if (is_partition_slot(slot_info, column.name)) {
             column.is_partition_key = true;
-            _partition_slot_descs.emplace(
-                    column.name,
-                    PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
-            for (const auto& alias : column.name_mapping) {
-                _partition_slot_descs.emplace(
-                        alias,
-                        PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
-            }
         } else if (is_data_file_slot(slot_info, column.name)) {
             _file_slot_descs.push_back(const_cast<SlotDescriptor*>(it->second));
         }

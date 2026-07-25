@@ -1099,8 +1099,9 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
                 return false;
             }
             const auto& column = _projected_columns[index.value()];
-            return column.is_partition_key &&
-                   find_partition_value(column, _partition_values) != nullptr;
+            // Identity-partition metadata is a split constant even when the same source column
+            // must remain file-backed for data written under another evolved partition spec.
+            return find_partition_value(column, _partition_values) != nullptr;
         });
         if (partition_only) {
             partition_conjuncts.push_back(conjunct);
@@ -1141,11 +1142,9 @@ Status TableReader::_build_partition_prune_block(Block* block) const {
     for (const auto& column : _projected_columns) {
         DORIS_CHECK(column.type != nullptr);
         ColumnPtr value_column = column.type->create_column_const_with_default_value(1);
-        if (column.is_partition_key) {
-            const auto* partition_value = find_partition_value(column, _partition_values);
-            if (partition_value != nullptr) {
-                value_column = column.type->create_column_const(1, *partition_value);
-            }
+        const auto* partition_value = find_partition_value(column, _partition_values);
+        if (partition_value != nullptr) {
+            value_column = column.type->create_column_const(1, *partition_value);
         }
         block->insert({std::move(value_column), column.type, column.name});
     }

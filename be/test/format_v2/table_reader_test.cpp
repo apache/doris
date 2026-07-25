@@ -1303,6 +1303,39 @@ TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
     EXPECT_FALSE(reader.current_split_pruned());
 }
 
+TEST(TableReaderTest, PrepareSplitPrunesFileBackedIdentityPartitionRuntimeFilter) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto identity_partition_source =
+            make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    identity_partition_source.is_partition_key = false;
+    projected_columns.push_back(std::move(identity_partition_source));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("scanner");
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("unused-identity-partition-file");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    EXPECT_TRUE(reader.current_split_pruned());
+    ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 1);
+}
+
 TEST(TableReaderTest, PrepareSplitDoesNotEvaluateNonDeterministicPartitionPredicate) {
     std::vector<ColumnDefinition> projected_columns;
     auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
