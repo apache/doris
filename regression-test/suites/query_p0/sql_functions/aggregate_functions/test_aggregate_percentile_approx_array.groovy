@@ -87,13 +87,13 @@ suite("test_aggregate_percentile_approx_array") {
         FROM percentile_approx_array_test
     """
 
-    def directMergeResult = sql """
+    qt_percentile_approx_array_direct_merge """
         SELECT percentile_approx_array_merge(
             percentile_approx_array_state(value, [0.25, 0.5, 0.75], 2048)
         )
         FROM percentile_approx_array_test
     """
-    def subqueryMergeResult = sql """
+    qt_percentile_approx_array_subquery_merge """
         SELECT percentile_approx_array_merge(state)
         FROM (
             SELECT percentile_approx_array_state(
@@ -102,9 +102,8 @@ suite("test_aggregate_percentile_approx_array") {
             FROM percentile_approx_array_test
         ) states
     """
-    assertEquals(directMergeResult, subqueryMergeResult)
 
-    def subqueryUnionResult = sql """
+    qt_percentile_approx_array_subquery_union """
         SELECT percentile_approx_array_merge(state)
         FROM (
             SELECT percentile_approx_array_union(state) AS state
@@ -116,7 +115,6 @@ suite("test_aggregate_percentile_approx_array") {
             ) states
         ) unions
     """
-    assertEquals(directMergeResult, subqueryUnionResult)
 
     test {
         sql """
@@ -170,6 +168,13 @@ suite("test_aggregate_percentile_approx_array") {
             FROM percentile_approx_array_test
         """
         exception "quantile"
+    }
+
+    test {
+        sql """
+            SELECT percentile_approx_array_state(CAST(NULL AS DOUBLE), [1.1])
+        """
+        exception "percentile_approx_array quantile must be in [0, 1]"
     }
 
     test {

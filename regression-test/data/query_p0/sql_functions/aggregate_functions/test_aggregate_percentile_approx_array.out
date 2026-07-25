@@ -28,3 +28,11 @@
 -- !percentile_approx_array_9 --
 [2.25, 10, 27.5]	[2.25, 10, 27.5]	[2.25, 10, 27.5]	[2.25, 10, 27.5]
 
+-- !percentile_approx_array_direct_merge --
+[2.25, 10, 27.5]
+
+-- !percentile_approx_array_subquery_merge --
+[2.25, 10, 27.5]
+
+-- !percentile_approx_array_subquery_union --
+[2.25, 10, 27.5]
