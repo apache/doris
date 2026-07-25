@@ -182,7 +182,7 @@ public class FileQueryScanNodeTest {
         Mockito.when(externalTable.getFullSchema(Optional.of(relationSnapshot)))
                 .thenReturn(Collections.singletonList(oldColumn));
 
-        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), node.getTupleDescriptor().getId());
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), node.getTupleDescriptor());
         slot.setColumn(oldColumn);
         node.getTupleDescriptor().addSlot(slot);
         TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
