@@ -21,8 +21,6 @@ import org.apache.doris.plugin.AuditEvent;
 
 public class StreamLoadAuditEvent extends AuditEvent {
 
-    @AuditField(value = "Label")
-    public String label = "";
     @AuditField(value = "Table")
     public String table = "";
     @AuditField(value = "ClientIp")
@@ -64,8 +62,8 @@ public class StreamLoadAuditEvent extends AuditEvent {
             return this;
         }
 
-        public AuditEventBuilder setLabel(String label) {
-            auditEvent.label = label;
+        public AuditEventBuilder setLoadLabel(String loadLabel) {
+            auditEvent.loadLabel = loadLabel;
             return this;
         }
 

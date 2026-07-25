@@ -41,6 +41,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.load.DeleteJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -88,6 +89,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -102,6 +104,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -175,6 +178,13 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         if (planner.getPhysicalPlan() instanceof PhysicalEmptyRelation) {
             Env.getCurrentEnv()
                     .getDeleteHandler().processEmptyRelation(ctx.getState());
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                String label = DeleteJob.DELETE_PREFIX + UUID.randomUUID();
+                ctx.setOrUpdateInsertResult(-1, label,
+                        olapTable.getDatabase().getFullName(), olapTable.getName(),
+                        TransactionStatus.VISIBLE, 0, 0);
+            }
             return;
         }
         OlapTable olapTable = getTargetTable(ctx);

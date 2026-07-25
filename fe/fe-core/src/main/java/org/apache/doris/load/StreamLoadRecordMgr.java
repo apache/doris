@@ -286,7 +286,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
                     AuditEvent auditEvent =
                             new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
-                                    .setLabel(streamLoadItem.getLabel()).setDb(streamLoadItem.getDb())
+                                    .setLoadLabel(streamLoadItem.getLabel()).setDb(streamLoadItem.getDb())
                                     .setTable(streamLoadItem.getTbl()).setUser(streamLoadItem.getUser())
                                     .setClientIp(streamLoadItem.getUserIp()).setStatus(streamLoadItem.getStatus())
                                     .setMessage(streamLoadItem.getMessage()).setUrl(streamLoadItem.getUrl())

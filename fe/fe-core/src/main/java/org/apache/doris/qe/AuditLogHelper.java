@@ -50,6 +50,7 @@ import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -69,12 +70,22 @@ public class AuditLogHelper {
 
     private static final Logger LOG = LogManager.getLogger(AuditLogHelper.class);
     private static final Set<String> LOG_PLAN_INFO_TYPES = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+    private static final Set<String> TXN_STMT_TYPES = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
 
     static {
         LOG_PLAN_INFO_TYPES.add("SELECT");
         LOG_PLAN_INFO_TYPES.add("INSERT");
         LOG_PLAN_INFO_TYPES.add("UPDATE");
         LOG_PLAN_INFO_TYPES.add("DELETE");
+
+        TXN_STMT_TYPES.add("INSERT");
+        TXN_STMT_TYPES.add("UPDATE");
+        TXN_STMT_TYPES.add("DELETE");
+        TXN_STMT_TYPES.add("MERGE_INTO");
+    }
+
+    public static Set<String> getTxnStmtTypes() {
+        return ImmutableSortedSet.copyOf(String.CASE_INSENSITIVE_ORDER, TXN_STMT_TYPES);
     }
 
     /**
@@ -278,6 +289,15 @@ public class AuditLogHelper {
                 .setisInternal(ctx.getState().isInternal())
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName());
+
+        // load_label and txn_id for transactional statements (INSERT/UPDATE/DELETE)
+        if (TXN_STMT_TYPES.contains(stmtType)) {
+            InsertResult insertResult = ctx.getInsertResult();
+            if (insertResult != null && insertResult.stmtId == ctx.getStmtId()) {
+                auditEventBuilder.setLoadLabel(insertResult.label);
+                auditEventBuilder.setTxnId(insertResult.txnId);
+            }
+        }
 
         // sql mode
         if (ctx.sessionVariable != null) {

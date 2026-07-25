@@ -230,6 +230,11 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("compute_group",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // transaction info
+        AUDIT_SCHEMA.add(new ColumnDef("load_label",
+                ScalarType.createVarchar(Config.label_regex_length), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("txn_id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));

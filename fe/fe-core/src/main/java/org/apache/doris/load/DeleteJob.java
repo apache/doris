@@ -103,6 +103,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     private DeleteState state;
 
+    TransactionStatus commitStatus = TransactionStatus.ABORTED;
+
     // jobId(listenerId). use in beginTransaction to callback function
     private final long id;
     protected static final long INVALID_TXN_ID = -1L;
@@ -253,6 +255,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     public long getTransactionId() {
         return this.transactionId;
+    }
+
+    public TransactionStatus getCommitStatus() {
+        return commitStatus;
     }
 
     public Collection<TabletDeleteInfo> getTabletDeleteInfo() {
@@ -448,6 +454,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         boolean visible = Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(targetDb, Lists.newArrayList(targetTbl),
                         transactionId, tabletCommitInfos, getTimeoutMs());
+
+        if (visible) {
+            commitStatus = TransactionStatus.VISIBLE;
+        } else {
+            commitStatus = TransactionStatus.COMMITTED;
+        }
 
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label);

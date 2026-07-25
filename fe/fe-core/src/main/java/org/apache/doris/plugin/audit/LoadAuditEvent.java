@@ -23,8 +23,6 @@ public class LoadAuditEvent extends AuditEvent {
 
     @AuditField(value = "JobId")
     public long jobId = -1;
-    @AuditField(value = "Label")
-    public String label = "";
     @AuditField(value = "LoadType")
     public String loadType = "";
     @AuditField(value = "TableList")
@@ -65,8 +63,8 @@ public class LoadAuditEvent extends AuditEvent {
             return this;
         }
 
-        public AuditEventBuilder setLabel(String label) {
-            auditEvent.label = label;
+        public AuditEventBuilder setLoadLabel(String loadLabel) {
+            auditEvent.loadLabel = loadLabel;
             return this;
         }
 

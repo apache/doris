@@ -144,6 +144,11 @@ public class DeleteHandler implements Writable {
             deleteJob.await();
             String commitMsg = deleteJob.commit();
             execState.setOk(0, 0, commitMsg);
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                ctx.setOrUpdateInsertResult(deleteJob.getTransactionId(), deleteJob.getLabel(),
+                        targetDb.getFullName(), targetTbl.getName(), deleteJob.getCommitStatus(), 0, 0);
+            }
         } catch (Exception ex) {
             if (deleteJob != null) {
                 deleteJob.cancel(ex.getMessage());

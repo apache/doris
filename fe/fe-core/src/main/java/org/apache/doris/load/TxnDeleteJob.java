@@ -57,6 +57,8 @@ public class TxnDeleteJob extends DeleteJob {
                 tabletCommitInfos.stream().map(c -> new TTabletCommitInfo(c.getTabletId(), c.getBackendId()))
                         .collect(Collectors.toList()), SubTransactionType.DELETE);
 
+        commitStatus = TransactionStatus.PREPARE;
+
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label).append("', 'status':'").append(TransactionStatus.PREPARE.name())
                 .append("', 'txnId':'").append(transactionId).append("'").append("}");
