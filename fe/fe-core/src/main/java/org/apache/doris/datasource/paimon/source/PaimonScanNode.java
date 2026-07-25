@@ -55,16 +55,20 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.source.snapshot.SnapshotReader;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -613,6 +617,29 @@ public class PaimonScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         try {
             Table paimonTable = getProcessedTable();
+            Map<String, String> resolvedOptions = scanParams == null
+                    ? Collections.emptyMap()
+                    : scanParams.getResolvedMapParams().orElse(Collections.emptyMap());
+            if (PaimonScanParams.isPinnedEmptyScan(resolvedOptions)) {
+                return Collections.emptyList();
+            }
+            Optional<Long> fileCreationTime = PaimonScanParams.getPinnedFileCreationTime(resolvedOptions);
+            if (fileCreationTime.isPresent()) {
+                if (!(paimonTable instanceof FileStoreTable)) {
+                    throw new UserException("Paimon file-creation OPTIONS require a data table.");
+                }
+                FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
+                SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
+                        .withMode(ScanMode.ALL)
+                        .withSnapshot(Long.parseLong(
+                                paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
+                        .withManifestEntryFilter(entry ->
+                                entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
+                if (predicates != null) {
+                    predicates.forEach(snapshotReader::withFilter);
+                }
+                return snapshotReader.read().splits();
+            }
             List<String> fieldNames = paimonTable.rowType().getFieldNames();
             int[] projected = desc.getSlots().stream().mapToInt(
                     slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))

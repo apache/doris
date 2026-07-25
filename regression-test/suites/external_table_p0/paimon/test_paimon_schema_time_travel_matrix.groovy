@@ -56,6 +56,20 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         """
     }
 
+    def snapshotCommitTimeMillis = { String tableName, String snapshotId ->
+        List<List<Object>> rows = spark_paimon """
+            -- Paimon's TIMESTAMP_NTZ commit time is a UTC wall clock; convert it to the
+            -- Spark session zone before casting so unix_millis keeps the actual instant.
+            SELECT unix_millis(CAST(
+                convert_timezone('UTC', current_timezone(), commit_time) AS TIMESTAMP
+            ))
+            FROM paimon.${dbName}.`${tableName}\$snapshots`
+            WHERE snapshot_id = ${snapshotId}
+        """
+        assertEquals(1, rows.size())
+        return rows[0][0].toString()
+    }
+
     def assertUnknownColumn = { String query, String columnName ->
         test {
             sql query
@@ -133,6 +147,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                 VALUES (2, 'beta', 'old-v2', 20, 'added-v2', 200);
         """
         String topCpAdd = latestSnapshotId(topTable)
+        String topCpAddTimeMillis = snapshotCommitTimeMillis(topTable, topCpAdd)
         createTag(topTable, "top_cp_add", topCpAdd)
         Thread.sleep(1100)
 
@@ -409,6 +424,14 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             from ${topTable}@options('scan.tag-name'='top_cp0')
             order by id
         """
+        assertEquals([[1, "alpha", "old-v1", 10], [2, "beta", "old-v2", 20]],
+                sql("""
+                    select id, old_name, victim, metric
+                    from ${topTable}@options(
+                        'scan.creation-time-millis'='${topCpAddTimeMillis}'
+                    )
+                    order by id
+                """))
         order_qt_audit_log_options_tag_schema """
             select rowkind, id, old_name, victim, metric
             from ${topTable}\$audit_log@options('scan.tag-name'='top_cp0')
@@ -683,6 +706,14 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             order by id
         """)
         assertEquals(forcedJniRows, cppRows)
+        // Schema-selecting OPTIONS must bypass paimon-cpp, whose table handle always uses the
+        // latest schema, even when native Paimon scans are enabled for the session.
+        List<List<Object>> cppOptionsRows = sql("""
+            select id, old_name, victim, metric
+            from ${topTable}@options('scan.snapshot-id'='${topCp0}')
+            order by id
+        """)
+        assertEquals(forcedJniRows, cppOptionsRows)
 
         // Scenario T10/T11: retained tags survive expiration; missing refs never fall back to latest.
         spark_paimon """

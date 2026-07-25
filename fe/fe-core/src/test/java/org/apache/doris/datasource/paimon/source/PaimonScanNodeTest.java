@@ -224,7 +224,7 @@ public class PaimonScanNodeTest {
         Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(14, result.size());
+        Assert.assertEquals(16, result.size());
 
         // 3. startSnapshotId + endSnapshotId + incrementalBetweenScanMode
         params.clear();
@@ -235,7 +235,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("2,8", result.get("incremental-between"));
         Assert.assertEquals("diff", result.get("incremental-between-scan-mode"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(14, result.size());
+        Assert.assertEquals(16, result.size());
 
         // 4. Only startTimestamp
         params.clear();
@@ -244,7 +244,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("1000," + Long.MAX_VALUE, result.get("incremental-between-timestamp"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
         Assert.assertTrue(result.containsKey("scan.snapshot-id") && result.get("scan.snapshot-id") == null);
-        Assert.assertEquals(14, result.size());
+        Assert.assertEquals(16, result.size());
 
         // 5. Both startTimestamp and endTimestamp
         params.clear();
@@ -254,7 +254,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("1000,2000", result.get("incremental-between-timestamp"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
         Assert.assertTrue(result.containsKey("scan.snapshot-id") && result.get("scan.snapshot-id") == null);
-        Assert.assertEquals(14, result.size());
+        Assert.assertEquals(16, result.size());
 
         // Test invalid parameter combinations
 
@@ -349,7 +349,7 @@ public class PaimonScanNodeTest {
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("5,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(14, result.size());
+        Assert.assertEquals(16, result.size());
 
         // 13. Test invalid timestamp values (< 0)
         params.clear();
@@ -435,7 +435,7 @@ public class PaimonScanNodeTest {
             Assert.assertEquals("1,5", result.get("incremental-between"));
             Assert.assertEquals(mode, result.get("incremental-between-scan-mode"));
             Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-            Assert.assertEquals(14, result.size());
+            Assert.assertEquals(16, result.size());
         }
 
         // 18. Test no parameters at all
@@ -536,6 +536,33 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testSchemaSelectingOptionsBypassCppReader() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(table);
+        Mockito.when(source.getTableLocation()).thenReturn("file:///warehouse");
+        Table baseTable = Mockito.mock(Table.class);
+        Mockito.when(baseTable.partitionKeys()).thenReturn(Collections.emptyList());
+        Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        node.setSource(source);
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                Collections.emptyList()));
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+        Mockito.when(sv.isEnablePaimonCppReader()).thenReturn(true);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("historical.parquet")));
+
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+    }
+
+    @Test
     public void testSystemTablePassesIncrementalOptionsToPaimonTable() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
@@ -564,6 +591,8 @@ public class PaimonScanNodeTest {
         expectedOptions.put("scan.version", null);
         expectedOptions.put("scan.bounded.watermark", null);
         expectedOptions.put("scan.mode", null);
+        expectedOptions.put("log.scan", null);
+        expectedOptions.put("log.scan.timestamp-millis", null);
         expectedOptions.put("incremental-between-timestamp", null);
         expectedOptions.put("incremental-between-scan-mode", null);
         expectedOptions.put("incremental-to-auto-tag", null);

@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.table.Table;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -59,5 +60,38 @@ public class PaimonExternalTableTest {
 
             Assert.assertSame(statementCopy, externalTable.getPaimonTable(scanParams));
         }
+    }
+
+    @Test
+    public void testModeOnlyLatestUsesStatementSnapshotAcrossPhases() {
+        PaimonExternalTable externalTable = Mockito.mock(
+                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        Optional<MvccSnapshot> statementSnapshot = Optional.of(snapshot);
+        Table statementTable = Mockito.mock(Table.class);
+        Table pinnedCopy = Mockito.mock(Table.class);
+        Table baseTable = Mockito.mock(Table.class);
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.mode", "latest"),
+                Collections.emptyList());
+
+        Mockito.doReturn(statementTable).when(externalTable).getPaimonTable(statementSnapshot);
+        Mockito.when(statementTable.options()).thenReturn(ImmutableMap.of("scan.snapshot-id", "7"));
+        Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(pinnedCopy);
+
+        try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
+                MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(externalTable)).thenReturn(statementSnapshot);
+            paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(baseTable);
+
+            Assert.assertSame(pinnedCopy, externalTable.getPaimonTable(scanParams));
+            Assert.assertSame(pinnedCopy, externalTable.getPaimonTable(scanParams));
+        }
+
+        Mockito.verify(baseTable, Mockito.times(2)).copy(ArgumentMatchers.argThat(options ->
+                "7".equals(options.get("scan.snapshot-id"))
+                        && options.containsKey("scan.mode")
+                        && options.get("scan.mode") == null));
     }
 }

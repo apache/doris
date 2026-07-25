@@ -190,6 +190,56 @@ suite("paimon_system_table", "p0,external") {
                 select count(*) from ${multiSnapshotTable}\$files
                 """
 
+        List<List<Object>> bucketsAtFirstSnapshot = sql """
+                select sum(record_count), sum(file_count)
+                from ${multiSnapshotTable}\$buckets
+                @options('scan.snapshot-id'='${firstSnapshotId}')
+                """
+        List<List<Object>> bucketsAtLatestSnapshot = sql """
+                select sum(record_count), sum(file_count)
+                from ${multiSnapshotTable}\$buckets
+                @options('scan.snapshot-id'='${latestSnapshotId}')
+                """
+        // Snapshot ranges can have identical aggregate counts after overwrite commits; reaching
+        // both snapshots without an OPTIONS capability error is the invariant under test.
+        assertEquals(1, bucketsAtFirstSnapshot.size())
+        assertEquals(1, bucketsAtLatestSnapshot.size())
+        assertNotNull(bucketsAtFirstSnapshot[0][0])
+        assertNotNull(bucketsAtLatestSnapshot[0][0])
+
+        // The fixture has no deletion vectors, but both reads must reach Paimon's index table
+        // instead of being rejected by Doris' OPTIONS capability gate.
+        assertNotNull(sql("""
+                select count(*) from ${multiSnapshotTable}\$table_indexes
+                @options('scan.snapshot-id'='${firstSnapshotId}')
+                """))
+        assertNotNull(sql("""
+                select count(*) from ${multiSnapshotTable}\$table_indexes
+                @options('scan.snapshot-id'='${latestSnapshotId}')
+                """))
+
+        List<List<Object>> incrementalFiles = sql """
+                select count(*) from ${multiSnapshotTable}\$files
+                @incr('startSnapshotId'='${firstSnapshotId}',
+                      'endSnapshotId'='${latestSnapshotId}')
+                """
+        assertEquals(2L, ((Number) incrementalFiles[0][0]).longValue())
+
+        List<List<Object>> incrementalPartitions = sql """
+                select sum(record_count) from ${multiSnapshotTable}\$partitions
+                @incr('startSnapshotId'='${firstSnapshotId}',
+                      'endSnapshotId'='${latestSnapshotId}')
+                """
+        assertEquals(2L, ((Number) incrementalPartitions[0][0]).longValue())
+
+        List<Long> incrementalRoIds = sql("""
+                select id from ${multiSnapshotTable}\$ro
+                @incr('startSnapshotId'='${firstSnapshotId}',
+                      'endSnapshotId'='${latestSnapshotId}')
+                order by id
+                """).collect { row -> ((Number) row[0]).longValue() }
+        assertEquals([2L, 3L], incrementalRoIds)
+
         test {
             sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
             exception "does not support INCR"

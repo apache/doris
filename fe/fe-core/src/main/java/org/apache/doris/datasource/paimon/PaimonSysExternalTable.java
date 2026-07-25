@@ -136,9 +136,18 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     public Table getSysPaimonTable(TableScanParams scanParams) {
         Table table = getSysPaimonTable();
-        return scanParams != null && scanParams.isOptions()
-                ? PaimonScanParams.applyOptions(table, scanParams.getMapParams())
-                : table;
+        if (scanParams == null || !scanParams.isOptions()) {
+            return table;
+        }
+        Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
+                options -> PaimonScanParams.resolveOptions(sourceTable.getBasePaimonTable(), options));
+        if (PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
+            // Generic system-table wrappers cannot carry Paimon's manifest-entry predicate.
+            // Reject the fallback instead of silently widening it to the whole pinned snapshot.
+            throw new IllegalArgumentException(
+                    "Paimon system tables cannot apply a creation-time file filter.");
+        }
+        return PaimonScanParams.applyOptions(table, resolvedOptions);
     }
 
     public List<Column> getFullSchema(TableScanParams scanParams) {

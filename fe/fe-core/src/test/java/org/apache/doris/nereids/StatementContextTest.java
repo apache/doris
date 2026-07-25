@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
@@ -34,6 +35,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
@@ -537,6 +539,55 @@ public class StatementContextTest {
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
             inOrder.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
             inOrder.verify(paimonExternalTable, Mockito.times(1)).initSelectedPartitions(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testSelectorFreePaimonOptionsPreloadLatestSnapshotBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PaimonExternalTable paimonExternalTable = Mockito.mock(PaimonExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(paimonExternalTable.getId()).thenReturn(18L);
+        Mockito.when(paimonExternalTable.getName()).thenReturn("paimon_tbl");
+        Mockito.when(paimonExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(paimonExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(paimonExternalTable.supportsLatestSnapshotPreload()).thenReturn(true);
+        Mockito.when(paimonExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(mvccSnapshot);
+        Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(true);
+        Mockito.when(paimonExternalTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.NOT_PRUNED);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(
+                    paimonExternalTable,
+                    Optional.empty(),
+                    Optional.of(new TableScanParams(
+                            TableScanParams.OPTIONS,
+                            ImmutableMap.of("scan.plan-sort-partition", "true"),
+                            Collections.emptyList())));
+
+            executePreload(statementContext);
+
+            Mockito.verify(paimonExternalTable, Mockito.times(1))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+            Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
         } finally {
             statementContext.close();
         }

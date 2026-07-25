@@ -109,12 +109,18 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public Table getPaimonTable(TableScanParams scanParams) {
         if (scanParams != null && scanParams.isOptions()) {
             Map<String, String> options = scanParams.getMapParams();
-            // Behavioral options must retain the statement-pinned handle; only an explicit startup
-            // choice is allowed to replace that MVCC position with relation-local read state.
-            Table table = PaimonScanParams.hasStartupOptions(options)
+            Table statementTable = getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+            Table resolutionTable = PaimonScanParams.usesStatementSnapshot(options)
+                    ? statementTable
+                    : getBasePaimonTable();
+            Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
+                    relationOptions -> PaimonScanParams.resolveOptions(resolutionTable, relationOptions));
+            // Startup options are normalized to an immutable snapshot before schema binding. The
+            // scan phase reuses that exact resolution instead of consulting a mutable tag or clock.
+            Table table = PaimonScanParams.selectsSchema(resolvedOptions)
                     ? getBasePaimonTable()
-                    : getPaimonTable(MvccUtil.getSnapshotFromContext(this));
-            return PaimonScanParams.applyOptions(table, options);
+                    : statementTable;
+            return PaimonScanParams.applyOptions(table, resolvedOptions);
         }
         return getPaimonTable(MvccUtil.getSnapshotFromContext(this));
     }
@@ -443,7 +449,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return !getBasePaimonTable().partitionKeys().isEmpty();
     }
 
-    private Table getBasePaimonTable() {
+    Table getBasePaimonTable() {
         return PaimonUtils.getPaimonTable(this);
     }
 }

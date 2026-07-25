@@ -24,6 +24,8 @@ import org.bouncycastle.util.Strings;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 public class TableScanParams {
     public static final String PARAMS_NAME = "name";
@@ -50,6 +52,7 @@ public class TableScanParams {
     //   such as: `listParams` is used for @func_name('value1', 'value2', 'value3')
     private final Map<String, String> mapParams;
     private final List<String> listParams;
+    private volatile Map<String, String> resolvedMapParams;
 
     private void validate() {
         if (!VALID_PARAM_TYPES.contains(paramType)
@@ -91,6 +94,30 @@ public class TableScanParams {
 
     public Map<String, String> getMapParams() {
         return mapParams;
+    }
+
+    /**
+     * Resolve dynamic parameters once for the lifetime of this relation.
+     */
+    public Map<String, String> getOrResolveMapParams(
+            Function<Map<String, String>, Map<String, String>> resolver) {
+        Map<String, String> resolved = resolvedMapParams;
+        if (resolved == null) {
+            synchronized (this) {
+                resolved = resolvedMapParams;
+                if (resolved == null) {
+                    // Binding and scan initialization share this instance. Caching the resolved
+                    // map prevents a mutable external selector from choosing two snapshots.
+                    resolved = ImmutableMap.copyOf(resolver.apply(mapParams));
+                    resolvedMapParams = resolved;
+                }
+            }
+        }
+        return resolved;
+    }
+
+    public Optional<Map<String, String>> getResolvedMapParams() {
+        return Optional.ofNullable(resolvedMapParams);
     }
 
     public boolean incrementalRead() {

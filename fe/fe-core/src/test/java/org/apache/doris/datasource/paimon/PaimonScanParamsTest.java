@@ -17,13 +17,20 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableScanParams;
+
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.Snapshot;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.Map;
 
 public class PaimonScanParamsTest {
@@ -111,6 +118,116 @@ public class PaimonScanParamsTest {
                         && containsNull(applied, "scan.version")
                         && containsNull(applied, "scan.file-creation-time-millis")
                         && containsNull(applied, "scan.creation-time-millis")));
+    }
+
+    @Test
+    public void testIsolationClearsFallbackReadStateKeys() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(Mockito.mock(Table.class));
+
+        PaimonScanParams.applyOptions(table, ImmutableMap.of("scan.snapshot-id", "1"));
+
+        Mockito.verify(table).copy(ArgumentMatchers.argThat(applied ->
+                containsNull(applied, "log.scan")
+                        && containsNull(applied, "log.scan.timestamp-millis")));
+
+        Map<String, String> incremental = PaimonScanParams.isolateIncrementalRead(
+                ImmutableMap.of("incremental-between", "1,2"));
+        Assert.assertTrue(containsNull(incremental, "log.scan"));
+        Assert.assertTrue(containsNull(incremental, "log.scan.timestamp-millis"));
+    }
+
+    @Test
+    public void testSystemTableCapabilityMatrixIncludesRangeAwareReaders() {
+        for (String type : new String[] {"files", "partitions", "ro"}) {
+            Assert.assertTrue(type, PaimonScanParams.supportsIncrementalRead(type));
+            Assert.assertFalse(type, PaimonScanParams.requiresPaimonReader(type));
+        }
+        for (String type : new String[] {"buckets", "table_indexes"}) {
+            Assert.assertTrue(type, PaimonScanParams.supportsOptions(type));
+        }
+        Assert.assertTrue(PaimonScanParams.requiresPaimonReader("audit_log"));
+
+        PaimonScanParams.validateSystemTable("files", new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.creation-time-millis", "1234"),
+                Collections.emptyList()));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.validateSystemTable("files", new TableScanParams(
+                        TableScanParams.OPTIONS,
+                        ImmutableMap.of("scan.file-creation-time-millis", "1234"),
+                        Collections.emptyList())));
+    }
+
+    @Test
+    public void testSchemaSelectingOptionsRequirePinnedReaderSchema() {
+        Assert.assertTrue(PaimonScanParams.selectsSchema(
+                ImmutableMap.of("scan.snapshot-id", "1")));
+        Assert.assertTrue(PaimonScanParams.selectsSchema(
+                ImmutableMap.of("scan.mode", "latest")));
+        Assert.assertFalse(PaimonScanParams.selectsSchema(
+                ImmutableMap.of("scan.plan-sort-partition", "true")));
+    }
+
+    @Test
+    public void testMutableSelectorResolvesOnlyOncePerRelation() {
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot firstSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(firstSnapshot.id()).thenReturn(11L);
+        Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.tag-name", "mutable_tag"),
+                Collections.emptyList());
+
+        try (MockedStatic<TimeTravelUtil> timeTravel = Mockito.mockStatic(TimeTravelUtil.class)) {
+            timeTravel.when(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable))
+                    .thenReturn(firstSnapshot);
+            Map<String, String> first = scanParams.getOrResolveMapParams(
+                    options -> PaimonScanParams.resolveOptions(baseTable, options));
+            Map<String, String> second = scanParams.getOrResolveMapParams(
+                    options -> PaimonScanParams.resolveOptions(baseTable, options));
+
+            Assert.assertSame(first, second);
+            Assert.assertEquals("11", second.get("scan.snapshot-id"));
+            Assert.assertFalse(second.containsKey("scan.tag-name"));
+            timeTravel.verify(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable), Mockito.times(1));
+        }
+    }
+
+    @Test
+    public void testFileCreationTimePinsLatestSnapshotAndKeepsFilter() {
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(latestSnapshot.id()).thenReturn(19L);
+        Mockito.when(baseTable.latestSnapshot()).thenReturn(java.util.Optional.of(latestSnapshot));
+
+        Map<String, String> resolved = PaimonScanParams.resolveOptions(
+                baseTable,
+                ImmutableMap.of("scan.file-creation-time-millis", "1234"));
+
+        Assert.assertEquals("19", resolved.get("scan.snapshot-id"));
+        Assert.assertEquals(Long.valueOf(1234L),
+                PaimonScanParams.getPinnedFileCreationTime(resolved).orElse(null));
+        Assert.assertFalse(resolved.containsKey("scan.file-creation-time-millis"));
+    }
+
+    @Test
+    public void testModeOnlyLatestPinsEmptyStatementState() {
+        FileStoreTable emptyTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(emptyTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(emptyTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
+
+        try (MockedStatic<TimeTravelUtil> timeTravel = Mockito.mockStatic(TimeTravelUtil.class)) {
+            timeTravel.when(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable)).thenReturn(null);
+            Map<String, String> resolved = PaimonScanParams.resolveOptions(
+                    emptyTable, ImmutableMap.of("scan.mode", "latest"));
+
+            Assert.assertTrue(PaimonScanParams.isPinnedEmptyScan(resolved));
+            Assert.assertFalse(resolved.containsKey("scan.mode"));
+        }
     }
 
     private static boolean containsNull(Map<String, String> options, String key) {
