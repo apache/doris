@@ -24,6 +24,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.Table;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -37,13 +38,25 @@ public final class PaimonScanParams {
             .filter(key -> key.startsWith("scan."))
             .collect(Collectors.toSet());
 
-    private static final Set<String> SNAPSHOT_SELECTOR_KEYS = ImmutableSet.of(
-            CoreOptions.SCAN_SNAPSHOT_ID.key(),
-            CoreOptions.SCAN_TAG_NAME.key(),
+    private static final Set<String> STARTUP_POSITION_KEYS = ImmutableSet.of(
             CoreOptions.SCAN_TIMESTAMP.key(),
             CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
             CoreOptions.SCAN_WATERMARK.key(),
+            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(),
+            CoreOptions.SCAN_CREATION_TIME_MILLIS.key(),
+            CoreOptions.SCAN_SNAPSHOT_ID.key(),
+            CoreOptions.SCAN_TAG_NAME.key(),
             CoreOptions.SCAN_VERSION.key());
+
+    private static final Set<String> INHERITED_READ_STATE_KEYS = ImmutableSet.<String>builder()
+            .addAll(STARTUP_POSITION_KEYS)
+            .add(CoreOptions.SCAN_MODE.key())
+            .add(CoreOptions.SCAN_BOUNDED_WATERMARK.key())
+            .add(CoreOptions.INCREMENTAL_BETWEEN.key())
+            .add(CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP.key())
+            .add(CoreOptions.INCREMENTAL_BETWEEN_SCAN_MODE.key())
+            .add(CoreOptions.INCREMENTAL_TO_AUTO_TAG.key())
+            .build();
 
     private static final Set<String> INCREMENTAL_SYSTEM_TABLES = ImmutableSet.of(
             "audit_log", "binlog", "row_tracking");
@@ -55,6 +68,12 @@ public final class PaimonScanParams {
     }
 
     public static void validateOptions(Map<String, String> options) {
+        if (options.containsKey(CoreOptions.SCAN_FALLBACK_BRANCH.key())) {
+            throw new IllegalArgumentException("Paimon query option '"
+                    + CoreOptions.SCAN_FALLBACK_BRANCH.key()
+                    + "' is not supported because it requires rebuilding the table through the catalog factory.");
+        }
+
         Set<String> unsupported = options.keySet().stream()
                 .filter(key -> !QUERY_OPTION_KEYS.contains(key))
                 .collect(Collectors.toSet());
@@ -62,24 +81,67 @@ public final class PaimonScanParams {
             throw new IllegalArgumentException("Unsupported Paimon query option(s): " + unsupported);
         }
 
-        long selectorCount = options.keySet().stream().filter(SNAPSHOT_SELECTOR_KEYS::contains).count();
-        if (selectorCount > 1) {
+        long positionCount = options.keySet().stream().filter(STARTUP_POSITION_KEYS::contains).count();
+        if (positionCount > 1) {
             throw new IllegalArgumentException(
-                    "Only one Paimon snapshot selector can be specified: " + SNAPSHOT_SELECTOR_KEYS);
+                    "Only one Paimon startup position can be specified: " + STARTUP_POSITION_KEYS);
+        }
+
+        if (options.containsKey(CoreOptions.SCAN_MODE.key()) && positionCount == 1) {
+            String position = options.keySet().stream()
+                    .filter(STARTUP_POSITION_KEYS::contains)
+                    .findFirst()
+                    .get();
+            String mode = options.get(CoreOptions.SCAN_MODE.key()).toLowerCase(Locale.ROOT);
+            if (!isCompatibleStartupMode(position, mode)) {
+                throw new IllegalArgumentException("Paimon scan mode '" + mode
+                        + "' is incompatible with startup position '" + position + "'.");
+            }
         }
     }
 
     public static Table applyOptions(Table table, Map<String, String> options) {
         validateOptions(options);
         Map<String, String> isolatedOptions = new HashMap<>(options);
-        if (options.keySet().stream().anyMatch(SNAPSHOT_SELECTOR_KEYS::contains)) {
-            // Cached MVCC handles are pinned with scan.snapshot-id. Clear every competing selector
-            // so a relation-local tag/timestamp selection cannot inherit another relation's snapshot.
-            SNAPSHOT_SELECTOR_KEYS.stream()
+        if (hasStartupOptions(options)) {
+            // Startup mode, position, and range form one inherited state family in Paimon. Clear
+            // absent members so one relation cannot accidentally reuse another relation's read state.
+            INHERITED_READ_STATE_KEYS.stream()
                     .filter(key -> !options.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
         return table.copy(isolatedOptions);
+    }
+
+    public static boolean hasStartupOptions(Map<String, String> options) {
+        return options.containsKey(CoreOptions.SCAN_MODE.key())
+                || options.keySet().stream().anyMatch(STARTUP_POSITION_KEYS::contains);
+    }
+
+    public static Map<String, String> isolateIncrementalRead(Map<String, String> incrementalOptions) {
+        Map<String, String> isolatedOptions = new HashMap<>();
+        INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
+        isolatedOptions.putAll(incrementalOptions);
+        return isolatedOptions;
+    }
+
+    private static boolean isCompatibleStartupMode(String position, String mode) {
+        if ("default".equals(mode)) {
+            return true;
+        }
+        if (CoreOptions.SCAN_TIMESTAMP.key().equals(position)
+                || CoreOptions.SCAN_TIMESTAMP_MILLIS.key().equals(position)) {
+            return "from-timestamp".equals(mode);
+        }
+        if (CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key().equals(position)) {
+            return "from-file-creation-time".equals(mode);
+        }
+        if (CoreOptions.SCAN_CREATION_TIME_MILLIS.key().equals(position)) {
+            return "from-creation-timestamp".equals(mode);
+        }
+        return "from-snapshot".equals(mode)
+                || (CoreOptions.SCAN_SNAPSHOT_ID.key().equals(position)
+                && "from-snapshot-full".equals(mode));
     }
 
     public static boolean supportsIncrementalRead(String systemTableType) {

@@ -108,9 +108,13 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     public Table getPaimonTable(TableScanParams scanParams) {
         if (scanParams != null && scanParams.isOptions()) {
-            // Statement MVCC is keyed by table, while OPTIONS belongs to one relation. Start
-            // from the catalog handle so its schema cannot inherit another relation's selector.
-            return PaimonScanParams.applyOptions(getBasePaimonTable(), scanParams.getMapParams());
+            Map<String, String> options = scanParams.getMapParams();
+            // Behavioral options must retain the statement-pinned handle; only an explicit startup
+            // choice is allowed to replace that MVCC position with relation-local read state.
+            Table table = PaimonScanParams.hasStartupOptions(options)
+                    ? getBasePaimonTable()
+                    : getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+            return PaimonScanParams.applyOptions(table, options);
         }
         return getPaimonTable(MvccUtil.getSnapshotFromContext(this));
     }

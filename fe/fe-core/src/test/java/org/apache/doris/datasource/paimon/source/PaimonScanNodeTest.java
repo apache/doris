@@ -224,7 +224,7 @@ public class PaimonScanNodeTest {
         Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(14, result.size());
 
         // 3. startSnapshotId + endSnapshotId + incrementalBetweenScanMode
         params.clear();
@@ -235,7 +235,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("2,8", result.get("incremental-between"));
         Assert.assertEquals("diff", result.get("incremental-between-scan-mode"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(4, result.size());
+        Assert.assertEquals(14, result.size());
 
         // 4. Only startTimestamp
         params.clear();
@@ -244,7 +244,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("1000," + Long.MAX_VALUE, result.get("incremental-between-timestamp"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
         Assert.assertTrue(result.containsKey("scan.snapshot-id") && result.get("scan.snapshot-id") == null);
-        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(14, result.size());
 
         // 5. Both startTimestamp and endTimestamp
         params.clear();
@@ -254,7 +254,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("1000,2000", result.get("incremental-between-timestamp"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
         Assert.assertTrue(result.containsKey("scan.snapshot-id") && result.get("scan.snapshot-id") == null);
-        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(14, result.size());
 
         // Test invalid parameter combinations
 
@@ -349,7 +349,7 @@ public class PaimonScanNodeTest {
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("5,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(14, result.size());
 
         // 13. Test invalid timestamp values (< 0)
         params.clear();
@@ -435,8 +435,7 @@ public class PaimonScanNodeTest {
             Assert.assertEquals("1,5", result.get("incremental-between"));
             Assert.assertEquals(mode, result.get("incremental-between-scan-mode"));
             Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-            Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-            Assert.assertEquals(4, result.size());
+            Assert.assertEquals(14, result.size());
         }
 
         // 18. Test no parameters at all
@@ -555,8 +554,19 @@ public class PaimonScanNodeTest {
                 TableScanParams.INCREMENTAL_READ, params, Collections.emptyList()));
 
         Map<String, String> expectedOptions = new HashMap<>();
+        expectedOptions.put("scan.timestamp", null);
+        expectedOptions.put("scan.timestamp-millis", null);
+        expectedOptions.put("scan.watermark", null);
+        expectedOptions.put("scan.file-creation-time-millis", null);
+        expectedOptions.put("scan.creation-time-millis", null);
         expectedOptions.put("scan.snapshot-id", null);
+        expectedOptions.put("scan.tag-name", null);
+        expectedOptions.put("scan.version", null);
+        expectedOptions.put("scan.bounded.watermark", null);
         expectedOptions.put("scan.mode", null);
+        expectedOptions.put("incremental-between-timestamp", null);
+        expectedOptions.put("incremental-between-scan-mode", null);
+        expectedOptions.put("incremental-to-auto-tag", null);
         expectedOptions.put("incremental-between", "1,2");
         Mockito.when(baseTable.copy(expectedOptions)).thenReturn(copiedTable);
 

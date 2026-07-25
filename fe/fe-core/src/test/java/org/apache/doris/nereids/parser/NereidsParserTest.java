@@ -209,6 +209,31 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testCreateViewParserPreservesTableOptions() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseForCreateView(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectOptionsInBaseTableRefCommand() {
+        NereidsParser nereidsParser = new NereidsParser();
+        ParseException exception = Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle(
+                        "show replica distribution from db1.t"
+                                + "@options('scan.snapshot-id'='1')"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "OPTIONS scan params are only supported in query relations"));
+    }
+
+    @Test
     public void testParseIndependentDataTableOptionsParams() {
         NereidsParser nereidsParser = new NereidsParser();
         Plan plan = nereidsParser.parseSingle(

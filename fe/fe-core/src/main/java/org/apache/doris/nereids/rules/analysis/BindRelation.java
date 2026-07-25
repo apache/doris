@@ -188,6 +188,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
         if (cteContext != null) {
+            rejectScanParamsOnCte(unboundRelation);
             Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTEPlan(tableName);
             if (analyzedCte.isPresent()) {
                 LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
@@ -208,6 +209,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a recursive CTE's name
         if (cascadesContext.getRecursiveCteContext().isPresent()
                 && cascadesContext.getRecursiveCteContext().get().findCTEContext(tableName).isPresent()) {
+            rejectScanParamsOnCte(unboundRelation);
             if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
                 throw new AnalysisException(
                         String.format("recursive reference to query %s must not appear within its non-recursive term",
@@ -230,6 +232,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         }
         return plan;
+    }
+
+    private void rejectScanParamsOnCte(UnboundRelation unboundRelation) {
+        if (unboundRelation.getScanParams() != null) {
+            // A CTE reference has no physical table handle on which scan parameters can be applied.
+            throw new AnalysisException("Table scan parameters are not supported on CTE references.");
+        }
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {

@@ -32,6 +32,8 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     String pkTable = "pk_dv_timeline"
     String partitionTable = "partition_timeline"
     String rowTrackingTable = "row_tracking_timeline"
+    String viewDb = "paimon_scan_options_view_db"
+    String historicalView = "historical_top_view"
 
     def latestSnapshotId = { String tableName ->
         List<List<Object>> rows = spark_paimon """
@@ -412,6 +414,11 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
             from ${topTable}\$audit_log@options('scan.tag-name'='top_cp0')
             order by id
         """
+        order_qt_options_behavioral_latest_schema """
+            select id, MixedName
+            from ${topTable}@options('scan.plan-sort-partition'='true')
+            order by id
+        """
         assertEquals(topCp0Rows, sql("""
             select id, old_name, victim, metric
             from ${topTable}@branch(top_cp0_branch)
@@ -482,6 +489,13 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
                     from ${nestedTable} for version as of ${nestedCp0}
                     where payload.old_child = 10
                 """))
+        order_qt_nested_options_snapshot_schema """
+            select id, payload.old_child,
+                   element_at(attributes, 'a').old_child,
+                   events[1].old_child
+            from ${nestedTable}@options('scan.snapshot-id'='${nestedCp0}')
+            where payload.old_child = 10
+        """
         assertEquals([[1, null, null, null], [2, 112, 122, 132]],
                 sql("""
                     select id, payload.added_child,
@@ -589,6 +603,61 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
         assertEquals([[1, "p1", "old"], [2, "p2", "old"], [3, "p3", "new"]],
                 sql("""select id, old_partition, new_payload from ${partitionTable} order by id"""))
 
+        // OPTIONS must survive CREATE VIEW rewriting, while unsupported consumers fail explicitly.
+        sql """create database if not exists internal.${viewDb}"""
+        sql """drop view if exists internal.${viewDb}.${historicalView}"""
+        sql """
+            create view internal.${viewDb}.${historicalView} as
+            select id, old_name, victim, metric
+            from ${catalogName}.${dbName}.${topTable}
+            @options('scan.snapshot-id'='${topCp0}')
+        """
+        order_qt_create_view_options_schema """
+            select id, old_name, victim, metric
+            from internal.${viewDb}.${historicalView}
+            order by id
+        """
+        test {
+            sql """
+                with historical as (
+                    select id from ${topTable}
+                )
+                select * from historical@options('scan.snapshot-id'='${topCp0}')
+            """
+            exception "Table scan parameters are not supported on CTE references"
+        }
+        test {
+            sql """
+                show replica distribution from ${catalogName}.${dbName}.${topTable}
+                @options('scan.snapshot-id'='${topCp0}')
+            """
+            exception "OPTIONS scan params are only supported in query relations"
+        }
+        test {
+            sql """
+                select * from ${topTable}@options(
+                    'scan.snapshot-id'='${topCp0}',
+                    'scan.creation-time-millis'='0'
+                )
+            """
+            exception "Only one Paimon startup position can be specified"
+        }
+        test {
+            sql """
+                select * from ${topTable}@options(
+                    'scan.mode'='latest',
+                    'scan.snapshot-id'='${topCp0}'
+                )
+            """
+            exception "is incompatible with startup position"
+        }
+        test {
+            sql """
+                select * from ${topTable}@options('scan.fallback-branch'='archive')
+            """
+            exception "scan.fallback-branch"
+        }
+
         // Scenario TC09/R13/R17: cache, JNI and CPP paths return the same historical schema/data.
         sql """switch ${noCacheCatalogName}"""
         sql """use ${dbName}"""
@@ -643,6 +712,7 @@ suite("test_paimon_schema_time_travel_matrix", "p0,external,paimon") {
     } finally {
         sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
+        sql """drop database if exists internal.${viewDb} force"""
         sql """drop catalog if exists ${catalogName}"""
         sql """drop catalog if exists ${noCacheCatalogName}"""
     }

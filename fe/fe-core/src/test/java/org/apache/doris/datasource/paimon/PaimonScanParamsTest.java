@@ -18,8 +18,13 @@
 package org.apache.doris.datasource.paimon;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.table.Table;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
+
+import java.util.Map;
 
 public class PaimonScanParamsTest {
 
@@ -44,5 +49,71 @@ public class PaimonScanParamsTest {
                         "scan.snapshot-id", "1",
                         "scan.tag-name", "tag1")));
         Assert.assertTrue(conflict.getMessage().contains("Only one"));
+    }
+
+    @Test
+    public void testRejectIncompatibleStartupOptionsAndFallbackBranch() {
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                        "scan.snapshot-id", "1",
+                        "scan.creation-time-millis", "1000")));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                        "scan.mode", "latest",
+                        "scan.snapshot-id", "1")));
+        IllegalArgumentException fallback = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonScanParams.validateOptions(
+                        ImmutableMap.of("scan.fallback-branch", "archive")));
+        Assert.assertTrue(fallback.getMessage().contains("scan.fallback-branch"));
+    }
+
+    @Test
+    public void testApplyPositionClearsInheritedStartupState() {
+        Table table = Mockito.mock(Table.class);
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+
+        Assert.assertSame(copied, PaimonScanParams.applyOptions(
+                table, ImmutableMap.of("scan.creation-time-millis", "1000")));
+
+        Mockito.verify(table).copy(ArgumentMatchers.argThat(applied ->
+                "1000".equals(applied.get("scan.creation-time-millis"))
+                        && containsNull(applied, "scan.mode")
+                        && containsNull(applied, "scan.snapshot-id")
+                        && containsNull(applied, "scan.tag-name")
+                        && containsNull(applied, "scan.timestamp")
+                        && containsNull(applied, "scan.timestamp-millis")
+                        && containsNull(applied, "scan.watermark")
+                        && containsNull(applied, "scan.version")
+                        && containsNull(applied, "scan.file-creation-time-millis")
+                        && containsNull(applied, "scan.bounded.watermark")
+                        && containsNull(applied, "incremental-between")
+                        && containsNull(applied, "incremental-between-timestamp")
+                        && containsNull(applied, "incremental-between-scan-mode")
+                        && containsNull(applied, "incremental-to-auto-tag")));
+    }
+
+    @Test
+    public void testApplyModeClearsInheritedPositions() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(Mockito.mock(Table.class));
+
+        PaimonScanParams.applyOptions(table, ImmutableMap.of("scan.mode", "latest"));
+
+        Mockito.verify(table).copy(ArgumentMatchers.argThat(applied ->
+                "latest".equals(applied.get("scan.mode"))
+                        && containsNull(applied, "scan.snapshot-id")
+                        && containsNull(applied, "scan.tag-name")
+                        && containsNull(applied, "scan.timestamp")
+                        && containsNull(applied, "scan.timestamp-millis")
+                        && containsNull(applied, "scan.watermark")
+                        && containsNull(applied, "scan.version")
+                        && containsNull(applied, "scan.file-creation-time-millis")
+                        && containsNull(applied, "scan.creation-time-millis")));
+    }
+
+    private static boolean containsNull(Map<String, String> options, String key) {
+        return options.containsKey(key) && options.get(key) == null;
     }
 }

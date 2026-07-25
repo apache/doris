@@ -112,6 +112,17 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     }
 
     @Test
+    void rejectOptionsOnCteReference() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("WITH c AS (SELECT * FROM db1.t) "
+                                + "SELECT * FROM c@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertEquals(
+                "Table scan parameters are not supported on CTE references.", exception.getMessage());
+    }
+
+    @Test
     void bindSchemaTable() {
         boolean originValue = connectContext.getSessionVariable().isFetchAllFeForSystemTable();
         try {

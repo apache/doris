@@ -82,8 +82,6 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     // The keys of incremental read params for Paimon SDK
-    private static final String PAIMON_SCAN_SNAPSHOT_ID = "scan.snapshot-id";
-    private static final String PAIMON_SCAN_MODE = "scan.mode";
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
     private static final String PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
@@ -880,11 +878,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // Fill the result map based on parameter combinations
         Map<String, String> paimonScanParams = new HashMap<>();
-        paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, null);
-        paimonScanParams.put(PAIMON_SCAN_MODE, null);
 
         if (hasSnapshotParams) {
-            paimonScanParams.put(PAIMON_SCAN_MODE, null);
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
                 throw new UserException("endSnapshotId is required when using snapshot-based incremental read");
@@ -915,7 +910,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
 
-        return paimonScanParams;
+        return PaimonScanParams.isolateIncrementalRead(paimonScanParams);
     }
 
     private Table getProcessedTable() throws UserException {
