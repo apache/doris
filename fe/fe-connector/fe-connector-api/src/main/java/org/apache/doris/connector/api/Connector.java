@@ -38,10 +38,25 @@ import java.util.Set;
  *
  * <p>A {@code Connector} instance is created once per catalog and provides
  * access to metadata, scan planning, and optional write operations.</p>
+ *
+ * <p><b>The {@code supportsXxx()} / {@code requiresXxx()} / {@code supportedWriteOperations()} methods on
+ * this interface are null-safe READ PORTS for the engine, not declaration points for a connector.</b> Each
+ * body does the same thing: fetch the relevant provider and, when there is none, answer {@code false} (or an
+ * empty set). Declare such a capability by overriding it on the provider — the provider is the single source
+ * of truth — and leave these alone; overriding a mirror while leaving the provider at its default produces
+ * two divergent answers with no compile error and no failing test. The provider getters that return
+ * {@code null} ({@code getScanPlanProvider}, {@code getWritePlanProvider}, {@code getProcedureOps},
+ * {@code getEventSource}) are the opposite case: those ARE the declaration points for "this subsystem
+ * exists". See the {@code org.apache.doris.connector.api} package documentation for the full rule.</p>
  */
 public interface Connector extends Closeable {
 
-    /** Returns the metadata interface for the given session. */
+    /**
+     * Returns the metadata interface for the given session. The engine calls this exactly once per catalog per
+     * statement through its own single entry point and closes the result when the statement ends, so an
+     * implementation may return a fresh, statement-scoped object; see {@link ConnectorMetadata} for the
+     * lifecycle contract.
+     */
     ConnectorMetadata getMetadata(ConnectorSession session);
 
     /**

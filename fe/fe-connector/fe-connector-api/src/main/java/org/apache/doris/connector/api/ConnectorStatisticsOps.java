@@ -26,6 +26,20 @@ import java.util.Optional;
 
 /**
  * Operations for retrieving table-level statistics from a connector.
+ *
+ * <p><b>These methods may run OFF the query thread, on engine background pools, and the engine pins no
+ * thread context classloader on any of them.</b> The pools reached today are the column-statistics cache
+ * loader ({@code STATS_FETCH}), the analysis-job executor that runs {@code ANALYZE ... WITH SAMPLE}, and the
+ * external row-count refresh executor. (The snapshot-aware {@code getTableStatistics} overload is invoked on
+ * the query thread only, but do not rely on that: treat every method here as background-callable.)</p>
+ *
+ * <p>Consequence for a connector: if an implementation — or a bundled library it calls — loads classes
+ * reflectively BY NAME, it must pin the thread context classloader to its own plugin classloader for the
+ * duration of the call and restore it afterwards. Without that pin the name resolves against the engine's own
+ * copy of the class on a background thread, which surfaces as an intermittent
+ * {@code ClassCastException} / {@code NoClassDefFoundError} that only appears while statistics are being
+ * collected. The hive connector's {@code listFileSizes} implementation does this pinning itself and is the
+ * pattern to copy; the engine's side of the boundary states explicitly that it does not pin here.</p>
  */
 public interface ConnectorStatisticsOps {
 

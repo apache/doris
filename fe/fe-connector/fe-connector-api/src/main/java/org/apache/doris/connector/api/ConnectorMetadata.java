@@ -39,7 +39,15 @@ import java.util.Set;
  * <p>Extends the fine-grained sub-interfaces for schema, table,
  * pushdown, statistics, and write operations. Each sub-interface
  * provides sensible defaults so that connectors only need to
- * override the methods they actually support.</p>
+ * override the methods they actually support. Because every method has a default, the compiler forces NO
+ * method on an implementor: an empty implementation compiles and loads but serves nothing, so each
+ * sub-interface documents its own minimum implementation set.</p>
+ *
+ * <p><b>Lifecycle</b>: exactly one instance per catalog per statement, obtained by the engine through its
+ * single entry point ({@code PluginDrivenMetadata}, which owns this contract) and closed deterministically
+ * when the statement ends. One instance must not be shared across threads. Note that
+ * {@link ConnectorStatisticsOps} — inherited here — is exempt from the query-thread assumption; see its class
+ * javadoc.</p>
  */
 public interface ConnectorMetadata extends
         ConnectorSchemaOps,
@@ -229,6 +237,11 @@ public interface ConnectorMetadata extends
     }
 
 
+    /**
+     * Releases whatever this per-statement instance holds. Called by the engine exactly once per statement in
+     * the normal path, but implementations <b>must be idempotent</b> — a failed statement can reach close from
+     * more than one unwind path. Must not throw for an already-closed instance.
+     */
     @Override
     default void close() throws IOException {
     }
