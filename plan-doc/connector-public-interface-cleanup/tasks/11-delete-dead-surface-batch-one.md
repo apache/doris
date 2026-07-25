@@ -1,5 +1,34 @@
 # 11. 删除第一批死接口面（公共模块内部，不动连接器生产代码）
 
+> ## ✅ 已落地（2026-07-25），分五个提交
+>
+> | 提交 | 内容 |
+> |---|---|
+> | `delete six pieces of dead connector surface` | 两个空句柄接口、MVCC 快照两字段、两个统计 `UNKNOWN`、`ConnectorTestResult` 子组件、`ConnectorType` 四个整表取得器 |
+> | `remove the LIMIT pushdown entry point` | `applyLimit` + `LimitApplicationResult` + `tryPushDownLimit` + **冻结基线重新生成** |
+> | `drop the create-table request's external flag` | `isExternal`（用户拍板：删） |
+> | `drop the partition-value list nothing carries` | `ConnectorPartitionValueDef` + `initialValues` + 11 处连接器测试源实参 |
+> | `delete the unwired property-descriptor mechanism` | `ConnectorPropertyMetadata` + 两个 `Connector` 取得器 + 包级说明新增规则七（用户拍板：删，等同 24 号选项二） |
+>
+> **动手前 22 个 agent 的复核推翻/订正了本文以下说法，正文未逐条重写，以这里为准：**
+>
+> 1. **本文完全没提冻结基线**（它比本文的基线提交新）。`connector-metadata-methods.txt` 第 6 行就是 `applyLimit`，必须同一提交重新生成；该文件**没有 ASF 头**，重新生成时别加。已双向变异验证。
+> 2. **第 5.2 节第 4 项漏了引擎侧第四处引用**：`PluginDrivenScanNode.pinMvccSnapshot()` 的 javadoc 里有 `{@link #tryPushDownLimit}`。fe-core 的 javadoc 插件是 `<skip>true</skip>`，**编译抓不到**。
+> 3. **第 6 节第 1 项「全反应堆 test-compile 是唯一能一次证明引用全清的动作」不成立**——它对 javadoc 引用是结构性失明的。必须配人工 grep，且 grep 清单要包含 `tryPushDownLimit` 这类只在注释里出现的名字。
+> 4. **第四节的最小例子举错了连接器**：hive **没有**关掉带类型转换的谓词下推（继承默认 `true`）；关掉的是 paimon 与 maxcompute，jdbc 按会话。风险是「实现 `applyLimit`」+「关掉 cast 下推」的双重条件，不是单条件。该隐患早已登记为 `plan-doc/deviations-log.md` 的 DV-020。
+> 5. **第三节第 2 条关于两个 `UNKNOWN` 的危害论证不成立**：`Optional.of(UNKNOWN)` 在 fe-core 三个消费点与 `Optional.empty()` 行为完全相同。删除理由改为「类文档与方法签名互相矛盾」。第八节「把未知收成一种表达」也不成立——同模块还有第三个**活的** `ConnectorPartitionInfo.UNKNOWN`（-1L），hive 主源与 fe-core 都在用。
+> 6. **第 6.3 节的变异验证配方无效**：`HiveConnectorMetadataDdlTest` 直接构造 spec，根本不经过 fe-core 转换器；且该测试类在本分支上本来就红（19 用例 / 5 failures + 7 errors，改动前后逐数字一致）。
+> 7. **第 6.3 节「必须仍然断言 `hasExplicitPartitionValues()`」无法执行**：fe-core 主源与测试对该方法**零命中**。实际做法是**新增**一条断言（喂非空分区定义列表、要求置位），并做变异验证：把转换器那个布尔位写死 `false` 时只有这条变红。
+> 8. **`isExternal` 的删除理由比本文强得多**：它在任何能到达连接器的路径上都是编译期常量 `true`（`CreateTableInfo.checkEngineName` 强制置真），且 `EXTERNAL_TABLE`/`MANAGED_TABLE` 这个决策在 Doris 里不存在（`HmsWriteConverter` 硬编码 `MANAGED_TABLE`，与迁移前逐字相同）。**选项 B 若按字面做会改变行为**（DROP TABLE 不再删数据）。
+> 9. **`isExternal` 的测试改动被低估**：夹具 `stubInfo` 有 **9 个调用点**传那个尾参，只改本文列的 3 行会编译失败。
+> 10. **`ConnectorTestResult` 还有一个消费者**：引擎把整个结果对象丢进 `LOG.info`，所以 `toString()` 是活的（输出不变，因为那个 map 恒空）。删字段会孤立 `Collections`/`Map` 两个 import，checkstyle `UnusedImports` 会报错。
+> 11. **`ConnectorMvccSnapshot` 的测试有个方法叫 `equalsAndHashCodeCoverAllSixFields`**、javadoc 写着「6 个字段」，删两字段后必须改名改文案。另外「20 多个生产构造点」实为 15 个（测试侧 37 个）。
+> 12. **第 5.2 节第 1 项的 import 提示是错的**：`java.util.List` 与 `java.util.Collections` 在 `Connector.java` 里都仍被使用，import 净变化为零。
+> 13. **名字撞车清单（5.3 第二类）要补两条**：`ConnectorCapability.java` 里那句 `{@code getTableProperties()}` 指的是 fe-core 那个活方法，且是**安全相关**的（哪些连接器不能声明 SHOW CREATE TABLE，否则泄露连接密码）；以及上面第 5 条的 `ConnectorPartitionInfo.UNKNOWN`。
+> 14. **第 6.1 节的构建命令要排除两个 shade 模块**，否则失败原因与本批无关（见交接文档的构建坑）。
+>
+> **顺带发现、留给下一批**：`fe-core` 的 `org.apache.doris.connector.ConnectorMvccSnapshotAdapter` 全仓库零引用，是一个可删的死类。
+
 > **优先级**：第三优先级（删死面） ｜ **风险**：低 ｜ **前置依赖**：无
 > **影响模块**：`fe-connector-api`（主源 + 自带测试）、`fe-core`（引擎主源 + 测试）；另有三个连接器的**测试源**各去掉一个恒为空的构造参数（`fe-connector-hive`、`fe-connector-iceberg`、`fe-connector-paimon`，生产代码零改动）
 > **预计改动规模**：约 20 个文件，净减 400～550 行（其中 5 个整类删除）
