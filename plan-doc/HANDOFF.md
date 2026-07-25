@@ -5,7 +5,71 @@
 
 ---
 
-# 🆕 下一个 session = **重跑 CI 验证本轮 3 个修复**
+# 🆕🆕 最新一轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
+
+> 任务 = TeamCity `Doris_External_Regression` **#1005291**（PR **66028** @ `7ff51a106f0`）中
+> `external_table_p0/iceberg/test_iceberg_nested_schema_evolution_spark_doris_interop.groovy:273`。
+> 该 build 整体 SUCCESS（603 passed），这条是 **muted** 的失败。
+
+## 定性：本分支独有的**真回归**，不是 flaky、不是集群故障
+
+同一用例在 pull/66011、65847、66006、65851、65126 上均 SUCCESS；另外两个 FAILURE（66007、65851）
+是完全不同的原因（`can not cast from origin type STRUCT<...>`、`No backend available / not alive`），**与本问题无关**。
+本地 HEAD 与 PR 66028 head 一致，`fe/fe-core/.../datasource/iceberg/` 已整体删除 ⇒ 走的一定是连接器路径。
+
+## 根因：#65329 的**平坦（top-level）臂**只移植了一半
+
+上游 `IcebergMetadataOps`（`git show 70a82532325:fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/IcebergMetadataOps.java`）
+有 **5 处** `validateNoCaseInsensitiveSiblingCollision` 调用：flat ADD(:885)、nested ADD(:918)、
+ADD COLUMNS 批量(:946→helper :1428)、flat RENAME(:1005，且前置 :1000 用 `resolveColumnPath` 大小写不敏感解析**源列名**)、nested RENAME(:1028)。
+移植只带进了**两处 nested**（`IcebergNestedColumnEvolution:71/99`）。
+
+顶层 DDL **根本到不了**那个类：fe-core `PluginDrivenExternalCatalog:908-913/949-951` 对 `!columnPath.isNested()` 直接短路回平坦 SPI，
+`IcebergConnectorMetadata.addNestedColumn/renameNestedColumn` 再短路一次；终点
+`CatalogBackedIcebergCatalogOps.addColumn/addColumns/renameColumn` 直接 `UpdateSchema` 零校验。
+Iceberg 自己也挡不住 —— `SchemaUpdate` 构造器 `caseSensitive = true`，`findField("id")` 看不见 `Id`。
+⇒ 该校验器里 `parentPath.isEmpty()` 那条顶层分支一直是**死代码**，正是漏掉调用点的信号。
+
+## ✅ 已交付：commit `f1104a6880d`
+
+三个平坦入口接上 nested 臂已有的校验器；`validateNoCaseInsensitiveSiblingCollision` 放宽为包内可见，
+新增 `validateNoCaseInsensitiveTopLevelCollisions`（批量 + 请求内去重）与 `renameTopLevelColumn`
+（大小写不敏感解析源名 + 冲突校验 + 复用 `applyRenameColumn` 的 identifier-field 修复）。**未碰 fe-core**。
+
+验证：先 RED（7 个新用例在修前失败，症状与 CI 完全一致：ADD 是 `nothing was thrown`，RENAME 是
+`Cannot rename missing column: label`）→ 后 GREEN；模块 **1145/1145**（5 个既有 live-connectivity skip）、
+**全 reactor `test-compile` BUILD SUCCESS**、checkstyle 0。5 路对抗复审 + 3 skeptic 表决：**0 条成立**。
+该 suite 内**唯一**的顶层列 DDL 就是 274–289 行，其余全是 dotted 嵌套路径（未受影响）；
+289 行 `RENAME COLUMN label TO label` 会把列名变小写，但 `mixedCaseTable` 最后一次被引用就在 296 行，无下游影响。
+
+## ⏭ 下一个 session
+
+1. **重跑 CI 是唯一真闸门**。预期 273/277/281/285/289 五条全过（后四条此前从未被执行到）。
+2. **同族平坦臂缺口，本轮故意未打包**（复审提出、经表决判定为既有问题且超出本次范围，非本次引入）：
+   - flat `dropColumn`（`IcebergCatalogOps` 内）仍按大小写敏感解析 ⇒ 对 Spark 混合大小写表 `DROP COLUMN label` 会失败（上游 :961 用 `resolveColumnPath`）；
+   - flat `modifyColumn` 用大小写敏感 `Schema.findField` ⇒ `MODIFY COLUMN id` 报 "Column id does not exist"；
+   - flat `applyPosition` 的 `AFTER <ref>` 参照列未做大小写不敏感解析；
+   - `reorderColumns` 既不规范化大小写也不查重复。
+   以上**均未被本 suite 触发**（该 suite 的 DROP/MODIFY 全是 dotted 嵌套路径），故不阻塞本次 CI。
+   另：row-lineage mutation guard 的缺失是**本分支既有的、有文档的有意偏离**（见 `IcebergConnectorMetadata:1282`），不是缺口。
+3. 复审旁获（未验证、与本次无关）：有 agent 声称 hive 网关未把 5 个 ColumnPath 列操作委派给 iceberg 兄弟，
+   导致 iceberg-on-HMS 的 `MODIFY COLUMN COMMENT` 恒不可用。**未经我独立核实**，要动前先自己 trace。
+
+## 🧰 本轮新增构建坑（补充下面第 1 条）
+
+**`-Dmaven.build.cache.enabled=false` 会连带打破 shade 依赖链**：`fe-connector-hms-hive-shade` 的 shade 插件绑在
+`package` 阶段，而 `test`/`compile` 生命周期到不了 `package` ⇒ 关缓存后 `fe-connector-hms` 编译报
+`package org.apache.hadoop.hive.metastore.api does not exist`（**与被改代码无关**，该 reactor 里根本没有 iceberg 模块）。
+正确姿势：先 `-pl <目标模块> -am install -DskipTests -Dmaven.build.cache.enabled=false`（跑到 package 产出 shade jar），
+再 `-pl <目标模块> test -Dmaven.build.cache.enabled=false`（**不带 `-am`**）。
+
+**另注**：`fe-connector-api` 等上游模块的**已安装 jar 常落后于工作区**，只 `-pl <模块>` 不带 `-am` 会撞
+"no suitable method found" / "cannot find symbol" 之类的**假编译错**（本轮撞了两次：`ConnectorType.structOf` 5 参、
+`isChildCommentSpecified`）—— 那不是代码坏了，是 jar 陈旧。
+
+---
+
+# 🕗 上一轮 = **重跑 CI 验证 3 个修复**（997422）
 
 > **本轮任务** = TeamCity `Doris_External_Regression` **#997422**（PR 65474 @ `6a450c9fa79`）
 > **10 failed + 2 muted**（occurrence 口径 12）。
