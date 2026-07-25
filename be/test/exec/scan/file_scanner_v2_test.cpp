@@ -749,18 +749,6 @@ TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
 }
 
-TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
-    auto status = FileScannerV2::TEST_contextualize_output_filter_status(
-            Status::InvalidArgument("synthetic row filter failure"), TFileFormatType::FORMAT_ORC);
-    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
-    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
-
-    status = FileScannerV2::TEST_contextualize_output_filter_status(
-            Status::InvalidArgument("synthetic row filter failure"),
-            TFileFormatType::FORMAT_PARQUET);
-    EXPECT_EQ(status.to_string().find("nextBatch failed"), std::string::npos) << status;
-}
-
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.
@@ -898,6 +886,29 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
+}
+
+TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
+    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
+    VExprContextSPtrs conjuncts {
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
+            runtime_filter_context(std::move(unsafe_predicate), 2),
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
+    };
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner.TEST_set_scanner_conjuncts(std::move(conjuncts));
+
+    EXPECT_EQ(scanner.TEST_table_reader_owned_conjunct_count(), 1);
+    EXPECT_EQ(scanner.TEST_scanner_residual_conjunct_count(), 2);
+    const auto* residual_predicates = profile.get_info_string("ScannerResidualPredicates");
+    ASSERT_NE(residual_predicates, nullptr);
+    EXPECT_FALSE(residual_predicates->empty());
+    EXPECT_NE(residual_predicates->find("SlotRef"), std::string::npos) << *residual_predicates;
 }
 
 } // namespace doris

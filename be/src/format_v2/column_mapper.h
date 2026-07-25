@@ -40,6 +40,13 @@ namespace doris::format {
 struct ColumnDefinition;
 struct TableFilter;
 
+// Reports which table filters were fully rewritten into exact file-local predicates for the
+// current split. The result is aligned with the TableFilter input vector and must not be reused for
+// another split because schema evolution can change localization independently for every file.
+struct FilterLocalizationResult {
+    std::vector<bool> localized_filters;
+};
+
 enum class TableColumnMappingMode {
     // Match by ColumnDefinition::identifier TYPE_INT as field id.
     BY_FIELD_ID,
@@ -165,6 +172,8 @@ struct TableColumnMapperOptions {
     std::string debug_string() const;
 };
 
+bool requires_char_or_varchar_truncation(const ColumnMapping& mapping);
+
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr);
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values);
@@ -196,7 +205,8 @@ public:
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const std::vector<ColumnDefinition>& projected_columns,
                                        FileScanRequest* file_request,
-                                       RuntimeState* runtime_state = nullptr);
+                                       RuntimeState* runtime_state = nullptr,
+                                       FilterLocalizationResult* localization_result = nullptr);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
@@ -204,7 +214,8 @@ public:
     // table-level finalize/filter fallback.
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     FileScanRequest* file_request,
-                                    RuntimeState* runtime_state = nullptr);
+                                    RuntimeState* runtime_state = nullptr,
+                                    FilterLocalizationResult* localization_result = nullptr);
     void clear() {
         _mappings.clear();
         _hidden_mappings.clear();
