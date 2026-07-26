@@ -929,6 +929,32 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void getTableSchemaEmitsEachPartitionSourceColumnOnce() {
+        // Two partition FIELDS over ONE source column (bucket(8, id) + truncate(100, id)) is legal iceberg --
+        // either declared at CREATE or reached by ADD PARTITION KEY year(ts) then month(ts). This CSV is a set
+        // of partition COLUMNS on the FE side: PruneFileScanPartition maps every name to one scan Slot and
+        // OneListPartitionEvaluator collects Slot -> literal into an ImmutableMap, so a repeated name aborts
+        // planning with "Multiple entries with same key" (ExtReg 1005641). Emitting it once keeps the FE list
+        // injective; IcebergPartitionUtils.listPartitions dedupes its value tuple the same way so the two stay
+        // index-aligned. MUTATION: reverting the LinkedHashSet to an ArrayList -> "id,id,name" -> red.
+        Schema schema = idNameSchema();
+        PartitionSpec partSpec = PartitionSpec.builderFor(schema)
+                .bucket("id", 8)
+                .truncate("id", 100)
+                .identity("name")
+                .build();
+        RecordingIcebergCatalogOps partOps = new RecordingIcebergCatalogOps();
+        partOps.table = new FakeIcebergTable(
+                "t4", schema, partSpec, "s3://bucket/db1/t4", Collections.emptyMap());
+        ConnectorTableSchema partSchema =
+                metadataWith(partOps).getTableSchema(null, new IcebergTableHandle("db1", "t4"));
+
+        Assertions.assertEquals("id,name",
+                partSchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "a source column feeding several partition fields must appear once, in first-occurrence order");
+    }
+
+    @Test
     public void getTableSchemaDefaultsFormatVersionBelowThreeWhenAbsent() {
         // WHY: getFormatVersion (which drives the v3 row-lineage gate) defaults to 2 when the table carries
         // no `format-version` property, so an absent-format-version table appends NO row-lineage columns. The

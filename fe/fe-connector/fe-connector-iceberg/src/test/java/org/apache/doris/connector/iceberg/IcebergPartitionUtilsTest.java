@@ -988,6 +988,92 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
+    public void listPartitionsEmitsOneValuePerDistinctSourceColumn() {
+        // An iceberg spec may carry TWO partition fields over ONE source column -- bucket(4, id) +
+        // truncate(100, id) here, or the ADD PARTITION KEY year(ts) then month(ts) shape from
+        // external_table_p0/iceberg/test_iceberg_partition_evolution_ddl. fe-core declares the table's
+        // partition COLUMNS from IcebergConnectorMetadata's deduped CSV (one entry per DISTINCT source
+        // column) and zips them positionally against these ordered values -- the load-bearing
+        // checkState(partitionValues.size() == types.size()) in
+        // PluginDrivenMvccExternalTable.toListPartitionItem -- then binds each column to exactly ONE scan
+        // slot in PruneFileScanPartition. So the two sides MUST dedupe identically:
+        //   - one value per FIELD + one column per FIELD  -> the planner crashes with guava's
+        //     "Multiple entries with same key" (OneListPartitionEvaluator collects Slot -> literal into an
+        //     ImmutableMap). That was the ExtReg 1005641 failure.
+        //   - one value per FIELD + one column per DISTINCT source column -> the arity check throws inside
+        //     listLatestPartitions' per-partition catch, every partition is skipped, and partition pruning
+        //     is silently disabled while the query still "passes".
+        // MUTATION: rebuilding orderedValues from raw.columnNames (per field) -> 2 values -> red.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .bucket("id", 4)
+                .truncate("id", 100)
+                .identity("region")
+                .build();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        Table table = catalog.createTable(id, schema, spec);
+        table.newAppend().appendFile(DataFiles.builder(spec)
+                .withPath("s3://b/db1/t/f0.parquet")
+                .withFileSizeInBytes(100)
+                .withRecordCount(1)
+                .withPartitionPath("id_bucket=1/id_trunc=100/region=east")
+                .withFormat(FileFormat.PARQUET)
+                .build()).commit();
+
+        List<ConnectorPartitionInfo> parts =
+                IcebergPartitionUtils.listPartitions(catalog.loadTable(id), id, null);
+
+        Assertions.assertEquals(1, parts.size(), "one physical partition");
+        ConnectorPartitionInfo part = parts.get(0);
+        Assertions.assertEquals(Arrays.asList("id", "region"),
+                new java.util.ArrayList<>(part.getPartitionValues().keySet()),
+                "the value map is keyed by DISTINCT source column, in first-occurrence spec order");
+        Assertions.assertEquals(2, part.getOrderedPartitionValues().size(),
+                "the ordered tuple must have one entry per DISTINCT source column (2), not per spec field (3)");
+        Assertions.assertEquals(Arrays.asList("100", "east"), part.getOrderedPartitionValues(),
+                "a source column feeding two fields keeps the LAST field's value, matching the value map");
+        // The DISPLAY name still enumerates every spec field: partition names key selectedPartitions and
+        // drive EXPLAIN partition=N/M, so deduping values must not collapse two physical partitions.
+        Assertions.assertEquals("id_bucket=1/id_trunc=100/region=east", part.getPartitionName(),
+                "the rendered partition name keeps every spec field");
+    }
+
+    @Test
+    public void listPartitionsKeepsEveryValueWhenSourceColumnsAreDistinct() {
+        // Control for listPartitionsEmitsOneValuePerDistinctSourceColumn: with one field per source column
+        // the dedupe is a no-op and every transform value still surfaces, in spec order. MUTATION: deduping
+        // by anything other than the source column name (e.g. by value) -> fewer values -> red.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 4).identity("region").build();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        Table table = catalog.createTable(id, schema, spec);
+        table.newAppend().appendFile(DataFiles.builder(spec)
+                .withPath("s3://b/db1/t/f0.parquet")
+                .withFileSizeInBytes(100)
+                .withRecordCount(1)
+                .withPartitionPath("id_bucket=1/region=east")
+                .withFormat(FileFormat.PARQUET)
+                .build()).commit();
+
+        List<ConnectorPartitionInfo> parts =
+                IcebergPartitionUtils.listPartitions(catalog.loadTable(id), id, null);
+
+        Assertions.assertEquals(1, parts.size());
+        Assertions.assertEquals(Arrays.asList("1", "east"), parts.get(0).getOrderedPartitionValues(),
+                "distinct source columns keep one value each, in spec order");
+    }
+
+    @Test
     public void listPartitionsDegradesToEmptyWhenPartitionSourceColumnDropped() {
         // Partition-evolution regression (external_table_p0/iceberg/test_iceberg_partition_evolution): a
         // HISTORICAL spec references a source column that was later DROPPED, while the CURRENT spec stays
