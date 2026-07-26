@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystemType;
@@ -233,9 +234,9 @@ public class PaimonScanPlanProviderTest {
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
-            List<ConnectorScanRange> ranges = provider.planScan(
-                    sessionWithProps(Collections.emptyMap()), handle,
-                    Collections.emptyList(), Optional.empty());
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .build());
 
             Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
             Assertions.assertEquals(2, ctx.authCount,
@@ -864,8 +865,9 @@ public class PaimonScanPlanProviderTest {
             // MUTATION (collapse): per-split emit -> >=2 ranges carry row_count -> countRanges!=1 -> red.
             // MUTATION (sum): `countSum = split.mergedRowCount()` (first/last-wins instead of +=) -> "2"
             // or "3" instead of "5" -> red. So both halves of design D-054 are pinned.
-            List<ConnectorScanRange> withCount = provider.planScan(
-                    session, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            List<ConnectorScanRange> withCount = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(true).build());
             int countRanges = 0;
             String emittedCount = null;
             for (ConnectorScanRange r : withCount) {
@@ -883,8 +885,9 @@ public class PaimonScanPlanProviderTest {
 
             // count pushdown OFF: no range may carry a pushed-down row count (normal scan; BE counts).
             // MUTATION: emitting row_count regardless of the flag -> red.
-            List<ConnectorScanRange> withoutCount = provider.planScan(
-                    session, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            List<ConnectorScanRange> withoutCount = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(false).build());
             for (ConnectorScanRange r : withoutCount) {
                 Assertions.assertFalse(r.getProperties().containsKey("paimon.row_count"),
                         "without count pushdown no range may carry a pushed-down row count");
@@ -936,8 +939,9 @@ public class PaimonScanPlanProviderTest {
             // (buildJniScanRange). Its file_format must be the table's "orc", not "jni".
             ConnectorSession forceJni = sessionWithProps(
                     Collections.singletonMap("force_jni_scanner", "true"));
-            List<ConnectorScanRange> jniRanges = provider.planScan(
-                    forceJni, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            List<ConnectorScanRange> jniRanges = provider.planScan(forceJni,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(false).build());
             Assertions.assertFalse(jniRanges.isEmpty(), "force_jni scan must emit >=1 JNI range");
             for (ConnectorScanRange r : jniRanges) {
                 Assertions.assertTrue(r.getProperties().containsKey("paimon.split"),
@@ -950,8 +954,9 @@ public class PaimonScanPlanProviderTest {
             // (b) COUNT(*) collapse range (buildCountRange): same real-format requirement; also pins that
             // defaultFileFormat is threaded into buildCountRange's new parameter from the call site.
             ConnectorSession plain = sessionWithProps(Collections.emptyMap());
-            List<ConnectorScanRange> countRanges = provider.planScan(
-                    plain, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            List<ConnectorScanRange> countRanges = provider.planScan(plain,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(true).build());
             PaimonScanRange countRange = null;
             for (ConnectorScanRange r : countRanges) {
                 if (r.getProperties().containsKey("paimon.row_count")) {
@@ -1018,8 +1023,9 @@ public class PaimonScanPlanProviderTest {
             // "orc" (the real data-file suffix), NOT "parquet" (the altered table default).
             ConnectorSession forceJni = sessionWithProps(
                     Collections.singletonMap("force_jni_scanner", "true"));
-            List<ConnectorScanRange> jniRanges = provider.planScan(
-                    forceJni, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            List<ConnectorScanRange> jniRanges = provider.planScan(forceJni,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(false).build());
             Assertions.assertFalse(jniRanges.isEmpty(), "force_jni scan must emit >=1 JNI range");
             for (ConnectorScanRange r : jniRanges) {
                 Assertions.assertTrue(r.getProperties().containsKey("paimon.split"),
@@ -1031,8 +1037,9 @@ public class PaimonScanPlanProviderTest {
 
             // (b) COUNT(*) collapse range (buildCountRange): same suffix-over-default requirement.
             ConnectorSession plain = sessionWithProps(Collections.emptyMap());
-            List<ConnectorScanRange> countRanges = provider.planScan(
-                    plain, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            List<ConnectorScanRange> countRanges = provider.planScan(plain,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(true).build());
             PaimonScanRange countRange = null;
             for (ConnectorScanRange r : countRanges) {
                 if (r.getProperties().containsKey("paimon.row_count")) {
@@ -1084,15 +1091,17 @@ public class PaimonScanPlanProviderTest {
             // Baseline: force_jni alone emits a JNI range.
             List<ConnectorScanRange> baseline = provider.planScan(
                     sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
-                    handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(false).build());
             Assertions.assertFalse(baseline.isEmpty(), "force_jni alone must emit >=1 JNI range (baseline)");
 
             // force_jni + IGNORE_JNI: the JNI split is dropped (2-entry props map).
             Map<String, String> props = new HashMap<>();
             props.put("force_jni_scanner", "true");
             props.put("ignore_split_type", "IGNORE_JNI");
-            List<ConnectorScanRange> ignored = provider.planScan(
-                    sessionWithProps(props), handle, noColumns, Optional.empty(), -1, null, false);
+            List<ConnectorScanRange> ignored = provider.planScan(sessionWithProps(props),
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build());
             Assertions.assertTrue(ignored.isEmpty(),
                     "ignore_split_type=IGNORE_JNI must drop the forced-JNI DataSplit");
         }
@@ -1131,9 +1140,9 @@ public class PaimonScanPlanProviderTest {
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
 
             // Baseline (NONE): a native range is emitted (no paimon.split marker == native path).
-            List<ConnectorScanRange> baseline = provider.planScan(
-                    sessionWithProps(Collections.emptyMap()),
-                    handle, noColumns, Optional.empty(), -1, null, false);
+            List<ConnectorScanRange> baseline = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build());
             Assertions.assertFalse(baseline.isEmpty(), "append-only scan must emit >=1 range (baseline)");
             boolean anyNative = baseline.stream()
                     .anyMatch(r -> !r.getProperties().containsKey("paimon.split"));
@@ -1143,7 +1152,8 @@ public class PaimonScanPlanProviderTest {
             // IGNORE_NATIVE: the native split is dropped.
             List<ConnectorScanRange> ignored = provider.planScan(
                     sessionWithProps(Collections.singletonMap("ignore_split_type", "IGNORE_NATIVE")),
-                    handle, noColumns, Optional.empty(), -1, null, false);
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build());
             boolean anyNativeAfter = ignored.stream()
                     .anyMatch(r -> !r.getProperties().containsKey("paimon.split"));
             Assertions.assertFalse(anyNativeAfter,
@@ -1184,12 +1194,13 @@ public class PaimonScanPlanProviderTest {
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
 
-            int noneCount = provider.planScan(
-                    sessionWithProps(Collections.emptyMap()),
-                    handle, noColumns, Optional.empty(), -1, null, false).size();
+            int noneCount = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build()).size();
             int cppCount = provider.planScan(
                     sessionWithProps(Collections.singletonMap("ignore_split_type", "IGNORE_PAIMON_CPP")),
-                    handle, noColumns, Optional.empty(), -1, null, false).size();
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build()).size();
             Assertions.assertTrue(noneCount > 0, "baseline scan must emit >=1 range");
             Assertions.assertEquals(noneCount, cppCount,
                     "IGNORE_PAIMON_CPP must be a no-op (legacy parity): same range count as NONE");
@@ -1393,8 +1404,9 @@ public class PaimonScanPlanProviderTest {
             // MUTATION: neuter computeFileSplitOffsets to a single whole-file range -> nativeRanges==1 -> red.
             ConnectorSession splitting = sessionWithProps(
                     Collections.singletonMap("file_split_size", String.valueOf(splitSize)));
-            List<ConnectorScanRange> ranges = provider.planScan(
-                    splitting, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            List<ConnectorScanRange> ranges = provider.planScan(splitting,
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .countPushdown(false).build());
             List<ConnectorScanRange> nativeRanges = new ArrayList<>();
             for (ConnectorScanRange r : ranges) {
                 if (r.getPath().isPresent()) {   // native ranges carry a file path; JNI ranges do not
@@ -1418,9 +1430,9 @@ public class PaimonScanPlanProviderTest {
                     "native sub-ranges must cover exactly [0, fileLength)");
 
             // Contrast: with the default (large) split size the small file stays a SINGLE native range.
-            List<ConnectorScanRange> whole = provider.planScan(
-                    sessionWithProps(Collections.emptyMap()), handle, noColumns, Optional.empty(),
-                    -1, null, false);
+            List<ConnectorScanRange> whole = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build());
             long wholeNative = whole.stream().filter(r -> r.getPath().isPresent()).count();
             Assertions.assertEquals(1, wholeNative,
                     "with the default 32MB+ split size the small fixture file stays one native range");

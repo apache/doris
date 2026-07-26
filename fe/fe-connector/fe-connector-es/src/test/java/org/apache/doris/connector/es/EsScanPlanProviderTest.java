@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.NamedColumnHandle;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -164,7 +165,7 @@ class EsScanPlanProviderTest {
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("test_index");
 
-        provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         provider.getScanNodePropertiesResult(EMPTY_SESSION, handle, Collections.emptyList(),
                 java.util.Optional.empty());
         // ES-F1: planScan and getScanNodePropertiesResult of one scan node run on the SAME per-scan-node
@@ -183,10 +184,12 @@ class EsScanPlanProviderTest {
     void testDifferentIndexesFetchSeparately() {
         CountingRestClient client = new CountingRestClient();
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
-        provider.planScan(EMPTY_SESSION, new EsTableHandle("index_a"),
-                Collections.emptyList(), java.util.Optional.empty());
-        provider.planScan(EMPTY_SESSION, new EsTableHandle("index_b"),
-                Collections.emptyList(), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(new EsTableHandle("index_a"), Collections.emptyList())
+                .build());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(new EsTableHandle("index_b"), Collections.emptyList())
+                .build());
         // The per-scan memo is guarded on the index, so a provider reused for a different index
         // still refetches -- distinct indexes never share a memo entry.
         Assertions.assertEquals(2, client.getMappingCount.get(),
@@ -203,9 +206,9 @@ class EsScanPlanProviderTest {
         EsTableHandle handle = new EsTableHandle("test_index");
 
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(EMPTY_SESSION, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(EMPTY_SESSION, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(2, client.searchShardsCount.get(),
                 "a separate scan node (provider) must refetch shard routing -- memo is per-scan, not cross-query");
@@ -250,7 +253,7 @@ class EsScanPlanProviderTest {
 
         new EsConnectorMetadata(client, minimalProps()).getTableSchema(session, handle);
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(session, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(1, client.getMappingCount.get(),
                 "one index's mapping must be fetched once per statement across the schema and scan paths");
@@ -284,9 +287,9 @@ class EsScanPlanProviderTest {
         EsTableHandle handle = new EsTableHandle("test_index");
 
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(session, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(session, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(2, client.searchShardsCount.get(),
                 "shard routing must be fetched per scan, never shared via the statement scope");
@@ -306,10 +309,12 @@ class EsScanPlanProviderTest {
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("test_index");
 
-        provider.planScan(EMPTY_SESSION, handle,
-                Collections.singletonList(new NamedColumnHandle("a")), java.util.Optional.empty());
-        provider.planScan(EMPTY_SESSION, handle,
-                Collections.singletonList(new NamedColumnHandle("b")), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(handle, Collections.singletonList(new NamedColumnHandle("a")))
+                .build());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(handle, Collections.singletonList(new NamedColumnHandle("b")))
+                .build());
 
         Assertions.assertEquals(2, client.searchShardsCount.get(),
                 "a different projection must refetch -- the memo is guarded on columns, not just index");

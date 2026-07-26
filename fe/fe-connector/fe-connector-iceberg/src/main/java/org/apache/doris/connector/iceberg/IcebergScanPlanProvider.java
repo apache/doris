@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.cache.CacheSpec;
@@ -403,31 +404,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return planScanInternal(session, handle, columns, filter, false);
-    }
-
     /**
-     * COUNT(*)-pushdown-aware scan entry (FIX-COUNT-PUSHDOWN). The generic {@code PluginDrivenScanNode}
-     * forwards the no-grouping {@code COUNT(*)} signal here. {@code limit}/{@code requiredPartitions} are not
-     * consumed by the iceberg read path (it is predicate-driven; mirrors paimon, whose other overloads fold
-     * down to the 4-arg planScan).
+     * The scan entry. Of everything on the request, iceberg consumes the handle, the columns, the filter and
+     * the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN); the row limit and the pruned partition set
+     * are not consumed by the iceberg read path — it is predicate-driven (mirrors paimon).
      */
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions,
-            boolean countPushdown) {
-        return planScanInternal(session, handle, columns, filter, countPushdown);
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                request.getFilter(), request.isCountPushdown());
     }
 
     /**

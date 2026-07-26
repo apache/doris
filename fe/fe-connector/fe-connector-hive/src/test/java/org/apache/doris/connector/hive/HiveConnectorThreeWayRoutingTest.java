@@ -22,15 +22,14 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
@@ -41,7 +40,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Pins the hms-cutover THREE-WAY foreign-handle routing: with TWO embedded siblings (iceberg + hudi) under one
@@ -290,8 +288,7 @@ public class HiveConnectorThreeWayRoutingTest {
 
     private static final class MarkerScanProvider implements ConnectorScanPlanProvider {
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             return Collections.emptyList();
         }
     }

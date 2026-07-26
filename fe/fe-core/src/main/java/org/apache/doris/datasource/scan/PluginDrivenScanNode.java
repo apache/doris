@@ -46,6 +46,7 @@ import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
@@ -1307,15 +1308,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // FileScanNode.toThrift, but a connector that can serve a precomputed row count
         // (paimon DataSplit.mergedRowCount()) needs the signal here to emit it; otherwise BE
         // materializes the full post-merge row set just to count. Connectors that do not override the
-        // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
+        // count-pushdown signal simply ignore this field of the request.
         // Suppressed under TABLESAMPLE (applySample): a connector that collapses count-eligible splits
         // into ONE range carrying the precomputed FULL-table count (paimon/iceberg) would ignore the
         // sample and return full cardinality; with sampling active BE counts rows over the sampled splits
         // instead (mirrors legacy HiveScanNode, whose tableSample branch precedes the count-only opt).
         boolean countPushdown = isTableLevelCountStarPushdown() && !applySample;
-        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
-                requiredPartitions, countPushdown));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(currentHandle, columns)
+                .filter(remainingFilter)
+                .limit(sourceLimit)
+                .requiredPartitions(requiredPartitions)
+                .countPushdown(countPushdown)
+                .build();
+        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                () -> scanProvider.planScan(connectorSession, request));
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
@@ -1617,6 +1623,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        // One request for the whole batched scan; each batch re-scopes it to its own partitions. No row
+        // limit and no COUNT(*) pushdown on this path (batch mode is entered before either applies),
+        // matching what the batched call passed before the request object existed.
+        final ConnectorScanRequest batchRequest = ConnectorScanRequest.builder(handle, columns)
+                .filter(remainingFilter)
+                .build();
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
@@ -1638,7 +1650,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         try {
                             List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                                     () -> scanProvider.planScanForPartitionBatch(
-                                            connectorSession, handle, columns, remainingFilter, -1L, batch));
+                                            connectorSession, batchRequest, batch));
                             List<Split> batchSplits = new ArrayList<>(ranges.size());
                             for (ConnectorScanRange range : ranges) {
                                 batchSplits.add(new PluginDrivenSplit(range));

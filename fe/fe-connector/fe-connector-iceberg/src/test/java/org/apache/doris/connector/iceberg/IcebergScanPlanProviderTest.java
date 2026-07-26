@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
@@ -196,8 +197,9 @@ public class IcebergScanPlanProviderTest {
         RecordingIcebergCatalogOps ops = opsReturning(createTable("t1", SCHEMA, PartitionSpec.unpartitioned()));
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         Assertions.assertTrue(ranges.isEmpty());
         Assertions.assertEquals("db1", ops.lastLoadDb);
@@ -213,8 +215,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), ops, context);
 
-        provider.planScan(null, new IcebergTableHandle("db1", "t1"),
-                Collections.emptyList(), Optional.empty());
+        provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         // MUTATION: resolving the table OUTSIDE the auth wrap -> authCount stays 0 -> red.
         Assertions.assertEquals(1, context.authCount);
@@ -238,7 +241,7 @@ public class IcebergScanPlanProviderTest {
                 .withScope(new TestStatementScope());
 
         metadata.getColumnHandles(session, handle);
-        provider.planScan(session, handle, Collections.emptyList(), Optional.empty());
+        provider.planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
         Assertions.assertEquals(1, remoteLoads,
@@ -258,7 +261,7 @@ public class IcebergScanPlanProviderTest {
         ConnectorSession none = new FakeScanSession("UTC", Collections.emptyMap());
 
         metadata.getColumnHandles(none, handle);
-        provider.planScan(none, handle, Collections.emptyList(), Optional.empty());
+        provider.planScan(none, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         long remoteLoads = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
         Assertions.assertEquals(2, remoteLoads, "under NONE each resolver loads (no memo)");
@@ -275,8 +278,9 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         // Small files (< target split size) are not sub-split: one range per data file carrying the file's
         // path / size and the whole-file byte range. MUTATION: returning emptyList (T01 skeleton) -> red.
@@ -305,8 +309,9 @@ public class IcebergScanPlanProviderTest {
         // A rewrite group bin-packed to f1 + f3 only; f2 must be dropped.
         IcebergTableHandle scoped = new IcebergTableHandle("db1", "t1").withRewriteFileScope(
                 ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f3.parquet"));
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, scoped, Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(scoped, Collections.emptyList())
+                .build());
 
         // WHY: each rewrite group's INSERT-SELECT must scan EXACTLY its bin-packed files, identified by the raw
         // iceberg path. MUTATION: dropping the `scope != null && !scope.contains(...)` guard -> f2 leaks in
@@ -336,8 +341,9 @@ public class IcebergScanPlanProviderTest {
         // WHY: a bare handle (no rewrite scope) is EVERY normal scan; it must read all files, not zero. MUTATION:
         // the scope guard firing on a null scope (e.g. `scope.isEmpty()` instead of `scope != null`) -> 0 ranges
         // -> red.
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(2, ranges.size());
     }
 
@@ -355,8 +361,9 @@ public class IcebergScanPlanProviderTest {
         ConnectorSession session = new FakeScanSession("UTC",
                 Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                session, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         // The iceberg SDK TableScanUtil tiles the file into contiguous byte ranges covering the whole file.
         // MUTATION: ignoring file_split_size (always whole file) -> single range -> red.
@@ -391,8 +398,9 @@ public class IcebergScanPlanProviderTest {
         ConnectorSession session = new FakeScanSession("UTC",
                 Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                session, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
 
         Assertions.assertTrue(ranges.size() > 1, "expected the 96MB file to split, got " + ranges.size());
         // The per-file invariants were computed ONCE for the whole file — the memo gate.
@@ -430,8 +438,9 @@ public class IcebergScanPlanProviderTest {
         ConnectorSession session = new FakeScanSession("UTC",
                 Collections.singletonMap("file_split_size", Long.toString(32 * mb)));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                session, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
 
         Assertions.assertTrue(ranges.size() >= 4,
                 "two 96MB files at 32MB splits -> >=4 slices, got " + ranges.size());
@@ -462,8 +471,9 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         ranges.sort((a, b) -> a.getPath().get().compareTo(b.getPath().get()));
         // selfSplitWeight == the whole-file byte length (small files are not sub-split, no deletes). The two
@@ -493,7 +503,8 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
         List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         // The position delete attaches to f1's scan task (higher sequence number, same partition).
         Assertions.assertEquals(1, ranges.size());
@@ -518,8 +529,9 @@ public class IcebergScanPlanProviderTest {
         ConnectorSession session = new FakeScanSession("UTC",
                 Collections.singletonMap("file_split_size", Long.toString(16 * mb)));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                session, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         Assertions.assertFalse(ranges.isEmpty());
         for (ConnectorScanRange r : ranges) {
@@ -541,15 +553,16 @@ public class IcebergScanPlanProviderTest {
         // WHERE p = 1 must push to the scan and prune the p=2 file -> only the p=1 data file is enumerated.
         // This proves the converted predicate reaches scan.filter and is honoured by iceberg planning.
         // MUTATION: not applying the filter (scan all) -> 2 ranges -> red.
-        List<ConnectorScanRange> filtered = provider.planScan(
-                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(),
-                Optional.of(eqInt("p", 1)));
+        List<ConnectorScanRange> filtered = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .filter(Optional.of(eqInt("p", 1))).build());
         Assertions.assertEquals(1, filtered.size());
         Assertions.assertEquals("s3://b/db/pt/p1.parquet", filtered.get(0).getPath().get());
 
         // Sanity: with no predicate, both partitions' files are enumerated.
-        List<ConnectorScanRange> all = provider.planScan(
-                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> all = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(2, all.size());
     }
 
@@ -566,8 +579,9 @@ public class IcebergScanPlanProviderTest {
         ConnectorExpression unpushable = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("id", ConnectorType.of("INT")),
                 new ConnectorLiteral(ConnectorType.of("VARCHAR"), "abc"));
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.of(unpushable));
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .filter(Optional.of(unpushable)).build());
         Assertions.assertEquals(1, ranges.size());
     }
 
@@ -607,8 +621,9 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(2, ranges.size());
 
         // parquet file -> per-file FORMAT_PARQUET + its own partition spec-id/data-json/columns-from-path.
@@ -889,9 +904,11 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "data_files", -1L, null, -1L),
-                Collections.singletonList(new IcebergColumnHandle("file_size_in_bytes", 1)), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "data_files", -1L, null, -1L),
+                        Collections.singletonList(new IcebergColumnHandle("file_size_in_bytes", 1)))
+                .build());
 
         Assertions.assertEquals(1, ranges.size(), "one data file -> one metadata split");
         FileScanTask task = SerializationUtil.deserializeFromBase64(
@@ -930,9 +947,11 @@ public class IcebergScanPlanProviderTest {
                 new IcebergColumnHandle("operation", 4),
                 new IcebergColumnHandle("snapshot_id", 2));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
-                columns, Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                        columns)
+                .build());
 
         Assertions.assertEquals(1, ranges.size(), "one commit -> one $snapshots metadata split");
         FileScanTask task = SerializationUtil.deserializeFromBase64(
@@ -987,8 +1006,10 @@ public class IcebergScanPlanProviderTest {
     private static List<ConnectorScanRange> planPositionDeletes(Table table, List<ConnectorColumnHandle> cols) {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
         return provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
-                cols, Optional.empty());
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                        cols)
+                .build());
     }
 
     @Test
@@ -1133,13 +1154,16 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> latest = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> latest = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(2, latest.size());
 
-        List<ConnectorScanRange> pinned = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
-                Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> pinned = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
+                        Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
     }
@@ -1157,9 +1181,11 @@ public class IcebergScanPlanProviderTest {
         long s2 = table.currentSnapshot().snapshotId();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> pinned = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1").withSnapshot(s2, "tag1", schemaIdS1),
-                Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> pinned = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "t1").withSnapshot(s2, "tag1", schemaIdS1),
+                        Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
     }
@@ -1175,9 +1201,11 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2000, null, null)).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> pinned = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
-                Collections.emptyList(), Optional.empty(), -1L, Collections.emptyList(), true);
+        List<ConnectorScanRange> pinned = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
+                        Collections.emptyList())
+                .requiredPartitions(Collections.emptyList()).countPushdown(true).build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertEquals(10L, pinned.get(0).getPushDownRowCount());
     }
@@ -1272,8 +1300,9 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "v3t"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "v3t"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, ranges.size());
         TIcebergFileDesc fd = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
 
@@ -1305,7 +1334,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
         ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
                 .withScope(new TestStatementScope());
-        provider.planScan(session, new IcebergTableHandle("db1", "v3dv"), Collections.emptyList(), Optional.empty());
+        provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "v3dv"), Collections.emptyList())
+                .build());
 
         Map<String, List<TIcebergDeleteFileDesc>> sets = IcebergStatementScope.rewritableDeleteSupply(session);
         Assertions.assertFalse(sets.isEmpty(), "a v3 scan with a live DV must accumulate a supply into the scope");
@@ -1334,7 +1365,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
         ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap())
                 .withScope(new TestStatementScope());
-        provider.planScan(session, new IcebergTableHandle("db1", "v2pd"), Collections.emptyList(), Optional.empty());
+        provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "v2pd"), Collections.emptyList())
+                .build());
 
         Assertions.assertTrue(IcebergStatementScope.rewritableDeleteSupply(session).isEmpty(),
                 "a v2 scan must not accumulate any rewritable supply");
@@ -1356,7 +1389,8 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
         List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
-                new IcebergTableHandle("db1", "v3ns"), Collections.emptyList(), Optional.empty());
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "v3ns"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, ranges.size());
     }
 
@@ -1372,8 +1406,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
         // MUTATION: leaving the else-branch silent (FORMAT_JNI default) -> no throw -> red.
-        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class, () -> provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty()));
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class, () -> provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build()));
         Assertions.assertTrue(ex.getMessage().contains("Unsupported format name: avro"),
                 "message should mirror legacy: " + ex.getMessage());
     }
@@ -1855,8 +1890,9 @@ public class IcebergScanPlanProviderTest {
         table.newRowDelta().addDeletes(posDelete).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, ranges.size());
 
         TFileRangeDesc rangeDesc = populate(ranges.get(0));
@@ -1886,8 +1922,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, ranges.size());
 
         // MUTATION: emitting the raw oss:// range path (the pre-fix behavior) -> red.
@@ -1907,8 +1944,9 @@ public class IcebergScanPlanProviderTest {
         // planning pass: PluginDrivenScanNode.currentHandle is a per-query, per-scan-node handle, so the
         // query-scoped fat-handle memo (PERF-01) must never bleed from one test's table to another's (a shared
         // static handle would serve the first scenario's cached table to every later one).
-        return provider.planScan(session, new IcebergTableHandle("db1", "t1"), Collections.emptyList(),
-                Optional.empty(), -1L, Collections.emptyList(), countPushdown);
+        return provider.planScan(session,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .requiredPartitions(Collections.emptyList()).countPushdown(countPushdown).build());
     }
 
     @Test
@@ -2085,12 +2123,12 @@ public class IcebergScanPlanProviderTest {
 
         // Gate OFF (default): the iceberg SDK splitFiles path (T02).
         List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
-                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+                .planScan(null, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         // Gate ON: the manifest-level path that reads manifests through the cache.
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(emptySession(), handle, Collections.emptyList(), Optional.empty());
+                .planScan(emptySession(), ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         // WHY: the manifest-level path must enumerate the SAME data files as the SDK path. MUTATION: a mistake
         // in the ported planning (wrong manifest/metrics/residual handling) drops or duplicates files -> red.
@@ -2113,10 +2151,12 @@ public class IcebergScanPlanProviderTest {
         Optional<ConnectorExpression> wherePeq1 = Optional.of(eqInt("p", 1));
 
         List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
-                .planScan(null, handle, Collections.emptyList(), wherePeq1);
+                .planScan(null, ConnectorScanRequest.builder(handle, Collections.emptyList()).filter(wherePeq1)
+                        .build());
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(emptySession(), handle, Collections.emptyList(), wherePeq1);
+                .planScan(emptySession(), ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .filter(wherePeq1).build());
 
         // WHY: partition pruning (ManifestEvaluator + residual) must keep only p=1 in BOTH paths. MUTATION:
         // dropping the residual/metrics prune in the manifest path -> p=2 leaks in -> sizes differ -> red.
@@ -2244,7 +2284,9 @@ public class IcebergScanPlanProviderTest {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> ranges = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+                .planScan(null,
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .build());
         // An empty table has no snapshot; the manifest path returns no ranges (legacy parity). MUTATION:
         // NPE-ing on a null snapshot -> red.
         Assertions.assertTrue(ranges.isEmpty());
@@ -2261,7 +2303,9 @@ public class IcebergScanPlanProviderTest {
         props.put("meta.cache.iceberg.manifest.ttl-second", "0"); // CacheSpec.isCacheEnabled: ttl==0 disables
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> ranges = manifestProvider(props, table, cache)
-                .planScan(null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+                .planScan(null,
+                        ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .build());
         // enable=true but ttl-second=0 -> gate off -> SDK path -> the cache stays empty. MUTATION: ignoring the
         // ttl!=0 sub-condition -> the manifest path runs -> cache populated -> red.
         Assertions.assertEquals(1, ranges.size());
@@ -2291,10 +2335,10 @@ public class IcebergScanPlanProviderTest {
         IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
 
         List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
-                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+                .planScan(null, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(emptySession(), handle, Collections.emptyList(), Optional.empty());
+                .planScan(emptySession(), ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(1, sdk.size());
         Assertions.assertEquals(1, manifest.size());
@@ -2512,8 +2556,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, ranges.size());
 
         // WHY: both the data-file path and the delete-file path must route through the 2-arg
@@ -2545,8 +2590,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         Assertions.assertEquals(3, ranges.size());
         Assertions.assertEquals(1, context.newNormalizerCount);
@@ -2590,8 +2636,9 @@ public class IcebergScanPlanProviderTest {
         // (12.8GB) so no escalation -> 32MB initial target; the 100000-file cap is far below 32MB -> the file
         // tiles into >1 contiguous ranges. MUTATION: bypassing determineTargetFileSplitSize (whole file) -> 1
         // range -> red. (This is the default branch, distinct from the override branch the existing test drives.)
-        List<ConnectorScanRange> def = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> def = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertTrue(def.size() > 1, "default heuristic must tile the 96MB file, got " + def.size());
         def.sort((a, b) -> Long.compare(a.getStart(), b.getStart()));
         long expectedStart = 0;
@@ -2607,8 +2654,9 @@ public class IcebergScanPlanProviderTest {
         // target to the whole file -> exactly ONE range. This is the ONLY test driving the cap escalation
         // (Math.max(result, minSplitSizeForMaxNum)). MUTATION: dropping the cap -> target stays 32MB -> >1 -> red.
         ConnectorSession capOne = new FakeScanSession("UTC", Collections.singletonMap("max_file_split_num", "1"));
-        List<ConnectorScanRange> capped = provider.planScan(
-                capOne, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> capped = provider.planScan(capOne,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, capped.size(), "max_file_split_num=1 must collapse to one whole-file range");
         Assertions.assertEquals(0L, capped.get(0).getStart());
         Assertions.assertEquals(96 * mb, capped.get(0).getLength());
@@ -2630,8 +2678,9 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "ev"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "ev"), Collections.emptyList())
+                .build());
         Assertions.assertEquals(1, ranges.size());
         ConnectorScanRange range = ranges.get(0);
         Assertions.assertTrue(range.isPartitionBearing(), "a bucket-partitioned file is partition-bearing");
@@ -2715,8 +2764,9 @@ public class IcebergScanPlanProviderTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.of(eqInt("p", 1)));
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .filter(Optional.of(eqInt("p", 1))).build());
 
         // (a) predicate pruned p=2 -> exactly the p=1 data file survives, scheme-normalized; original raw.
         Assertions.assertEquals(1, ranges.size());
@@ -2847,9 +2897,11 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
-                Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                        Collections.emptyList())
+                .build());
 
         Assertions.assertFalse(ranges.isEmpty(), "the $snapshots metadata table must plan at least one split");
         for (ConnectorScanRange range : ranges) {
@@ -2876,9 +2928,11 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
-                Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                        Collections.emptyList())
+                .build());
 
         long snapshotRows = 0;
         for (ConnectorScanRange range : ranges) {
@@ -2915,12 +2969,16 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        long latestRows = countSerializedSplitRows(provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
-                Collections.emptyList(), Optional.empty()));
-        long pinnedRows = countSerializedSplitRows(provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", s1, null, -1L),
-                Collections.emptyList(), Optional.empty()));
+        long latestRows = countSerializedSplitRows(provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
+                        Collections.emptyList())
+                .build()));
+        long pinnedRows = countSerializedSplitRows(provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "files", s1, null, -1L),
+                        Collections.emptyList())
+                .build()));
 
         Assertions.assertEquals(2L, latestRows, "latest $files should list both data files");
         Assertions.assertEquals(1L, pinnedRows, "pinned-to-S1 $files should list only S1's file");
@@ -2938,8 +2996,11 @@ public class IcebergScanPlanProviderTest {
         RecordingConnectorContext context = new RecordingConnectorContext();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops, context);
 
-        provider.planScan(null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
-                Collections.emptyList(), Optional.empty());
+        provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                        Collections.emptyList())
+                .build());
 
         Assertions.assertEquals(1, context.authCount);
         Assertions.assertEquals("db1", ops.lastLoadDb);
@@ -2969,12 +3030,16 @@ public class IcebergScanPlanProviderTest {
                 new ConnectorColumnRef("record_count", ConnectorType.of("BIGINT")),
                 new ConnectorLiteral(ConnectorType.of("BIGINT"), 10L));
 
-        String unfilteredResidual = firstSysSplitResidual(provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
-                Collections.emptyList(), Optional.empty()));
-        String filteredResidual = firstSysSplitResidual(provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
-                Collections.emptyList(), Optional.of(recordCountEq10)));
+        String unfilteredResidual = firstSysSplitResidual(provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
+                        Collections.emptyList())
+                .build()));
+        String filteredResidual = firstSysSplitResidual(provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
+                        Collections.emptyList())
+                .filter(Optional.of(recordCountEq10)).build()));
 
         // No predicate -> the metadata scan carries no residual (alwaysTrue); a pushable predicate -> the
         // residual references record_count, proving the converted filter reached scan.filter.
@@ -3003,9 +3068,11 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
-                Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                        Collections.emptyList())
+                .build());
 
         Assertions.assertFalse(ranges.isEmpty(), "the $snapshots metadata table must plan at least one split");
         for (ConnectorScanRange range : ranges) {

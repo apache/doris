@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.NamedColumnHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -109,12 +110,9 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        EsTableHandle esHandle = (EsTableHandle) handle;
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        EsTableHandle esHandle = (EsTableHandle) request.getTableHandle();
         String indexName = esHandle.getIndexName();
 
         EsMetadataState state = fetchMetadataState(session, esHandle, columns);

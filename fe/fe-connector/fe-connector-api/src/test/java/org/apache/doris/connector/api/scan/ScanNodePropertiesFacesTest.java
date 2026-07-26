@@ -52,8 +52,7 @@ public class ScanNodePropertiesFacesTest {
     /** Overrides only the Map face — the shape 5 of the shipped connectors rely on. */
     private static final class MapFaceOnlyProvider implements ConnectorScanPlanProvider {
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             return Collections.emptyList();
         }
 
@@ -68,8 +67,7 @@ public class ScanNodePropertiesFacesTest {
     /** Overrides only the result face, reporting fine-grained pushdown — the es shape. */
     private static final class TrackingFaceProvider implements ConnectorScanPlanProvider {
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             return Collections.emptyList();
         }
 

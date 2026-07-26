@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.security.UserGroupInformation;
@@ -38,7 +39,6 @@ import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Guards the Kerberos scan-planning seam (the FOURTH plugin-side UGI doAs locus, after DDL /
@@ -117,8 +117,9 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         Assertions.assertEquals(1, ranges.size());
         // MUTATION: dropping wrapTableForScan from resolveTable leaves exactly ONE doAs (the loadTable wrap)
@@ -140,8 +141,9 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                .build());
 
         Assertions.assertEquals(1, ranges.size());
         Assertions.assertEquals(1, delegate.authCount,
@@ -188,10 +190,11 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                null,
-                IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1),
-                Collections.emptyList(), Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1),
+                        Collections.emptyList())
+                .build());
 
         Assertions.assertFalse(ranges.isEmpty(), "one-snapshot table must plan $snapshots tasks");
         // MUTATION: dropping the planSystemTableScan thread-level wrap (whose ONE scope spans the base-table

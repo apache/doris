@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
@@ -128,9 +129,9 @@ public class HiveScanBatchModeTest {
                         part("year=2024/month=02")))
                 .build();
 
-        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(),
-                Optional.empty(), -1L, Collections.singletonList("year=2024/month=01"));
+        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                .build(), Collections.singletonList("year=2024/month=01"));
 
         // WHY (Rule 9): exactly one range for the single-partition batch. This fails (== 3) precisely if the batch
         // is not partition-scoped — the duplicate-splits bug the override exists to prevent.
@@ -168,9 +169,9 @@ public class HiveScanBatchModeTest {
                 .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
                 .build();
 
-        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(),
-                Optional.empty(), -1L, Collections.singletonList("year=2024/month=01"));
+        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                .build(), Collections.singletonList("year=2024/month=01"));
 
         Assertions.assertEquals(1, ranges.size());
         Assertions.assertEquals("s3://bucket/db/t/p/000000_0",

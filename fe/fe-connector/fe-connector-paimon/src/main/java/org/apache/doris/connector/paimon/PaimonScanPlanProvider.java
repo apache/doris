@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -323,15 +324,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
-    @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return planScanInternal(session, handle, columns, filter, false);
-    }
-
     /**
      * Paimon is predicate-driven: {@code planScan} ignores {@code requiredPartitions} and re-plans through
      * the SDK with the pushed predicate, so a FE prune-to-zero must scan-all rather than short-circuit to
@@ -412,21 +404,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * COUNT(*)-pushdown-aware scan entry (FIX-COUNT-PUSHDOWN). The generic {@code PluginDrivenScanNode}
-     * forwards the no-grouping {@code COUNT(*)} signal here via the SPI's count-pushdown overload.
-     * {@code limit} and {@code requiredPartitions} are not consumed by the paimon read path (same as
-     * the other overloads, whose defaults fold down to the 4-arg {@code planScan}).
+     * The scan entry. Of everything on the request, paimon consumes the handle, the columns, the filter and
+     * the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN, which lets a split answer from its
+     * precomputed merged row count); the row limit and the pruned partition set are not consumed by the
+     * paimon read path — it is predicate-driven and re-plans through the SDK from the filter.
      */
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions,
-            boolean countPushdown) {
-        return planScanInternal(session, handle, columns, filter, countPushdown);
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                request.getFilter(), request.isCountPushdown());
     }
 
     /**

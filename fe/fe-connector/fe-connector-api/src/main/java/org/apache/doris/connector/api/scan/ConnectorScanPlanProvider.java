@@ -114,111 +114,19 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
-     * Plans the scan for the given table, returning a list of scan ranges.
+     * Plans the scan described by {@code request}, returning the ranges that cover the requested data.
+     *
+     * <p>This is the one method a scanning connector must implement. Everything the engine can tell it about
+     * the scan — columns, remaining filter, row limit, pruned partitions, {@code COUNT(*)} pushdown — arrives
+     * on {@link ConnectorScanRequest}, and a connector consumes what it can serve and ignores the rest. It
+     * replaced a chain of four overloads in which only the shortest was abstract, so implementing the obvious
+     * one silently discarded the limit, the partition pruning and the count signal.</p>
      *
      * @param session the current session
-     * @param handle  the table handle to scan (may have been updated by applyFilter/applyProjection)
-     * @param columns the columns to read
-     * @param filter  an optional filter expression (remaining after pushdown)
-     * @return a list of scan ranges that cover the requested data
+     * @param request what to scan and what the engine has already pushed down
+     * @return the scan ranges covering the requested data
      */
-    List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter);
-
-    /**
-     * Plans the scan with an optional row limit.
-     *
-     * <p>Some connectors (e.g., JDBC) can push the limit into the remote query
-     * to reduce data transfer. The default delegates to the 4-arg planScan,
-     * ignoring the limit.</p>
-     *
-     * @param session the current session
-     * @param handle  the table handle
-     * @param columns the columns to read
-     * @param filter  an optional remaining filter expression
-     * @param limit   the maximum number of rows to return, or -1 for no limit
-     * @return a list of scan ranges
-     */
-    default List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit) {
-        return planScan(session, handle, columns, filter);
-    }
-
-    /**
-     * Plans the scan restricted to a pruned set of partitions.
-     *
-     * <p>The engine computes partition pruning (Nereids {@code SelectedPartitions}) and
-     * threads the surviving partitions here so partition-aware connectors can build a read
-     * session over only those partitions instead of the whole table. The default ignores
-     * {@code requiredPartitions} and delegates to the 5-arg variant, so connectors that do
-     * not support partition pushdown are unaffected.</p>
-     *
-     * <p>Contract for {@code requiredPartitions}:</p>
-     * <ul>
-     *   <li>{@code null} or empty &rarr; not pruned; scan ALL partitions (default behavior).</li>
-     *   <li>non-empty &rarr; scan ONLY these partitions. Each entry is a partition spec string
-     *       (e.g. {@code "pt=1,region=cn"}), i.e. the keys of the pruned partition map.</li>
-     * </ul>
-     *
-     * <p>The "pruned to zero partitions" case (a partition predicate that matches nothing) is
-     * short-circuited by the engine before this method is called, so an empty list here always
-     * means "not pruned / scan all", never "scan nothing".</p>
-     *
-     * @param session           the current session
-     * @param handle            the table handle
-     * @param columns           the columns to read
-     * @param filter            an optional remaining filter expression
-     * @param limit             the maximum number of rows to return, or -1 for no limit
-     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
-     * @return a list of scan ranges
-     */
-    default List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions) {
-        return planScan(session, handle, columns, filter, limit);
-    }
-
-    /**
-     * Plans the scan, signalling whether a no-grouping {@code COUNT(*)} is being pushed down here.
-     *
-     * <p>When {@code countPushdown} is true, the engine has determined the query is a no-grouping
-     * {@code COUNT(*)} (Nereids {@code getPushDownAggNoGroupingOp()==COUNT}) and BE is already in
-     * count mode. A connector that can produce a precomputed row count for (some of) its splits
-     * should emit it so BE serves the count from metadata instead of materializing rows
-     * (e.g. Paimon's {@code DataSplit.mergedRowCount()}). The default ignores the flag and delegates
-     * to the 6-arg variant, so connectors without a metadata row count are unaffected and keep the
-     * normal scan.</p>
-     *
-     * @param session            the current session
-     * @param handle             the table handle
-     * @param columns            the columns to read
-     * @param filter             an optional remaining filter expression
-     * @param limit              the maximum number of rows to return, or -1 for no limit
-     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
-     * @param countPushdown      whether a no-grouping {@code COUNT(*)} is being pushed down to this scan
-     * @return a list of scan ranges
-     */
-    default List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions,
-            boolean countPushdown) {
-        return planScan(session, handle, columns, filter, limit, requiredPartitions);
-    }
+    List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request);
 
     /**
      * Whether this connector supports batched / streaming split generation for a partitioned scan.
@@ -321,28 +229,23 @@ public interface ConnectorScanPlanProvider {
      *
      * <p>Called once per partition batch when the engine drives batch-mode split generation
      * (see {@link #supportsBatchScan}). Each call should build a read session over exactly the
-     * given {@code partitionBatch} and return that batch's scan ranges. The default delegates to
-     * the 6-arg {@link #planScan} with {@code partitionBatch} as the required partitions, which is
-     * correct for connectors whose {@code planScan} builds one read session per partition set
-     * (e.g. MaxCompute). A connector whose {@code planScan} is not partition-set-scoped must
-     * override this method (and {@link #supportsBatchScan}) before enabling batch mode.</p>
+     * given {@code partitionBatch} and return that batch's scan ranges. The default re-scopes the
+     * request to {@code partitionBatch} and calls {@link #planScan}, which is correct for connectors
+     * whose {@code planScan} builds one read session per partition set (e.g. MaxCompute). A connector
+     * whose {@code planScan} is not partition-set-scoped must override this method (and
+     * {@link #supportsBatchScan}) before enabling batch mode — inheriting the default would re-plan the
+     * WHOLE pruned set once per batch and emit every partition's files repeatedly.</p>
      *
      * @param session        the current session
-     * @param handle         the table handle
-     * @param columns        the columns to read
-     * @param filter         an optional remaining filter expression
-     * @param limit          the maximum number of rows to return, or -1 for no limit
+     * @param request        the scan request; its partition set is replaced by this batch
      * @param partitionBatch the partition spec strings for this batch (non-empty)
      * @return the scan ranges for this partition batch
      */
     default List<ConnectorScanRange> planScanForPartitionBatch(
             ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
+            ConnectorScanRequest request,
             List<String> partitionBatch) {
-        return planScan(session, handle, columns, filter, limit, partitionBatch);
+        return planScan(session, request.withRequiredPartitions(partitionBatch));
     }
 
     /**
