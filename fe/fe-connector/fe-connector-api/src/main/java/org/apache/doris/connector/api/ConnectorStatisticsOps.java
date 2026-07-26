@@ -104,8 +104,10 @@ public interface ConnectorStatisticsOps {
      * factor, then does the Doris-type slot-width math itself. Unlike {@link #estimateDataSizeByListingFiles} it
      * neither partition-samples nor sums, because the sampler needs the individual file sizes. A potentially
      * expensive full remote listing, so connectors that cannot enumerate files cheaply must NOT override it
-     * (default empty -> the sampler falls back to scale factor 1). Best-effort: an override must return empty on
-     * any listing error rather than throw (statistics must not fail a query).
+     * (default empty -> the sampler falls back to scale factor 1). An override must let a listing error
+     * propagate rather than swallow it: an empty list is indistinguishable from "this table has no files", so
+     * swallowing turns an unreachable metastore into a silently wrong scale factor of 1 while the sample still
+     * runs. Propagating fails only the ANALYZE task that asked, never an unrelated query.
      */
     default List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
         return Collections.emptyList();
