@@ -121,6 +121,21 @@ public class EsConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Elasticsearch accepts CAST-bearing predicates ({@code true}, the SPI default, stated here rather than
+     * inherited).
+     *
+     * <p>This is a conscious acceptance of the risk the SPI documents, not a claim of safety: the residual
+     * predicate is compiled into the ES query DSL ({@code EsScanPlanProvider.buildQueryDsl}) and evaluated by
+     * Elasticsearch, so a comparison whose literal ES matches differently than Doris coerced it drops rows AT
+     * THE SOURCE. It stays {@code true} for parity with the legacy {@code EsScanNode}, which built the same
+     * DSL; unconvertible conjuncts are already reported back as not-pushed and re-evaluated by BE.</p>
+     */
+    @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        return true;
+    }
+
+    /**
      * Validates that required properties are present.
      * Called during connector creation.
      */

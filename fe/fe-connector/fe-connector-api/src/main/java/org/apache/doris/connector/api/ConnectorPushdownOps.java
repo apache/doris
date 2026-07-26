@@ -71,6 +71,14 @@ public interface ConnectorPushdownOps {
      * copy the polarity into a new switch. A connector that delegates filtering to a remote system with
      * different type coercion rules (e.g. a JDBC database) overrides this to {@code false}, optionally driven
      * by session configuration.</p>
+     *
+     * <p><b>Every shipped connector answers this deliberately; none of them merely inherits.</b> jdbc, paimon
+     * and maxcompute return {@code false}; iceberg, elasticsearch and the trino bridge state {@code true} at
+     * their own metadata class, each recording what it does with the predicate and that {@code true} is an
+     * accepted risk rather than a safety claim. hive and hudi declare nothing because for them the switch is
+     * INERT — their scan planning ignores the residual filter entirely, and the predicate they do consume
+     * arrives on the {@link #applyFilter} path, which is never gated on this method. A new connector should
+     * make the same deliberate choice, starting from {@code false}.</p>
      */
     default boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return true;
