@@ -258,6 +258,36 @@ TEST(InvertedIndexFileCollectionTest, BeginCloseHandlesAlreadyStartedWriter) {
     ASSERT_TRUE(index_files.finish_close().ok());
 }
 
+TEST_F(SegmentCreatorTest, FinishIndexCloseFailureSkipsPreload) {
+    RowsetWriterContext context;
+    SegmentFileCollection segment_files;
+    InvertedIndexFileCollection index_files;
+    SegmentFlusher flusher(context, segment_files, index_files);
+
+    const auto expected_status = Status::IOError("injected index finish close failure");
+    int preload_calls = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard finish_close_guard;
+    sync_point->set_call_back(
+            "InvertedIndexFileCollection::finish_close",
+            [&](auto&& values) {
+                auto* outcome = try_any_cast<std::pair<Status, bool>*>(values.back());
+                outcome->first = expected_status;
+                outcome->second = true;
+            },
+            &finish_close_guard);
+    SyncPoint::CallbackGuard preload_guard;
+    sync_point->set_call_back(
+            "SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache",
+            [&](auto&& /*values*/) { ++preload_calls; }, &preload_guard);
+    ScopedSyncPointProcessing sync_point_processing;
+
+    const auto status = flusher.close();
+    EXPECT_EQ(status.code(), expected_status.code());
+    EXPECT_EQ(status.msg(), expected_status.msg());
+    EXPECT_EQ(preload_calls, 0);
+}
+
 TEST_F(SegmentCreatorTest, StreamingAddFailureTerminatesCreatorAndClosesWriter) {
     ScopedVerticalSegmentWriterSetting vertical_writer_setting(false);
 

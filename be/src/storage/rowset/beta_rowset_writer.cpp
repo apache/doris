@@ -54,7 +54,6 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer.h"
-#include "storage/rowset/rowset_writer_status.h"
 #include "storage/rowset/segcompaction.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/segment/segment.h"
@@ -203,7 +202,9 @@ Status SegmentFileCollection::close() {
         });
         if (writer->state() != io::FileWriter::State::CLOSED) {
             auto status = writer->close();
-            record_first_error(first_error, std::move(status));
+            if (!status.ok() && first_error.ok()) {
+                first_error = std::move(status);
+            }
         }
         TEST_SYNC_POINT_CALLBACK("SegmentFileCollection::close_file_writer", writer.get());
     }
@@ -279,7 +280,10 @@ Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
     Status first_error;
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        record_first_error(first_error, writer->begin_close());
+        auto status = writer->begin_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
         _total_size += writer->get_index_file_total_size();
     }
 
@@ -287,10 +291,14 @@ Status InvertedIndexFileCollection::begin_close() {
 }
 
 Status InvertedIndexFileCollection::finish_close() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("InvertedIndexFileCollection::finish_close", Status::OK());
     std::lock_guard lock(_lock);
     Status first_error;
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        record_first_error(first_error, writer->finish_close());
+        auto status = writer->finish_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
     }
     return first_error;
 }
@@ -937,16 +945,25 @@ Status BetaRowsetWriter::_close_segcompaction_file_writers() {
     Status first_error;
     auto& index_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
     if (index_file_writer != nullptr) {
-        record_first_error(first_error, index_file_writer->begin_close());
+        auto status = index_file_writer->begin_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
     }
 
     auto& data_file_writer = _segcompaction_worker->get_file_writer();
     if (data_file_writer != nullptr && data_file_writer->state() != io::FileWriter::State::CLOSED) {
-        record_first_error(first_error, data_file_writer->close());
+        auto status = data_file_writer->close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
     }
 
     if (index_file_writer != nullptr) {
-        record_first_error(first_error, index_file_writer->finish_close());
+        auto status = index_file_writer->finish_close();
+        if (!status.ok() && first_error.ok()) {
+            first_error = std::move(status);
+        }
     }
     return first_error;
 }
@@ -976,10 +993,12 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
 }
 
 Status BaseBetaRowsetWriter::_close_inverted_index_file_writers() {
-    Status first_error;
-    record_first_error(first_error, _idx_files.begin_close());
+    Status first_error = _idx_files.begin_close();
     _total_index_size += _idx_files.get_total_index_size();
-    record_first_error(first_error, _idx_files.finish_close());
+    auto status = _idx_files.finish_close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
+    }
     return first_error;
 }
 
@@ -998,12 +1017,17 @@ Status BetaRowsetWriter::_close_file_writers() {
             LOG(WARNING) << "segcompaction failed when build new rowset, error: "
                          << segcompaction_status;
         }
-        record_first_error(first_error, std::move(segcompaction_status));
+        if (!segcompaction_status.ok() && first_error.ok()) {
+            first_error = std::move(segcompaction_status);
+        }
 
         if (first_error.ok()) {
-            record_first_error(first_error, _segcompaction_rename_last_segments());
+            first_error = _segcompaction_rename_last_segments();
         }
-        record_first_error(first_error, _close_segcompaction_file_writers());
+        auto close_status = _close_segcompaction_file_writers();
+        if (!close_status.ok() && first_error.ok()) {
+            first_error = std::move(close_status);
+        }
         if (!first_error.ok()) {
             return first_error;
         }
@@ -1030,8 +1054,10 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     if (_calc_delete_bitmap_token != nullptr) {
         auto delete_bitmap_status = _calc_delete_bitmap_token->wait();
         if (!delete_bitmap_status.ok()) {
-            record_first_error(delete_bitmap_status, _synchronize_segcompaction());
-            record_first_error(delete_bitmap_status, _close_segcompaction_file_writers());
+            WARN_IF_ERROR(_synchronize_segcompaction(),
+                          "failed to synchronize segcompaction after delete bitmap error");
+            WARN_IF_ERROR(_close_segcompaction_file_writers(),
+                          "failed to close segcompaction writers after delete bitmap error");
             return delete_bitmap_status;
         }
     }

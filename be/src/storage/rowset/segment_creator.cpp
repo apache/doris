@@ -44,7 +44,6 @@
 #include "io/fs/file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
-#include "storage/rowset/rowset_writer_status.h"
 #include "storage/segment/row_binlog_segment_writer.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/segment/segment_writer.h"
@@ -90,13 +89,18 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
 }
 
 Status SegmentFlusher::close() {
-    Status first_error;
-    record_first_error(first_error, _idx_files.begin_close());
-    record_first_error(first_error, _seg_files.close());
-    if (first_error.ok()) {
-        record_first_error(first_error, _preload_segment_indexes_to_file_cache());
+    Status first_error = _idx_files.begin_close();
+    auto status = _seg_files.close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
     }
-    record_first_error(first_error, _idx_files.finish_close());
+    status = _idx_files.finish_close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
+    }
+    if (first_error.ok()) {
+        first_error = _preload_segment_indexes_to_file_cache();
+    }
     return first_error;
 }
 

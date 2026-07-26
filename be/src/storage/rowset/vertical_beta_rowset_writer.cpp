@@ -38,7 +38,6 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer_context.h"
-#include "storage/rowset/rowset_writer_status.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "util/slice.h"
 
@@ -205,13 +204,8 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::final_flush() {
-    struct FinalizedSegment {
-        uint32_t segment_id;
-        segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-    };
-
-    std::vector<FinalizedSegment> finalized_segments;
-    finalized_segments.reserve(_segment_writers.size());
+    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> index_file_cache_preload_tasks;
+    index_file_cache_preload_tasks.reserve(_segment_writers.size());
     Status footer_status;
     for (auto& segment_writer : _segment_writers) {
         uint64_t segment_size = 0;
@@ -220,29 +214,30 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
         auto st = segment_writer->finalize_footer(&segment_size, &index_file_cache_info);
         if (!st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
-            record_first_error(footer_status, std::move(st));
+            if (footer_status.ok()) {
+                footer_status = std::move(st);
+            }
             continue;
         }
         this->_total_data_size += segment_size;
-        finalized_segments.push_back({segment_id, std::move(index_file_cache_info)});
+        index_file_cache_preload_tasks.push_back({segment_id, std::move(index_file_cache_info)});
     }
 
     if (!footer_status.ok()) {
         for (auto& segment_writer : _segment_writers) {
             segment_writer.reset();
         }
-        record_first_error(footer_status, _close_file_writers());
+        WARN_IF_ERROR(_close_file_writers(), "failed to close file writers after footer error");
         return footer_status;
     }
 
-    DORIS_CHECK_EQ(finalized_segments.size(), _segment_writers.size());
+    DORIS_CHECK_EQ(index_file_cache_preload_tasks.size(), _segment_writers.size());
     for (size_t i = 0; i < _segment_writers.size(); ++i) {
-        auto& finalized_segment = finalized_segments[i];
+        auto& preload_task = index_file_cache_preload_tasks[i];
         TEST_SYNC_POINT_CALLBACK("VerticalBetaRowsetWriter::final_flush_segment_writer",
-                                 &finalized_segment.segment_id);
+                                 &preload_task.segment_id);
         _segment_writers[i].reset();
-        _record_segment_index_file_cache_preload(finalized_segment.segment_id,
-                                                 finalized_segment.index_file_cache_info);
+        _record_segment_index_file_cache_preload(preload_task.segment_id, preload_task.info);
     }
     return Status::OK();
 }
@@ -250,11 +245,13 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
-    Status first_error;
-    record_first_error(first_error, BaseBetaRowsetWriter::_close_inverted_index_file_writers());
-    record_first_error(first_error, this->_seg_files.close());
+    Status first_error = BaseBetaRowsetWriter::_close_inverted_index_file_writers();
+    auto status = this->_seg_files.close();
+    if (!status.ok() && first_error.ok()) {
+        first_error = std::move(status);
+    }
     if (first_error.ok()) {
-        record_first_error(first_error, _preload_segment_indexes_to_file_cache());
+        first_error = _preload_segment_indexes_to_file_cache();
     }
     return first_error;
 }
