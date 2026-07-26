@@ -29,38 +29,39 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 **必读顺序**：本文 → [README.md](./README.md) 的任务清单 → 挑中的那个任务自己的文档。
 **不要通读** `audit-report.md`（1600 余行），按 README 里的章节导航 grep 定位。
 
-**当前状态：十批已合入（共 43 个提交）。本轮由 owner 拍板，把原 18 号（建表能力下沉）升级成了一件更大的事——「让 fe-core 不再用 engine 做判定，改为按 catalog 路由」，并分四步执行。第 1、2、3 步已完成，第 4 步（展示串下沉）未做。**
+**当前状态：十一批已合入（共 46 个提交）。「fe-core 不再用 engine 做判定」这条线的四步已全部完成——本轮做掉第 4 步（展示串下沉）。fe-core 里现在没有任何一处按数据源名的分支了（`case "hms"|"iceberg"|"paimon"|"jdbc"|"es"|"max_compute"|"trino-connector"` 全仓 0 命中）。**
 
-### 本轮拍板的四条（owner 明确选择，后续不要重开）
+### 本轮拍板（owner 明确选择，后续不要重开）
 
-1. **判据落点**：不做「连接器实例声明 + 引擎名」，改为**目录级判定**——`CatalogIf.validateCreateTableEngine(String)`，每个目录自己回答。声明放 `ConnectorProvider`（类型级，读它不初始化目录）。
-2. **文案**：不逐字保留旧文案，**改成按目录说话**——`Engine 'X' does not match catalog 'Y'.`，同批改写 7 处 e2e 断言。
-3. **iceberg/paimon 分桶文案修回来**（删掉 fe-core 的通用拦截，让连接器自己的可操作文案生效）。
-4. **注册期拒绝引擎名撞车**（含 fe-core 保留名 `{olap, mysql, odbc, broker}`）。
-5. **四步全做**（第 4 步本轮未完成，见下）。
+1. **展示串改变现状，不做兼容保留**：`SHOW CREATE TABLE` 的 `ENGINE=` 与 ENGINE 列**显示同一个名字**（原来是 `ENGINE=PAIMON_EXTERNAL_TABLE` 对 `paimon` 两套）。
+2. **trino-connector / max_compute 补上名字**（原来 ENGINE 列是 NULL）：`trino-connector`、`maxcompute`。
+3. **机制是连接器声明、默认取目录类型名**（不是 fe-core 按类型名推导）：`ConnectorProvider.displayEngineName()` 默认 `getType()`，八个连接器里只有 MaxCompute 覆写（类型 `max_compute` → 展示 `maxcompute`）。
 
-### 下一步只有一件事：第 4 步 · 展示串下沉
+### 上一轮遗留的三个「前置问题」，实际两个不成立（本轮实证）
 
-**目标**：`PluginDrivenExternalTable.getEngine()` 与 `getEngineTableTypeName()` 两个按目录类型写死的 switch（`PluginDrivenExternalTable.java:1284` 与 `:1326`，各 7 个 case）删掉，改由连接器声明两个展示名。
+1. ~~「假 provider 的隔离手段未知」~~ **仓库里早有成熟做法**：`CatalogFactoryPluginRoutingTest` 用 `@BeforeEach/@AfterEach` 各重置一个全新空 `ConnectorPluginManager`，`registerProvider` 是公开方法。本轮照抄。
+2. **热循环成本是真的，但根因不是 provider 扫描**：`getProperties()` 每次调用都 `Maps.newHashMap` **复制整张属性表**，而 `getEngine()` 在 `listTableStatus` 里 per-table。解法=在目录上解析一次并记住（`PluginDrivenExternalCatalog.getDisplayEngineName()`，transient volatile）。安全性依据：`Env.initConnectorPluginManager()` 在启动时、任何目录访问之前跑一次，之后不再变；重算只是本地查表、不碰远端（这正是 18 号那个被证伪机制的差别所在）。
+3. ~~「`remote_doris` 的 `ENGINE=DORIS_EXTERNAL_TABLE` 是被钉死的基线」~~ **不受影响**：远端 Doris 走 `RemoteDorisExternalTable`（fe-core 自己的老类，非插件），不经过这两个方法。它现在是全仓**唯一**残留的 `ENGINE=*_EXTERNAL_TABLE`。
 
-**动手前必须先解决三个问题（本轮评估出来的，别直接开写）**：
+### 下一步
 
-1. **fe-core 单测无法验证。** `PluginDrivenExternalTableEngineTest` 有 16 个用例逐条钉着这两个 switch 的映射，但 **fe-core 测试的 classpath 上没有任何连接器模块**，provider 不会被注册 → 映射会全部回落到 `"Plugin"` / `PLUGIN_EXTERNAL_TABLE`，那 16 个用例会全红。必须先设计好这批用例怎么改（用 `FakeConnectorPlugin` + `ConnectorFactory.initPluginManager` 注册假 provider 是候选，但 `initPluginManager` 会替换全局单例，同 JVM 内会影响别的用例——先确认隔离手段）。
-2. **`getEngine()` 在热循环里。** `FrontendServiceImpl.listTableStatus:759` 对**每一张表**调一次，今天它只读一个持久化属性、零成本。改成 `ConnectorFactory.findProvider(type, props)` 是对 provider 列表的线性扫描 + `supports()` 调用，per-table。表多的库上要先量一下，或者在目录侧缓存一次。
-3. **验收只能靠 e2e 的 `.out` 逐字节不变**，本地无集群跑不了。被钉死的基线至少有：`paimon/test_paimon_table_properties.out`（`ENGINE=PAIMON_EXTERNAL_TABLE`）、`nereids_commands/test_nereids_refresh_catalog.out`（`ENGINE=JDBC_EXTERNAL_TABLE`）、`remote_doris/test_remote_doris_all_types_show.out`（`ENGINE=DORIS_EXTERNAL_TABLE`）、`external_table_p0/hive/test_information_schema_external.out`（information_schema 的 `hms`）。
-
-**还要注意**：`trino-connector` 与 `max_compute` 的展示引擎名今天是 **null**（`TableType.*.toEngineName()` 没有对应 case），所以 SPI 上那个声明必须允许「有类型但无展示引擎名」，不能用非空 String。
-
-**另一半已经不用做了**：「连接器自己产出 SHOW CREATE TABLE」这条路**早就存在**——`ShowCreateTableCommand` 会先问 `PluginDrivenExternalTable.getShowCreateTableDdl()`，hive 已经在用（`HiveConnectorMetadata.renderShowCreateTableDdl`，渲染出来的语句里连 `ENGINE=` 都没有）。其余连接器只是还没走进这扇门，那是**逐个连接器接入**的活，不是 fe-core 重构，可以各自独立排期。
-
-### 其余未完成项
-
-- **23 号**（引擎上下文里的存储服务拆分，高危，必须插件包重部署冒烟）——一直没动。
-- README 里「复核登记的开放项」表还剩 9 条（本轮做掉了最便宜的那条：统计接口异常契约）。
+- **23 号**（引擎上下文里的存储服务拆分，高危，必须插件包重部署冒烟）——一直没动，是本任务空间**唯一剩下的编号任务**。
+- README 里「复核登记的开放项」表还剩 9 条。
+- 逐个连接器接入 `renderShowCreateTableDdl`（今天只有 hive 在用，它渲染出来的语句里连 `ENGINE=` 都没有）——各自独立排期，不是 fe-core 重构。
 
 ---
 
-## 📌 本轮落地后的事实变化
+## 📌 本轮（第十一批）落地后的事实变化
+
+1. **外部表的引擎名由连接器说了算**。`ConnectorProvider.displayEngineName()` 默认返回 `getType()`；fe-core 只在目录上解析一次（`PluginDrivenExternalCatalog.getDisplayEngineName()`）并记住，`PluginDrivenExternalTable` 的 `getEngine()` 与 `getEngineTableTypeName()` 都从它取，**两者恒等**。
+2. **两处用户可见变化**：`SHOW CREATE TABLE` 的 `ENGINE=` 由 `JDBC_EXTERNAL_TABLE`/`PAIMON_EXTERNAL_TABLE`/… 变成 `jdbc`/`paimon`/…；trino-connector 与 max_compute 的 ENGINE 列由 NULL 变成 `trino-connector`/`maxcompute`。**没装插件的降级目录回落到目录类型名**，显示与从前一致。
+3. **未来新连接器零成本**：不声明就用自己的目录类型名，不再是 `Plugin`/`PLUGIN_EXTERNAL_TABLE`。
+4. **`displayEngineName()` 与 `acceptedCreateTableEngineNames()` 是两件事**，且刻意可以不同：hms 目录**显示** `hms`、**接受** `ENGINE=hive`。引擎从不拿展示名做判定。
+5. **`realdata/` 目录是 gitignore 的本地副本**（`.gitignore:71`），所以那两个 maxcompute/paimon 的 `.out` 改了也不会入库；入库的只有 `regression-test/data/` 下的 3 个文件 19 行。
+
+---
+
+## 📌 第十批落地后的事实变化
 
 1. **`CreateTableInfo` 里已经没有任何引擎名判定。** 四道门（补引擎名 / 九名或链 / 与目录一致性 / 子句允许列表）全部删除，换成 `resolveTargetCatalog()` 一处：解析目标目录 → 显式写了 `ENGINE=` 就交给目录判 → 只给内部目录补 `olap` → `isExternal` 改为 `!catalog.isInternalCatalog()`。
 2. **外部目录的建表语句现在不带引擎名（null）。** 这是刻意的：分析之后没有任何代码读它（连接器请求由列、分区、分桶、属性组成）。`CreateTableCommand.needAuditEncryption()` 里那句「`getEngineName()` 可能是 null」的 ATTN 注释本来就预期了这个状态。
@@ -91,7 +92,6 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 **仍待拍板**：
 
 - **含隐式类型转换的谓词下推默认值**（08 号）：`supportsCastPredicatePushdown` 默认 `true`，而它承诺的「引擎会先剥掉类型转换」只对残余谓词那条路径成立。翻成 `false` 是跨六个连接器的行为改动。
-- **第 4 步展示串下沉的三个前置问题**（见上）——尤其是热循环成本那条，可能需要 owner 定「可以接受在目录侧缓存一次」。
 
 ---
 
@@ -108,7 +108,12 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 
 ## 🧪 欠下的端到端（本地无集群，一律标「待集群验证」，不得当作已通过）
 
-**本轮新欠 2 类**：
+**本轮（第十一批）新欠 2 类**：
+
+1. **3 个 `.out` 基线共 19 行已改写、必须实跑**：`external_table_p0/nereids_commands/test_nereids_refresh_catalog.out`（7 行 → `ENGINE=jdbc`）、`external_table_p0/paimon/test_paimon_table_properties.out`（1 行 → `ENGINE=paimon`）、`external_table_p2/maxcompute/test_max_compute_create_table.out`（11 行 → `ENGINE=maxcompute`，需真实阿里云账号）。
+2. **两处新行为全仓零断言**：trino-connector / max_compute 的 ENGINE 列不再是 NULL（`external_table_p0/trino_connector/test_trinoconnector_information_schema.groovy` 只 select 不校验，值得补一条）；`hms` 目录的 information_schema ENGINE 列仍是 `hms`（已有 `hive/test_information_schema_external.out` 14 行护着，**未变**，属回归护栏而非新欠）。
+
+**第十批欠下的（仍未跑）**：
 
 1. **7 处改写后的断言必须实跑**：`external_table_p0/iceberg/write/test_iceberg_create_table.groovy:61,66,71` 与 `external_table_p0/hive/ddl/test_hive_ddl.groovy:442,478,727,732`，文案已改为 `Engine 'X' does not match catalog 'Y'.`。
 2. **iceberg / paimon 带 `DISTRIBUTED BY` 建表的新文案**（连接器自己的「用 `bucket(num, column)`」那条）目前**全仓零断言**，值得补一条。
@@ -149,6 +154,7 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 | 2026-07-26 | 第七批：17 四个提交 | 四批合计 566 个测试全绿；定位并绕过了让构建卡死 60+ 分钟的 checkstyle 退化 |
 | 2026-07-26 | 第八批：20 + 22 + 19 五个提交 | 27 个测试类 259 个测试全绿；4 个变异如期变红 |
 | 2026-07-26 | 第九批：25 三个提交（评审文档入库 + 按 HEAD 标注 + 三处注释修正） | 16 个并行核查单元推翻了任务文档的处置方案本身；新登记 10 条开放项 |
+| 2026-07-26 | **第十一批：展示引擎名交还连接器三个提交**（SPI 声明 + MaxCompute 覆写 / fe-core 删最后两个源名 switch / 3 个 `.out` 基线） | 侦察推翻了交接文档三条前置结论中的两条；全反应堆 `test-compile` **BUILD SUCCESS**；85 个单测全绿；三个模块 checkstyle **0 违规**；3 个变异全部如期变红（共 12 处断言）；19 行基线**待集群验证** |
 | 2026-07-26 | **第十批：引擎概念下沉五个提交**（MODIFY ENGINE 删除 / SPI 目录判定入口 / CreateTableInfo 改按目录路由 / InternalCatalog 分派收缩 / 统计异常契约） | 两轮侦察共 68 个 agent（含 50 条对抗复核，其中 15 条推翻或改判）；全反应堆 `test-compile` **BUILD SUCCESS**；105 个单测全绿；六个模块 checkstyle **0 违规**；3 个变异全部如期变红；7 处 e2e 断言已改写**待集群验证** |
 
 **上下文用量超过 30% 就找一个干净节点覆写本文并通知用户开新 session 续做**，不要等窗口满。
