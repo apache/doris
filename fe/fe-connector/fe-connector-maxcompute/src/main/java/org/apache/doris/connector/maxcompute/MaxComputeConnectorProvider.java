@@ -59,6 +59,17 @@ public class MaxComputeConnectorProvider implements ConnectorProvider {
     }
 
     /**
+     * Spelled without the underscore that {@link #getType()} carries: the catalog type is the internal token a
+     * user writes in {@code CREATE CATALOG}, whereas this is the product name shown in the {@code ENGINE}
+     * column and after {@code ENGINE=}. It coincides with the accepted CREATE TABLE engine name above, but the
+     * two are answered separately — nothing keeps them equal, and for other connectors they differ.
+     */
+    @Override
+    public String displayEngineName() {
+        return "maxcompute";
+    }
+
+    /**
      * Validates catalog properties at CREATE CATALOG time, mirroring the fail-fast
      * checks of the legacy {@code MaxComputeExternalCatalog.checkProperties}: required
      * PROJECT/ENDPOINT, split strategy + size floor, account_format enum, positive

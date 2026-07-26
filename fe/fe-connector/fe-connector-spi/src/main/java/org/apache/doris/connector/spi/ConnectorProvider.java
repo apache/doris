@@ -159,6 +159,24 @@ public interface ConnectorProvider extends PluginFactory {
         return Collections.emptySet();
     }
 
+    /**
+     * The name this connector's tables display as their engine. Defaults to {@link #getType()}; override only
+     * to spell it differently from the catalog type.
+     *
+     * <p>It is what a user reads in the {@code ENGINE} column of {@code SHOW TABLE STATUS} and
+     * {@code information_schema.tables}, and after {@code ENGINE=} in {@code SHOW CREATE TABLE}. Both places
+     * show the same string.</p>
+     *
+     * <p>Do not confuse it with {@link #acceptedCreateTableEngineNames()}: that one is the name a user may
+     * <em>write</em>, this one is the name Doris <em>displays</em>, and a connector may legitimately have both
+     * and have them differ — an HMS catalog accepts {@code ENGINE=hive} while displaying {@code hms}. The
+     * engine never routes, matches or validates anything on the displayed name; it only prints it, and it
+     * keeps no table of which name belongs to which data source.</p>
+     */
+    default String displayEngineName() {
+        return getType();
+    }
+
     /** API version for compatibility checking. Major version change = incompatible. */
     default int apiVersion() {
         return 1;
