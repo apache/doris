@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
@@ -385,7 +384,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                             && table instanceof PluginDrivenExternalTable
                             && ((PluginDrivenExternalTable) table).supportsNestedColumnSchemaChange())
                     || alterTableOp instanceof ReorderColumnsOp
-                    || alterTableOp instanceof ModifyEngineOp
                     || alterTableOp instanceof ModifyTablePropertiesOp
                     || alterTableOp instanceof CreateOrReplaceBranchOp
                     || alterTableOp instanceof CreateOrReplaceTagOp
