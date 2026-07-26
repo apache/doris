@@ -157,6 +157,7 @@ import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.RewriteElementAtSplitToSplitPart;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
@@ -517,7 +518,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateJoinCondition(),
                                 new EliminateAssertNumRows(),
                                 new EliminateSemiJoin(),
-                                new SimplifyEncodeDecode()
+                                new SimplifyEncodeDecode(),
+                                new RewriteElementAtSplitToSplitPart()
                         )
                 ),
                 // The rule modification needs to be done after the subquery is unnested,
