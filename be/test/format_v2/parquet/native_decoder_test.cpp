@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vliteral.h"
@@ -1358,44 +1359,57 @@ TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce)
     EXPECT_EQ(reader.dictionary_materialization_count_for_test(), 1);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(**matched_values).get_data(),
               (ColumnInt32::Container {20, 10}));
+
+    auto nullable_output = make_nullable(std::make_shared<DataTypeInt32>())->create_column();
+    ASSERT_TRUE(reader.append_dictionary_values(&assert_cast<const ColumnInt32&>(*ids),
+                                                field.data_type, nullable_output.get())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*nullable_output);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(nullable.get_nested_column()).get_data(),
+              (ColumnInt32::Container {20, 10}));
+    EXPECT_EQ(nullable.get_null_map_data(), (NullMap {0, 0}));
+    EXPECT_EQ(reader.dictionary_materialization_count_for_test(), 1);
 }
 
 TEST(ParquetV2NativeDecoderTest, DictionaryRepeatedRunsGatherDirectlyIntoDestination) {
-    const std::array<int32_t, 2> dictionary_values {10, 20};
-    auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
-    memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
-    std::unique_ptr<Decoder> decoder;
-    ASSERT_TRUE(
-            Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY, decoder)
-                    .ok());
-    decoder->set_type_length(sizeof(int32_t));
-    ASSERT_TRUE(decoder->set_dict(dictionary, sizeof(dictionary_values), dictionary_values.size())
+    for (const auto encoding :
+         {tparquet::Encoding::RLE_DICTIONARY, tparquet::Encoding::PLAIN_DICTIONARY}) {
+        const std::array<int32_t, 2> dictionary_values {10, 20};
+        auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+        memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+        std::unique_ptr<Decoder> decoder;
+        ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::INT32, encoding, decoder).ok());
+        decoder->set_type_length(sizeof(int32_t));
+        ASSERT_TRUE(
+                decoder->set_dict(dictionary, sizeof(dictionary_values), dictionary_values.size())
                         .ok());
 
-    faststring encoded_ids;
-    RleEncoder<uint32_t> encoder(&encoded_ids, 1);
-    for (size_t row = 0; row < 64; ++row) {
-        encoder.Put(1);
-    }
-    encoder.Flush();
-    std::vector<uint8_t> payload(encoded_ids.size() + 1);
-    payload[0] = 1;
-    memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
-    Slice id_slice(payload.data(), payload.size());
-    ASSERT_TRUE(decoder->set_data(&id_slice).ok());
+        faststring encoded_ids;
+        RleEncoder<uint32_t> encoder(&encoded_ids, 1);
+        for (size_t row = 0; row < 64; ++row) {
+            encoder.Put(1);
+        }
+        encoder.Flush();
+        std::vector<uint8_t> payload(encoded_ids.size() + 1);
+        payload[0] = 1;
+        memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+        Slice id_slice(payload.data(), payload.size());
+        ASSERT_TRUE(decoder->set_data(&id_slice).ok());
 
-    DataTypeInt32 type;
-    auto output = type.create_column();
-    ParquetMaterializationState state;
-    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
-                                  .encoding = ParquetValueEncoding::DICTIONARY};
-    ASSERT_TRUE(
-            type.get_serde()->read_column_from_parquet(*output, *decoder, context, 64, state).ok());
-    EXPECT_EQ(state.dictionary_materialization_strategy,
-              ParquetDictionaryMaterializationStrategy::DIRECT);
-    ASSERT_EQ(output->size(), 64);
-    for (size_t row = 0; row < output->size(); ++row) {
-        EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_element(row), 20);
+        DataTypeInt32 type;
+        auto output = type.create_column();
+        ParquetMaterializationState state;
+        ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                      .encoding = ParquetValueEncoding::DICTIONARY};
+        ASSERT_TRUE(type.get_serde()
+                            ->read_column_from_parquet(*output, *decoder, context, 64, state)
+                            .ok());
+        EXPECT_EQ(state.dictionary_materialization_strategy,
+                  ParquetDictionaryMaterializationStrategy::DIRECT);
+        ASSERT_EQ(output->size(), 64);
+        for (size_t row = 0; row < output->size(); ++row) {
+            EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_element(row), 20);
+        }
     }
 }
 
@@ -4071,6 +4085,25 @@ TEST(ParquetV2NativeDecoderTest, FixedLengthStringsAppendAsOneContiguousSpan) {
     EXPECT_EQ(column.get_data_at(0).to_string_view(), "aaa");
     EXPECT_EQ(column.get_data_at(1).to_string_view(), "bbb");
     EXPECT_EQ(column.get_data_at(2).to_string_view(), "ccc");
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryStringGatherAppendsCompactSurvivors) {
+    ColumnString dictionary;
+    dictionary.insert_data("alpha", 5);
+    dictionary.insert_data("bravo", 5);
+    dictionary.insert_data("charlie", 7);
+    dictionary.insert_data("delta", 5);
+    ColumnString destination;
+    destination.insert_data("prefix", 6);
+    const std::array<uint32_t, 3> indices {3, 1, 2};
+
+    ASSERT_TRUE(try_simd_insert_parquet_dictionary_indices(destination, dictionary, indices.data(),
+                                                           indices.size()));
+    ASSERT_EQ(destination.size(), 4);
+    EXPECT_EQ(destination.get_data_at(0).to_string_view(), "prefix");
+    EXPECT_EQ(destination.get_data_at(1).to_string_view(), "delta");
+    EXPECT_EQ(destination.get_data_at(2).to_string_view(), "bravo");
+    EXPECT_EQ(destination.get_data_at(3).to_string_view(), "charlie");
 }
 
 TEST(ParquetV2NativeDecoderTest, ComplexPageStatisticsPreservePerLeafCrossings) {

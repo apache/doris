@@ -58,7 +58,7 @@ public:
     virtual Status select_with_dictionary_filter(const SelectionVector& selection,
                                                  uint16_t selected_rows, int64_t batch_rows,
                                                  const IColumn::Filter& dictionary_filter,
-                                                 MutableColumnPtr& column,
+                                                 IColumn* projected_column,
                                                  IColumn::Filter* row_filter, bool* used_filter);
 
     // Consume batch_rows and evaluate eligible fixed-width values without first constructing a
