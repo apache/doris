@@ -35,6 +35,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TPushAggOp;
 
 import org.apache.paimon.data.BinaryRow;
@@ -734,6 +735,26 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(Collections.singletonMap("par", "1"),
                 split.getPaimonPartitionValues());
         Assert.assertEquals(Collections.emptyList(), split.getPartitionValues());
+    }
+
+    @Test
+    public void testSetPaimonParamsUsesJniWhenCppOptionEnabled() throws Exception {
+        Mockito.when(sv.isEnablePaimonCppReader()).thenReturn(true);
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getTableLocation()).thenReturn("file:///warehouse");
+        Table paimonTable = mockPaimonTableWithPartitionKeys(Collections.emptyList());
+        Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+        node.setSource(source);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("jni-only.parquet")));
+
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        Assert.assertTrue(rangeDesc.getTableFormatParams().getPaimonParams().isSetPaimonSplit());
     }
 
     @Test

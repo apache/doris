@@ -79,6 +79,16 @@ public:
     }
 };
 
+class SplitFormatTrackingTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions& options) override {
+        prepared_format = options.current_split_format;
+        return Status::OK();
+    }
+
+    FileFormat prepared_format = FileFormat::JNI;
+};
+
 DataTypePtr table_type(const DataTypePtr& type) {
     return type->is_nullable() ? type : make_nullable(type);
 }
@@ -322,8 +332,9 @@ TFileRangeDesc make_paimon_jni_range() {
     return range;
 }
 
-TFileRangeDesc make_paimon_range_without_reader_type(TFileFormatType::type format_type) {
-    TFileRangeDesc range = make_paimon_native_range(format_type);
+TFileRangeDesc make_legacy_paimon_native_range(TFileFormatType::type physical_format_type) {
+    TFileRangeDesc range = make_paimon_native_range(physical_format_type);
+    range.__set_format_type(TFileFormatType::FORMAT_JNI);
     range.table_format_params.paimon_params.__isset.reader_type = false;
     return range;
 }
@@ -663,7 +674,7 @@ TEST(PaimonHybridReaderTest, ClassifiesJniSplitByReaderType) {
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
             make_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
     EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
-            make_paimon_range_without_reader_type(TFileFormatType::FORMAT_JNI)));
+            make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
     EXPECT_TRUE(paimon::PaimonHybridReader::TEST_is_jni_split(make_paimon_jni_range()));
 }
 
@@ -679,10 +690,52 @@ TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
                         .ok());
     EXPECT_EQ(file_format, FileFormat::ORC);
 
+    ASSERT_TRUE(
+            paimon::PaimonHybridReader::TEST_to_file_format(
+                    make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET), &file_format)
+                    .ok());
+    EXPECT_EQ(file_format, FileFormat::PARQUET);
+
+    ASSERT_TRUE(paimon::PaimonHybridReader::TEST_to_file_format(
+                        make_legacy_paimon_native_range(TFileFormatType::FORMAT_ORC), &file_format)
+                        .ok());
+    EXPECT_EQ(file_format, FileFormat::ORC);
+
     auto status =
             paimon::PaimonHybridReader::TEST_to_file_format(make_paimon_jni_range(), &file_format);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(std::string::npos, status.to_string().find("Unsupported native Paimon file format"));
+}
+
+TEST(PaimonHybridReaderTest, NormalizesLegacyNativeSplitFormatBeforeChildPrepare) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    SplitFormatTrackingTableReader* tracking_reader = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [&] {
+                auto child = std::make_unique<SplitFormatTrackingTableReader>();
+                tracking_reader = child.get();
+                return child;
+            },
+            [] { return std::make_unique<TableReader>(); });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::JNI,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions options;
+    options.current_range = make_legacy_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    options.current_split_format = FileFormat::JNI;
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+    ASSERT_NE(tracking_reader, nullptr);
+    EXPECT_EQ(tracking_reader->prepared_format, FileFormat::PARQUET);
 }
 
 TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {

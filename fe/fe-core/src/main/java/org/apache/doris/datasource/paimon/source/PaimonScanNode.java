@@ -302,21 +302,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
-            // use jni reader or paimon-cpp reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // Use Paimon native serialization for paimon-cpp reader
-            if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
-                fileDesc.setReaderType(TPaimonReaderType.PAIMON_CPP);
-                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
-            } else {
-                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
-                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
-            }
-            // Set table location for paimon-cpp reader
-            String tableLocation = source.getTableLocation();
-            if (tableLocation != null) {
-                fileDesc.setPaimonTable(tableLocation);
-            }
+            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
+            // until the C++ path has a split-aware V2 adapter.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
