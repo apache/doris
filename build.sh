@@ -1269,7 +1269,9 @@ EOF
     PAIMON_SCANNER_JAR="${BE_JAVA_EXTENSIONS_DIR}/paimon-scanner/paimon-scanner-jar-with-dependencies.jar"
     PRELOAD_JAR="${BE_JAVA_EXTENSIONS_DIR}/preload-extensions/preload-extensions-jar-with-dependencies.jar"
     if [[ -f "${PAIMON_SCANNER_JAR}" ]]; then
-        FILE_IO_SERVICES="$(unzip -p "${PAIMON_SCANNER_JAR}" META-INF/services/org.apache.paimon.fs.FileIOLoader)"
+        # Tolerate a missing entry (unzip exits 11) so the message below is what the build prints.
+        FILE_IO_SERVICES="$(unzip -p "${PAIMON_SCANNER_JAR}" \
+            META-INF/services/org.apache.paimon.fs.FileIOLoader 2>/dev/null || true)"
         for loader in org.apache.paimon.s3.S3Loader org.apache.paimon.jindo.JindoLoader; do
             if ! echo "${FILE_IO_SERVICES}" | grep -q -x "${loader}"; then
                 echo "ERROR: ${loader} is missing from META-INF/services/org.apache.paimon.fs.FileIOLoader"
@@ -1279,7 +1281,11 @@ EOF
             fi
         done
     fi
-    if [[ -f "${PRELOAD_JAR}" ]] && unzip -l "${PRELOAD_JAR}" | grep -q -E 'org/apache/paimon/(s3|jindo)/'; then
+    # No "grep -q" here: it exits on the first match and SIGPIPEs unzip halfway through this jar's
+    # 120k-entry listing, which under "set -o pipefail" makes the pipeline 141 and silently skips
+    # the error below - exactly when a provider did leak in. Let grep consume the whole listing.
+    if [[ -f "${PRELOAD_JAR}" ]] &&
+        unzip -l "${PRELOAD_JAR}" | grep -E 'org/apache/paimon/(s3|jindo)/' >/dev/null; then
         echo "ERROR: ${PRELOAD_JAR} bundles a Paimon FileIOLoader provider. It would be defined by"
         echo "       the JVM app classloader, which carries no FileIOLoader interface."
         exit 1
