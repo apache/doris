@@ -436,18 +436,6 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
-     * Estimates the number of scan ranges for parallelism planning.
-     * Returns -1 if the estimate is unknown.
-     *
-     * <p>The engine may use this to pre-allocate resources or decide
-     * scan parallelism before calling {@link #planScan}.</p>
-     */
-    default long estimateScanRangeCount(ConnectorSession session,
-            ConnectorTableHandle handle) {
-        return -1;
-    }
-
-    /**
      * Returns scan-node-level properties along with filter pushdown results.
      *
      * <p>Override this when the connector performs fine-grained conjunct pushdown

@@ -143,11 +143,6 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         return Collections.singletonList(scanRange);
     }
 
-    @Override
-    public long estimateScanRangeCount(ConnectorSession session, ConnectorTableHandle handle) {
-        return 1;
-    }
-
     private String getProperty(String key, String defaultValue) {
         return catalogProperties.getOrDefault(key, defaultValue);
     }
