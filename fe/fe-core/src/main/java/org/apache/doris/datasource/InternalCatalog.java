@@ -1209,6 +1209,26 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     /**
+     * The internal catalog creates olap tables. It still recognizes the three engine names it used to serve
+     * itself — {@code odbc} / {@code mysql} / {@code broker} — purely to keep answering with the retirement
+     * message that tells the user where those table types went; every other name is somebody else's.
+     */
+    @Override
+    public void validateCreateTableEngine(String engineName) throws AnalysisException {
+        if (CreateTableInfo.ENGINE_OLAP.equals(engineName)) {
+            return;
+        }
+        if (CreateTableInfo.ENGINE_ODBC.equals(engineName)
+                || CreateTableInfo.ENGINE_MYSQL.equals(engineName)
+                || CreateTableInfo.ENGINE_BROKER.equals(engineName)) {
+            throw new AnalysisException("odbc, mysql and broker table is no longer supported."
+                    + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
+                    + " For broker table, use table valued function instead.");
+        }
+        throw new AnalysisException(CatalogIf.engineMismatchError(engineName, getName()));
+    }
+
+    /**
      * Following is the step to create an olap table:
      * 1. create columns
      * 2. create partition info

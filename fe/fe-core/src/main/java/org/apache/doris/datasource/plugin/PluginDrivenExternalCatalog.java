@@ -28,6 +28,7 @@ import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -50,6 +51,7 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -372,6 +374,26 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public boolean hasConnectorCapability(ConnectorCapability capability) {
         Connector conn = getConnector();
         return conn != null && conn.getCapabilities().contains(capability);
+    }
+
+    /**
+     * Answers from the connector's <em>provider</em>, not the connector: this runs while a statement is being
+     * analyzed, and {@link #getConnector()} would force the catalog to initialize, turning a mistyped engine
+     * name into a metastore connection error. Provider lookup is a lookup among already-registered plugins,
+     * keyed on the persisted catalog type, and touches nothing remote.
+     *
+     * <p>A catalog whose plugin is not installed has no provider, so every explicit engine is rejected with
+     * the same mismatch message the base interface produces — the missing-plugin diagnosis still comes later,
+     * from initialization, exactly as it does today.</p>
+     */
+    @Override
+    public void validateCreateTableEngine(String engineName) throws AnalysisException {
+        boolean accepted = ConnectorFactory.findProvider(getType(), getProperties())
+                .map(provider -> provider.acceptedCreateTableEngineNames().contains(engineName))
+                .orElse(false);
+        if (!accepted) {
+            throw new AnalysisException(CatalogIf.engineMismatchError(engineName, getName()));
+        }
     }
 
     /**

@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,9 +76,20 @@ public class ConnectorPluginManager {
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "CONNECTOR";
 
+    /**
+     * Engine names {@code CREATE TABLE ... ENGINE=<name>} resolves inside the engine itself, so no plugin may
+     * claim one: {@code olap} is the internal catalog's, and the other three are retired table types that
+     * still owe the user a specific "use X instead" message from {@code InternalCatalog}. Letting a plugin
+     * shadow one of these would silently redirect a statement the engine answers for.
+     */
+    private static final Set<String> RESERVED_CREATE_TABLE_ENGINE_NAMES =
+            new HashSet<>(Arrays.asList("olap", "mysql", "odbc", "broker"));
+
     private final List<ConnectorProvider> providers = new CopyOnWriteArrayList<>();
     /** Lower-cased type names already claimed by a discovered provider. Guards {@code getType()} uniqueness. */
     private final Set<String> claimedTypes = ConcurrentHashMap.newKeySet();
+    /** Lower-cased create-table engine names already claimed. Same uniqueness rule as {@link #claimedTypes}. */
+    private final Set<String> claimedEngineNames = ConcurrentHashMap.newKeySet();
     private final DirectoryPluginRuntimeManager<ConnectorProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
     private final ClassLoadingPolicy classLoadingPolicy =
@@ -110,7 +122,8 @@ public class ConnectorPluginManager {
      * built-in catalog type name, and not already claimed (compared case-insensitively, because
      * {@link ConnectorProvider#supports} matches case-insensitively and catalog types are lower-cased before
      * routing). Refusing a reserved name here is what makes it impossible for a plugin to shadow a catalog type
-     * the engine implements itself — routing order then cannot matter.
+     * the engine implements itself — routing order then cannot matter. The engine names it claims for
+     * {@code CREATE TABLE ... ENGINE=} go through the same two checks.
      *
      * @param failFast {@code true} for the classpath batch: two providers claiming one type name there is a
      *                 build error and must fail loud. {@code false} for the plugin-directory batch: that is a
@@ -120,12 +133,13 @@ public class ConnectorPluginManager {
      */
     boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
         String type = provider.getType();
-        String problem = null;
-        if (type == null || type.trim().isEmpty()) {
-            problem = "getType() returned a blank type name";
-        } else if (CatalogFactory.isBuiltinCatalogType(type)) {
-            problem = "type name '" + type + "' is reserved for a catalog type the engine implements itself";
-        } else if (!claimedTypes.add(type.toLowerCase())) {
+        Set<String> engineNames = provider.acceptedCreateTableEngineNames();
+        String problem = typeNameProblem(type);
+        if (problem == null) {
+            problem = createTableEngineNameProblem(engineNames);
+        }
+        // Claim last, and only once nothing else can reject: a failed claim must not leave a name taken.
+        if (problem == null && !claimedTypes.add(type.toLowerCase())) {
             problem = "type name '" + type + "' is already claimed by another registered connector provider";
         }
         if (problem != null) {
@@ -136,8 +150,45 @@ public class ConnectorPluginManager {
             LOG.error("{}. The connector will not be available.", message);
             return false;
         }
+        for (String engineName : engineNames) {
+            claimedEngineNames.add(engineName.toLowerCase());
+        }
         providers.add(provider);
         return true;
+    }
+
+    private static String typeNameProblem(String type) {
+        if (type == null || type.trim().isEmpty()) {
+            return "getType() returned a blank type name";
+        }
+        if (CatalogFactory.isBuiltinCatalogType(type)) {
+            return "type name '" + type + "' is reserved for a catalog type the engine implements itself";
+        }
+        return null;
+    }
+
+    /**
+     * Same uniqueness rule as the type name, applied to the engine names a provider claims for
+     * {@code CREATE TABLE ... ENGINE=}. Two plugins answering to one engine name would make the statement
+     * mean whichever registered first, so the second is refused at registration and routing order cannot
+     * matter — mirroring how a duplicate catalog type is handled.
+     */
+    private String createTableEngineNameProblem(Set<String> engineNames) {
+        for (String engineName : engineNames) {
+            if (engineName == null || engineName.trim().isEmpty()) {
+                return "acceptedCreateTableEngineNames() returned a blank engine name";
+            }
+            String lower = engineName.toLowerCase();
+            if (RESERVED_CREATE_TABLE_ENGINE_NAMES.contains(lower)) {
+                return "create-table engine name '" + engineName
+                        + "' is reserved for an engine name the engine resolves itself";
+            }
+            if (claimedEngineNames.contains(lower)) {
+                return "create-table engine name '" + engineName
+                        + "' is already claimed by another registered connector provider";
+            }
+        }
+        return null;
     }
 
     /**

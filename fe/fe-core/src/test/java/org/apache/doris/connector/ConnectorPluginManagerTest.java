@@ -28,8 +28,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tests for {@link ConnectorPluginManager}: API version compatibility, the type-name contract enforced when a
@@ -224,6 +227,73 @@ public class ConnectorPluginManagerTest {
         Connector connector = manager.createConnector("iceberg", Collections.emptyMap(), testContext);
         Assertions.assertEquals("override", ((TaggedConnector) connector).tag,
                 "the explicitly registered provider must win over the discovered one");
+    }
+
+    @Test
+    void duplicateCreateTableEngineNameIsRefused() {
+        // Engine names route CREATE TABLE ... ENGINE= the same way type names route CREATE CATALOG. Two
+        // plugins answering to one engine name would make the statement mean whichever registered first, so
+        // the conflict is refused where it can still be refused: at registration.
+        Assertions.assertTrue(manager.registerDiscovered(
+                createProviderWithEngines("first_type", "shared_engine"), false));
+        Assertions.assertFalse(manager.registerDiscovered(
+                        createProviderWithEngines("second_type", "SHARED_ENGINE"), false),
+                "a second claimant of the same engine name must be refused, case-insensitively");
+
+        Assertions.assertEquals(Collections.singletonList("first_type"), manager.getRegisteredTypes(),
+                "the refused provider must not end up in the registry");
+
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> manager.registerDiscovered(createProviderWithEngines("third_type", "shared_engine"), true),
+                "on the classpath the same conflict must fail loud");
+        Assertions.assertTrue(e.getMessage().contains("already claimed"), e.getMessage());
+    }
+
+    @Test
+    void providerClaimingAnEngineReservedEngineNameIsRefused() {
+        // olap is the internal catalog's own engine, and odbc/mysql/broker are retired table types that still
+        // owe the user a specific "use X instead" message from InternalCatalog. A plugin claiming one would
+        // silently take over a statement the engine answers for.
+        for (String reserved : new String[] {"olap", "mysql", "odbc", "broker"}) {
+            Assertions.assertFalse(manager.registerDiscovered(
+                            createProviderWithEngines("t_" + reserved, reserved.toUpperCase()), false),
+                    "a plugin must not be allowed to claim reserved engine name '" + reserved + "'");
+        }
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(),
+                "no refused provider may end up in the registry");
+    }
+
+    @Test
+    void refusedProviderDoesNotLeaveItsTypeOrEngineNameClaimed() {
+        // The checks run before anything is claimed, so a provider rejected for one reason must not poison the
+        // name it never got. Otherwise a bad plugin directory could permanently disable a good one.
+        Assertions.assertFalse(manager.registerDiscovered(createProviderWithEngines("good_type", "olap"), false),
+                "rejected for the reserved engine name");
+
+        Assertions.assertTrue(manager.registerDiscovered(createProviderWithEngines("good_type", "good_engine"),
+                        false),
+                "the type name must still be free after the earlier provider was refused");
+        Assertions.assertEquals(Collections.singletonList("good_type"), manager.getRegisteredTypes());
+    }
+
+    private static ConnectorProvider createProviderWithEngines(String type, String... engineNames) {
+        Set<String> engines = new HashSet<>(Arrays.asList(engineNames));
+        return new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return type;
+            }
+
+            @Override
+            public Set<String> acceptedCreateTableEngineNames() {
+                return engines;
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return new TaggedConnector(type);
+            }
+        };
     }
 
     private static ConnectorProvider createProvider(String type, int apiVersion) {

@@ -21,8 +21,10 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * SPI interface for connector provider discovery via Java ServiceLoader.
@@ -132,6 +134,29 @@ public interface ConnectorProvider extends PluginFactory {
      */
     default Optional<String> defaultDatabaseOnUse() {
         return Optional.empty();
+    }
+
+    /**
+     * The legacy engine names this connector accepts in {@code CREATE TABLE ... ENGINE=<name>}, or empty
+     * (the default) if it accepts none.
+     *
+     * <p>{@code ENGINE=} predates catalogs and is optional: omitting it is always legal and lets the target
+     * catalog decide. The clause survives only because existing SQL writes it, so the engine remains a name
+     * the connector owns — the engine does not keep a table of which name belongs to which data source, and
+     * never puts one of these names in a message. It uses them for exactly two things: deciding whether an
+     * explicitly written name is accepted here, and refusing at registration time a plugin that claims a name
+     * another plugin already claims.</p>
+     *
+     * <p>Note this is NOT the name a table displays: an HMS catalog accepts {@code ENGINE=hive} while
+     * displaying {@code hms}. Declaring a name also says nothing about which clauses the connector supports —
+     * {@code PARTITION BY} and {@code DISTRIBUTED BY} are validated inside
+     * {@code ConnectorTableDdlOps#createTable}, by the connector that has to honor them.</p>
+     *
+     * <p>Answered from the provider, not the connector, because the question is asked while analyzing a
+     * statement, before anything should force a catalog to initialize.</p>
+     */
+    default Set<String> acceptedCreateTableEngineNames() {
+        return Collections.emptySet();
     }
 
     /** API version for compatibility checking. Major version change = incompatible. */
