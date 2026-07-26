@@ -1254,10 +1254,12 @@ public class PaimonScanPlanProviderTest {
             cppOff.put("force_jni_scanner", "true");
             cppOff.put("enable_paimon_cpp_reader", "false");
 
-            List<ConnectorScanRange> onRanges = provider.planScan(
-                    sessionWithProps(cppOn), handle, noColumns, Optional.empty(), -1, null, false);
-            List<ConnectorScanRange> offRanges = provider.planScan(
-                    sessionWithProps(cppOff), handle, noColumns, Optional.empty(), -1, null, false);
+            List<ConnectorScanRange> onRanges = provider.planScan(sessionWithProps(cppOn),
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build());
+            List<ConnectorScanRange> offRanges = provider.planScan(sessionWithProps(cppOff),
+                    ConnectorScanRequest.builder(handle, noColumns)
+                    .build());
             Assertions.assertFalse(onRanges.isEmpty(), "baseline scan must emit >=1 JNI range");
             Assertions.assertEquals(offRanges.size(), onRanges.size(),
                     "the cpp flag must not change the emitted range count");
