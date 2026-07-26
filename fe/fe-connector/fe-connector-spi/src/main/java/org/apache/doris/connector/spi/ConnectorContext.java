@@ -65,19 +65,23 @@ public interface ConnectorContext {
     }
 
     /**
-     * Sanitizes a JDBC URL according to engine-level security policies.
-     * The engine may reject URLs that target internal networks, contain
-     * banned parameters, or otherwise violate security rules.
+     * Sanitizes an outbound URL according to engine-level security policies. The engine may reject URLs
+     * that target internal networks, contain banned parameters, or otherwise violate security rules. The
+     * check is protocol-neutral; a JDBC URL is simply the case that exists today.
      *
-     * <p>Connectors MUST call this method before using any JDBC URL
-     * to establish a database connection.
+     * <p><b>Scope.</b> A connector MUST route a URL through this hook when the connector itself opens the
+     * connection. It cannot cover a connection opened <em>inside</em> a third-party SDK the connector hands
+     * a user-supplied address to — an Iceberg JDBC metastore or a Paimon JDBC catalog builds its own
+     * connection with no hook point the connector can reach — so those addresses do not pass through here.
+     * Read this as "the engine's check applies where a connector connects", not as "every outbound address
+     * in FE is checked".
      *
-     * @param jdbcUrl the raw JDBC URL
+     * @param url the raw outbound URL
      * @return the sanitized URL (may be the same string if no changes needed)
      * @throws RuntimeException if the URL violates security policies
      */
-    default String sanitizeJdbcUrl(String jdbcUrl) {
-        return jdbcUrl;
+    default String sanitizeOutboundUrl(String url) {
+        return url;
     }
 
     /**

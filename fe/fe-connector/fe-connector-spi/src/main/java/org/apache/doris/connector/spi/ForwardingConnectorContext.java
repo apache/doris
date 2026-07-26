@@ -89,8 +89,8 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
-    public String sanitizeJdbcUrl(String jdbcUrl) {
-        return delegate.sanitizeJdbcUrl(jdbcUrl);
+    public String sanitizeOutboundUrl(String url) {
+        return delegate.sanitizeOutboundUrl(url);
     }
 
     @Override

@@ -184,9 +184,9 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     }
 
     @Override
-    public String sanitizeJdbcUrl(String jdbcUrl) {
+    public String sanitizeOutboundUrl(String url) {
         try {
-            return SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl);
+            return SecurityChecker.getInstance().getSafeJdbcUrl(url);
         } catch (Exception e) {
             throw new RuntimeException("JDBC URL security check failed: " + e.getMessage(), e);
         }

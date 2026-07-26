@@ -301,7 +301,7 @@ public class JdbcDorisConnector implements Connector {
                 poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime,
                 onlySpecifiedDatabase, properties,
                 enableMappingVarbinary, enableMappingTimestampTz,
-                context::sanitizeJdbcUrl);
+                context::sanitizeOutboundUrl);
     }
 
     @Override

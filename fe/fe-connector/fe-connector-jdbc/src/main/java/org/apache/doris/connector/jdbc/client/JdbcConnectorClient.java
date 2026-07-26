@@ -91,7 +91,8 @@ public abstract class JdbcConnectorClient implements Closeable {
     /**
      * Factory method to create the correct client subclass for the given DB type.
      *
-     * @param urlSanitizer engine-level JDBC URL sanitizer (e.g., SSRF protection).
+     * @param urlSanitizer engine-level outbound URL sanitizer (e.g., SSRF protection). Applied here because
+     *                     this is where the connector itself opens the connection.
      *                     Applied before passing the URL to HikariCP. Pass
      *                     {@link UnaryOperator#identity()} if no sanitization is needed.
      */
