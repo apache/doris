@@ -368,7 +368,7 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {
     EXPECT_EQ(1, pass_all_ctx.stats.unusable_zonemap_eval_count);
 }
 
-TEST(ExprZonemapFilterTest, ComparisonDictionaryAndBloomUseEqualityLiterals) {
+TEST(ExprZonemapFilterTest, ComparisonDictionarySupportsTypedRangesWhileBloomUsesEquality) {
     auto type = int_type();
     auto slot = make_slot(0, type);
     FunctionComparison<EqualsOp, NameEquals> equals;
@@ -389,8 +389,37 @@ TEST(ExprZonemapFilterTest, ComparisonDictionaryAndBloomUseEqualityLiterals) {
               equals.evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
 
     FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
-    EXPECT_FALSE(not_equals.can_evaluate_dictionary_filter({slot, make_int_literal(3)}));
+    FunctionComparison<LessOp, NameLess> less;
+    FunctionComparison<LessOrEqualsOp, NameLessOrEquals> less_equal;
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    FunctionComparison<GreaterOrEqualsOp, NameGreaterOrEquals> greater_equal;
+    EXPECT_TRUE(not_equals.can_evaluate_dictionary_filter({slot, make_int_literal(3)}));
+    EXPECT_TRUE(less.can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    EXPECT_TRUE(less_equal.can_evaluate_dictionary_filter({slot, make_int_literal(1)}));
+    EXPECT_TRUE(greater.can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    EXPECT_TRUE(greater_equal.can_evaluate_dictionary_filter({slot, make_int_literal(3)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(1)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {make_int_literal(2), slot}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_dictionary_filter(dictionary_ctx, {make_int_literal(4), slot}));
     EXPECT_FALSE(not_equals.can_evaluate_bloom_filter({slot, make_int_literal(3)}));
+
+    auto string_type = std::make_shared<DataTypeString>();
+    auto string_slot = make_slot(0, string_type);
+    auto string_dictionary = make_dictionary_context({Field::create_field<TYPE_STRING>("alpha"),
+                                                      Field::create_field<TYPE_STRING>("charlie")},
+                                                     string_type);
+    EXPECT_TRUE(less.can_evaluate_dictionary_filter({string_slot, make_string_literal("bravo")}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_dictionary_filter(string_dictionary,
+                                              {string_slot, make_string_literal("bravo")}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_dictionary_filter(string_dictionary,
+                                                 {string_slot, make_string_literal("delta")}));
 }
 
 TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation) {
