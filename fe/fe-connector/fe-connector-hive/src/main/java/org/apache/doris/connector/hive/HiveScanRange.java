@@ -150,7 +150,7 @@ public class HiveScanRange implements ConnectorScanRange {
         // path-parsed columns-from-path; unset it, then re-set from partitionValues so BE receives the
         // authoritative keys/values/is_null. partitionValues keys are the partition column names (same
         // order as path_partition_keys, both from HiveTableHandle.getPartitionKeyNames), so the emitted
-        // bytes are unchanged from the legacy path. Use the NARROW HIVE_DEFAULT_PARTITION.equals — hudi's
+        // bytes are unchanged from the legacy path. Use the NARROW NULL_PARTITION_NAME.equals — hudi's
         // wider directory-name rule (HudiScanRange.populateRangeParams, which also nulls a literal "\N")
         // must NOT be reused here: an HMS partition value is either a real value or the
         // __HIVE_DEFAULT_PARTITION__ directory sentinel, never a Java null, and a hive column may carry the
@@ -166,7 +166,7 @@ public class HiveScanRange implements ConnectorScanRange {
             for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
                 String value = entry.getValue();
                 boolean nullValue = value == null
-                        || ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value);
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value);
                 keys.add(entry.getKey());
                 values.add(nullValue ? "" : value);
                 isNull.add(nullValue);

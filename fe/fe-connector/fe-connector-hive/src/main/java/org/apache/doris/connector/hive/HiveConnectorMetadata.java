@@ -1244,7 +1244,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     private static List<Boolean> toPartitionValueNullFlags(List<String> values) {
         List<Boolean> flags = new ArrayList<>(values.size());
         for (String value : values) {
-            flags.add(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value));
+            flags.add(ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value));
         }
         return flags;
     }

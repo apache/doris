@@ -251,7 +251,7 @@ public class HudiScanRange implements ConnectorScanRange {
                 // HudiScanRangePartitionValuesTest).
                 String value = entry.getValue();
                 boolean nullValue = value == null
-                        || ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value)
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value)
                         || HUDI_NULL_PARTITION_VALUE.equals(value);
                 pathKeys.add(entry.getKey());
                 pathValues.add(nullValue ? HUDI_NULL_PARTITION_VALUE : value);

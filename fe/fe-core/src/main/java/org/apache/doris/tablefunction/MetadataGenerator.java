@@ -60,13 +60,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -2067,7 +2067,7 @@ public class MetadataGenerator {
 
     // A flipped hms table (and paimon/iceberg) is a PluginDrivenExternalTable, not an HMSExternalTable; the
     // partition values come from the connector's listPartitions via the generic SPI, then feed the same row
-    // builder as the HMS path (identical typed-TCell rendering, including HIVE_DEFAULT_PARTITION -> NULL).
+    // builder as the HMS path (identical typed-TCell rendering, including the canonical NULL partition name -> NULL).
     private static List<TRow> partitionValuesMetadataResultForPluginTable(PluginDrivenExternalTable tbl,
             List<String> colNames) throws AnalysisException {
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(tbl);
@@ -2103,7 +2103,7 @@ public class MetadataGenerator {
             for (int i = 0; i < colIdxs.size(); ++i) {
                 int idx = colIdxs.get(i);
                 String partitionValue = values.get(idx);
-                if (partitionValue == null || partitionValue.equals(TablePartitionValues.HIVE_DEFAULT_PARTITION)) {
+                if (partitionValue == null || partitionValue.equals(ConnectorPartitionValues.NULL_PARTITION_NAME)) {
                     trow.addToColumnValue(new TCell().setIsNull(true));
                 } else {
                     Type type = types.get(i);

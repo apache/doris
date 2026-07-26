@@ -124,10 +124,10 @@ public class PaimonConnectorMetadataPartitionTest {
     @Test
     public void partitionValueMapCarriesRenderedValuesForTvf() {
         // WHY: partition_values() reads ConnectorPartitionInfo.getPartitionValues() BY REMOTE NAME and feeds
-        // it to a consumer that parses DATE via convertStringToDateV2 and maps HIVE_DEFAULT_PARTITION -> SQL
+        // it to a consumer that parses DATE via convertStringToDateV2 and maps NULL_PARTITION_NAME -> SQL
         // NULL. So the value MAP (not just orderedValues) must carry the Hive-canonical rendered form: a
         // formatted date (never the raw epoch-day, which throws and fails the whole TVF), and
-        // HIVE_DEFAULT_PARTITION for a genuine null (never paimon's raw "__DEFAULT_PARTITION__", which the
+        // NULL_PARTITION_NAME for a genuine null (never paimon's raw "__DEFAULT_PARTITION__", which the
         // consumer would render as a literal string instead of SQL NULL). This pins the TVF contract that
         // passing the raw spec verbatim previously violated.
         // MUTATION: passing `spec` as the ConnectorPartitionInfo value map -> dt="19723" and null
@@ -152,7 +152,7 @@ public class PaimonConnectorMetadataPartitionTest {
 
         Assertions.assertEquals(DateTimeUtils.formatDate(DT_EPOCH_DAY),
                 infos.get(0).getPartitionValues().get("dt"));
-        Assertions.assertEquals(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION,
+        Assertions.assertEquals(ConnectorPartitionValues.NULL_PARTITION_NAME,
                 infos.get(1).getPartitionValues().get("dt"));
     }
 
@@ -244,7 +244,7 @@ public class PaimonConnectorMetadataPartitionTest {
         // string "__DEFAULT_PARTITION__" and IS NULL prunes it away -> empty result, the bug this fixes).
         // MUTATION: appending the raw spec value "__DEFAULT_PARTITION__" -> name diverges -> red.
         Assertions.assertEquals(
-                Collections.singletonList("category=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION),
+                Collections.singletonList("category=" + ConnectorPartitionValues.NULL_PARTITION_NAME),
                 names);
     }
 
@@ -277,7 +277,7 @@ public class PaimonConnectorMetadataPartitionTest {
         // treated as null -> red.
         Assertions.assertEquals(
                 Arrays.asList(
-                        "category=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION,
+                        "category=" + ConnectorPartitionValues.NULL_PARTITION_NAME,
                         "category=__DEFAULT_PARTITION__"),
                 names);
     }
@@ -304,7 +304,7 @@ public class PaimonConnectorMetadataPartitionTest {
         // branch first -> NumberFormatException -> red.
         Assertions.assertEquals(
                 Collections.singletonList(
-                        "dt=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION + "/region=cn"),
+                        "dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/region=cn"),
                 names);
     }
 
@@ -336,7 +336,7 @@ public class PaimonConnectorMetadataPartitionTest {
         Assertions.assertEquals(Collections.singletonList(false),
                 infos.get(1).getPartitionValueNullFlags(), "ordinary value -> isNull flag false");
         // The name is still normalized to the sentinel (partition-name identity preserved).
-        Assertions.assertEquals("category=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION,
+        Assertions.assertEquals("category=" + ConnectorPartitionValues.NULL_PARTITION_NAME,
                 infos.get(0).getPartitionName());
     }
 

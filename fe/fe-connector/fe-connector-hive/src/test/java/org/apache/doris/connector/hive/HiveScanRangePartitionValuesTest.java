@@ -94,7 +94,7 @@ public class HiveScanRangePartitionValuesTest {
     @Test
     public void testLiteralBackslashNIsNotNull() {
         // A literal "\N" partition value is NOT the Hive default-partition sentinel and must survive as a
-        // real value (is_null=false). This is why the connector uses the narrow HIVE_DEFAULT_PARTITION.equals
+        // real value (is_null=false). This is why the connector uses the narrow NULL_PARTITION_NAME.equals
         // and NOT hudi's directory-name rule (HudiScanRange), which would coerce "\N" to SQL NULL.
         HiveScanRange range = HiveScanRange.builder()
                 .path("/tbl/city=%5CN/000000_0")

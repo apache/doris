@@ -1214,7 +1214,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // collide (one partition item silently lost). Parity with fe-core #65904. This same rendered map
             // is also handed to ConnectorPartitionInfo as the partition VALUE map (below), so the active
             // partition_values() TVF feeder (PluginDrivenExternalTable.getNameToPartitionValues) reads the
-            // Hive-canonical rendered form (DATE formatted, genuine-null → HIVE_DEFAULT_PARTITION) instead of
+            // Hive-canonical rendered form (DATE formatted, genuine-null → NULL_PARTITION_NAME) instead of
             // paimon's raw spec (DATE=epoch-day, null=__DEFAULT_PARTITION__), which would fail the TVF
             // (convertStringToDateV2 throws) and mis-render null. Mirrors hive/iceberg, whose value maps
             // already hold decoded canonical strings.
@@ -1232,7 +1232,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     // The name is still normalized to the Doris-canonical sentinel (partition-name identity is
                     // preserved; the value string is ignored once the flag marks it null). Handled before the
                     // DATE branch so a null DATE partition does not crash on Integer.parseInt("__DEFAULT_PARTITION__").
-                    rendered = ConnectorPartitionValues.HIVE_DEFAULT_PARTITION;
+                    rendered = ConnectorPartitionValues.NULL_PARTITION_NAME;
                 } else if (legacyName && dateColumns.contains(partitionColumnName)) {
                     // When partition.legacy-name = true (default), Paimon stores DATE as days since
                     // 1970-01-01 (epoch integer), so render it via the Paimon SDK formatDate; when

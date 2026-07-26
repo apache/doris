@@ -41,11 +41,11 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
@@ -284,17 +284,17 @@ public class PluginDrivenMvccExternalTableTest {
         // ...BuildsGenuineNullPartition tests below. VARCHAR keeps the sentinel parseable; a non-string column
         // without the flag throws+drops (per-partition catch) — see testDefaultSentinelWithoutFlagStillDrops.
         Fixture f = Fixture.with(Collections.singletonList(
-                cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)), Type.VARCHAR);
+                cpi("dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME, TS_2024_01_01)), Type.VARCHAR);
         Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
 
         Assertions.assertEquals(1, items.size());
-        PartitionItem item = items.get("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION);
+        PartitionItem item = items.get("dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME);
         Assertions.assertTrue(item instanceof ListPartitionItem, "expected a ListPartitionItem");
         PartitionKey key = ((ListPartitionItem) item).getItems().get(0);
         // MUTATION: defaulting the absent flag to isNull=true -> the key is a NullLiteral -> red.
         Assertions.assertFalse(key.getKeys().get(0).isNullLiteral(),
                 "no-flag default: a __HIVE_DEFAULT_PARTITION__ value must build a NON-null literal key (isNull=false)");
-        Assertions.assertEquals(TablePartitionValues.HIVE_DEFAULT_PARTITION,
+        Assertions.assertEquals(ConnectorPartitionValues.NULL_PARTITION_NAME,
                 key.getKeys().get(0).getStringValue(),
                 "the no-flag partition key must carry the sentinel string verbatim (a plain StringLiteral)");
     }
@@ -307,7 +307,7 @@ public class PluginDrivenMvccExternalTableTest {
         // isNull=true flag the value builds a typed NullLiteral (no parse), so the table stays LIST-partitioned
         // with a genuine-NULL partition (legacy HiveExternalMetaCache:309 parity; hive/paimon variant B).
         Fixture f = Fixture.with(Collections.singletonList(
-                cpiNull("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01, true)), Type.INT);
+                cpiNull("dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME, TS_2024_01_01, true)), Type.INT);
 
         Assertions.assertEquals(PartitionType.LIST, f.table.getPartitionType(Optional.empty()),
                 "a genuine-NULL INT partition must NOT collapse the table to UNPARTITIONED");
@@ -316,7 +316,7 @@ public class PluginDrivenMvccExternalTableTest {
         Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
         Assertions.assertEquals(1, items.size(), "the null partition must be present, not dropped");
         PartitionKey key = ((ListPartitionItem) items.get(
-                "dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION)).getItems().get(0);
+                "dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME)).getItems().get(0);
         // MUTATION: ignoring the flag (hardcoded false) -> IntLiteral parse throws -> 0 items / UNPARTITIONED -> red.
         Assertions.assertTrue(key.getKeys().get(0).isNullLiteral(),
                 "the connector-supplied NULL flag must build a typed NullLiteral for the INT column");
@@ -326,13 +326,13 @@ public class PluginDrivenMvccExternalTableTest {
     public void testDefaultSentinelWithNullFlagOnDateColumnBuildsGenuineNullPartition() {
         // Second non-string family (DATEV2 also throws on the sentinel pre-fix). Same expectation as the INT case.
         Fixture f = Fixture.with(Collections.singletonList(
-                cpiNull("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01, true)), Type.DATEV2);
+                cpiNull("dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME, TS_2024_01_01, true)), Type.DATEV2);
 
         Assertions.assertEquals(PartitionType.LIST, f.table.getPartitionType(Optional.empty()));
         Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
         Assertions.assertEquals(1, items.size());
         PartitionKey key = ((ListPartitionItem) items.get(
-                "dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION)).getItems().get(0);
+                "dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME)).getItems().get(0);
         Assertions.assertTrue(key.getKeys().get(0).isNullLiteral(),
                 "the connector-supplied NULL flag must build a typed NullLiteral for the DATE column");
     }
@@ -343,7 +343,7 @@ public class PluginDrivenMvccExternalTableTest {
         // non-string column — the sentinel throws on IntLiteral, the partition is dropped, the table degrades to
         // UNPARTITIONED. (Compile-independent guard: uses only the pre-existing no-flag cpi helper.)
         Fixture f = Fixture.with(Collections.singletonList(
-                cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)), Type.INT);
+                cpi("dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME, TS_2024_01_01)), Type.INT);
 
         Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.empty()),
                 "without the connector flag, an INT sentinel still drops the partition (UNPARTITIONED)");

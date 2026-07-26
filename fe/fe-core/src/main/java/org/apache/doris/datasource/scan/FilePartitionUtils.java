@@ -140,7 +140,7 @@ public final class FilePartitionUtils {
             if (index == -1) {
                 continue;
             }
-            boolean isNull = ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(pair[1]);
+            boolean isNull = ConnectorPartitionValues.NULL_PARTITION_NAME.equals(pair[1]);
             columns[index] = isNull ? "" : pair[1];
             columnValueIsNull[index] = isNull;
             size++;
