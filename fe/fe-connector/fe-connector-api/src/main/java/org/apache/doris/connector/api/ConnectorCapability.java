@@ -57,17 +57,6 @@ public enum ConnectorCapability {
      */
     SUPPORTS_MVCC_SNAPSHOT,
     /**
-     * Indicates the connector supports passthrough query via the {@code query()} TVF.
-     *
-     * <p>Connectors declaring this capability must implement
-     * {@link ConnectorTableOps#getColumnsFromQuery} to provide column metadata
-     * for arbitrary SQL queries passed through to the remote data source.</p>
-     *
-     * <p><b>Scope: catalog-wide only.</b> A table-valued function names a catalog and a SQL string; there is
-     * no table to refine against.</p>
-     */
-    SUPPORTS_PASSTHROUGH_QUERY,
-    /**
      * Indicates the connector exposes per-partition statistics (record count, on-disk size,
      * file count) via {@link ConnectorPartitionListingOps#listPartitions}.
      *

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -63,8 +64,10 @@ public class HiveConnectorCapabilitiesTest {
         // Needs the connector to emit the table location (show.location) + a rendering-parity decision first.
         Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL),
                 "SUPPORTS_SHOW_CREATE_DDL needs location emission + a SHOW CREATE rendering decision");
-        // Hive exposes no query() TVF (no getColumnsFromQuery).
-        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY),
+        // Hive exposes no query() TVF: it does not implement ConnectorPassthroughSqlOps, which is the whole
+        // declaration (there is no capability flag for it). Pinned here because the metadata is what the
+        // engine's query()/EXECUTE_STMT entry points type-check.
+        Assertions.assertFalse(ConnectorPassthroughSqlOps.class.isAssignableFrom(HiveConnectorMetadata.class),
                 "hive has no passthrough query()");
         // Legacy SHOW PARTITIONS lists names only; listPartitions emits UNKNOWN stats.
         Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_PARTITION_STATS),

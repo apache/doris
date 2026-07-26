@@ -19,6 +19,7 @@ package org.apache.doris.connector.jdbc;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScopes;
 import org.apache.doris.connector.api.ConnectorTableSchema;
@@ -46,7 +47,7 @@ import java.util.Optional;
  * {@link ConnectorMetadata} implementation for JDBC sources.
  * Delegates metadata discovery to {@link JdbcConnectorClient}.
  */
-public class JdbcConnectorMetadata implements ConnectorMetadata {
+public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassthroughSqlOps {
 
     private static final Logger LOG = LogManager.getLogger(JdbcConnectorMetadata.class);
 

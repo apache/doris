@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
@@ -60,7 +61,9 @@ public class PluginDrivenQueryTableValueFunction extends QueryTableValueFunction
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
-        ConnectorTableSchema schema = metadata.getColumnsFromQuery(session, query);
+        // The factory already refused a catalog whose metadata does not implement this.
+        ConnectorTableSchema schema =
+                ((ConnectorPassthroughSqlOps) metadata).getColumnsFromQuery(session, query);
         return ConnectorColumnConverter.convertColumns(schema.getColumns());
     }
 

@@ -320,8 +320,8 @@ public class HiveConnector implements Connector {
         // Deliberately NOT declared here:
         //  - SUPPORTS_SHOW_CREATE_DDL: the connector must first emit the table location (show.location) and a
         //    generic-vs-hive-specific SHOW CREATE rendering must be decided — its own substep.
-        //  - SUPPORTS_PASSTHROUGH_QUERY / SUPPORTS_PARTITION_STATS: hive exposes no query() TVF, and legacy SHOW
-        //    PARTITIONS lists names only.
+        //  - SUPPORTS_PARTITION_STATS: legacy SHOW PARTITIONS lists names only. (Passthrough SQL is not a
+        //    capability at all: hive simply does not implement ConnectorPassthroughSqlOps.)
         //  - SUPPORTS_TOPN_LAZY_MATERIALIZE: a per-table marker emitted in getTableSchema (orc/parquet only),
         //    never a connector-wide flag.
         //  - SUPPORTS_COLUMN_AUTO_ANALYZE: legacy StatisticsUtil.supportAutoAnalyze admitted HMS tables of dlaType

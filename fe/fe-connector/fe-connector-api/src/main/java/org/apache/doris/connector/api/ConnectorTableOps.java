@@ -20,7 +20,7 @@ package org.apache.doris.connector.api;
 /**
  * Operations on tables within a connector catalog: the aggregate of the per-domain table interfaces.
  *
- * <p>This interface declares (almost) nothing itself. It exists so that {@link ConnectorMetadata} keeps one
+ * <p>This interface declares nothing itself. It exists so that {@link ConnectorMetadata} keeps one
  * table-operations supertype and connectors keep compiling unchanged, while the operations themselves live in
  * the domain each belongs to:</p>
  *
@@ -34,6 +34,10 @@ package org.apache.doris.connector.api;
  * <li>{@link ConnectorPartitionListingOps} &mdash; enumerating partitions.</li>
  * </ul>
  *
+ * <p>Passing a SQL string through to the remote source is deliberately NOT here: it is the escape hatch of a
+ * connector whose source speaks SQL, not a table operation, and it lives in the optional
+ * {@link ConnectorPassthroughSqlOps}, which a connector implements or does not.</p>
+ *
  * <p><b>Start with each domain's class javadoc: it states that domain's minimum implementation set</b>
  * &mdash; which methods a connector must override to work at all, which become mandatory once a given
  * capability is declared, and which are optional. Every method has a default body, so the compiler demands
@@ -46,24 +50,4 @@ public interface ConnectorTableOps extends
         ConnectorColumnEvolutionOps,
         ConnectorSnapshotRefOps,
         ConnectorPartitionListingOps {
-
-    // The two JDBC pass-through operations below have no domain yet: they are the SQL-dialect escape hatch of
-    // a single connector family rather than a table operation, and are slated to become their own optional
-    // interface. They stay on the aggregate rather than being filed under a domain they do not belong to.
-
-    /**
-     * Executes a DML statement (INSERT/UPDATE/DELETE) directly.
-     * Used for DML passthrough features like CALL EXECUTE_STMT.
-     */
-    default void executeStmt(ConnectorSession session, String stmt) {
-        throw new DorisConnectorException("executeStmt not supported");
-    }
-
-    /**
-     * Gets column metadata from a query string via PreparedStatement metadata.
-     * Used for table-valued functions like query().
-     */
-    default ConnectorTableSchema getColumnsFromQuery(ConnectorSession session, String query) {
-        throw new DorisConnectorException("getColumnsFromQuery not supported");
-    }
 }
