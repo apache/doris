@@ -21,15 +21,20 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -37,6 +42,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CacheManagerTest {
+
+    @BeforeClass
+    public static void setUpClass() {
+        MetricRepo.init();
+    }
 
     @Test
     public void testBuildCacheTableForOlapScanNodeBypassesCacheWhenPartitionDropped() throws Exception {
@@ -64,7 +74,83 @@ public class CacheManagerTest {
 
         // A partition dropped between planning and cache building makes the selected set
         // inconsistent, so building the cache table must fail and the cache is bypassed.
-        Assert.assertThrows(RuntimeException.class, () -> analyzer.buildCacheTableForOlapScanNode(node));
+        // Assert on the controlled message (not just RuntimeException) so a regression to the
+        // old bare NullPointerException path is caught rather than silently satisfying the test.
+        RuntimeException ex = Assert.assertThrows(RuntimeException.class,
+                () -> analyzer.buildCacheTableForOlapScanNode(node));
+        Assert.assertFalse(ex instanceof NullPointerException);
+        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("Partition 2"));
+        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("dropped"));
+
+        // partition3, ordered after the dropped partition2, must never be visited.
+        Mockito.verify(olapTable, Mockito.never()).getPartition(3L);
+    }
+
+    @Test
+    public void testBuildCacheTableForOlapScanNodeBypassesCacheWhenCloudBatchLookupNpes() throws Exception {
+        // Simulates the cloud-mode race where the same dropped partition also resolves to null
+        // inside getVersionInBatchForCloudMode's own partition lookup, which throws an NPE
+        // (not RpcException) before the explicit null-check below is ever reached.
+        OlapScanNode node = Mockito.mock(OlapScanNode.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Partition partition1 = Mockito.mock(Partition.class);
+
+        CacheAnalyzer analyzer = new CacheAnalyzer(new ConnectContext(), null, Lists.newArrayList());
+        ArrayList<Long> selectedPartitionIds = Lists.newArrayList(1L, 2L);
+
+        Mockito.when(node.getOlapTable()).thenReturn(olapTable);
+        Mockito.when(node.getSelectedPartitionIds()).thenReturn(selectedPartitionIds);
+        Mockito.when(olapTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(database.getFullName()).thenReturn("testDb");
+        Mockito.when(olapTable.getName()).thenReturn("test_tbl_cloud");
+        Mockito.when(olapTable.getPartition(1L)).thenReturn(partition1);
+        Mockito.when(olapTable.getPartition(2L)).thenReturn(null);
+        Mockito.doThrow(new NullPointerException("simulated cloud batch lookup NPE on dropped partition"))
+                .when(olapTable).getVersionInBatchForCloudMode(Mockito.anyCollection());
+
+        RuntimeException ex = Assert.assertThrows(RuntimeException.class,
+                () -> analyzer.buildCacheTableForOlapScanNode(node));
+        Assert.assertFalse(ex instanceof NullPointerException);
+        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("Partition 2"));
+        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("dropped"));
+    }
+
+    @Test
+    public void testCheckCacheModeForNereidsFallsBackToNoneWhenPartitionDropped() throws Exception {
+        // End-to-end: a dropped partition must make the whole cache-mode check resolve to
+        // CacheMode.None (via buildCacheTableList's catch-and-empty-list), not throw out of
+        // checkCacheModeForNereids.
+        OlapScanNode node = Mockito.mock(OlapScanNode.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Partition partition1 = Mockito.mock(Partition.class);
+        LogicalPlanAdapter parsedStmt = Mockito.mock(LogicalPlanAdapter.class);
+
+        ArrayList<Long> selectedPartitionIds = Lists.newArrayList(1L, 2L);
+        Mockito.when(node.getOlapTable()).thenReturn(olapTable);
+        Mockito.when(node.getSelectedPartitionIds()).thenReturn(selectedPartitionIds);
+        Mockito.when(olapTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(database.getFullName()).thenReturn("testDb");
+        Mockito.when(olapTable.getName()).thenReturn("test_tbl_e2e");
+        Mockito.when(olapTable.getPartition(1L)).thenReturn(partition1);
+        Mockito.when(olapTable.getPartition(2L)).thenReturn(null);
+
+        List<ScanNode> scanNodes = Lists.newArrayList(node);
+        ConnectContext context = new ConnectContext();
+        Config.cache_enable_sql_mode = true;
+        context.getSessionVariable().setEnableSqlCache(true);
+        CacheAnalyzer analyzer = new CacheAnalyzer(context, parsedStmt, scanNodes);
+
+        analyzer.checkCacheModeForNereids(0);
+
+        Assert.assertEquals(CacheAnalyzer.CacheMode.None, analyzer.getCacheMode());
     }
 
     @Test

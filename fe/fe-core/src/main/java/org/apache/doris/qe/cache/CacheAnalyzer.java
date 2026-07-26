@@ -457,6 +457,11 @@ public class CacheAnalyzer {
             olapTable.getVersionInBatchForCloudMode(partitionIds);
         } catch (RpcException e) {
             LOG.warn("Failed to get version in batch for cloud mode, partitions {}.", partitionIds, e);
+        } catch (RuntimeException e) {
+            // In cloud mode, a partition dropped concurrently with this batch lookup resolves to
+            // null and surfaces here as an NPE (not RpcException). Swallow it and let the
+            // null-check below throw the controlled exception instead.
+            LOG.warn("Failed to get version in batch for cloud mode, partitions {}.", partitionIds, e);
         }
 
         for (Long partitionId : node.getSelectedPartitionIds()) {
