@@ -225,8 +225,10 @@ public final class CreateTableInfoToConnectorRequestConverter {
 
     /**
      * Carries the {@code ORDER BY (...)} write-order clause neutrally so a connector (iceberg) can build an
-     * engine sort order. Iceberg-specific validation (column existence, no metric-only types, no duplicates)
-     * already ran in fe-core {@code CreateTableInfo} before this conversion; here we only map the shape.
+     * engine sort order. fe-core only gates the clause generically -- a target that does not declare
+     * {@code SUPPORTS_SORT_ORDER} is rejected in {@code CreateTableInfo} -- while the sort columns themselves
+     * are validated by the connector ({@code IcebergConnectorMetadata.validateSortOrder}). Here we only map
+     * the shape.
      */
     private static List<ConnectorSortField> convertSortOrder(List<SortFieldInfo> sortFields) {
         if (sortFields == null || sortFields.isEmpty()) {
