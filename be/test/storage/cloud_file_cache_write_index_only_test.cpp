@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -671,6 +672,99 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     expect_segment_write_bypasses_file_cache(created_files);
     expect_inverted_index_writes_file_cache(created_files);
     expect_loader_open_file_is_mocked_out(s3_write_counters);
+}
+
+TEST_F(CloudFileCacheWriteIndexOnlyTest, LoadWithoutInvertedIndexStillPreloadsSegmentIndexes) {
+    auto tablet_schema = create_schema();
+    RowsetWriterContext context = create_context(tablet_schema);
+
+    std::vector<ObservedIndexPreload> observed;
+    std::vector<CreatedS3File> created_files;
+    int preload_task_count = 0;
+    WriterFlushCounters writer_flush_counters;
+    S3WriteCounters s3_write_counters;
+    SyncPoint::CallbackGuard load_guard;
+    SyncPoint::CallbackGuard task_guard;
+    SyncPoint::CallbackGuard vertical_writer_guard;
+    SyncPoint::CallbackGuard segment_writer_guard;
+    SyncPoint::CallbackGuard s3_client_guard;
+    SyncPoint::CallbackGuard s3_put_guard;
+    SyncPoint::CallbackGuard create_file_guard;
+    SyncPoint::CallbackGuard close_file_guard;
+    SyncPoint::CallbackGuard s3_open_file_guard;
+    install_observers(&observed, &created_files, &preload_task_count, &writer_flush_counters,
+                      &s3_write_counters, &load_guard, &task_guard, &vertical_writer_guard,
+                      &segment_writer_guard, &s3_client_guard, &s3_put_guard, &create_file_guard,
+                      &close_file_guard, &s3_open_file_guard);
+
+    auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, false);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    auto block = create_full_block(tablet_schema, 1);
+    ASSERT_TRUE(rowset_writer->flush_single_block(&block).ok());
+
+    RowsetSharedPtr rowset;
+    auto st = rowset_writer->build(rowset);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(rowset, nullptr);
+
+    EXPECT_EQ(preload_task_count, 1);
+    ASSERT_EQ(observed.size(), 2);
+    for (const auto& item : observed) {
+        EXPECT_EQ(item.segment_id, 0);
+        EXPECT_EQ(item.reason, SegmentIndexFileCacheLoadReason::LOAD);
+        EXPECT_EQ(item.closed_segment_files, 1);
+    }
+    EXPECT_TRUE(std::none_of(created_files.begin(), created_files.end(), [](const auto& file) {
+        return file.file_type == FileType::INVERTED_INDEX_FILE;
+    }));
+    expect_segment_write_bypasses_file_cache(created_files);
+    expect_loader_open_file_is_mocked_out(s3_write_counters);
+}
+
+TEST_F(CloudFileCacheWriteIndexOnlyTest, PreloadBufferSkipsTasksWhenFeatureDisabled) {
+    auto context = create_context(create_schema());
+    config::enable_file_cache_write_index_file_only = false;
+
+    int preload_calls = 0;
+    SyncPoint::CallbackGuard preload_guard;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back(
+            "SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache",
+            [&](auto&& /*values*/) { ++preload_calls; }, &preload_guard);
+    sync_point->enable_processing();
+
+    segment_v2::SegmentIndexFileCacheInfo info;
+    info.segment_file_size = 2;
+    info.add_index_range(1, 1);
+    segment_v2::SegmentIndexFileCachePreloadBuffer preload_buffer(context);
+    preload_buffer.record(7, std::move(info));
+
+    EXPECT_TRUE(preload_buffer.preload().ok());
+    EXPECT_EQ(preload_calls, 0);
+}
+
+TEST_F(CloudFileCacheWriteIndexOnlyTest, PreloadBufferSkipsTasksForLocalRowset) {
+    auto context = create_context(create_schema());
+    context.storage_resource.reset();
+
+    int preload_calls = 0;
+    SyncPoint::CallbackGuard preload_guard;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back(
+            "SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache",
+            [&](auto&& /*values*/) { ++preload_calls; }, &preload_guard);
+    sync_point->enable_processing();
+
+    segment_v2::SegmentIndexFileCacheInfo info;
+    info.segment_file_size = 2;
+    info.add_index_range(1, 1);
+    segment_v2::SegmentIndexFileCachePreloadBuffer preload_buffer(context);
+    preload_buffer.record(7, std::move(info));
+
+    EXPECT_TRUE(preload_buffer.preload().ok());
+    EXPECT_EQ(preload_calls, 0);
 }
 
 TEST_F(CloudFileCacheWriteIndexOnlyTest,

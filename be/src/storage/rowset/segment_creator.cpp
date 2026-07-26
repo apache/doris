@@ -60,7 +60,10 @@ using namespace ErrorCode;
 
 SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                                InvertedIndexFileCollection& idx_files)
-        : _context(context), _seg_files(seg_files), _idx_files(idx_files) {}
+        : _context(context),
+          _seg_files(seg_files),
+          _idx_files(idx_files),
+          _segment_index_file_cache_preload_buffer(context) {}
 
 SegmentFlusher::~SegmentFlusher() = default;
 
@@ -98,26 +101,11 @@ Status SegmentFlusher::close() {
     if (!status.ok() && first_error.ok()) {
         first_error = std::move(status);
     }
-    if (first_error.ok()) {
-        first_error = _preload_segment_indexes_to_file_cache();
-    }
     return first_error;
 }
 
-void SegmentFlusher::_record_segment_index_file_cache_preload(
-        uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info) {
-    std::lock_guard lock(_segment_index_file_cache_preloads_lock);
-    _segment_index_file_cache_preloads.push_back({segment_id, info});
-}
-
-Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
-    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> tasks;
-    {
-        std::lock_guard lock(_segment_index_file_cache_preloads_lock);
-        tasks.swap(_segment_index_file_cache_preloads);
-    }
-    return segment_v2::SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(_context,
-                                                                                          tasks);
+Status SegmentFlusher::preload_segment_indexes_to_file_cache() {
+    return _segment_index_file_cache_preload_buffer.preload();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -275,7 +263,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.key_bounds = key_bounds;
 
     writer.reset();
-    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
+    _segment_index_file_cache_preload_buffer.record(segment_id, std::move(index_file_cache_info));
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
@@ -355,7 +343,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.key_bounds = key_bounds;
 
     writer.reset();
-    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
+    _segment_index_file_cache_preload_buffer.record(segment_id, std::move(index_file_cache_info));
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
@@ -490,7 +478,10 @@ Status SegmentCreator::close() {
     if (!write_status.ok()) {
         return write_status;
     }
-    return close_status;
+    if (!close_status.ok()) {
+        return close_status;
+    }
+    return _segment_flusher.preload_segment_indexes_to_file_cache();
 }
 
 } // namespace doris

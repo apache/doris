@@ -116,6 +116,7 @@ public:
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
     Status close();
+    Status preload_segment_indexes_to_file_cache();
 
 public:
     class Writer {
@@ -154,9 +155,6 @@ private:
                                  int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
-    void _record_segment_index_file_cache_preload(
-            uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info);
-    Status _preload_segment_indexes_to_file_cache();
 
 private:
     RowsetWriterContext& _context;
@@ -169,8 +167,7 @@ private:
     std::atomic<int64_t> _num_rows_new_added = 0;
     std::atomic<int64_t> _num_rows_deleted = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
-    std::mutex _segment_index_file_cache_preloads_lock;
-    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> _segment_index_file_cache_preloads;
+    segment_v2::SegmentIndexFileCachePreloadBuffer _segment_index_file_cache_preload_buffer;
 };
 
 class SegmentCreator {

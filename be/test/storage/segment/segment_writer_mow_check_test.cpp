@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "cpp/sync_point.h"
 #include "io/fs/file_writer.h"
@@ -171,6 +172,42 @@ public:
     int64_t last_row_count = 0;
 };
 
+class FailingSecondSegmentCollector final : public SegmentCollector {
+public:
+    Status add(uint32_t /*segment_id*/, SegmentStatistics& /*segstat*/) override {
+        ++add_calls;
+        if (add_calls == 2) {
+            return Status::IOError("injected second segment collector failure");
+        }
+        return Status::OK();
+    }
+
+    int add_calls = 0;
+};
+
+class ScopedIndexOnlyFileCacheSetting {
+public:
+    ScopedIndexOnlyFileCacheSetting()
+            : _enable_file_cache(config::enable_file_cache),
+              _enable_index_only(config::enable_file_cache_write_index_file_only),
+              _cloud_unique_id(config::cloud_unique_id) {
+        config::enable_file_cache = true;
+        config::enable_file_cache_write_index_file_only = true;
+        config::cloud_unique_id = "segment_creator_preload_failure_ut";
+    }
+
+    ~ScopedIndexOnlyFileCacheSetting() {
+        config::enable_file_cache = _enable_file_cache;
+        config::enable_file_cache_write_index_file_only = _enable_index_only;
+        config::cloud_unique_id = _cloud_unique_id;
+    }
+
+private:
+    bool _enable_file_cache;
+    bool _enable_index_only;
+    std::string _cloud_unique_id;
+};
+
 class ScopedVerticalSegmentWriterSetting {
 public:
     explicit ScopedVerticalSegmentWriterSetting(bool enabled)
@@ -262,7 +299,7 @@ TEST_F(SegmentCreatorTest, FinishIndexCloseFailureSkipsPreload) {
     RowsetWriterContext context;
     SegmentFileCollection segment_files;
     InvertedIndexFileCollection index_files;
-    SegmentFlusher flusher(context, segment_files, index_files);
+    SegmentCreator creator(context, segment_files, index_files);
 
     const auto expected_status = Status::IOError("injected index finish close failure");
     int preload_calls = 0;
@@ -282,7 +319,7 @@ TEST_F(SegmentCreatorTest, FinishIndexCloseFailureSkipsPreload) {
             [&](auto&& /*values*/) { ++preload_calls; }, &preload_guard);
     ScopedSyncPointProcessing sync_point_processing;
 
-    const auto status = flusher.close();
+    const auto status = creator.close();
     EXPECT_EQ(status.code(), expected_status.code());
     EXPECT_EQ(status.msg(), expected_status.msg());
     EXPECT_EQ(preload_calls, 0);
@@ -353,6 +390,59 @@ TEST_F(SegmentCreatorTest, StreamingAddFailureTerminatesCreatorAndClosesWriter) 
     EXPECT_EQ(close_status.msg(), ordinary_status.msg());
     EXPECT_EQ(failed_file_writer->state(), io::FileWriter::State::CLOSED);
     EXPECT_EQ(segment_collector->add_calls, 0);
+}
+
+TEST_F(SegmentCreatorTest, WriteFailureAfterBufferedSegmentSkipsPreload) {
+    ScopedVerticalSegmentWriterSetting vertical_writer_setting(false);
+    ScopedIndexOnlyFileCacheSetting file_cache_setting;
+
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*create_int_key(0));
+    schema->_keys_type = DUP_KEYS;
+    RowsetId rowset_id;
+    rowset_id.init(1016);
+    auto file_writer_creator = std::make_shared<TrackingFileWriterCreator>(rowset_id.to_string());
+    auto segment_collector = std::make_shared<FailingSecondSegmentCollector>();
+    RowsetWriterContext context;
+    context.rowset_id = rowset_id;
+    context.tablet_id = 1016;
+    context.tablet_schema = schema;
+    context.tablet_path = kSegmentDir;
+    context.storage_resource.emplace();
+    context.file_writer_creator = file_writer_creator;
+    context.segment_collector = segment_collector;
+
+    SegmentFileCollection segment_files;
+    InvertedIndexFileCollection index_files;
+    SegmentCreator creator(context, segment_files, index_files);
+
+    int preload_calls = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard preload_guard;
+    sync_point->set_call_back(
+            "SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache",
+            [&](auto&& /*values*/) {
+                ++preload_calls;
+                config::enable_file_cache_write_index_file_only = false;
+            },
+            &preload_guard);
+    ScopedSyncPointProcessing sync_point_processing;
+
+    Block block = schema->create_block();
+    auto columns = std::move(block).mutate_columns();
+    const int32_t value = 42;
+    columns[0]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+    block.set_columns(std::move(columns));
+
+    ASSERT_TRUE(creator.flush_single_block(&block, 0).ok());
+    const auto write_status = creator.flush_single_block(&block, 1);
+    EXPECT_FALSE(write_status.ok());
+    EXPECT_EQ(segment_collector->add_calls, 2);
+
+    const auto close_status = creator.close();
+    EXPECT_EQ(close_status.code(), write_status.code());
+    EXPECT_EQ(close_status.msg(), write_status.msg());
+    EXPECT_EQ(preload_calls, 0);
 }
 
 TEST_F(SegmentWriterMowCheckTest, segment_writer_is_mow_false_for_dup_key) {

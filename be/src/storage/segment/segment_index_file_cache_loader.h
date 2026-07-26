@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -96,6 +97,20 @@ public:
             const std::vector<SegmentIndexFileCachePreloadTask>& tasks);
 
     static Status load_segment_index_to_file_cache(const SegmentIndexFileCacheLoadContext& ctx);
+};
+
+class SegmentIndexFileCachePreloadBuffer {
+public:
+    explicit SegmentIndexFileCachePreloadBuffer(const RowsetWriterContext& context)
+            : _context(context) {}
+
+    void record(uint32_t segment_id, SegmentIndexFileCacheInfo info);
+    Status preload();
+
+private:
+    const RowsetWriterContext& _context;
+    std::mutex _lock;
+    std::vector<SegmentIndexFileCachePreloadTask> _tasks;
 };
 
 } // namespace segment_v2
