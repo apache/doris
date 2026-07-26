@@ -24,6 +24,7 @@
 #include "block_file_cache_test_common.h"
 #include "io/fs/buffered_reader.h"
 #include "olap/olap_define.h"
+
 namespace doris::io {
 
 class FileBlockTestAccessor {
@@ -427,6 +428,25 @@ io::DiskScanRoundResult run_disk_scan_once_for_test(io::BlockFileCache& cache) {
     auto result = cache.run_disk_scan_repair_once_for_test();
     config::enable_file_cache_disk_scan_repair = false;
     return result;
+}
+
+io::FileCacheSettings disk_scan_test_settings() {
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 600;
+    settings.query_queue_elements = 100;
+    settings.ttl_queue_size = 600;
+    settings.ttl_queue_elements = 100;
+    settings.capacity = 1200;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    return settings;
+}
+
+void wait_for_async_open(io::BlockFileCache& cache) {
+    for (int i = 0; i < 1000 && !cache.get_async_open_success(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
 }
 
 void test_file_cache(io::FileCacheType cache_type) {
@@ -3350,6 +3370,347 @@ TEST_F(BlockFileCacheTest, disk_scan_repair_keeps_mismatched_memory_block) {
     auto result = run_disk_scan_once_for_test(cache);
     EXPECT_EQ(result.repaired_files, 0);
     EXPECT_TRUE(fs::exists(file_path));
+}
+
+TEST_F(BlockFileCacheTest, ttl_mixed_expiration_hole_skips_cache) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+
+    auto key = io::BlockFileCache::hash("ttl_mixed_expiration_hole_skips_cache");
+    auto expiration1 = UnixSeconds() + 300;
+    auto expiration2 = expiration1 + 300;
+    create_cache_file(key_dir_path(key, expiration1) / "0");
+    create_cache_file(key_dir_path(key, expiration2) / "10");
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = expiration2 + 300;
+    auto holder = cache.get_or_set(key, 0, 15, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 3);
+    EXPECT_EQ(blocks[0]->state_unsafe(), io::FileBlock::State::DOWNLOADED);
+    EXPECT_EQ(blocks[1]->state_unsafe(), io::FileBlock::State::SKIP_CACHE);
+    EXPECT_EQ(blocks[2]->state_unsafe(), io::FileBlock::State::DOWNLOADED);
+    EXPECT_FALSE(fs::exists(key_dir_path(key, expiration1) / "5"));
+    EXPECT_FALSE(fs::exists(key_dir_path(key, expiration2) / "5"));
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_repair_skips_incomplete_startup_image) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+    sp->set_call_back("FSFileCacheStorage::load_cache_info_into_memory", [](auto&& args) {
+        *try_any_cast<Status*>(args[0]) = Status::IOError("inject incomplete startup image");
+    });
+    sp->enable_processing();
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+
+    auto key = io::BlockFileCache::hash("disk_scan_repair_skips_incomplete_startup_image");
+    auto file_path = key_dir_path(key, 0) / "0";
+    create_cache_file(file_path);
+    auto result = run_disk_scan_once_for_test(cache);
+    EXPECT_EQ(result.repaired_files, 0);
+    EXPECT_TRUE(fs::exists(file_path));
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_repair_keeps_ttl_dir_on_exists_error) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    auto key = io::BlockFileCache::hash("disk_scan_repair_keeps_ttl_dir_on_exists_error");
+    auto canonical_expiration = UnixSeconds() + 300;
+    auto stale_expiration = canonical_expiration + 300;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = canonical_expiration;
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+    {
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+    create_cache_file(key_dir_path(key, stale_expiration) / "10");
+
+    sp->set_call_back("BlockFileCache::disk_scan_canonical_path_exists", [](auto&& args) {
+        *try_any_cast<Status*>(args[0]) = Status::IOError("inject exists error");
+    });
+    sp->enable_processing();
+    auto result = run_disk_scan_once_for_test(cache);
+    EXPECT_EQ(result.repaired_dirs, 0);
+    EXPECT_TRUE(fs::exists(key_dir_path(key, stale_expiration)));
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_dynamic_disable_cancels_round) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+    auto key = io::BlockFileCache::hash("disk_scan_dynamic_disable_cancels_round");
+    auto file_path = key_dir_path(key, 0) / "0";
+    create_cache_file(file_path);
+
+    std::atomic<int> token_count {0};
+    sp->set_call_back("FSFileCacheStorage::before_disk_scan_token", [&](auto&&) {
+        if (++token_count == 2) {
+            config::enable_file_cache_disk_scan_repair = false;
+        }
+    });
+    sp->enable_processing();
+    auto result = run_disk_scan_once_for_test(cache);
+    EXPECT_EQ(result.repaired_files, 0);
+    EXPECT_TRUE(fs::exists(file_path));
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_shutdown_interrupts_rate_limit_wait) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    config::enable_file_cache_disk_scan_repair = true;
+    config::file_cache_disk_scan_scan_rate_qps = 1;
+    auto key = io::BlockFileCache::hash("disk_scan_shutdown_interrupts_rate_limit_wait");
+    create_cache_file(key_dir_path(key, 0) / "0");
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    int token_count = 0;
+    bool limiter_wait_started = false;
+    sp->set_call_back("FSFileCacheStorage::before_disk_scan_token", [&](auto&&) {
+        std::lock_guard lock(mutex);
+        if (++token_count == 2) {
+            limiter_wait_started = true;
+            cv.notify_all();
+        }
+    });
+    sp->enable_processing();
+
+    auto cache = std::make_unique<io::BlockFileCache>(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache->initialize());
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(
+                cv.wait_for(lock, std::chrono::seconds(5), [&] { return limiter_wait_started; }));
+    }
+    auto start = std::chrono::steady_clock::now();
+    cache.reset();
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    EXPECT_LT(elapsed, std::chrono::milliseconds(500));
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_repair_publish_is_fenced_by_quarantine) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    auto key = io::BlockFileCache::hash("disk_scan_repair_publish_is_fenced_by_quarantine");
+    auto file_path = key_dir_path(key, 0) / "0";
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+    create_cache_file(file_path, "old00");
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    Status writer_status = Status::OK();
+    std::thread writer;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool writer_started = false;
+    sp->set_call_back("BlockFileCache::before_disk_scan_quarantine_rename", [&](auto&&) {
+        writer = std::thread([&] {
+            {
+                std::lock_guard lock(mutex);
+                writer_started = true;
+                cv.notify_all();
+            }
+            auto holder = cache.get_or_set(key, 0, 5, context);
+            auto blocks = fromHolder(holder);
+            if (blocks.size() != 1 ||
+                blocks[0]->get_or_set_downloader() != io::FileBlock::get_caller_id()) {
+                writer_status = Status::InternalError("failed to acquire downloader");
+                return;
+            }
+            writer_status = blocks[0]->append(Slice("new00", 5));
+            if (writer_status.ok()) {
+                writer_status = blocks[0]->finalize();
+            }
+        });
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(1), [&] { return writer_started; }));
+    });
+    sp->enable_processing();
+
+    auto result = run_disk_scan_once_for_test(cache);
+    ASSERT_TRUE(writer.joinable());
+    writer.join();
+    ASSERT_TRUE(writer_status.ok()) << writer_status;
+    EXPECT_EQ(result.repaired_files, 1);
+    ASSERT_TRUE(fs::exists(file_path));
+    std::ifstream file(file_path, std::ios::binary);
+    std::string content(5, '\0');
+    file.read(content.data(), content.size());
+    EXPECT_EQ(content, "new00");
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_repair_ttl_reactivation_is_fenced_by_quarantine) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    config::file_cache_disk_scan_enable_disk_memory_checker = false;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    auto key =
+            io::BlockFileCache::hash("disk_scan_repair_ttl_reactivation_is_fenced_by_quarantine");
+    auto canonical_expiration = UnixSeconds() + 300;
+    auto next_expiration = canonical_expiration + 300;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = canonical_expiration;
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+    io::FileBlockSPtr block;
+    {
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        block = blocks[0];
+        ASSERT_EQ(block->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(block);
+    }
+    create_cache_file(key_dir_path(key, next_expiration) / "10");
+
+    std::thread modifier;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool modifier_started = false;
+    sp->set_call_back("BlockFileCache::before_disk_scan_quarantine_rename", [&](auto&&) {
+        modifier = std::thread([&] {
+            {
+                std::lock_guard lock(mutex);
+                modifier_started = true;
+                cv.notify_all();
+            }
+            cache.modify_expiration_time(key, next_expiration);
+        });
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(1), [&] { return modifier_started; }));
+    });
+    sp->enable_processing();
+
+    auto result = run_disk_scan_once_for_test(cache);
+    ASSERT_TRUE(modifier.joinable());
+    modifier.join();
+    EXPECT_EQ(result.repaired_dirs, 1);
+    EXPECT_EQ(block->expiration_time(), next_expiration);
+    EXPECT_FALSE(fs::exists(key_dir_path(key, canonical_expiration)));
+    EXPECT_TRUE(fs::exists(key_dir_path(key, next_expiration) / "0"));
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_repair_streams_ttl_hash_groups) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    auto settings = disk_scan_test_settings();
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+    ReadStatistics rstats;
+    io::CacheContext context;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = UnixSeconds() + 300;
+    std::vector<UInt128Wrapper> keys {
+            io::BlockFileCache::hash("disk_scan_repair_streams_ttl_hash_groups_1"),
+            io::BlockFileCache::hash("disk_scan_repair_streams_ttl_hash_groups_2")};
+    for (const auto& key : keys) {
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        create_cache_file(key_dir_path(key, context.expiration_time + 300) / "10");
+    }
+
+    size_t max_group_size = 0;
+    size_t group_count = 0;
+    sp->set_call_back("BlockFileCache::finalize_disk_scan_ttl_group", [&](auto&& args) {
+        max_group_size = std::max(max_group_size, *try_any_cast<size_t*>(args[0]));
+        ++group_count;
+    });
+    sp->enable_processing();
+    auto result = run_disk_scan_once_for_test(cache);
+    EXPECT_EQ(result.repaired_dirs, 2);
+    EXPECT_EQ(group_count, 2);
+    EXPECT_EQ(max_group_size, 2);
+}
+
+TEST(TokenBucketRateLimiterTest, cancellable_wait) {
+    TokenBucketRateLimiter limiter(1, 0, 0);
+    std::atomic_bool cancelled {false};
+    std::thread canceller([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        cancelled = true;
+    });
+    auto start = std::chrono::steady_clock::now();
+    limiter.add(1, [&] { return cancelled.load(); });
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    canceller.join();
+    EXPECT_LT(elapsed, std::chrono::milliseconds(500));
 }
 
 TEST_F(BlockFileCacheTest, io_error) {

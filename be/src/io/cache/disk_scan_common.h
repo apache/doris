@@ -54,6 +54,7 @@ struct DiskScanBlockFileEntry {
 
 using DiskScanKeyDirCallback = std::function<Status(const DiskScanKeyDirEntry&)>;
 using DiskScanBlockFileCallback = std::function<Status(const DiskScanBlockFileEntry&)>;
+using DiskScanCancellationCallback = std::function<bool()>;
 
 enum class DiskScanRepairActionType {
     DELETE_FILE,

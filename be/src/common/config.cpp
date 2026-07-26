@@ -1189,7 +1189,7 @@ DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
-DEFINE_mBool(enable_file_cache_disk_scan_repair, "true");
+DEFINE_mBool(enable_file_cache_disk_scan_repair, "false");
 DEFINE_mInt64(file_cache_disk_scan_interval_ms, "1800000");
 DEFINE_mInt64(file_cache_disk_scan_initial_jitter_ms, "300000");
 DEFINE_mInt64(file_cache_disk_scan_scan_rate_qps, "2000");

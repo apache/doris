@@ -31,7 +31,7 @@ public:
 
     // Use `amount` remain_tokens, sleeps if required or throws exception on limit overflow.
     // Returns duration of sleep in nanoseconds for metrics.
-    int64_t add(size_t amount);
+    int64_t add(size_t amount, const std::function<bool()>& should_cancel = {});
 
     size_t get_max_speed() const { return _max_speed; }
 
@@ -57,7 +57,7 @@ public:
                                  std::function<void(int64_t)> metric_func);
     ~TokenBucketRateLimiterHolder();
 
-    int64_t add(size_t amount);
+    int64_t add(size_t amount, const std::function<bool()>& should_cancel = {});
 
     int reset(size_t max_speed, size_t max_burst, size_t limit);
 

@@ -67,13 +67,25 @@ public:
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
     virtual Status scan_disk_cache(DiskScanKeyDirCallback, DiskScanBlockFileCallback,
-                                   TokenBucketRateLimiterHolder*) {
-        return Status::OK();
+                                   TokenBucketRateLimiterHolder*, DiskScanCancellationCallback) {
+        return Status::NotSupported("disk cache scan is not supported by this storage");
     }
     virtual bool has_active_writer(const UInt128Wrapper&, size_t) { return false; }
     virtual bool has_active_writer_for_hash(const UInt128Wrapper&) { return false; }
-    virtual Status delete_file_for_disk_scan(const std::filesystem::path&) { return Status::OK(); }
-    virtual Status delete_dir_for_disk_scan(const std::filesystem::path&) { return Status::OK(); }
+    virtual Status delete_file_for_disk_scan(const std::filesystem::path&) {
+        return Status::NotSupported("disk scan file deletion is not supported by this storage");
+    }
+    virtual Status delete_dir_for_disk_scan(const std::filesystem::path&) {
+        return Status::NotSupported(
+                "disk scan directory deletion is not supported by this storage");
+    }
+    virtual Status rename_for_disk_scan(const std::filesystem::path&,
+                                        const std::filesystem::path&) {
+        return Status::NotSupported("disk scan quarantine is not supported by this storage");
+    }
+    virtual Status exists_for_disk_scan(const std::filesystem::path&, bool*) {
+        return Status::NotSupported("disk scan exists is not supported by this storage");
+    }
     // force clear all current data in the cache
     virtual Status clear(std::string& msg) = 0;
     virtual FileCacheStorageType get_type() = 0;

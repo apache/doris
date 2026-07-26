@@ -22,6 +22,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <thread>
+#include <unordered_set>
 
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
@@ -73,11 +74,15 @@ public:
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                            DiskScanBlockFileCallback on_block_file,
-                           TokenBucketRateLimiterHolder* scan_limiter) override;
+                           TokenBucketRateLimiterHolder* scan_limiter,
+                           DiskScanCancellationCallback should_cancel) override;
     bool has_active_writer(const UInt128Wrapper& hash, size_t offset) override;
     bool has_active_writer_for_hash(const UInt128Wrapper& hash) override;
     Status delete_file_for_disk_scan(const std::filesystem::path& path) override;
     Status delete_dir_for_disk_scan(const std::filesystem::path& path) override;
+    Status rename_for_disk_scan(const std::filesystem::path& from,
+                                const std::filesystem::path& to) override;
+    Status exists_for_disk_scan(const std::filesystem::path& path, bool* exists) override;
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 
@@ -103,7 +108,8 @@ private:
     void remove_old_version_directories();
 
     Status collect_directory_entries(const std::filesystem::path& dir_path,
-                                     std::vector<std::string>& file_list) const;
+                                     std::vector<std::string>& file_list,
+                                     const DiskScanCancellationCallback& should_cancel = {}) const;
 
     Status upgrade_cache_dir_if_necessary() const;
 
@@ -119,7 +125,7 @@ private:
 
     [[nodiscard]] std::string get_version_path() const;
 
-    void load_cache_info_into_memory(BlockFileCache* _mgr) const;
+    Status load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
     [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
             const std::string& dir, size_t offset);
@@ -130,6 +136,7 @@ private:
     // TODO(Lchangliang): use a more efficient data structure
     std::mutex _mtx;
     std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
+    std::unordered_set<FileWriterMapKey, FileWriterMapKeyHash> _publishing_writers;
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
 };
 

@@ -88,7 +88,7 @@ std::pair<size_t, double> TokenBucketRateLimiter::_update_remain_token(long now,
     return {count_value, tokens_value};
 }
 
-int64_t TokenBucketRateLimiter::add(size_t amount) {
+int64_t TokenBucketRateLimiter::add(size_t amount, const std::function<bool()>& should_cancel) {
     auto duration = std::chrono::steady_clock::now().time_since_epoch();
     auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
     auto [count_value, tokens_value] = _update_remain_token(time_nano_count, amount);
@@ -100,7 +100,16 @@ int64_t TokenBucketRateLimiter::add(size_t amount) {
     int64_t sleep_time_ns = 0;
     if (_max_speed && tokens_value < 0) {
         sleep_time_ns = static_cast<int64_t>(-tokens_value / _max_speed * NS);
-        bthread_usleep(sleep_time_ns / 1000);
+        int64_t remaining_sleep_us = sleep_time_ns / 1000;
+        int64_t actual_sleep_us = 0;
+        constexpr int64_t MAX_CANCELLABLE_SLEEP_US = 10000;
+        while (remaining_sleep_us > 0 && (!should_cancel || !should_cancel())) {
+            int64_t current_sleep_us = std::min(remaining_sleep_us, MAX_CANCELLABLE_SLEEP_US);
+            bthread_usleep(current_sleep_us);
+            remaining_sleep_us -= current_sleep_us;
+            actual_sleep_us += current_sleep_us;
+        }
+        sleep_time_ns = actual_sleep_us * 1000;
     }
 
     return sleep_time_ns;
@@ -112,11 +121,12 @@ TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, siz
         : rate_limiter(std::make_unique<TokenBucketRateLimiter>(max_speed, max_burst, limit)),
           metric_func(std::move(metric_func)) {}
 
-int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
+int64_t TokenBucketRateLimiterHolder::add(size_t amount,
+                                          const std::function<bool()>& should_cancel) {
     int64_t sleep;
     {
         std::shared_lock read {rate_limiter_rw_lock};
-        sleep = rate_limiter->add(amount);
+        sleep = rate_limiter->add(amount, should_cancel);
     }
     metric_func(sleep);
     return sleep;

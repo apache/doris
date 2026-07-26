@@ -179,7 +179,12 @@ Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
                 throw doris::Exception(Status::InternalError(msg));
             }
         }
-        load_cache_info_into_memory(mgr);
+        auto load_st = load_cache_info_into_memory(mgr);
+        mgr->_async_open_success = load_st.ok();
+        if (!load_st.ok()) {
+            LOG(WARNING) << "File cache lazy load finished with an incomplete memory image. path="
+                         << _cache_base_path << ", error=" << load_st;
+        }
         TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::before_async_open_done");
         mgr->_async_open_done = true;
         LOG_INFO("file cache {} lazy load done.", _cache_base_path);
@@ -214,9 +219,9 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
 
 Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
     FileWriterPtr file_writer;
+    auto file_writer_map_key = std::make_pair(key.hash, key.offset);
     {
         std::lock_guard lock(_mtx);
-        auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto iter = _key_to_writer.find(file_writer_map_key);
         if (iter == _key_to_writer.end()) {
             return Status::InternalError(
@@ -227,13 +232,24 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
         }
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
+        // Keep a publish marker until the final rename has completed. Disk repair must not
+        // observe a false idle window between removing the writer and publishing its file.
+        _publishing_writers.insert(file_writer_map_key);
     }
+    Status st = Status::OK();
     if (file_writer->state() != FileWriter::State::CLOSED) {
-        RETURN_IF_ERROR(file_writer->close());
+        st = file_writer->close();
     }
-    std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-    std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
-    return fs->rename(file_writer->path(), true_file);
+    if (st.ok()) {
+        std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
+        std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
+        st = fs->rename(file_writer->path(), true_file);
+    }
+    {
+        std::lock_guard lock(_mtx);
+        _publishing_writers.erase(file_writer_map_key);
+    }
+    return st;
 }
 
 Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer) {
@@ -346,15 +362,25 @@ Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
 
 Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                                            DiskScanBlockFileCallback on_block_file,
-                                           TokenBucketRateLimiterHolder* scan_limiter) {
-    auto consume_scan_token = [&]() {
-        if (scan_limiter != nullptr) {
-            scan_limiter->add(1);
+                                           TokenBucketRateLimiterHolder* scan_limiter,
+                                           DiskScanCancellationCallback should_cancel) {
+    auto is_cancelled = [&]() { return should_cancel && should_cancel(); };
+    auto consume_scan_token = [&]() -> bool {
+        if (is_cancelled()) {
+            return false;
         }
+        TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::before_disk_scan_token");
+        if (scan_limiter != nullptr) {
+            scan_limiter->add(1, should_cancel);
+        }
+        return !is_cancelled();
     };
 
     auto scan_key_dir = [&](const std::string& prefix,
                             const std::filesystem::path& key_dir_path) -> Status {
+        if (is_cancelled()) {
+            return Status::Cancelled("file cache disk scan cancelled");
+        }
         std::error_code ec;
         if (!std::filesystem::is_directory(key_dir_path, ec) || ec) {
             return Status::OK();
@@ -374,15 +400,22 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
         RETURN_IF_ERROR(on_key_dir(key_dir_entry));
 
         std::vector<std::string> block_files;
-        consume_scan_token();
-        auto st = collect_directory_entries(key_dir_path, block_files);
+        if (!consume_scan_token()) {
+            return Status::Cancelled("file cache disk scan cancelled");
+        }
+        auto st = collect_directory_entries(key_dir_path, block_files, should_cancel);
         if (!st.ok()) {
+            if (st.is<ErrorCode::CANCELLED>()) {
+                return st;
+            }
             LOG(WARNING) << "Failed to list file cache key dir " << key_dir_path
                          << ", error=" << st;
             return Status::OK();
         }
         for (const auto& block_file : block_files) {
-            consume_scan_token();
+            if (!consume_scan_token()) {
+                return Status::Cancelled("file cache disk scan cancelled");
+            }
             std::filesystem::path block_file_path(block_file);
             if (!std::filesystem::is_regular_file(block_file_path, ec) || ec) {
                 continue;
@@ -418,10 +451,15 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
 
     if constexpr (USE_CACHE_VERSION2) {
         std::vector<std::string> prefix_entries;
-        consume_scan_token();
-        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, prefix_entries));
+        if (!consume_scan_token()) {
+            return Status::Cancelled("file cache disk scan cancelled");
+        }
+        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, prefix_entries, should_cancel));
         std::sort(prefix_entries.begin(), prefix_entries.end());
         for (const auto& prefix_path_str : prefix_entries) {
+            if (is_cancelled()) {
+                return Status::Cancelled("file cache disk scan cancelled");
+            }
             std::filesystem::path prefix_path(prefix_path_str);
             std::error_code ec;
             if (!std::filesystem::is_directory(prefix_path, ec) || ec) {
@@ -433,9 +471,14 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
             }
 
             std::vector<std::string> key_dir_entries;
-            consume_scan_token();
-            auto st = collect_directory_entries(prefix_path, key_dir_entries);
+            if (!consume_scan_token()) {
+                return Status::Cancelled("file cache disk scan cancelled");
+            }
+            auto st = collect_directory_entries(prefix_path, key_dir_entries, should_cancel);
             if (!st.ok()) {
+                if (st.is<ErrorCode::CANCELLED>()) {
+                    return st;
+                }
                 LOG(WARNING) << "Failed to list file cache prefix dir " << prefix_path
                              << ", error=" << st;
                 continue;
@@ -447,8 +490,11 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
         }
     } else {
         std::vector<std::string> key_dir_entries;
-        consume_scan_token();
-        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, key_dir_entries));
+        if (!consume_scan_token()) {
+            return Status::Cancelled("file cache disk scan cancelled");
+        }
+        RETURN_IF_ERROR(
+                collect_directory_entries(_cache_base_path, key_dir_entries, should_cancel));
         std::sort(key_dir_entries.begin(), key_dir_entries.end());
         for (const auto& key_dir : key_dir_entries) {
             RETURN_IF_ERROR(scan_key_dir("", key_dir));
@@ -459,12 +505,18 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
 
 bool FSFileCacheStorage::has_active_writer(const UInt128Wrapper& hash, size_t offset) {
     std::lock_guard lock(_mtx);
-    return _key_to_writer.contains(std::make_pair(hash, offset));
+    auto key = std::make_pair(hash, offset);
+    return _key_to_writer.contains(key) || _publishing_writers.contains(key);
 }
 
 bool FSFileCacheStorage::has_active_writer_for_hash(const UInt128Wrapper& hash) {
     std::lock_guard lock(_mtx);
     for (const auto& [key, _] : _key_to_writer) {
+        if (key.first == hash) {
+            return true;
+        }
+    }
+    for (const auto& key : _publishing_writers) {
         if (key.first == hash) {
             return true;
         }
@@ -478,6 +530,15 @@ Status FSFileCacheStorage::delete_file_for_disk_scan(const std::filesystem::path
 
 Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path& path) {
     return fs->delete_directory(path);
+}
+
+Status FSFileCacheStorage::rename_for_disk_scan(const std::filesystem::path& from,
+                                                const std::filesystem::path& to) {
+    return fs->rename(from, to);
+}
+
+Status FSFileCacheStorage::exists_for_disk_scan(const std::filesystem::path& path, bool* exists) {
+    return fs->exists(path, exists);
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
@@ -582,14 +643,18 @@ void FSFileCacheStorage::remove_old_version_directories() {
     }
 }
 
-Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path& dir_path,
-                                                     std::vector<std::string>& file_list) const {
+Status FSFileCacheStorage::collect_directory_entries(
+        const std::filesystem::path& dir_path, std::vector<std::string>& file_list,
+        const DiskScanCancellationCallback& should_cancel) const {
     std::error_code ec;
     bool success = false;
     size_t retry_count = 0;
     const size_t max_retry = 5;
 
     while (!success && retry_count < max_retry) {
+        if (should_cancel && should_cancel()) {
+            return Status::Cancelled("file cache directory iteration cancelled");
+        }
         try {
             ++retry_count;
             std::filesystem::directory_iterator it {dir_path, ec};
@@ -602,6 +667,10 @@ Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path
 
             file_list.clear();
             for (; it != std::filesystem::directory_iterator(); ++it) {
+                if (should_cancel && should_cancel()) {
+                    file_list.clear();
+                    return Status::Cancelled("file cache directory iteration cancelled");
+                }
                 file_list.push_back(it->path().string());
             }
             success = true;
@@ -873,10 +942,16 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     return true;
 }
 
-void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
+Status FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
+    Status load_status = Status::OK();
+    auto remember_load_error = [&](const Status& st) {
+        if (load_status.ok()) {
+            load_status = st;
+        }
+    };
     auto add_cell_batch_func = [&]() {
         SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
 
@@ -901,37 +976,54 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         batch_load_buffer.clear();
     };
 
-    auto scan_file_cache = [&](std::filesystem::directory_iterator& key_it) {
+    auto scan_file_cache = [&](const std::vector<std::string>& key_paths) {
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
-        for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
-            auto key_with_suffix = key_it->path().filename().native();
-            auto delim_pos = key_with_suffix.find('_');
-            DCHECK(delim_pos != std::string::npos);
-            std::string key_str = key_with_suffix.substr(0, delim_pos);
-            std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
-            auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
+        for (const auto& key_path_str : key_paths) {
+            std::filesystem::path key_path(key_path_str);
             std::error_code ec;
-            std::filesystem::directory_iterator offset_it(key_it->path(), ec);
-            if (ec) [[unlikely]] {
-                LOG(WARNING) << "filesystem error, failed to remove file, file=" << key_it->path()
-                             << " error=" << ec.message();
+            if (!std::filesystem::is_directory(key_path, ec)) {
+                if (ec) {
+                    auto st = Status::IOError("failed to stat cache key directory {}, error={}",
+                                              key_path.native(), ec.message());
+                    LOG(WARNING) << st;
+                    remember_load_error(st);
+                }
                 continue;
             }
+
+            UInt128Wrapper hash;
+            uint64_t expiration_time = 0;
+            if (!parse_key_dir_name(key_path.filename().native(), &hash, &expiration_time)) {
+                continue;
+            }
+
+            std::vector<std::string> offset_paths;
+            auto list_st = collect_directory_entries(key_path, offset_paths);
+            if (!list_st.ok()) {
+                LOG(WARNING) << "Failed to load file cache key directory " << key_path
+                             << ", error=" << list_st;
+                remember_load_error(list_st);
+                continue;
+            }
+
             CacheContext context;
             context.query_id = TUniqueId();
-            long expiration_time = std::stoul(expiration_time_str);
             context.expiration_time = expiration_time;
-            for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
-                size_t size = offset_it->file_size(ec);
+            for (const auto& offset_path_str : offset_paths) {
+                std::filesystem::path offset_path(offset_path_str);
+                ec.clear();
+                size_t size = std::filesystem::file_size(offset_path, ec);
                 if (ec) [[unlikely]] {
-                    LOG(WARNING) << "skip cache file, file_size failed, file="
-                                 << offset_it->path().native() << " err=" << ec.message();
+                    auto st = Status::IOError("cache file_size failed, file={}, error={}",
+                                              offset_path.native(), ec.message());
+                    LOG(WARNING) << st;
+                    remember_load_error(st);
                     continue;
                 }
                 size_t offset = 0;
                 bool is_tmp = false;
                 FileCacheType cache_type = FileCacheType::NORMAL;
-                if (!parse_filename_suffix_to_cache_type(fs, offset_it->path().filename().native(),
+                if (!parse_filename_suffix_to_cache_type(fs, offset_path.filename().native(),
                                                          expiration_time, size, &offset, &is_tmp,
                                                          &cache_type)) {
                     continue;
@@ -940,8 +1032,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
                 BatchLoadArgs args;
                 args.ctx = context;
                 args.hash = hash;
-                args.key_path = key_it->path();
-                args.offset_path = offset_it->path();
+                args.key_path = key_path;
+                args.offset_path = offset_path;
                 args.size = size;
                 args.offset = offset;
                 args.is_tmp = is_tmp;
@@ -955,49 +1047,65 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             }
         }
     };
-    std::error_code ec;
+
     if constexpr (USE_CACHE_VERSION2) {
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::BeforeScan");
-        std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
-        if (ec) {
-            LOG(WARNING) << ec.message();
-            return;
+        std::vector<std::string> prefix_paths;
+        auto st = collect_directory_entries(_cache_base_path, prefix_paths);
+        if (!st.ok()) {
+            TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::load_cache_info_into_memory", &st);
+            return st;
         }
-        for (; key_prefix_it != std::filesystem::directory_iterator(); ++key_prefix_it) {
-            if (!key_prefix_it->is_directory()) {
+
+        for (const auto& prefix_path_str : prefix_paths) {
+            std::filesystem::path prefix_path(prefix_path_str);
+            std::error_code ec;
+            if (!std::filesystem::is_directory(prefix_path, ec)) {
+                if (ec) {
+                    auto stat_st =
+                            Status::IOError("failed to stat cache prefix directory {}, error={}",
+                                            prefix_path.native(), ec.message());
+                    LOG(WARNING) << stat_st;
+                    remember_load_error(stat_st);
+                }
                 // skip version file
                 continue;
             }
-            if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
-                LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
+            if (prefix_path.filename().native().size() != KEY_PREFIX_LENGTH) {
+                LOG(WARNING) << "Unknown directory " << prefix_path.native()
                              << ", try to remove it";
-                std::error_code ec;
-                std::filesystem::remove(key_prefix_it->path(), ec);
+                std::filesystem::remove(prefix_path, ec);
                 if (ec) {
-                    LOG(WARNING) << "failed to remove=" << key_prefix_it->path()
-                                 << " msg=" << ec.message();
+                    LOG(WARNING) << "failed to remove=" << prefix_path << " msg=" << ec.message();
                 }
                 continue;
             }
-            std::filesystem::directory_iterator key_it {key_prefix_it->path(), ec};
-            if (ec) {
-                LOG(WARNING) << ec.message();
+
+            std::vector<std::string> key_paths;
+            auto list_st = collect_directory_entries(prefix_path, key_paths);
+            if (!list_st.ok()) {
+                LOG(WARNING) << "Failed to load file cache prefix directory " << prefix_path
+                             << ", error=" << list_st;
+                remember_load_error(list_st);
                 continue;
             }
-            scan_file_cache(key_it);
+            scan_file_cache(key_paths);
         }
     } else {
-        std::filesystem::directory_iterator key_it {_cache_base_path, ec};
-        if (ec) {
-            LOG(WARNING) << ec.message();
-            return;
+        std::vector<std::string> key_paths;
+        auto st = collect_directory_entries(_cache_base_path, key_paths);
+        if (!st.ok()) {
+            TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::load_cache_info_into_memory", &st);
+            return st;
         }
-        scan_file_cache(key_it);
+        scan_file_cache(key_paths);
     }
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
     }
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
+    TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::load_cache_info_into_memory", &load_status);
+    return load_status;
 }
 
 void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,

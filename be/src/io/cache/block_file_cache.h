@@ -485,22 +485,29 @@ private:
     DiskScanRoundResult run_disk_scan_repair_once();
     void run_disk_scan_checkers(const DiskScanKeyDirEntry& entry,
                                 std::vector<DiskScanRepairAction>* actions,
-                                std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>,
-                                                   KeyHash>* ttl_dirs_by_hash,
+                                std::vector<DiskScanKeyDirEntry>* ttl_dirs_for_hash,
                                 DiskScanRoundResult* result);
     void run_disk_scan_checkers(const DiskScanBlockFileEntry& entry,
                                 std::vector<DiskScanRepairAction>* actions,
                                 DiskScanRoundResult* result);
-    void finalize_disk_scan_ttl_checker(
-            std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>, KeyHash>*
-                    ttl_dirs_by_hash,
-            std::vector<DiskScanRepairAction>* actions, DiskScanRoundResult* result);
+    void finalize_disk_scan_ttl_checker(std::vector<DiskScanKeyDirEntry>* ttl_dirs_for_hash,
+                                        std::vector<DiskScanRepairAction>* actions,
+                                        DiskScanRoundResult* result);
     void drain_disk_scan_actions(std::vector<DiskScanRepairAction>* actions,
                                  DiskScanRoundResult* result);
     bool disk_scan_file_is_deletable(const DiskScanRepairAction& action);
     bool disk_scan_dir_is_deletable(const DiskScanRepairAction& action);
     bool disk_scan_hash_has_stable_canonical_expiration(const UInt128Wrapper& hash,
                                                         uint64_t* canonical_expiration_time);
+    bool disk_scan_file_is_deletable_unlocked(const DiskScanRepairAction& action,
+                                              std::lock_guard<std::mutex>& cache_lock);
+    bool disk_scan_dir_is_deletable_unlocked(const DiskScanRepairAction& action,
+                                             std::lock_guard<std::mutex>& cache_lock);
+    bool disk_scan_hash_has_stable_canonical_expiration_unlocked(
+            const UInt128Wrapper& hash, uint64_t* canonical_expiration_time,
+            std::lock_guard<std::mutex>& cache_lock);
+    Status quarantine_disk_scan_action(const DiskScanRepairAction& action,
+                                       std::filesystem::path* quarantine_path);
     void run_background_gc();
     void run_background_lru_log_replay();
     size_t replay_lru_logs_once();
@@ -554,7 +561,7 @@ private:
     size_t _max_query_cache_size = 0;
 
     mutable std::mutex _mutex;
-    bool _close {false};
+    std::atomic_bool _close {false};
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
     std::thread _cache_background_monitor_thread;
@@ -566,6 +573,7 @@ private:
     std::thread _cache_background_lru_log_replay_thread;
     std::thread _cache_background_block_lru_update_thread;
     std::atomic_bool _async_open_done {false};
+    std::atomic_bool _async_open_success {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
     bool _need_evict_cache_in_advance {false};
