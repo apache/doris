@@ -168,6 +168,30 @@ public class ConnectorProcedureOpsDefaultsTest {
     }
 
     @Test
+    public void buildRewriteResultDefaultsToUnsupported() {
+        ConnectorProcedureOps ops = new BareProcedureOps();
+        // Same reasoning as planRewrite, and the failure mode is worse if it is softened: a default that
+        // returned an empty result would turn a misrouted distributed procedure into an empty result set the
+        // user cannot distinguish from "nothing to do". MUTATION: defaulting to an empty
+        // ConnectorProcedureResult -> no throw -> red.
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> ops.buildRewriteResult("rewrite_data_files",
+                        new ConnectorRewriteStatistics(0, 0, 0L, 0)));
+    }
+
+    @Test
+    public void rewriteStatisticsCarriesEachFieldVerbatim() {
+        // Four DISTINCT values: the engine fills this from three group sums plus one post-commit count, and the
+        // connector reads it back by name to render its row. A transposed getter is exactly the failure this
+        // object exists to make visible. MUTATION: any getter returning a neighbouring field -> red.
+        ConnectorRewriteStatistics stats = new ConnectorRewriteStatistics(3, 2, 4096L, 1);
+        Assertions.assertEquals(3, stats.getDataFileCount());
+        Assertions.assertEquals(2, stats.getAddedDataFileCount());
+        Assertions.assertEquals(4096L, stats.getTotalSizeBytes());
+        Assertions.assertEquals(1, stats.getDeleteFileCount());
+    }
+
+    @Test
     public void rewriteGroupExposesPathsAndStats() {
         ConnectorRewriteGroup g = new ConnectorRewriteGroup(
                 Collections.singleton("oss://b/db/t1/f1.parquet"), 3, 4096L, 2);

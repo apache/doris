@@ -75,7 +75,8 @@ public interface ConnectorProcedureOps {
      * Plans a {@link ProcedureExecutionMode#DISTRIBUTED} rewrite into bin-packed groups of data files for the
      * engine rewrite driver to execute (one {@code INSERT-SELECT} per group). The connector owns the
      * file-selection / grouping decision and returns it as engine-neutral {@link ConnectorRewriteGroup}s; the
-     * engine scopes each group's scan to its file paths and sums the per-group stats into the result row.
+     * engine scopes each group's scan to its file paths, sums the per-group stats, and hands them back to
+     * {@link #buildRewriteResult} for the connector to render.
      *
      * <p>Only meaningful for a procedure whose {@link #getExecutionMode} is {@code DISTRIBUTED}
      * (today: iceberg {@code rewrite_data_files}). The default throws — a connector with no distributed
@@ -99,6 +100,33 @@ public interface ConnectorProcedureOps {
             List<String> partitionNames) {
         throw new UnsupportedOperationException(
                 "planRewrite is only implemented for DISTRIBUTED procedures; '" + procedureName
+                        + "' is not one");
+    }
+
+    /**
+     * Renders what the engine-orchestrated rewrite did into this procedure's result (columns + rows). The
+     * result SHAPE belongs to the connector for a {@link ProcedureExecutionMode#DISTRIBUTED} procedure exactly
+     * as it does for a {@code SINGLE_CALL} one, where {@link #execute} returns the
+     * {@link ConnectorProcedureResult} directly — otherwise the engine would have to carry one connector's
+     * column names, and a second distributed procedure could only be added by branching on its name inside a
+     * general engine class.
+     *
+     * <p>Implementations must render LOCALLY: no table load, no remote call, no authorization scope. The
+     * engine also calls this on the "nothing to rewrite" path, where it deliberately has not opened a
+     * transaction (and therefore has nothing to scope an authorized call to).</p>
+     *
+     * <p>Only meaningful for a procedure whose {@link #getExecutionMode} is {@code DISTRIBUTED}. The default
+     * throws rather than returning an empty result, so a connector that declares {@code DISTRIBUTED} and
+     * forgets to implement this fails loudly instead of silently answering with an empty result set.</p>
+     *
+     * @param procedureName the procedure name (case-insensitive at the connector's discretion)
+     * @param statistics    what the rewrite covered and produced
+     * @return the procedure's result: the columns this procedure declares, and its rows
+     */
+    default ConnectorProcedureResult buildRewriteResult(String procedureName,
+            ConnectorRewriteStatistics statistics) {
+        throw new UnsupportedOperationException(
+                "buildRewriteResult is only implemented for DISTRIBUTED procedures; '" + procedureName
                         + "' is not one");
     }
 
