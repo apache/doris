@@ -328,6 +328,10 @@ class EsScanPlanProviderTest {
         });
         Assertions.assertNull(connector.getWritePlanProvider(),
                 "ES connector should expose no write plan provider, so every write is rejected");
+        // The ES-compatible FE HTTP endpoints probe for this capability and answer badRequest when it is
+        // absent, so ES must expose it (every other connector inherits the null default).
+        Assertions.assertNotNull(connector.getRestPassthrough(),
+                "ES fronts an HTTP source, so it must expose the passthrough capability the ES endpoints need");
         // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
         ConnectorContractValidator.validate(connector, "es");
     }

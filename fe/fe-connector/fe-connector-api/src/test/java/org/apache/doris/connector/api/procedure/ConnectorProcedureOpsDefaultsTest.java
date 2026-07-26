@@ -67,6 +67,15 @@ public class ConnectorProcedureOpsDefaultsTest {
     }
 
     @Test
+    public void getRestPassthroughDefaultsToNull() {
+        // The HTTP passthrough is one source's escape hatch. It used to be a method on Connector itself whose
+        // default threw, i.e. every connector inherited an entry point it could not serve; now absence is
+        // declared the same way every other optional subsystem is, and the endpoints probe for null.
+        Assertions.assertNull(new BareConnector().getRestPassthrough(),
+                "a connector that fronts no HTTP source must inherit a null getRestPassthrough()");
+    }
+
+    @Test
     public void getProcedureOpsDefaultsToNull() {
         Assertions.assertNull(new BareConnector().getProcedureOps(),
                 "a connector that declares no table procedures must inherit a null getProcedureOps() so "

@@ -20,6 +20,7 @@ package org.apache.doris.connector.api;
 import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.api.rest.ConnectorRestPassthrough;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
@@ -45,10 +46,10 @@ import java.util.Set;
  * ({@link #getWritePlanProvider(ConnectorTableHandle)} for a per-table answer, {@link #getWritePlanProvider()}
  * for a connector-wide one) and asking it, treating a {@code null} provider as "not supported".</p>
  *
- * <p>The provider getters that return {@code null} ({@code getScanPlanProvider}, {@code getWritePlanProvider},
- * {@code getProcedureOps}, {@code getEventSource}) are the opposite case: those ARE the declaration points
- * for "this subsystem exists". See the {@code org.apache.doris.connector.api} package documentation for the
- * full rule.</p>
+ * <p>The getters that return {@code null} ({@code getScanPlanProvider}, {@code getWritePlanProvider},
+ * {@code getProcedureOps}, {@code getEventSource}, {@code getRestPassthrough}) are the opposite case: those
+ * ARE the declaration points for "this subsystem exists". See the {@code org.apache.doris.connector.api}
+ * package documentation for the full rule.</p>
  */
 public interface Connector extends Closeable {
 
@@ -218,21 +219,6 @@ public interface Connector extends Closeable {
     }
 
     /**
-     * Execute a REST passthrough request against the underlying data source.
-     *
-     * <p>Connectors that expose HTTP endpoints (e.g., Elasticsearch) can
-     * override this to proxy REST requests from FE REST APIs.</p>
-     *
-     * @param path the relative URL path (e.g., "index_name/_search")
-     * @param body the request body (may be null for GET-style requests)
-     * @return the response body as a JSON string
-     * @throws UnsupportedOperationException if the connector doesn't support REST
-     */
-    default String executeRestRequest(String path, String body) {
-        throw new UnsupportedOperationException("REST passthrough not supported by this connector");
-    }
-
-    /**
      * Invalidates any connector-side per-table cache (e.g. a latest-snapshot/version cache) so a subsequent
      * read reflects the latest external state. Called by the engine on {@code REFRESH TABLE}. The names are
      * the REMOTE db/table names (as seen by the connector). Default no-op for connectors that cache nothing.
@@ -273,6 +259,17 @@ public interface Connector extends Closeable {
      * feed is unaffected.
      */
     default ConnectorEventSource getEventSource() {
+        return null;
+    }
+
+    /**
+     * Returns this connector's HTTP passthrough capability, or {@code null} if it has none. A capability-probe
+     * getter with the same shape as {@link #getEventSource()}: the caller probes for {@code null}, never via
+     * {@code instanceof}. Consumed by FE HTTP endpoints that speak one source's HTTP dialect (today
+     * {@code ESCatalogAction}), which narrow to that catalog type first and only then ask for the capability.
+     * The default returns {@code null}, so no connector inherits an entry point it cannot serve.
+     */
+    default ConnectorRestPassthrough getRestPassthrough() {
         return null;
     }
 

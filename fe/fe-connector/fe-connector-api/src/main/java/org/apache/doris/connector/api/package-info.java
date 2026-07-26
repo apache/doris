@@ -28,15 +28,15 @@
  * <ol>
  * <li><b>A whole subsystem is present or absent</b> &rarr; a getter on {@link Connector} that returns
  *     {@code null} when the subsystem is absent: {@code getScanPlanProvider()},
- *     {@code getWritePlanProvider()}, {@code getProcedureOps()}, {@code getEventSource()}. These stay
- *     {@code null}-returning rather than {@code Optional}: the engine already branches on {@code null},
- *     and changing the shape would be pure churn.</li>
+ *     {@code getWritePlanProvider()}, {@code getProcedureOps()}, {@code getEventSource()},
+ *     {@code getRestPassthrough()}. These stay {@code null}-returning rather than {@code Optional}: the
+ *     engine already branches on {@code null}, and changing the shape would be pure churn.</li>
  * <li><b>A switch inside one subsystem</b> &rarr; a {@code supportsXxx()} / {@code requiresXxx()} method on
- *     THAT subsystem's provider. The provider is the single source of truth. {@link Connector} carries
- *     null-safe mirrors of the write switches (each body reads the provider and returns {@code false} when
- *     there is none) purely so the engine never has to null-check; <b>a connector must not override the
- *     mirrors</b> — override the provider method. No connector overrides a mirror today, and this rule turns
- *     that from luck into a contract.</li>
+ *     THAT subsystem's provider, which is the single and ONLY source of truth. {@link Connector} used to
+ *     carry null-safe mirrors of the write switches so the engine never had to null-check; they were deleted,
+ *     because a mirror is a second overridable answer to one question and a connector overriding one while
+ *     leaving the provider at its default would produce two divergent answers with no compile error. The
+ *     engine fetches the provider and asks it, treating a {@code null} provider as "not supported".</li>
  * <li><b>A gate the engine must evaluate during static planning, before any provider is reachable</b> &rarr;
  *     a constant in {@link ConnectorCapability}, resolved additively as
  *     (connector-level set) &cup; (per-table set). A switch that corresponds one-to-one with a provider does
@@ -57,9 +57,9 @@
  * appears on non-provider interfaces ({@code ConnectorPushdownOps}, {@code ConnectorSchemaOps},
  * {@code ConnectorTableOps}); those are per-operation switches on the interface that owns the operation,
  * which is consistent with layer 2, but there is no provider object to attach them to. (c) Per-table
- * refinement of {@link ConnectorCapability} is honored for only five of the thirteen constants today (the
- * engine consults the per-table set on the scan-capability paths only), so do not assume a newly added
- * constant can be refined per table.</p>
+ * refinement of {@link ConnectorCapability} is honored for only five of the thirteen constants today, and
+ * each constant's own javadoc states its scope (catalog-only, or catalog &cup; per-table) and why; do not
+ * assume a newly added constant can be refined per table.</p>
  *
  * <h2>Rule 2 — which exception to throw, and when to fail loud</h2>
  *
