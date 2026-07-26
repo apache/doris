@@ -29,29 +29,42 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 **必读顺序**：本文 → [README.md](./README.md) 的任务清单 → 挑中的那个任务自己的文档。
 **不要通读** `audit-report.md`（1600 余行），按 README 里的章节导航 grep 定位。
 
-**当前状态：十一批已合入（共 46 个提交）。「fe-core 不再用 engine 做判定」这条线的四步已全部完成——本轮做掉第 4 步（展示串下沉）。fe-core 里现在没有任何一处按数据源名的分支了（`case "hms"|"iceberg"|"paimon"|"jdbc"|"es"|"max_compute"|"trino-connector"` 全仓 0 命中）。**
+**当前状态：十二批已合入（共 48 个提交）。25 个编号任务全部完成——本轮做掉最后一个（23 号，引擎上下文里的存储服务拆分）。**
 
-### 本轮拍板（owner 明确选择，后续不要重开）
+### 本轮（23 号）落地
 
-1. **展示串改变现状，不做兼容保留**：`SHOW CREATE TABLE` 的 `ENGINE=` 与 ENGINE 列**显示同一个名字**（原来是 `ENGINE=PAIMON_EXTERNAL_TABLE` 对 `paimon` 两套）。
-2. **trino-connector / max_compute 补上名字**（原来 ENGINE 列是 NULL）：`trino-connector`、`maxcompute`。
-3. **机制是连接器声明、默认取目录类型名**（不是 fe-core 按类型名推导）：`ConnectorProvider.displayEngineName()` 默认 `getType()`，八个连接器里只有 MaxCompute 覆写（类型 `max_compute` → 展示 `maxcompute`）。
+`ConnectorContext` 的 18 个方法里有 11 个是存储与 BE 侧的事，javadoc 占了整个文件的三分之二，而 jdbc / es / maxcompute / trino 四个连接器一个都用不到。这 11 个连 javadoc 原样搬进新的 `ConnectorStorageContext`，经 `ConnectorContext.getStorageContext()` 取得（默认 `NOOP`，永不返回 null）。
 
-### 上一轮遗留的三个「前置问题」，实际两个不成立（本轮实证）
+- **零行为变化**：默认值随方法一起搬，连接器拿到的答案逐字不变。
+- **引擎侧不搬代码**：`DefaultConnectorContext` 同时实现两个接口、返回 `this`（拆成两个类会把带锁的文件系统缓存和 `close()` 生命周期一起搬走，SPI 看不到任何收益）。
+- **转发基类从 11 个转发塌成 1 个**，以后再加存储服务在结构上不可能漏掉；两个钉桩包装类**零改动**。
+- **顺带改名** `sanitizeJdbcUrl` → `sanitizeOutboundUrl`，并把 MUST 契约收窄到「连接器自行建连时」——iceberg 的 JDBC 元存储、paimon 的 JDBC 目录都把地址交给第三方 SDK 内部建连，连接器没有钩子点（与上游一致，不是迁移引入的）。
 
-1. ~~「假 provider 的隔离手段未知」~~ **仓库里早有成熟做法**：`CatalogFactoryPluginRoutingTest` 用 `@BeforeEach/@AfterEach` 各重置一个全新空 `ConnectorPluginManager`，`registerProvider` 是公开方法。本轮照抄。
-2. **热循环成本是真的，但根因不是 provider 扫描**：`getProperties()` 每次调用都 `Maps.newHashMap` **复制整张属性表**，而 `getEngine()` 在 `listTableStatus` 里 per-table。解法=在目录上解析一次并记住（`PluginDrivenExternalCatalog.getDisplayEngineName()`，transient volatile）。安全性依据：`Env.initConnectorPluginManager()` 在启动时、任何目录访问之前跑一次，之后不再变；重算只是本地查表、不碰远端（这正是 18 号那个被证伪机制的差别所在）。
-3. ~~「`remote_doris` 的 `ENGINE=DORIS_EXTERNAL_TABLE` 是被钉死的基线」~~ **不受影响**：远端 Doris 走 `RemoteDorisExternalTable`（fe-core 自己的老类，非插件），不经过这两个方法。它现在是全仓**唯一**残留的 `ENGINE=*_EXTERNAL_TABLE`。
+### 23 号任务文档三条前置结论中的两条不成立（本轮实证）
+
+1. ~~「高危：接口一动两个钉桩包装类都要跟着改」~~ **已过期**。那是 06 号（转发基类）合入前写的；今天两个包装类只覆写 `executeAuthenticated`，存储一处不碰，本次**零改动**。风险实为「中」。
+2. ~~「`sanitizeJdbcUrl` 全仓 7 处」~~ 实为 5 处（同上，包装类不再各占 2 行）。
+3. **35 个调用点、8 个测试替身文件的数字准确**，与文档一致。
 
 ### 下一步
 
-- **23 号**（引擎上下文里的存储服务拆分，高危，必须插件包重部署冒烟）——一直没动，是本任务空间**唯一剩下的编号任务**。
-- README 里「复核登记的开放项」表还剩 9 条。
-- 逐个连接器接入 `renderShowCreateTableDdl`（今天只有 hive 在用，它渲染出来的语句里连 `ENGINE=` 都没有）——各自独立排期，不是 fe-core 重构。
+- README 里「复核登记的开放项」表还剩 9 条（死接口幸存者 `estimateScanRangeCount`、SQL 直通仍在共享接口上、建库布尔位手工同步、两个属性命名空间静默合并、`planScan` 4 重载、`getWriteContext()` 名不符实、`getLength()` 单位未澄清、读事务生命周期矛盾、契约校验器缺 hive 正样本）。
+- 逐个连接器接入 `renderShowCreateTableDdl`（今天只有 hive 在用）——各自独立排期，不是 fe-core 重构。
+- **积压的端到端**（见下）——需要集群。
 
 ---
 
-## 📌 本轮（第十一批）落地后的事实变化
+## 📌 第十二批落地后的事实变化
+
+1. **`ConnectorContext` 只剩 7 个方法 + 一个 `getStorageContext()`**（404 行 → 155 行）。新增存储服务加在 `ConnectorStorageContext`，**不要加回 `ConnectorContext`**（两个接口的注释都写了）。
+2. **钉桩失效的残留风险写在两处注释里**：今天没有任何存储方法跑插件代码（全在引擎侧执行），这正是钉桩包装类从不包存储的原因；将来若有一个会跑插件代码，钉桩子类必须覆写 `getStorageContext()` 返回自己的包装。
+3. **测试替身的静默退化是本次唯一隐性风险**：替身实现了 `ConnectorStorageContext` 却忘写 `getStorageContext()` 时能编译过，但覆写全变死代码、连接器拿到 `NOOP`。本轮做了变异验证：三个 `RecordingConnectorContext` 各删掉那个 getter → **32 个用例变红**（另有 13 个是本来就红的）。
+4. **`ForwardingConnectorContextTest` 是反射驱动的**，`ConnectorContext` 上加方法不加转发会直接构建失败并点名方法。
+5. **插件包必须与 FE 同版本部署**。混部（新 FE + 旧插件 zip）表现为运行期 `AbstractMethodError`，不是启动期拒绝。
+
+---
+
+## 📌 第十一批落地后的事实变化
 
 1. **外部表的引擎名由连接器说了算**。`ConnectorProvider.displayEngineName()` 默认返回 `getType()`；fe-core 只在目录上解析一次（`PluginDrivenExternalCatalog.getDisplayEngineName()`）并记住，`PluginDrivenExternalTable` 的 `getEngine()` 与 `getEngineTableTypeName()` 都从它取，**两者恒等**。
 2. **两处用户可见变化**：`SHOW CREATE TABLE` 的 `ENGINE=` 由 `JDBC_EXTERNAL_TABLE`/`PAIMON_EXTERNAL_TABLE`/… 变成 `jdbc`/`paimon`/…；trino-connector 与 max_compute 的 ENGINE 列由 NULL 变成 `trino-connector`/`maxcompute`。**没装插件的降级目录回落到目录类型名**，显示与从前一致。
@@ -108,7 +121,23 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 
 ## 🧪 欠下的端到端（本地无集群，一律标「待集群验证」，不得当作已通过）
 
-**本轮（第十一批）新欠 2 类**：
+**第十二批新欠 1 类（最重的一条）**：
+
+**插件包重部署冒烟**——23 号任务文档把它列为该任务的核心把关。本地无集群，**完全没跑**。步骤：`mvn package` 取各连接器 `target/doris-fe-connector-<type>.zip` → 清空并重新解包到 `connector_plugin_root` → 重启 FE 确认日志列出全部类型 → 跑下面七项 → 观察日志无 `ClassCastException` / `NoClassDefFoundError` / `AbstractMethodError`：
+
+| 冒烟项 | 覆盖什么 |
+|---|---|
+| iceberg 目录 `INSERT`（对象存储 warehouse） | 写路径 BE 文件类型 + 地址归一 + 静态凭证；也是 iceberg-aws 反射建 S3 客户端那条路 |
+| iceberg `DROP TABLE`（HMS 托管位置） | 空目录清理 |
+| iceberg Kerberos 目录一读一写 | 钉桩与「连接器单一认证方」语义 |
+| paimon REST 目录一次带临时凭证的扫描 | 临时凭证归一 + 批量地址归一器 |
+| hive 分区表扫描 + `INSERT` | 引擎文件系统（14 处调用点里 6 处是它） |
+| hudi 目录一次扫描 | BE 存储属性 + 地址归一 |
+| `CREATE CATALOG … "test_connection"="true"`（iceberg + S3） | BE 连通性探测 |
+
+另需跑 jdbc 目录用例一遍（改名影响它的建连路径）。
+
+**第十一批新欠 2 类**：
 
 1. **3 个 `.out` 基线共 19 行已改写、必须实跑**：`external_table_p0/nereids_commands/test_nereids_refresh_catalog.out`（7 行 → `ENGINE=jdbc`）、`external_table_p0/paimon/test_paimon_table_properties.out`（1 行 → `ENGINE=paimon`）、`external_table_p2/maxcompute/test_max_compute_create_table.out`（11 行 → `ENGINE=maxcompute`，需真实阿里云账号）。
 2. **两处新行为全仓零断言**：trino-connector / max_compute 的 ENGINE 列不再是 NULL（`external_table_p0/trino_connector/test_trinoconnector_information_schema.groovy` 只 select 不校验，值得补一条）；`hms` 目录的 information_schema ENGINE 列仍是 `hms`（已有 `hive/test_information_schema_external.out` 14 行护着，**未变**，属回归护栏而非新欠）。
@@ -130,7 +159,8 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 2. **maven 一律用绝对路径 `-f`**；`cd` 会让后续相对路径失效。
 3. **`-Dtest='org.apache.doris.datasource.**'` 这种全包扫描会超时被砍**，用具体类名清单。
 4. **e2e（groovy）需要真集群，本地跑不了**。**没有 `.out` 基线的新用例不要用 `qt_`**。
-5. **`HiveConnectorMetadataDdlTest` 在本分支上本来就是红的**（建表路径），与本线改动无关。
+5. **`HiveConnectorMetadataDdlTest`（19 个里 12 红）与 `HiveCreateTableValidationTest`（10 个里 1 红）在本分支上本来就是红的**（建表路径），与本线改动无关——第十二批在干净 HEAD 上复现确认过计数一致。
+10. **`-pl <子集>` 跑测试会撞上 `~/.m2` 里的陈旧 jar**：不在 `-pl` 列表里的上游模块从本地仓库解析，删过符号的模块会在运行期抛 `AbstractMethodError`（本轮 `JdbcScanRangeAndPropertiesTest` 踩到 `getRangeType()`）。一律用交接文档开头那条**全反应堆排除式**命令，或加 `-am`。
 6. **checkstyle**：方法名正则是 `^[a-z][a-z0-9][a-zA-Z0-9_]*$`（**第二个字符也必须小写**，本轮被 `aTemporaryTable...` 挡过一次）；`CustomImportOrder` 会因 import 顺序失败；`UnusedImports` 是强制项；**注释块前不得有连续两个空行**（`'/*' has more than 1 empty lines before`）。
 7. **`mvn ... | tail -60` 会把 `Tests run:` 行冲掉**。一律 `> 日志文件 2>&1` 再 grep。
 8. **fe-core 测试里注私有字段用 `org.apache.doris.common.jmockit.Deencapsulation`（仓库自带）**。
@@ -154,6 +184,7 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 | 2026-07-26 | 第七批：17 四个提交 | 四批合计 566 个测试全绿；定位并绕过了让构建卡死 60+ 分钟的 checkstyle 退化 |
 | 2026-07-26 | 第八批：20 + 22 + 19 五个提交 | 27 个测试类 259 个测试全绿；4 个变异如期变红 |
 | 2026-07-26 | 第九批：25 三个提交（评审文档入库 + 按 HEAD 标注 + 三处注释修正） | 16 个并行核查单元推翻了任务文档的处置方案本身；新登记 10 条开放项 |
+| 2026-07-26 | **第十二批：引擎上下文存储服务拆分两个提交**（`ConnectorStorageContext` 新接口 + 11 个方法搬迁 + 35 个调用点 + 8 个测试替身 / 出站地址检查改名与契约收窄） | 侦察推翻任务文档「高危」评级（钉桩包装类本次零改动）；全反应堆 `test-compile` **BUILD SUCCESS**；1359 个连接器单测通过（仅 13 个**本来就红**的 hive DDL 用例失败，已在干净 HEAD 上复现确认）；九个模块 checkstyle **0 违规**；2 个变异如期变红（32 + 4 个用例）；**插件包重部署冒烟完全未跑** |
 | 2026-07-26 | **第十一批：展示引擎名交还连接器三个提交**（SPI 声明 + MaxCompute 覆写 / fe-core 删最后两个源名 switch / 3 个 `.out` 基线） | 侦察推翻了交接文档三条前置结论中的两条；全反应堆 `test-compile` **BUILD SUCCESS**；85 个单测全绿；三个模块 checkstyle **0 违规**；3 个变异全部如期变红（共 12 处断言）；19 行基线**待集群验证** |
 | 2026-07-26 | **第十批：引擎概念下沉五个提交**（MODIFY ENGINE 删除 / SPI 目录判定入口 / CreateTableInfo 改按目录路由 / InternalCatalog 分派收缩 / 统计异常契约） | 两轮侦察共 68 个 agent（含 50 条对抗复核，其中 15 条推翻或改判）；全反应堆 `test-compile` **BUILD SUCCESS**；105 个单测全绿；六个模块 checkstyle **0 违规**；3 个变异全部如期变红；7 处 e2e 断言已改写**待集群验证** |
 
