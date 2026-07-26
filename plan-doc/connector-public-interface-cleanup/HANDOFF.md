@@ -6,6 +6,44 @@
 
 ---
 
+## 🆕🆕 最新一轮（2026-07-27）：rebase 到上游 `1aa5ae9597e` —— 「零冲突」但树是坏的
+
+`git pull --rebase upstream-apache branch-catalog-spi`，**72 个提交全部重放，0 个文本冲突**，
+`range-diff` 71 个 `=` / 1 个 `!`（第 28 个 `centralize the scan-node property key contract`，
+差异只在 paimon 那段 javadoc 上下文——上游已先把 cpp 臂删了）。
+
+上游这轮做了两件事：rebase 到 master `962bd5b28c7`（带进 #66008 / #66036 / #66021），外加两个自有提交
+（`port #66008's paimon-cpp removal to the paimon connector scan path`、
+`dedupe partition columns so a multi-transform spec cannot crash partition pruning`）。
+
+**零文本冲突 ≠ 树是好的。** 本轮实测两处坏点，都不会以冲突形式出现：
+
+1. **（rebase 造成）** 上游新增的 `PaimonScanPlanProviderTest.cppReaderSessionFlagNoLongerChangesThePlan`
+   调的是**七参** `planScan`，而本分支第十四批已把它换成 `planScan(session, ConnectorScanRequest)`。
+   两边**没碰同一行** → 三方合并各取一半 → 只有 `test-compile` 报
+   "method planScan cannot be applied to given types"。已按请求对象逐字等价移植（builder 默认值
+   = 上游传的那七个参数），提交 `b8935724788`。
+2. **（不是 rebase 造成，早就红着）** `ConnectorMetadataSurfaceTest` 因为第十三批
+   （`executeStmt` / `getColumnsFromQuery` 搬去 `ConnectorPassthroughSqlOps`）和
+   `drop the create-database mirror switch`（删 `supportsCreateDatabase()`）**没同步基线资源**而失败。
+   `ConnectorMetadata.java` 与 `connector-metadata-methods.txt` 在 rebase 前后**逐字节相同** → 证明与 rebase 无关。
+   已刷新基线，提交 `c556938541b`。
+
+**⚠ 下一个 session 的教训（这条最值钱）**：之所以 (2) 一直没被发现，是因为历次验证只跑
+「全反应堆 test-compile + 本批改到的连接器模块」，**从没跑过 `fe-connector-api` 自己的测试套件**。
+改了 `fe-connector-api` 的公共接口，就必须跑 `fe-connector-api` 的测试——`ConnectorMetadataSurfaceTest`
+是全仓**唯一**的「录制基线」测试（`find fe/fe-connector -path '*/src/test/resources/*' -name '*.txt'` 只有一个命中），
+删/加/改 SPI 方法签名必须在**同一个提交**里刷新 `src/test/resources/connector-metadata-methods.txt`。
+
+**本轮验证**：全反应堆 `test-compile` BUILD SUCCESS（75 模块 / 0 error）；
+`fe-connector-api` 110/110、`fe-connector-spi` 9/9、`fe-connector-paimon` 390（0 失败，1 个既有
+live-connectivity skip）、`fe-connector-iceberg` 1151（0 失败，5 个既有 live-endpoint skip）、
+`fe-filesystem-api` 75/75、`fe-connector-hms-shared` 104/104；fe-core 分区裁剪相关 6 个类 110/110
+（上游这轮改了 `PruneFileScanPartition`）；两个改动模块 checkstyle 各 0 violation。
+**e2e 未跑（本地无集群）**，仍是欠账。
+
+---
+
 ## 🔥 构建命令（照抄，别用更早版本的写法）
 
 ```bash
@@ -21,6 +59,12 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 ```
 
 `-pl` 缩到单模块对 `checkstyle:check` **安全**；对 `compile` / `test-compile` **不安全**。
+
+**对 `test` 同样不安全，且失败方式很误导**（2026-07-27 实测）：`-pl fe-connector/fe-connector-paimon` 不带
+`-am` 时，兄弟模块从 `~/.m2` 取**陈旧 jar**，surefire 在**测试发现阶段**就炸，报的是
+`TestEngine with ID 'junit-vintage' failed to discover tests` + `Tests run: 0`，真因要翻
+`target/surefire-reports/*.dump` 才看得到（`NoClassDefFoundError: .../ConnectorScanRequest`）。
+**要么全反应堆，要么 `-pl <模块> -am`。**
 
 ---
 
