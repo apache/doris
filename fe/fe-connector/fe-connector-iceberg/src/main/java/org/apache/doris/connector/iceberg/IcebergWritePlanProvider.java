@@ -373,7 +373,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
-        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getWriteContext(),
+        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
                 handle.getBranchName(), readSnapshotId);
     }
 
@@ -421,8 +421,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
         tSink.setOverwrite(handle.isOverwrite());
-        if (handle.isOverwrite() && handle.getWriteContext() != null && !handle.getWriteContext().isEmpty()) {
-            tSink.setStaticPartitionValues(handle.getWriteContext());
+        Map<String, String> staticPartitionSpec = handle.getStaticPartitionSpec();
+        if (handle.isOverwrite() && staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
+            tSink.setStaticPartitionValues(staticPartitionSpec);
         }
         return tSink;
     }

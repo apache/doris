@@ -160,7 +160,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         if (op == WriteOperation.INSERT && handle.isOverwrite()) {
             op = WriteOperation.OVERWRITE;
         }
-        return new HiveWriteContext(op, handle.isOverwrite(), handle.getWriteContext(),
+        return new HiveWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
                 session.getQueryId(), fileType, writePath);
     }
 

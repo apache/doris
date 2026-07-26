@@ -109,7 +109,7 @@ class JdbcWritePlanProviderTest {
             }
 
             @Override
-            public Map<String, String> getWriteContext() {
+            public Map<String, String> getStaticPartitionSpec() {
                 return Collections.emptyMap();
             }
         };

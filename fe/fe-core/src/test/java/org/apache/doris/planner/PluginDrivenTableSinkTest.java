@@ -101,7 +101,7 @@ public class PluginDrivenTableSinkTest {
         Assert.assertSame(tableHandle, provider.seenHandle.getTableHandle());
         Assert.assertSame(columns, provider.seenHandle.getColumns());
         Assert.assertFalse(provider.seenHandle.isOverwrite());
-        Assert.assertTrue(provider.seenHandle.getWriteContext().isEmpty());
+        Assert.assertTrue(provider.seenHandle.getStaticPartitionSpec().isEmpty());
         // No engine-built write sort by default -> the handle carries no sort info.
         Assert.assertNull(provider.seenHandle.getSortInfo());
     }

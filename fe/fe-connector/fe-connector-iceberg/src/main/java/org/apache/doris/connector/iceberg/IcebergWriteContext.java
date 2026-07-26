@@ -33,7 +33,7 @@ import java.util.Optional;
  * SDK operation: AppendFiles / ReplacePartitions / OverwriteFiles / RowDelta).
  *
  * <p>P6.3-T06 populates this from the {@code ConnectorWriteHandle}
- * ({@code getWriteOperation}/{@code isOverwrite}/{@code getWriteContext}) in {@code planWrite}.</p>
+ * ({@code getWriteOperation}/{@code isOverwrite}/{@code getStaticPartitionSpec}) in {@code planWrite}.</p>
  */
 final class IcebergWriteContext {
 
